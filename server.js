@@ -6,6 +6,23 @@ require('dotenv').config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+const PASSWORD = process.env.SITE_PASSWORD || 'hugo123';
+
+app.use((req, res, next) => {
+  if (req.path === '/api/login') return next();
+  const auth = req.headers['x-site-password'];
+  if (auth === PASSWORD) return next();
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+});
+
+app.post('/api/login', (req, res) => {
+  if (req.body.password === PASSWORD) {
+    res.json({ ok: true });
+  } else {
+    res.status(401).json({ ok: false });
+  }
+});
 app.use(express.static('public'));
 
 let GCClient = null;
