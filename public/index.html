@@ -1,0 +1,538 @@
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Träningsdashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#07070f;--bg2:#0d0d1a;--bg3:#131320;--bg4:#18182a;
+      --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.11);
+      --text:#eae8f2;--muted:#5e5c75;--muted2:#8a88a0;
+      --green:#00e5a0;--green-dim:rgba(0,229,160,0.1);
+      --amber:#f5a623;--amber-dim:rgba(245,166,35,0.1);
+      --red:#ff4d6d;--red-dim:rgba(255,77,109,0.08);
+      --blue:#4d9fff;--blue-dim:rgba(77,159,255,0.09);
+      --purple:#a78bfa;--purple-dim:rgba(167,139,250,0.1);
+    }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+    body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+      background-image:linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px);
+      background-size:48px 48px;}
+    .shell{display:flex;min-height:100vh;position:relative;z-index:1;}
+ 
+    /* Sidebar */
+    .sidebar{width:220px;flex-shrink:0;background:var(--bg2);border-right:0.5px solid var(--border);
+      display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:10;}
+    .sidebar-logo{padding:28px 22px 22px;border-bottom:0.5px solid var(--border);}
+    .sidebar-logo h1{font-size:15px;font-weight:800;letter-spacing:-0.3px;}
+    .sidebar-logo p{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:3px;}
+    .nav{flex:1;padding:16px 10px;display:flex;flex-direction:column;gap:2px;}
+    .nav-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;cursor:pointer;
+      font-size:13px;font-weight:600;color:var(--muted2);transition:all 0.15s;border:0.5px solid transparent;user-select:none;}
+    .nav-item:hover{background:var(--bg3);color:var(--text);}
+    .nav-item.active{background:var(--bg4);color:var(--text);border-color:var(--border2);}
+    .nav-icon{font-size:16px;width:20px;text-align:center;}
+    .sidebar-bottom{padding:16px 22px;border-top:0.5px solid var(--border);}
+    .live-row{display:flex;align-items:center;gap:7px;}
+    .live-dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:pulse 2s ease-in-out infinite;}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .live-label{font-size:11px;font-family:'DM Mono',monospace;color:var(--green);letter-spacing:0.05em;}
+    .refresh-btn{margin-top:12px;width:100%;background:var(--bg3);border:0.5px solid var(--border2);
+      border-radius:8px;padding:9px;color:var(--muted2);font-family:'Syne',sans-serif;
+      font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;}
+    .refresh-btn:hover{border-color:var(--green);color:var(--green);}
+    .refresh-btn:disabled{opacity:0.5;cursor:not-allowed;}
+ 
+    /* Main */
+    .main{margin-left:220px;flex:1;padding:36px 40px 60px;max-width:calc(100vw - 220px);}
+ 
+    /* Page header */
+    .page-header{margin-bottom:32px;}
+    .page-header h2{font-size:22px;font-weight:800;letter-spacing:-0.5px;}
+    .page-header p{font-size:13px;color:var(--muted2);margin-top:4px;font-family:'DM Mono',monospace;}
+ 
+    /* Pages */
+    .page{display:none;animation:fadeUp 0.3s ease both;}
+    .page.active{display:block;}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+ 
+    /* Section label */
+    .sl{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:12px;}
+ 
+    /* Cards */
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;margin-bottom:28px;}
+    .card{background:var(--bg2);border:0.5px solid var(--border);border-radius:12px;padding:18px 20px;transition:border-color 0.2s;}
+    .card:hover{border-color:var(--border2);}
+    .card-label{font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:10px;letter-spacing:0.04em;}
+    .card-val{font-size:30px;font-weight:800;line-height:1;letter-spacing:-1px;}
+    .card-sub{font-size:11px;color:var(--muted);margin-top:6px;font-family:'DM Mono',monospace;}
+    .bar{height:3px;background:var(--border);border-radius:2px;margin-top:10px;overflow:hidden;}
+    .bar-fill{height:100%;border-radius:2px;}
+ 
+    /* Colors */
+    .cg{color:var(--green);}.ca{color:var(--amber);}.cr{color:var(--red);}.cb{color:var(--blue);}.cp{color:var(--purple);}
+ 
+    /* Big card */
+    .bigcard{background:var(--bg2);border:0.5px solid var(--border);border-radius:16px;padding:26px 28px;margin-bottom:12px;position:relative;overflow:hidden;}
+    .bigcard::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+    .bigcard.accent-amber::before{background:linear-gradient(90deg,var(--amber),transparent);}
+    .bigcard.accent-green::before{background:linear-gradient(90deg,var(--green),transparent);}
+    .bigcard h3{font-size:17px;font-weight:700;margin-bottom:6px;}
+    .bigcard p{font-size:14px;color:var(--muted2);line-height:1.7;}
+ 
+    /* Today badge */
+    .today-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;}
+    .today-badge{font-size:10px;font-family:'DM Mono',monospace;padding:4px 10px;border-radius:20px;letter-spacing:0.06em;}
+    .badge-amber{background:var(--amber-dim);color:var(--amber);border:0.5px solid rgba(245,166,35,0.2);}
+    .badge-green{background:var(--green-dim);color:var(--green);border:0.5px solid rgba(0,229,160,0.2);}
+    .badge-red{background:var(--red-dim);color:var(--red);border:0.5px solid rgba(255,77,109,0.2);}
+ 
+    /* Tempo table */
+    .tempo-table{background:var(--bg3);border-radius:10px;padding:16px 18px;margin-top:18px;}
+    .tempo-label-top{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:0.1em;margin-bottom:12px;}
+    .tempo-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border);}
+    .tempo-row:last-child{border-bottom:none;padding-bottom:0;}
+    .tempo-name{font-size:13px;color:var(--muted2);}
+    .tempo-val{font-size:14px;font-weight:600;font-family:'DM Mono',monospace;}
+ 
+    /* Sessions */
+    .session-list{display:flex;flex-direction:column;gap:10px;}
+    .session{background:var(--bg2);border:0.5px solid var(--border);border-radius:12px;padding:18px 20px;
+      display:flex;gap:16px;align-items:flex-start;transition:border-color 0.2s;}
+    .session:hover{border-color:var(--border2);}
+    .session-stripe{width:3px;align-self:stretch;border-radius:2px;flex-shrink:0;}
+    .session-week{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);min-width:52px;padding-top:2px;line-height:1.6;}
+    .session-body{flex:1;}
+    .session-title{font-size:14px;font-weight:700;margin-bottom:4px;}
+    .session-desc{font-size:13px;color:var(--muted2);line-height:1.5;}
+    .pills{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap;}
+    .pill{font-size:11px;font-family:'DM Mono',monospace;padding:3px 9px;border-radius:20px;border:0.5px solid var(--border2);color:var(--muted2);}
+ 
+    /* History table */
+    .history-table{width:100%;border-collapse:collapse;}
+    .history-table th{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:0.08em;
+      text-align:left;padding:0 12px 10px;text-transform:uppercase;}
+    .history-table td{font-size:13px;padding:11px 12px;border-top:0.5px solid var(--border);}
+    .history-table tr:hover td{background:var(--bg3);}
+ 
+    /* Records */
+    .records-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:28px;}
+    .record-card{background:var(--bg2);border:0.5px solid var(--border);border-radius:12px;padding:20px;transition:border-color 0.2s;}
+    .record-card:hover{border-color:var(--border2);}
+    .record-type{font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:10px;}
+    .record-val{font-size:26px;font-weight:800;letter-spacing:-0.5px;}
+    .record-sub{font-size:11px;color:var(--muted);margin-top:6px;font-family:'DM Mono',monospace;}
+ 
+    /* Goal */
+    .goal-section{background:var(--bg2);border:0.5px solid var(--border);border-radius:16px;padding:26px 28px;margin-bottom:28px;position:relative;overflow:hidden;}
+    .goal-section::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--green),transparent);}
+    .goal-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}
+    .goal-title{font-size:17px;font-weight:700;}
+    .goal-time{font-size:30px;font-weight:800;font-family:'DM Mono',monospace;color:var(--green);letter-spacing:-1px;}
+    .goal-3cols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:18px;}
+    .goal-col-label{font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:4px;}
+    .goal-col-val{font-size:20px;font-weight:800;}
+    .bigbar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+    .bigbar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--green),var(--blue));transition:width 1.2s ease;}
+ 
+    /* Insight box */
+    .insight-box{background:var(--bg3);border:0.5px solid var(--border2);border-radius:10px;padding:14px 16px;margin-top:16px;}
+    .insight-label{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:0.1em;margin-bottom:6px;}
+    .insight-text{font-size:13px;color:var(--muted2);line-height:1.6;}
+ 
+    /* Chat */
+    .chat-wrap{background:var(--bg2);border:0.5px solid var(--border);border-radius:16px;overflow:hidden;}
+    .chat-top{padding:16px 20px;border-bottom:0.5px solid var(--border);display:flex;align-items:center;gap:10px;}
+    .chat-dot{width:7px;height:7px;background:var(--purple);border-radius:50%;}
+    .chat-title{font-size:14px;font-weight:700;}
+    .chat-sub{font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);margin-left:auto;}
+    .qprompts{display:flex;gap:7px;flex-wrap:wrap;padding:12px 20px 4px;}
+    .qp{font-size:11px;font-family:'DM Mono',monospace;padding:5px 11px;border-radius:20px;border:0.5px solid var(--border2);color:var(--muted2);cursor:pointer;background:none;transition:all 0.15s;}
+    .qp:hover{border-color:var(--purple);color:var(--purple);}
+    .messages{padding:16px 20px;min-height:200px;max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
+    .messages::-webkit-scrollbar{width:3px;}
+    .messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+    .msg{font-size:14px;line-height:1.65;max-width:84%;}
+    .msg.user{align-self:flex-end;background:var(--bg4);border:0.5px solid var(--border2);border-radius:12px 12px 2px 12px;padding:10px 14px;}
+    .msg.ai{align-self:flex-start;background:var(--purple-dim);border:0.5px solid rgba(167,139,250,0.15);border-radius:12px 12px 12px 2px;padding:10px 14px;}
+    .msg-from{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:4px;letter-spacing:0.06em;}
+    .chat-input{display:flex;gap:10px;padding:14px 20px;border-top:0.5px solid var(--border);}
+    .chat-input input{flex:1;background:var(--bg3);border:0.5px solid var(--border2);border-radius:8px;padding:10px 14px;color:var(--text);font-family:'Syne',sans-serif;font-size:14px;outline:none;transition:border-color 0.2s;}
+    .chat-input input:focus{border-color:var(--purple);}
+    .chat-input input::placeholder{color:var(--muted);}
+    .send-btn{background:var(--purple);border:none;border-radius:8px;padding:10px 16px;color:#08080f;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:opacity 0.2s;}
+    .send-btn:hover{opacity:0.85;}
+ 
+    /* Hero */
+    .hero{text-align:center;padding:60px 20px 40px;}
+    .hero h2{font-size:42px;font-weight:800;letter-spacing:-2px;line-height:1.1;margin-bottom:16px;}
+    .hero p{font-size:15px;color:var(--muted2);max-width:460px;margin:0 auto 36px;line-height:1.7;}
+    .hero-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;max-width:800px;margin:0 auto;}
+    .hero-card{background:var(--bg2);border:0.5px solid var(--border);border-radius:14px;padding:22px;cursor:pointer;transition:all 0.2s;text-align:left;}
+    .hero-card:hover{border-color:var(--border2);transform:translateY(-2px);}
+    .hero-card-icon{font-size:24px;margin-bottom:12px;}
+    .hero-card-title{font-size:14px;font-weight:700;margin-bottom:4px;}
+    .hero-card-desc{font-size:12px;color:var(--muted2);font-family:'DM Mono',monospace;}
+ 
+    /* Mobile */
+    @media(max-width:700px){
+      .sidebar{width:100%;height:56px;flex-direction:row;position:fixed;top:auto;bottom:0;left:0;right:0;border-right:none;border-top:0.5px solid var(--border);}
+      .sidebar-logo{display:none;}
+      .nav{flex-direction:row;padding:6px 8px;gap:0;justify-content:space-around;}
+      .nav-item{flex-direction:column;gap:3px;padding:6px 10px;font-size:10px;}
+      .nav-icon{font-size:18px;}
+      .sidebar-bottom{display:none;}
+      .main{margin-left:0;padding:20px 16px 80px;max-width:100vw;}
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+ 
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <h1>Träning</h1>
+      <p>sub 10:00 · aug 2026</p>
+    </div>
+    <div class="nav">
+      <div class="nav-item active" onclick="goto('home')"><span class="nav-icon">⌂</span><span>Hem</span></div>
+      <div class="nav-item" onclick="goto('health')"><span class="nav-icon">♡</span><span>Hälsa</span></div>
+      <div class="nav-item" onclick="goto('history')"><span class="nav-icon">◷</span><span>Historik</span></div>
+      <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Kommande</span></div>
+      <div class="nav-item" onclick="goto('records')"><span class="nav-icon">◉</span><span>Rekord</span></div>
+      <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">✦</span><span>Coach</span></div>
+    </div>
+    <div class="sidebar-bottom">
+      <div class="live-row">
+        <div class="live-dot"></div>
+        <span class="live-label">GARMIN LIVE</span>
+      </div>
+      <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">↻ Uppdatera data</button>
+    </div>
+  </nav>
+ 
+  <main class="main">
+ 
+    <!-- HEM -->
+    <div class="page active" id="page-home">
+      <div class="hero">
+        <h2>Hej, löpare<span class="cg">.</span></h2>
+        <p>Du är 27 sekunder från målet. Välj en sektion nedan.</p>
+        <div class="hero-nav">
+          <div class="hero-card" onclick="goto('health')"><div class="hero-card-icon">♡</div><div class="hero-card-title">Hälsa</div><div class="hero-card-desc">HRV · sömn · stress · batteri</div></div>
+          <div class="hero-card" onclick="goto('history')"><div class="hero-card-icon">◷</div><div class="hero-card-title">Historik</div><div class="hero-card-desc">Senaste pass & aktiviteter</div></div>
+          <div class="hero-card" onclick="goto('upcoming')"><div class="hero-card-icon">◈</div><div class="hero-card-title">Kommande pass</div><div class="hero-card-desc">Din 13-veckorsplan</div></div>
+          <div class="hero-card" onclick="goto('records')"><div class="hero-card-icon">◉</div><div class="hero-card-title">Rekord</div><div class="hero-card-desc">PR · personbästa · statistik</div></div>
+          <div class="hero-card" onclick="goto('coach')"><div class="hero-card-icon">✦</div><div class="hero-card-title">AI-coach</div><div class="hero-card-desc">Fråga om din träning</div></div>
+        </div>
+      </div>
+ 
+      <div class="sl" style="margin-top:8px;">Dagens snapshot</div>
+      <div class="grid">
+        <div class="card"><div class="card-label">beredskap</div><div class="card-val ca">50</div><div class="card-sub">Måttlig idag</div><div class="bar"><div class="bar-fill" style="width:50%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">vo2max</div><div class="card-val cg">59</div><div class="card-sub">Löpning</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">sömn</div><div class="card-val cg">91</div><div class="card-sub">Utmärkt · 8h 6m</div><div class="bar"><div class="bar-fill" style="width:91%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">body battery</div><div class="card-val ca">40</div><div class="card-sub">Laddat 76 igår</div><div class="bar"><div class="bar-fill" style="width:40%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">dagar kvar</div><div class="card-val cb" id="days-left">—</div><div class="card-sub">Till slutet aug</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
+      </div>
+ 
+      <div class="sl">Rekommendation idag</div>
+      <div class="bigcard accent-amber" style="margin-bottom:28px;">
+        <div class="today-header">
+          <h3 id="today-title">Lugnt återhämtningspass</h3>
+          <span class="today-badge badge-amber" id="today-badge">HRV LÅG</span>
+        </div>
+        <p id="today-body">Din HRV är låg (22%) och kroppen återhämtar sig fortfarande efter GöteborgsVarvet. Kör ett lätt Z2-pass 30–40 min — håller motoriken igång utan att tömma batteriet.</p>
+        <div class="tempo-table">
+          <div class="tempo-label-top">NÄR DU KÖR 3 KM — MÅLTEMPON</div>
+          <div class="tempo-row"><span class="tempo-name">Måltempo (sub 10:00)</span><span class="tempo-val cg">3:19 /km</span></div>
+          <div class="tempo-row"><span class="tempo-name">Km 1 — konservativt ut</span><span class="tempo-val ca">3:22 /km</span></div>
+          <div class="tempo-row"><span class="tempo-name">Km 2 — håll jämnt</span><span class="tempo-val ca">3:20 /km</span></div>
+          <div class="tempo-row"><span class="tempo-name">Km 3 — negativ split</span><span class="tempo-val cg">3:15 /km</span></div>
+          <div class="tempo-row"><span class="tempo-name">Bästa nuvarande tid</span><span class="tempo-val cb">10:27</span></div>
+        </div>
+      </div>
+ 
+      <div class="goal-section">
+        <div class="goal-top">
+          <div><div class="goal-title">Mål: 3 km under 10 minuter</div><div style="font-size:12px;color:var(--muted);margin-top:4px;font-family:'DM Mono',monospace;">Nuvarande bästa: 10:27 · Gap: 27 sek</div></div>
+          <div class="goal-time" id="prediction-3k">9:59</div>
+        </div>
+        <div class="goal-3cols">
+          <div><div class="goal-col-label">nu</div><div class="goal-col-val ca">10:27</div></div>
+          <div><div class="goal-col-label">mål</div><div class="goal-col-val cg">9:59</div></div>
+          <div><div class="goal-col-label">kvar</div><div class="goal-col-val cb">27 sek</div></div>
+        </div>
+        <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:8px;">PROGRESS</div>
+        <div class="bigbar"><div class="bigbar-fill" id="goal-bar" style="width:0%"></div></div>
+        <div class="insight-box">
+          <div class="insight-label">AI-INSIKT</div>
+          <div class="insight-text" id="ai-insight">Tryck på "Uppdatera data" för en personlig analys baserad på din senaste träning.</div>
+        </div>
+      </div>
+    </div>
+ 
+    <!-- HÄLSA -->
+    <div class="page" id="page-health">
+      <div class="page-header"><h2>Hälsa</h2><p>27 maj 2026 · Garmin live-data</p></div>
+      <div class="sl">Återhämtning & kondition</div>
+      <div class="grid">
+        <div class="card"><div class="card-label">träningsberedskap</div><div class="card-val ca">50<span style="font-size:14px;font-weight:400">/100</span></div><div class="card-sub">Måttlig · lyssna på kroppen</div><div class="bar"><div class="bar-fill" style="width:50%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">hrv</div><div class="card-val cr">22<span style="font-size:14px;font-weight:400">%</span></div><div class="card-sub">Svag · snitt 65 ms</div><div class="bar"><div class="bar-fill" style="width:22%;background:var(--red)"></div></div></div>
+        <div class="card"><div class="card-label">vilopuls</div><div class="card-val cg">48</div><div class="card-sub">7-dagarssnitt: 51</div><div class="bar"><div class="bar-fill" style="width:65%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">vo2max</div><div class="card-val cg">59</div><div class="card-sub">Löpning · stabil</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
+      </div>
+      <div class="sl">Sömn</div>
+      <div class="grid">
+        <div class="card"><div class="card-label">sömnpoäng</div><div class="card-val cg">91</div><div class="card-sub">Utmärkt · 8h 6m</div><div class="bar"><div class="bar-fill" style="width:91%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">djupsömn</div><div class="card-val cb">25<span style="font-size:14px;font-weight:400">%</span></div><div class="card-sub">2h 0m</div><div class="bar"><div class="bar-fill" style="width:25%;background:var(--blue)"></div></div></div>
+        <div class="card"><div class="card-label">rem-sömn</div><div class="card-val cp">14<span style="font-size:14px;font-weight:400">%</span></div><div class="card-sub">1h 7m</div><div class="bar"><div class="bar-fill" style="width:14%;background:var(--purple)"></div></div></div>
+        <div class="card"><div class="card-label">hrv under sömn</div><div class="card-val cg">77</div><div class="card-sub">Nattmätning ms</div><div class="bar"><div class="bar-fill" style="width:77%;background:var(--green)"></div></div></div>
+      </div>
+      <div class="sl">Energi & stress</div>
+      <div class="grid">
+        <div class="card"><div class="card-label">body battery</div><div class="card-val ca">40</div><div class="card-sub">Max igår: 89</div><div class="bar"><div class="bar-fill" style="width:40%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">stress</div><div class="card-val cg">10</div><div class="card-sub">Lågt · max 66</div><div class="bar"><div class="bar-fill" style="width:10%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">spo2</div><div class="card-val cg">96<span style="font-size:14px;font-weight:400">%</span></div><div class="card-sub">Lägst: 88%</div><div class="bar"><div class="bar-fill" style="width:96%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">andning</div><div class="card-val cb">13</div><div class="card-sub">Andetag/min</div><div class="bar"><div class="bar-fill" style="width:55%;background:var(--blue)"></div></div></div>
+      </div>
+    </div>
+ 
+    <!-- HISTORIK -->
+    <div class="page" id="page-history">
+      <div class="page-header"><h2>Historik</h2><p>Senaste 30 dagarna · live från Garmin</p></div>
+      <div class="sl">Senaste pass</div>
+      <div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Aktivitet</th>
+              <th>Datum</th>
+              <th>Distans</th>
+              <th>Tid</th>
+              <th>Snitt-puls</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody">
+            <tr><td colspan="5" style="color:var(--muted);font-size:13px;padding:20px 12px;">Laddar aktiviteter...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+ 
+    <!-- KOMMANDE -->
+    <div class="page" id="page-upcoming">
+      <div class="page-header"><h2>Kommande pass</h2><p>13-veckorsplan · sub 10:00 på 3 km</p></div>
+ 
+      <div class="sl" style="margin-bottom:16px;">Fas 1 — Aerob bas (v.23–25)</div>
+      <div class="session-list" style="margin-bottom:28px;">
+        <div class="session"><div class="session-stripe" style="background:var(--green)"></div><div class="session-week">V.23<br>Tisdag</div><div class="session-body"><div class="session-title">Lugnt återhämtningsjogg</div><div class="session-desc">Z2, inga krav på tempo. Vila efter Varvet.</div><div class="pills"><span class="pill">30–35 min</span><span class="pill">Z2</span><span class="pill">4:45–5:15 /km</span></div></div></div>
+        <div class="session"><div class="session-stripe" style="background:var(--amber)"></div><div class="session-week">V.24<br>Tisdag</div><div class="session-body"><div class="session-title">4×1000 m intervaller</div><div class="session-desc">Tröskelintroduktion. 3 min vila. Uppv. + nedv. 2 km.</div><div class="pills"><span class="pill">3:35 /km</span><span class="pill">~8 km totalt</span><span class="pill">Z3–Z4</span></div></div></div>
+        <div class="session"><div class="session-stripe" style="background:var(--amber)"></div><div class="session-week">V.24<br>Lördag</div><div class="session-body"><div class="session-title">6×400 m snabba drag</div><div class="session-desc">Anaerob stimulans — Garmin flaggar detta som din svaghet. 90 sek vila, bana.</div><div class="pills"><span class="pill">3:10 /km</span><span class="pill">Bana</span><span class="pill">Z5</span></div></div></div>
+        <div class="session"><div class="session-stripe" style="background:var(--amber)"></div><div class="session-week">V.25<br>Onsdag</div><div class="session-body"><div class="session-title">5×1000 m tröskelprogression</div><div class="session-desc">Ökar från v.24. 2:30 min vila. Håll jämnt tempo hela vägen.</div><div class="pills"><span class="pill">3:35 /km</span><span class="pill">~10 km totalt</span><span class="pill">Z3–Z4</span></div></div></div>
+      </div>
+ 
+      <div class="sl" style="margin-bottom:16px;">Fas 2 — Tröskel & specifik fart (v.26–29)</div>
+      <div class="session-list" style="margin-bottom:28px;">
+        <div class="session"><div class="session-stripe" style="background:var(--purple)"></div><div class="session-week">V.26<br>Tisdag</div><div class="session-body"><div class="session-title">3×2000 m tröskelpass</div><div class="session-desc">Längre drag på tröskelfart. 3 min vila.</div><div class="pills"><span class="pill">3:35 /km</span><span class="pill">Z4</span></div></div></div>
+        <div class="session"><div class="session-stripe" style="background:var(--purple)"></div><div class="session-week">V.27<br>Tisdag</div><div class="session-body"><div class="session-title">2×3000 m @ 3:35/km</div><div class="session-desc">4 min vila. Längsta tröskeldraget hittills.</div><div class="pills"><span class="pill">3:35 /km</span><span class="pill">Z4</span></div></div></div>
+        <div class="session"><div class="session-stripe" style="background:var(--blue)"></div><div class="session-week">V.29<br>Lördag</div><div class="session-body"><div class="session-title cg">3 km kontrolltest ★</div><div class="session-desc">Halvvägsmätning. Under 10:10 = planen funkar.</div><div class="pills"><span class="pill" style="border-color:var(--green);color:var(--green);">Måltempo 3:19</span><span class="pill">Bana</span><span class="pill">Tävlingsintensitet</span></div></div></div>
+      </div>
+ 
+      <div class="sl" style="margin-bottom:16px;">Fas 3 — Spetsning (v.30–34)</div>
+      <div class="session-list">
+        <div class="session"><div class="session-stripe" style="background:var(--red)"></div><div class="session-week">V.30–31<br>Tisdag</div><div class="session-body"><div class="session-title">6×500 m sharpening</div><div class="session-desc">Under tävlingsfart. 2 min vila.</div><div class="pills"><span class="pill">3:10 /km</span><span class="pill">Z5</span></div></div></div>
+        <div class="session"><div class="session-stripe" style="background:var(--red)"></div><div class="session-week">V.34<br>Tävling</div><div class="session-body"><div class="session-title cg">3 KM — SUB 10:00 ★★</div><div class="session-desc">Ut på 3:22/km, negativ split sista km på 3:15.</div><div class="pills"><span class="pill" style="border-color:var(--green);color:var(--green);">Mål: 9:59</span><span class="pill">Bana</span></div></div></div>
+      </div>
+    </div>
+ 
+    <!-- REKORD -->
+    <div class="page" id="page-records">
+      <div class="page-header"><h2>Rekord & prestationer</h2><p>Personbästa från Garmin Connect</p></div>
+      <div class="sl">Löprekord</div>
+      <div class="records-grid">
+        <div class="record-card"><div class="record-type">SNABBASTE 1 KM</div><div class="record-val cg">3:15</div><div class="record-sub">Per km</div></div>
+        <div class="record-card"><div class="record-type">SNABBASTE MILE</div><div class="record-val cg">5:34</div><div class="record-sub">1.609 km</div></div>
+        <div class="record-card"><div class="record-type">SNABBASTE 5 KM</div><div class="record-val ca">18:12</div><div class="record-sub">3:38 /km snitt</div></div>
+        <div class="record-card"><div class="record-type">SNABBASTE 10 KM</div><div class="record-val ca">38:14</div><div class="record-sub">3:49 /km snitt</div></div>
+        <div class="record-card"><div class="record-type">SNABBASTE HALVMARATHON</div><div class="record-val cb">1:26:19</div><div class="record-sub">GöteborgsVarvet 2026</div></div>
+        <div class="record-card"><div class="record-type">LÄNGSTA LÖPTUR</div><div class="record-val cp">21.87 km</div><div class="record-sub">Distansrekord</div></div>
+      </div>
+      <div class="sl">Konditionsprofil</div>
+      <div class="grid">
+        <div class="card"><div class="card-label">vo2max</div><div class="card-val cg">59</div><div class="card-sub">Garmin-uppskattning</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">förutspådd 5K</div><div class="card-val ca">17:56</div><div class="card-sub">Garmin race predictor</div></div>
+        <div class="card"><div class="card-label">förutspådd 10K</div><div class="card-val ca">37:30</div><div class="card-sub">Garmin race predictor</div></div>
+        <div class="card"><div class="card-label">förutspådd halvmarathon</div><div class="card-val cb">1:23:30</div><div class="card-sub">Garmin race predictor</div></div>
+      </div>
+    </div>
+ 
+    <!-- COACH -->
+    <div class="page" id="page-coach">
+      <div class="page-header"><h2>AI-träningscoach</h2><p>Powered by Claude · Anthropic</p></div>
+      <div class="chat-wrap">
+        <div class="chat-top">
+          <div class="chat-dot"></div>
+          <span class="chat-title">Din personliga coach</span>
+          <span class="chat-sub">Claude Sonnet</span>
+        </div>
+        <div class="qprompts">
+          <button class="qp" onclick="qa('Ska jag köra hårt idag?')">Träna idag?</button>
+          <button class="qp" onclick="qa('Varför är mitt HRV lågt?')">HRV lågt?</button>
+          <button class="qp" onclick="qa('Vilket är nästa kvalitetspass?')">Nästa pass</button>
+          <button class="qp" onclick="qa('Hur ligger jag till mot sub 10:00?')">Hur ligger jag till?</button>
+          <button class="qp" onclick="qa('Vad är min svaghet just nu?')">Min svaghet?</button>
+          <button class="qp" onclick="qa('Ge mig en motivationsboost!')">Motivera mig!</button>
+        </div>
+        <div class="messages" id="messages">
+          <div class="msg ai">
+            <div class="msg-from">COACH</div>
+            Hej! Jag känner till din Garmin-data, ditt mål (sub 10:00 på 3 km) och din träningsplan. Vad vill du veta?
+          </div>
+        </div>
+        <div class="chat-input">
+          <input type="text" id="chat-input" placeholder="Skriv din fråga..." />
+          <button class="send-btn" onclick="send()">Skicka</button>
+        </div>
+      </div>
+    </div>
+ 
+  </main>
+</div>
+ 
+<script>
+  // Navigation
+  function goto(id) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('page-' + id).classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => {
+      if (n.getAttribute('onclick') === "goto('" + id + "')") n.classList.add('active');
+    });
+    window.scrollTo(0, 0);
+    if (id === 'history') loadHistory();
+  }
+ 
+  // Days left
+  const target = new Date('2026-08-31');
+  const start = new Date('2026-05-27');
+  const total = Math.ceil((target - start) / 86400000);
+  const left = Math.max(0, Math.ceil((target - new Date()) / 86400000));
+  document.getElementById('days-left').textContent = left;
+  document.getElementById('days-bar').style.width = Math.max(0,(1-left/total)*100) + '%';
+  setTimeout(() => { document.getElementById('goal-bar').style.width = '97%'; }, 500);
+ 
+  // Load history from Garmin
+  async function loadHistory() {
+    const tbody = document.getElementById('history-tbody');
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);font-size:13px;padding:20px 12px;">Hämtar aktiviteter från Garmin...</td></tr>';
+    try {
+      const res = await fetch('/api/activities?days=30');
+      const data = await res.json();
+      if (!data.activities) throw new Error('Ingen data');
+      const typeLabels = { running:'LÖPNING', track_running:'BANLÖPNING', treadmill_running:'LÖPBAND', trail_running:'TERRÄNGLÖPNING', cycling:'CYKLING', walking:'PROMENAD' };
+      const typeColors = { track_running:'var(--purple)', trail_running:'var(--green)', treadmill_running:'var(--blue)', cycling:'var(--amber)' };
+      const fmt = s => { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60); return h>0?h+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0'):m+':'+String(sec).padStart(2,'0'); };
+      const fmtDist = m => m>=1000?(m/1000).toFixed(1)+' km':Math.round(m)+' m';
+      const fmtDate = s => new Date(s).toLocaleDateString('sv-SE',{day:'numeric',month:'short'});
+      tbody.innerHTML = data.activities.map(a => {
+        const typeKey = a.activityType?.typeKey || 'running';
+        const label = typeLabels[typeKey] || typeKey.toUpperCase();
+        const color = typeColors[typeKey] || 'var(--muted2)';
+        const isRace = a.eventType?.typeKey === 'race';
+        return '<tr><td><div style="font-size:13px;font-weight:600;">'+a.activityName+(a.pr?' <span style="color:var(--green);font-size:11px;">★ PR</span>':'')+'</div>'
+          +'<div style="color:'+color+';font-size:11px;font-family:DM Mono,monospace;margin-top:2px;">'+label+(isRace?' · TÄVLING':'')+'</div></td>'
+          +'<td style="color:var(--muted2);font-family:DM Mono,monospace;font-size:12px;">'+fmtDate(a.startTimeLocal)+'</td>'
+          +'<td style="font-family:DM Mono,monospace;color:var(--green);font-size:13px;">'+fmtDist(a.distance)+'</td>'
+          +'<td style="font-family:DM Mono,monospace;font-size:13px;">'+fmt(a.duration)+'</td>'
+          +'<td style="font-family:DM Mono,monospace;font-size:13px;">'+(a.averageHR||'—')+'</td></tr>';
+      }).join('');
+    } catch(e) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);font-size:13px;padding:20px 12px;">Fel: '+e.message+'</td></tr>';
+    }
+  }
+ 
+  // Refresh data with AI analysis
+  async function refreshData() {
+    const btn = document.getElementById('refresh-btn');
+    btn.textContent = '↻ Hämtar...';
+    btn.style.color = 'var(--amber)';
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/refresh', { method: 'POST' });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+ 
+      if (data.todayRecommendation) {
+        const titles = { easy:'Lugnt pass idag', quality:'Kvalitetspass idag', rest:'Vilodag idag' };
+        const badges = { easy:'badge-green', quality:'badge-amber', rest:'badge-red' };
+        const badgeText = { easy:'LUGNT', quality:'KVALITET', rest:'VILA' };
+        document.getElementById('today-title').textContent = titles[data.todayType] || 'Rekommendation';
+        document.getElementById('today-body').textContent = data.todayRecommendation;
+        const badge = document.getElementById('today-badge');
+        badge.className = 'today-badge ' + (badges[data.todayType] || 'badge-amber');
+        badge.textContent = badgeText[data.todayType] || 'AI';
+      }
+      if (data.prediction3k) document.getElementById('prediction-3k').textContent = data.prediction3k;
+      if (data.insight) document.getElementById('ai-insight').textContent = data.insight;
+ 
+      btn.textContent = '✓ Uppdaterad';
+      btn.style.color = 'var(--green)';
+      setTimeout(() => { btn.textContent = '↻ Uppdatera data'; btn.style.color = ''; btn.disabled = false; }, 3000);
+    } catch(e) {
+      btn.textContent = '✗ ' + e.message;
+      btn.style.color = 'var(--red)';
+      setTimeout(() => { btn.textContent = '↻ Uppdatera data'; btn.style.color = ''; btn.disabled = false; }, 4000);
+    }
+  }
+ 
+  // Coach context
+  const CTX = `Du är en personlig träningscoach för en löpare med följande profil:
+- Mål: springa 3 km under 10 minuter (nuvarande bästa: 10:27, gap 27 sek)
+- Tidsram: till slutet av augusti 2026 (~13 veckor kvar)
+- VO2max: 59, Garmin predictions: 5K 17:56, 10K 37:30, halvmarathon 1:23:30
+- Dagens träningsberedskap: 50/100, HRV låg (22%), sömn 91/100, body battery 40
+- Garmin flaggar: anaerob brist
+- Nyligen: GöteborgsVarvet halvmarathon 1:27:23 (23 maj)
+- Plan: V23 återhämtning → V24-25 intervaller → V26-29 tröskel → V30-34 spetsning
+Svara alltid på svenska. Var konkret och personlig. Max 3–4 meningar.`;
+ 
+  const history = [];
+ 
+  async function send(txt) {
+    const inp = document.getElementById('chat-input');
+    const msg = txt || inp.value.trim();
+    if (!msg) return;
+    inp.value = '';
+    const box = document.getElementById('messages');
+    const uDiv = document.createElement('div');
+    uDiv.className = 'msg user';
+    uDiv.innerHTML = '<div class="msg-from">DU</div>' + msg;
+    box.appendChild(uDiv);
+    const aDiv = document.createElement('div');
+    aDiv.className = 'msg ai';
+    aDiv.innerHTML = '<div class="msg-from">COACH</div><span style="color:var(--muted)">Tänker...</span>';
+    box.appendChild(aDiv);
+    box.scrollTop = box.scrollHeight;
+    history.push({ role:'user', content:msg });
+    try {
+      const res = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:CTX, history }) });
+      const data = await res.json();
+      const reply = data.reply || data.error || 'Inget svar.';
+      aDiv.innerHTML = '<div class="msg-from">COACH</div>' + reply;
+      history.push({ role:'assistant', content:reply });
+    } catch(e) {
+      aDiv.innerHTML = '<div class="msg-from">COACH</div>Kunde inte nå servern.';
+    }
+    box.scrollTop = box.scrollHeight;
+  }
+ 
+  function qa(t) { goto('coach'); setTimeout(() => send(t), 100); }
+  document.getElementById('chat-input').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
+</script>
+</body>
+</html
