@@ -178,6 +178,35 @@
     .hero-card-title{font-size:14px;font-weight:700;margin-bottom:4px;}
     .hero-card-desc{font-size:12px;color:var(--muted2);font-family:'DM Mono',monospace;}
  
+    /* Styrka */
+    .strength-session{background:var(--bg2);border:0.5px solid var(--border);border-radius:14px;margin-bottom:12px;overflow:hidden;transition:border-color 0.2s;}
+    .strength-session:hover{border-color:var(--border2);}
+    .strength-header{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;cursor:pointer;user-select:none;}
+    .strength-header-left{display:flex;flex-direction:column;gap:4px;}
+    .strength-title{font-size:15px;font-weight:700;}
+    .strength-meta{font-size:11px;font-family:'DM Mono',monospace;color:var(--muted2);}
+    .strength-chevron{font-size:16px;color:var(--muted);transition:transform 0.2s;}
+    .strength-session.open .strength-chevron{transform:rotate(180deg);}
+    .strength-body{display:none;padding:0 22px 18px;}
+    .strength-session.open .strength-body{display:block;}
+    .ex-list{margin-bottom:14px;}
+    .ex-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--border);font-size:13px;}
+    .ex-row:last-child{border-bottom:none;}
+    .ex-name{flex:1;font-weight:600;}
+    .ex-detail{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted2);}
+    .ex-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;line-height:1;}
+    .ex-del:hover{color:var(--red);}
+    .add-ex-form{background:var(--bg3);border-radius:10px;padding:16px;}
+    .add-ex-form .form-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+    .add-ex-form input{background:var(--bg4);border:0.5px solid var(--border2);border-radius:7px;padding:8px 12px;color:var(--text);font-family:'Syne',sans-serif;font-size:13px;outline:none;transition:border-color 0.15s;}
+    .add-ex-form input:focus{border-color:var(--green);}
+    .add-ex-form input.ex-input-name{flex:2;min-width:140px;}
+    .add-ex-form input.ex-input-sm{width:70px;}
+    .add-ex-form input.ex-input-note{flex:1;min-width:120px;}
+    .add-ex-btn{background:var(--green-dim);border:0.5px solid rgba(0,229,160,0.25);border-radius:8px;padding:8px 18px;color:var(--green);font-family:'Syne',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s;}
+    .add-ex-btn:hover{background:rgba(0,229,160,0.2);}
+    .no-sessions{color:var(--muted);font-size:13px;font-family:'DM Mono',monospace;padding:20px 0;}
+
     /* Mobile */
     @media(max-width:700px){
       .sidebar{width:100%;height:56px;flex-direction:row;position:fixed;top:auto;bottom:0;left:0;right:0;border-right:none;border-top:0.5px solid var(--border);}
@@ -204,6 +233,7 @@
       <div class="nav-item" onclick="goto('history')"><span class="nav-icon">◷</span><span>Historik</span></div>
       <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Kommande</span></div>
       <div class="nav-item" onclick="goto('records')"><span class="nav-icon">◉</span><span>Rekord</span></div>
+      <div class="nav-item" onclick="goto('strength')"><span class="nav-icon">◈</span><span>Styrka</span></div>
       <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">✦</span><span>Coach</span></div>
     </div>
     <div class="sidebar-bottom">
@@ -233,10 +263,10 @@
  
       <div class="sl" style="margin-top:8px;">Dagens snapshot</div>
       <div class="grid">
-        <div class="card"><div class="card-label">beredskap</div><div class="card-val ca">50</div><div class="card-sub">Måttlig idag</div><div class="bar"><div class="bar-fill" style="width:50%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">vo2max</div><div class="card-val cg">59</div><div class="card-sub">Löpning</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">sömn</div><div class="card-val cg">91</div><div class="card-sub">Utmärkt · 8h 6m</div><div class="bar"><div class="bar-fill" style="width:91%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">body battery</div><div class="card-val ca">40</div><div class="card-sub">Laddat 76 igår</div><div class="bar"><div class="bar-fill" style="width:40%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">beredskap</div><div id="snap-readiness-val" class="card-val ca">—</div><div id="snap-readiness-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">sömn</div><div id="snap-sleep-val" class="card-val cg">—</div><div id="snap-sleep-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">body battery</div><div id="snap-bb-val" class="card-val ca">—</div><div id="snap-bb-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">hrv natt (ms)</div><div id="snap-hrv-val" class="card-val cr">—</div><div id="snap-hrv-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
         <div class="card"><div class="card-label">dagar kvar</div><div class="card-val cb" id="days-left">—</div><div class="card-sub">Till slutet aug</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
       </div>
  
@@ -278,27 +308,27 @@
  
     <!-- HÄLSA -->
     <div class="page" id="page-health">
-      <div class="page-header"><h2>Hälsa</h2><p>27 maj 2026 · Garmin live-data</p></div>
+      <div class="page-header"><h2>Hälsa</h2><p id="h-date-label">Laddar...</p></div>
       <div class="sl">Återhämtning & kondition</div>
       <div class="grid">
-        <div class="card"><div class="card-label">träningsberedskap</div><div class="card-val ca">50<span style="font-size:14px;font-weight:400">/100</span></div><div class="card-sub">Måttlig · lyssna på kroppen</div><div class="bar"><div class="bar-fill" style="width:50%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">hrv</div><div class="card-val cr">22<span style="font-size:14px;font-weight:400">%</span></div><div class="card-sub">Svag · snitt 65 ms</div><div class="bar"><div class="bar-fill" style="width:22%;background:var(--red)"></div></div></div>
-        <div class="card"><div class="card-label">vilopuls</div><div class="card-val cg">48</div><div class="card-sub">7-dagarssnitt: 51</div><div class="bar"><div class="bar-fill" style="width:65%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">träningsberedskap</div><div id="h-readiness-val" class="card-val ca">—</div><div id="h-readiness-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">hrv natt (ms)</div><div id="h-hrv-val" class="card-val cr">—</div><div id="h-hrv-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
+        <div class="card"><div class="card-label">vilopuls</div><div id="h-rhr-val" class="card-val cg">—</div><div id="h-rhr-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-rhr-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
         <div class="card"><div class="card-label">vo2max</div><div class="card-val cg">59</div><div class="card-sub">Löpning · stabil</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
       </div>
       <div class="sl">Sömn</div>
       <div class="grid">
-        <div class="card"><div class="card-label">sömnpoäng</div><div class="card-val cg">91</div><div class="card-sub">Utmärkt · 8h 6m</div><div class="bar"><div class="bar-fill" style="width:91%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">djupsömn</div><div class="card-val cb">25<span style="font-size:14px;font-weight:400">%</span></div><div class="card-sub">2h 0m</div><div class="bar"><div class="bar-fill" style="width:25%;background:var(--blue)"></div></div></div>
-        <div class="card"><div class="card-label">rem-sömn</div><div class="card-val cp">14<span style="font-size:14px;font-weight:400">%</span></div><div class="card-sub">1h 7m</div><div class="bar"><div class="bar-fill" style="width:14%;background:var(--purple)"></div></div></div>
-        <div class="card"><div class="card-label">hrv under sömn</div><div class="card-val cg">77</div><div class="card-sub">Nattmätning ms</div><div class="bar"><div class="bar-fill" style="width:77%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">sömnpoäng</div><div id="h-sleep-score-val" class="card-val cg">—</div><div id="h-sleep-score-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-sleep-score-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">djupsömn</div><div id="h-deep-val" class="card-val cb">—</div><div id="h-deep-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-deep-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div></div>
+        <div class="card"><div class="card-label">rem-sömn</div><div id="h-rem-val" class="card-val cp">—</div><div id="h-rem-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-rem-bar" class="bar-fill" style="width:0%;background:var(--purple)"></div></div></div>
+        <div class="card"><div class="card-label">hrv under sömn (ms)</div><div id="h-hrv-sleep-val" class="card-val cg">—</div><div class="card-sub">Nattmätning</div><div class="bar"><div id="h-hrv-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
       </div>
       <div class="sl">Energi & stress</div>
       <div class="grid">
-        <div class="card"><div class="card-label">body battery</div><div class="card-val ca">40</div><div class="card-sub">Max igår: 89</div><div class="bar"><div class="bar-fill" style="width:40%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">stress</div><div class="card-val cg">10</div><div class="card-sub">Lågt · max 66</div><div class="bar"><div class="bar-fill" style="width:10%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">spo2</div><div class="card-val cg">96<span style="font-size:14px;font-weight:400">%</span></div><div class="card-sub">Lägst: 88%</div><div class="bar"><div class="bar-fill" style="width:96%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">andning</div><div class="card-val cb">13</div><div class="card-sub">Andetag/min</div><div class="bar"><div class="bar-fill" style="width:55%;background:var(--blue)"></div></div></div>
+        <div class="card"><div class="card-label">body battery</div><div id="h-bb-val" class="card-val ca">—</div><div id="h-bb-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">stress</div><div id="h-stress-val" class="card-val cg">—</div><div id="h-stress-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-stress-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">spo2</div><div id="h-spo2-val" class="card-val cg">—</div><div id="h-spo2-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-spo2-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">andning (andetag/min)</div><div id="h-resp-val" class="card-val cb">—</div><div id="h-resp-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-resp-bar" class="bar-fill" style="width:55%;background:var(--blue)"></div></div></div>
       </div>
     </div>
  
@@ -371,6 +401,12 @@
       </div>
     </div>
  
+    <!-- STYRKA -->
+    <div class="page" id="page-strength">
+      <div class="page-header"><h2>Styrka</h2><p>Styrkepass från Garmin · logga övningar</p></div>
+      <div id="strength-list"><div style="color:var(--muted);font-size:13px;font-family:'DM Mono',monospace;">Hämtar pass...</div></div>
+    </div>
+
     <!-- COACH -->
     <div class="page" id="page-coach">
       <div class="page-header"><h2>AI-träningscoach</h2><p>Powered by Claude · Anthropic</p></div>
@@ -457,8 +493,10 @@ window.fetch = (url, opts = {}) => {
     });
     window.scrollTo(0, 0);
     if (id === 'history') loadHistory();
+    if (id === 'health') loadHealth();
+    if (id === 'strength') loadStrength();
   }
- 
+
   // Days left
   const target = new Date('2026-08-31');
   const start = new Date('2026-05-27');
@@ -467,7 +505,8 @@ window.fetch = (url, opts = {}) => {
   document.getElementById('days-left').textContent = left;
   document.getElementById('days-bar').style.width = Math.max(0,(1-left/total)*100) + '%';
   setTimeout(() => { document.getElementById('goal-bar').style.width = '97%'; }, 500);
- 
+  loadHealth();
+
   // Load history from Garmin
   async function loadHistory() {
     const tbody = document.getElementById('history-tbody');
@@ -498,17 +537,169 @@ window.fetch = (url, opts = {}) => {
     }
   }
  
-  // Refresh data with AI analysis
+  // Hälsodata
+  async function loadHealth() {
+    try {
+      const res = await fetch('/api/health');
+      const h = await res.json();
+      if (h.error) return;
+
+      const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
+
+      // Träningsberedskap
+      if (h.readiness?.score != null) {
+        const score = h.readiness.score;
+        const col = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
+        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
+        document.getElementById('h-readiness-val').textContent = score;
+        document.getElementById('h-readiness-val').style.color = col;
+        document.getElementById('h-readiness-sub').textContent = (lblMap[h.readiness.level] || h.readiness.level || '') + ' · lyssna på kroppen';
+        document.getElementById('h-readiness-bar').style.width = score + '%';
+        document.getElementById('h-readiness-bar').style.background = col;
+      }
+
+      // HRV
+      if (h.hrv?.lastNightAvg != null) {
+        const pct = h.hrv.pct || 0;
+        const col = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('h-hrv-val').textContent = h.hrv.lastNightAvg;
+        document.getElementById('h-hrv-val').style.color = col;
+        document.getElementById('h-hrv-sub').textContent = 'Snitt ' + (h.hrv.weeklyAvg||'—') + ' ms · ' + (h.hrv.status||'');
+        document.getElementById('h-hrv-bar').style.width = Math.min(pct,100) + '%';
+        document.getElementById('h-hrv-bar').style.background = col;
+      }
+
+      // Vilopuls
+      if (h.restingHR?.value != null) {
+        const rhr = h.restingHR.value;
+        const col = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
+        const pct = Math.max(0, Math.min(100, Math.round((1 - (rhr-30)/70)*100)));
+        document.getElementById('h-rhr-val').textContent = rhr;
+        document.getElementById('h-rhr-val').style.color = col;
+        document.getElementById('h-rhr-sub').textContent = '7-dagarssnitt: ' + (h.restingHR.sevenDayAvg||'—');
+        document.getElementById('h-rhr-bar').style.width = pct + '%';
+        document.getElementById('h-rhr-bar').style.background = col;
+      }
+
+      // Sömn
+      if (h.sleep?.totalSec) {
+        document.getElementById('h-sleep-score-val').textContent = h.sleep.score || '—';
+        document.getElementById('h-sleep-score-sub').textContent = fmtTime(h.sleep.totalSec);
+        if (h.sleep.score) {
+          document.getElementById('h-sleep-score-bar').style.width = h.sleep.score + '%';
+        }
+        document.getElementById('h-deep-val').textContent = h.sleep.deepPct + '%';
+        document.getElementById('h-deep-sub').textContent = fmtTime(h.sleep.deepSec);
+        document.getElementById('h-deep-bar').style.width = h.sleep.deepPct + '%';
+        document.getElementById('h-rem-val').textContent = h.sleep.remPct + '%';
+        document.getElementById('h-rem-sub').textContent = fmtTime(h.sleep.remSec);
+        document.getElementById('h-rem-bar').style.width = h.sleep.remPct + '%';
+      }
+
+      // HRV under sömn
+      if (h.hrv?.lastNightAvg != null) {
+        document.getElementById('h-hrv-sleep-val').textContent = h.hrv.lastNightAvg;
+        document.getElementById('h-hrv-sleep-bar').style.width = Math.min(h.hrv.lastNightAvg, 100) + '%';
+      }
+
+      // Body battery
+      if (h.bodyBattery?.current != null) {
+        const bb = h.bodyBattery.current;
+        const col = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('h-bb-val').textContent = bb;
+        document.getElementById('h-bb-val').style.color = col;
+        document.getElementById('h-bb-sub').textContent = 'Max idag: ' + (h.bodyBattery.max||'—');
+        document.getElementById('h-bb-bar').style.width = bb + '%';
+        document.getElementById('h-bb-bar').style.background = col;
+      }
+
+      // Stress
+      if (h.stress?.avg != null) {
+        const s = h.stress.avg;
+        const col = s <= 25 ? 'var(--green)' : s <= 50 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('h-stress-val').textContent = s;
+        document.getElementById('h-stress-val').style.color = col;
+        document.getElementById('h-stress-sub').textContent = 'Max: ' + (h.stress.max||'—');
+        document.getElementById('h-stress-bar').style.width = s + '%';
+        document.getElementById('h-stress-bar').style.background = col;
+      }
+
+      // SpO2
+      if (h.spo2?.avg != null) {
+        document.getElementById('h-spo2-val').textContent = h.spo2.avg + '%';
+        document.getElementById('h-spo2-sub').textContent = 'Lägst: ' + (h.spo2.min ? h.spo2.min+'%' : '—');
+        document.getElementById('h-spo2-bar').style.width = h.spo2.avg + '%';
+      }
+
+      // Andning
+      if (h.respiration?.avg != null) {
+        document.getElementById('h-resp-val').textContent = h.respiration.avg;
+        document.getElementById('h-resp-sub').textContent = 'Under sömn: ' + (h.respiration.sleepAvg||'—');
+      }
+
+      // Uppdatera datum i hälsorubriken
+      const d = new Date();
+      document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric', month:'long', year:'numeric'}) + ' · Garmin live-data';
+
+      // Snapshot på hemsidan
+      if (h.readiness?.score != null) {
+        const score = h.readiness.score;
+        const col = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
+        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
+        document.getElementById('snap-readiness-val').textContent = score;
+        document.getElementById('snap-readiness-val').style.color = col;
+        document.getElementById('snap-readiness-sub').textContent = lblMap[h.readiness.level] || h.readiness.level || '';
+        document.getElementById('snap-readiness-bar').style.width = score + '%';
+        document.getElementById('snap-readiness-bar').style.background = col;
+      }
+      if (h.sleep?.score != null) {
+        const sc = h.sleep.score;
+        const col = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('snap-sleep-val').textContent = sc;
+        document.getElementById('snap-sleep-val').style.color = col;
+        document.getElementById('snap-sleep-sub').textContent = fmtTime(h.sleep.totalSec);
+        document.getElementById('snap-sleep-bar').style.width = sc + '%';
+        document.getElementById('snap-sleep-bar').style.background = col;
+      }
+      if (h.bodyBattery?.current != null) {
+        const bb = h.bodyBattery.current;
+        const col = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('snap-bb-val').textContent = bb;
+        document.getElementById('snap-bb-val').style.color = col;
+        document.getElementById('snap-bb-sub').textContent = 'Max idag: ' + (h.bodyBattery.max || '—');
+        document.getElementById('snap-bb-bar').style.width = bb + '%';
+        document.getElementById('snap-bb-bar').style.background = col;
+      }
+      if (h.hrv?.lastNightAvg != null) {
+        const hrv = h.hrv.lastNightAvg;
+        const pct = h.hrv.pct || 0;
+        const col = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('snap-hrv-val').textContent = hrv;
+        document.getElementById('snap-hrv-val').style.color = col;
+        document.getElementById('snap-hrv-sub').textContent = 'Snitt ' + (h.hrv.weeklyAvg || '—') + ' ms';
+        document.getElementById('snap-hrv-bar').style.width = Math.min(pct, 100) + '%';
+        document.getElementById('snap-hrv-bar').style.background = col;
+      }
+
+    } catch(e) { console.error('Health error:', e); }
+  }
+
+  // Uppdatera all data från Garmin
   async function refreshData() {
     const btn = document.getElementById('refresh-btn');
     btn.textContent = '↻ Hämtar...';
     btn.style.color = 'var(--amber)';
     btn.disabled = true;
     try {
+      // Synka aktiviteter + rensa cache
+      await fetch('/api/sync', { method: 'POST' });
+      // Ladda om hälsa och historik
+      await Promise.all([loadHealth(), loadHistory()]);
+      // Hämta AI-analys
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
- 
+
       if (data.todayRecommendation) {
         const titles = { easy:'Lugnt pass idag', quality:'Kvalitetspass idag', rest:'Vilodag idag' };
         const badges = { easy:'badge-green', quality:'badge-amber', rest:'badge-red' };
@@ -521,7 +712,7 @@ window.fetch = (url, opts = {}) => {
       }
       if (data.prediction3k) document.getElementById('prediction-3k').textContent = data.prediction3k;
       if (data.insight) document.getElementById('ai-insight').textContent = data.insight;
- 
+
       btn.textContent = '✓ Uppdaterad';
       btn.style.color = 'var(--green)';
       setTimeout(() => { btn.textContent = '↻ Uppdatera data'; btn.style.color = ''; btn.disabled = false; }, 3000);
@@ -574,6 +765,113 @@ Svara alltid på svenska. Var konkret och personlig. Max 3–4 meningar.`;
   }
  
   function qa(t) { goto('coach'); setTimeout(() => send(t), 100); }
+
+  // --- Styrka ---
+  const SUGGESTIONS = ['Bänkpress','Marklyft','Knäböj','Axelpress','Latsdrag','Rodd','Dips','Chins','Bicepscurl','Tricepspress','Benpress','Vadpress','Plankan','Sit-ups','Rumänsk marklyft','Frontböj','Bulgarska split-squat','Bröströdd','Hantelflyes','Tricepsnedpress','Hammarcurl','Facepull','Mage','Ryggextension'];
+
+  const fmtDur = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h>0?h+'h '+m+'m':m+' min'; };
+  const fmtDateStr = s => new Date(s).toLocaleDateString('sv-SE',{weekday:'short',day:'numeric',month:'short'});
+
+  async function loadStrength() {
+    const container = document.getElementById('strength-list');
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'DM Mono\',monospace;">Hämtar pass...</div>';
+    try {
+      const res = await fetch('/api/strength');
+      const data = await res.json();
+      const sessions = data.sessions || [];
+      if (!sessions.length) {
+        container.innerHTML = '<div class="no-sessions">Inga styrkepass hittades i Garmin. Synka data för att uppdatera.</div>';
+        return;
+      }
+      container.innerHTML = sessions.map(s => `
+        <div class="strength-session" id="sess-${s.id}">
+          <div class="strength-header" onclick="toggleSession('${s.id}')">
+            <div class="strength-header-left">
+              <div class="strength-title">${s.name}</div>
+              <div class="strength-meta">${fmtDateStr(s.date)} &nbsp;·&nbsp; ${fmtDur(s.duration)} &nbsp;·&nbsp; ${Math.round(s.calories||0)} kcal${s.avgHR?' &nbsp;·&nbsp; ♡ '+Math.round(s.avgHR)+' bpm':''}</div>
+            </div>
+            <span class="strength-chevron">▾</span>
+          </div>
+          <div class="strength-body">
+            <div class="ex-list" id="exlist-${s.id}"><div style="color:var(--muted);font-size:12px;font-family:'DM Mono',monospace;">Laddar...</div></div>
+            <div class="add-ex-form">
+              <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:0.1em;margin-bottom:10px;">LOGGA ÖVNING</div>
+              <div class="form-row">
+                <input class="ex-input-name" id="ex-name-${s.id}" list="ex-suggestions" placeholder="Övning (t.ex. Bänkpress)" autocomplete="off">
+                <input class="ex-input-sm" id="ex-sets-${s.id}" type="number" min="1" placeholder="Set">
+                <input class="ex-input-sm" id="ex-reps-${s.id}" placeholder="Reps">
+                <input class="ex-input-sm" id="ex-weight-${s.id}" type="number" step="0.5" placeholder="kg">
+                <input class="ex-input-note" id="ex-note-${s.id}" placeholder="Notering (valfritt)">
+              </div>
+              <button class="add-ex-btn" onclick="addExercise('${s.id}')">+ Lägg till</button>
+            </div>
+          </div>
+        </div>`).join('');
+
+      // Datalist för autocomplete
+      if (!document.getElementById('ex-suggestions')) {
+        const dl = document.createElement('datalist');
+        dl.id = 'ex-suggestions';
+        dl.innerHTML = SUGGESTIONS.map(s => `<option value="${s}">`).join('');
+        document.body.appendChild(dl);
+      }
+    } catch(e) {
+      container.innerHTML = '<div class="no-sessions">Fel: ' + e.message + '</div>';
+    }
+  }
+
+  async function toggleSession(id) {
+    const el = document.getElementById('sess-' + id);
+    const wasOpen = el.classList.contains('open');
+    el.classList.toggle('open');
+    if (!wasOpen) await loadExercises(id);
+  }
+
+  async function loadExercises(sessionId) {
+    const list = document.getElementById('exlist-' + sessionId);
+    try {
+      const res = await fetch('/api/strength/' + sessionId + '/exercises');
+      const data = await res.json();
+      renderExercises(sessionId, data.exercises || []);
+    } catch(e) { list.innerHTML = '<div style="color:var(--red);font-size:12px;">Kunde inte ladda övningar</div>'; }
+  }
+
+  function renderExercises(sessionId, exercises) {
+    const list = document.getElementById('exlist-' + sessionId);
+    if (!exercises.length) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'DM Mono\',monospace;padding:8px 0 12px;">Inga övningar loggade ännu.</div>';
+      return;
+    }
+    list.innerHTML = exercises.map(ex => {
+      const detail = [ex.sets ? ex.sets+'×' : '', ex.reps || '', ex.weight ? ex.weight+'kg' : '', ex.note || ''].filter(Boolean).join(' ');
+      return `<div class="ex-row">
+        <span class="ex-name">${ex.exercise}</span>
+        <span class="ex-detail">${detail}</span>
+        <button class="ex-del" onclick="deleteExercise(${ex.id},'${sessionId}')" title="Ta bort">×</button>
+      </div>`;
+    }).join('');
+  }
+
+  async function addExercise(sessionId) {
+    const name   = document.getElementById('ex-name-'   + sessionId).value.trim();
+    const sets   = document.getElementById('ex-sets-'   + sessionId).value;
+    const reps   = document.getElementById('ex-reps-'   + sessionId).value.trim();
+    const weight = document.getElementById('ex-weight-' + sessionId).value;
+    const note   = document.getElementById('ex-note-'   + sessionId).value.trim();
+    if (!name) { document.getElementById('ex-name-' + sessionId).focus(); return; }
+    await fetch('/api/strength/' + sessionId + '/exercises', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ exercise: name, sets: sets ? parseInt(sets) : null, reps, weight: weight ? parseFloat(weight) : null, note })
+    });
+    // Rensa fält
+    ['ex-name-','ex-sets-','ex-reps-','ex-weight-','ex-note-'].forEach(p => document.getElementById(p + sessionId).value = '');
+    await loadExercises(sessionId);
+  }
+
+  async function deleteExercise(exId, sessionId) {
+    await fetch('/api/strength/exercises/' + exId, { method: 'DELETE' });
+    await loadExercises(sessionId);
+  }
   document.getElementById('chat-input').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
 </script>
 </body>
