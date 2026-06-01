@@ -9,28 +9,30 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg:     #080810;
-      --bg2:    #0e0e1c;
-      --bg3:    #141426;
-      --bg4:    #1a1a30;
-      --border: rgba(255,255,255,0.05);
-      --border2:rgba(255,255,255,0.10);
-      --border3:rgba(255,255,255,0.16);
-      --text:   #ededf5;
-      --muted:  #4a4864;
-      --muted2: #7e7c98;
-      --muted3: #a8a6c0;
-      --green:  #00e5a0;
-      --green-dim: rgba(0,229,160,0.08);
+      --bg:      #080810;
+      --bg2:     #0e0e1c;
+      --bg3:     #141426;
+      --bg4:     #1a1a30;
+      --border:  rgba(255,255,255,0.05);
+      --border2: rgba(255,255,255,0.10);
+      --border3: rgba(255,255,255,0.16);
+      --text:    #ededf5;
+      --muted:   #4a4864;
+      --muted2:  #7e7c98;
+      --muted3:  #a8a6c0;
+      --green:   #00e5a0;
+      --green-dim:  rgba(0,229,160,0.08);
       --green-glow: rgba(0,229,160,0.18);
-      --amber:  #f5a623;
-      --amber-dim: rgba(245,166,35,0.08);
-      --red:    #ff4d6d;
-      --red-dim:rgba(255,77,109,0.07);
-      --blue:   #4d9fff;
+      --amber:   #f5a623;
+      --amber-dim:  rgba(245,166,35,0.08);
+      --red:     #ff4d6d;
+      --red-dim: rgba(255,77,109,0.07);
+      --blue:    #4d9fff;
       --blue-dim:rgba(77,159,255,0.08);
-      --purple: #a78bfa;
-      --purple-dim:rgba(167,139,250,0.09);
+      --purple:  #a78bfa;
+      --purple-dim: rgba(167,139,250,0.09);
+      --orange:  #ff8c42;
+      --orange-dim: rgba(255,140,66,0.09);
       --sidebar-w: 232px;
       --radius: 14px;
     }
@@ -45,7 +47,6 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Subtle radial glow in top-left */
     body::before {
       content: '';
       position: fixed;
@@ -68,10 +69,9 @@
       display: flex;
       flex-direction: column;
       position: fixed;
-      top: 0; left: 0; bottom: 0;
+      top:0; left:0; bottom:0;
       z-index: 20;
     }
-
     .sidebar-logo {
       padding: 28px 24px 20px;
       border-bottom: 1px solid var(--border);
@@ -80,16 +80,13 @@
       font-size: 14px;
       font-weight: 800;
       letter-spacing: -0.2px;
-      color: var(--text);
     }
     .sidebar-logo p {
       font-size: 11px;
       color: var(--muted2);
       font-family: 'JetBrains Mono', monospace;
       margin-top: 3px;
-      letter-spacing: 0.02em;
     }
-
     .nav {
       flex: 1;
       padding: 14px 12px;
@@ -98,7 +95,6 @@
       gap: 2px;
       overflow-y: auto;
     }
-
     .nav-item {
       display: flex;
       align-items: center;
@@ -129,25 +125,14 @@
       border-radius: 2px;
       background: var(--purple);
     }
-    .nav-icon {
-      font-size: 15px;
-      width: 18px;
-      text-align: center;
-      flex-shrink: 0;
-    }
-
+    .nav-icon { font-size: 15px; width: 18px; text-align: center; flex-shrink: 0; }
     .sidebar-bottom {
       padding: 16px 20px 20px;
       border-top: 1px solid var(--border);
     }
-    .live-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 12px;
-    }
+    .live-row { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
     .live-dot {
-      width: 6px; height: 6px;
+      width:6px; height:6px;
       background: var(--green);
       border-radius: 50%;
       box-shadow: 0 0 6px var(--green);
@@ -176,7 +161,7 @@
       text-align: center;
     }
     .refresh-btn:hover { border-color: var(--green); color: var(--green); background: var(--green-dim); }
-    .refresh-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .refresh-btn:disabled { opacity:0.45; cursor:not-allowed; }
 
     /* ─── MAIN ─── */
     .main {
@@ -202,8 +187,8 @@
     }
 
     /* ─── PAGES ─── */
-    .page { display: none; animation: fadeUp 0.28s ease both; }
-    .page.active { display: block; }
+    .page { display:none; animation: fadeUp 0.28s ease both; }
+    .page.active { display:block; }
     @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 
     /* ─── SECTION LABEL ─── */
@@ -232,10 +217,7 @@
       transition: border-color 0.2s, transform 0.2s;
       cursor: default;
     }
-    .card:hover {
-      border-color: var(--border2);
-      transform: translateY(-1px);
-    }
+    .card:hover { border-color: var(--border2); transform: translateY(-1px); }
     .card-label {
       font-size: 10.5px;
       font-family: 'JetBrains Mono', monospace;
@@ -276,6 +258,87 @@
     .cr { color: var(--red); }
     .cb { color: var(--blue); }
     .cp { color: var(--purple); }
+    .co { color: var(--orange); }
+
+    /* ─── DUAL GOALS ─── */
+    .goals-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+    @media(max-width:900px) { .goals-row { grid-template-columns: 1fr; } }
+
+    .goal-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 26px 28px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .goal-card:hover { border-color: var(--border2); }
+    .goal-card::after {
+      content: '';
+      position: absolute;
+      top:0; left:0; right:0;
+      height: 1px;
+    }
+    .goal-card.run::after  { background: linear-gradient(90deg, var(--green) 0%, transparent 60%); }
+    .goal-card.lift::after { background: linear-gradient(90deg, var(--orange) 0%, transparent 60%); }
+
+    .goal-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 18px;
+    }
+    .goal-card-label {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+    .goal-card-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .goal-card-time {
+      font-size: 28px;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: -1px;
+      font-variant-numeric: tabular-nums;
+    }
+    .goal-card.run  .goal-card-time { color: var(--green);  text-shadow: 0 0 20px rgba(0,229,160,0.25); }
+    .goal-card.lift .goal-card-time { color: var(--orange); text-shadow: 0 0 20px rgba(255,140,66,0.25); }
+
+    .goal-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .goal-stat-label {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      margin-bottom: 3px;
+      letter-spacing: 0.08em;
+    }
+    .goal-stat-val { font-size: 18px; font-weight: 800; letter-spacing: -0.5px; }
+    .bigbar { height: 5px; background: var(--border); border-radius: 99px; overflow: hidden; }
+    .bigbar-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 1.4s cubic-bezier(.4,0,.2,1);
+    }
+    .goal-card.run  .bigbar-fill { background: linear-gradient(90deg, var(--green), var(--blue)); box-shadow: 0 0 8px rgba(0,229,160,0.35); }
+    .goal-card.lift .bigbar-fill { background: linear-gradient(90deg, var(--orange), var(--amber)); box-shadow: 0 0 8px rgba(255,140,66,0.35); }
 
     /* ─── BIG CARDS ─── */
     .bigcard {
@@ -290,22 +353,14 @@
     .bigcard::after {
       content: '';
       position: absolute;
-      top: 0; left: 0; right: 0;
+      top:0; left:0; right:0;
       height: 1px;
     }
     .bigcard.accent-amber::after { background: linear-gradient(90deg, var(--amber) 0%, transparent 60%); }
     .bigcard.accent-green::after  { background: linear-gradient(90deg, var(--green) 0%, transparent 60%); }
-    .bigcard h3 {
-      font-size: 17px;
-      font-weight: 700;
-      margin-bottom: 8px;
-      letter-spacing: -0.3px;
-    }
-    .bigcard p {
-      font-size: 14px;
-      color: var(--muted3);
-      line-height: 1.75;
-    }
+    .bigcard.accent-orange::after { background: linear-gradient(90deg, var(--orange) 0%, transparent 60%); }
+    .bigcard h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.3px; }
+    .bigcard p  { font-size: 14px; color: var(--muted3); line-height: 1.75; }
 
     /* ─── TODAY HEADER ─── */
     .today-header {
@@ -324,9 +379,10 @@
       font-weight: 600;
       flex-shrink: 0;
     }
-    .badge-amber { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,166,35,0.2); }
+    .badge-amber  { background: var(--amber-dim);  color: var(--amber);  border: 1px solid rgba(245,166,35,0.2); }
     .badge-green  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.2); }
     .badge-red    { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
+    .badge-orange { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.2); }
 
     /* ─── TEMPO TABLE ─── */
     .tempo-table {
@@ -351,17 +407,30 @@
       padding: 8px 0;
       border-bottom: 1px solid var(--border);
     }
-    .tempo-row:last-child { border-bottom: none; padding-bottom: 0; }
-    .tempo-name { font-size: 13px; color: var(--muted3); font-weight: 400; }
-    .tempo-val {
-      font-size: 14px;
-      font-weight: 600;
-      font-family: 'JetBrains Mono', monospace;
-      letter-spacing: 0.02em;
+    .tempo-row:last-child { border-bottom:none; padding-bottom:0; }
+    .tempo-name { font-size: 13px; color: var(--muted3); }
+    .tempo-val  { font-size: 14px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+
+    /* ─── INSIGHT BOX ─── */
+    .insight-box {
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-top: 20px;
     }
+    .insight-label {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .insight-text { font-size: 13.5px; color: var(--muted3); line-height: 1.7; }
 
     /* ─── SESSION LIST ─── */
-    .session-list { display: flex; flex-direction: column; gap: 10px; }
+    .session-list { display:flex; flex-direction:column; gap:10px; }
     .session {
       background: var(--bg2);
       border: 1px solid var(--border);
@@ -373,7 +442,7 @@
       transition: border-color 0.2s, transform 0.2s;
     }
     .session:hover { border-color: var(--border2); transform: translateX(2px); }
-    .session-stripe { width: 3px; align-self: stretch; border-radius: 99px; flex-shrink: 0; }
+    .session-stripe { width:3px; align-self:stretch; border-radius:99px; flex-shrink:0; }
     .session-week {
       font-size: 10px;
       font-family: 'JetBrains Mono', monospace;
@@ -383,10 +452,24 @@
       line-height: 1.7;
       font-weight: 500;
     }
-    .session-body { flex: 1; }
+    .session-body { flex:1; }
     .session-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.2px; }
-    .session-desc { font-size: 13px; color: var(--muted3); line-height: 1.6; }
-    .pills { display: flex; gap: 6px; margin-top: 11px; flex-wrap: wrap; }
+    .session-desc  { font-size: 13px; color: var(--muted3); line-height: 1.6; }
+    .session-type {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .st-run   { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.2); }
+    .st-lift  { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.2); }
+    .st-rest  { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.2); }
+    .pills { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
     .pill {
       font-size: 10.5px;
       font-family: 'JetBrains Mono', monospace;
@@ -398,7 +481,7 @@
     }
 
     /* ─── HISTORY TABLE ─── */
-    .history-table { width: 100%; border-collapse: collapse; }
+    .history-table { width:100%; border-collapse:collapse; }
     .history-table th {
       font-size: 10px;
       font-family: 'JetBrains Mono', monospace;
@@ -439,102 +522,133 @@
       letter-spacing: 0.08em;
       font-weight: 500;
     }
-    .record-val {
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -0.8px;
-      font-variant-numeric: tabular-nums;
-    }
-    .record-sub {
-      font-size: 11px;
-      color: var(--muted2);
-      margin-top: 6px;
-      font-family: 'JetBrains Mono', monospace;
-    }
+    .record-val { font-size: 28px; font-weight: 800; letter-spacing: -0.8px; font-variant-numeric: tabular-nums; }
+    .record-sub { font-size: 11px; color: var(--muted2); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
 
-    /* ─── GOAL SECTION ─── */
-    .goal-section {
+    /* ─── HERO ─── */
+    .hero { text-align: center; padding: 52px 20px 44px; }
+    .hero h2 {
+      font-size: 44px;
+      font-weight: 900;
+      letter-spacing: -2.5px;
+      line-height: 1.05;
+      margin-bottom: 14px;
+    }
+    .hero p {
+      font-size: 15px;
+      color: var(--muted3);
+      max-width: 460px;
+      margin: 0 auto 40px;
+      line-height: 1.75;
+    }
+    .hero-nav {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+      gap: 10px;
+      max-width: 820px;
+      margin: 0 auto;
+    }
+    .hero-card {
       background: var(--bg2);
       border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 28px 30px;
-      margin-bottom: 32px;
-      position: relative;
-      overflow: hidden;
+      border-radius: 16px;
+      padding: 22px 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: left;
     }
-    .goal-section::after {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, var(--green) 0%, transparent 60%);
-    }
-    .goal-top {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 22px;
-      gap: 12px;
-    }
-    .goal-title { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
-    .goal-time {
-      font-size: 32px;
-      font-weight: 800;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--green);
-      letter-spacing: -1.5px;
-      text-shadow: 0 0 24px rgba(0,229,160,0.3);
-      font-variant-numeric: tabular-nums;
-    }
-    .goal-3cols {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-    .goal-col-label {
-      font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--muted);
-      margin-bottom: 4px;
-      letter-spacing: 0.1em;
-      font-weight: 500;
-    }
-    .goal-col-val { font-size: 22px; font-weight: 800; letter-spacing: -0.8px; }
-    .bigbar { height: 5px; background: var(--border); border-radius: 99px; overflow: hidden; }
-    .bigbar-fill {
-      height: 100%;
-      border-radius: 99px;
-      background: linear-gradient(90deg, var(--green), var(--blue));
-      box-shadow: 0 0 8px rgba(0,229,160,0.4);
-      transition: width 1.4s cubic-bezier(.4,0,.2,1);
-    }
+    .hero-card:hover { border-color: var(--border3); transform: translateY(-2px); background: var(--bg3); }
+    .hero-card-icon  { font-size: 22px; margin-bottom: 12px; }
+    .hero-card-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.2px; }
+    .hero-card-desc  { font-size: 11.5px; color: var(--muted2); font-family: 'JetBrains Mono', monospace; }
 
-    /* ─── INSIGHT BOX ─── */
-    .insight-box {
-      background: var(--bg3);
-      border: 1px solid var(--border2);
-      border-radius: 12px;
-      padding: 14px 18px;
-      margin-top: 20px;
+    /* ─── STYRKA ─── */
+    .strength-session {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 10px;
+      overflow: hidden;
+      transition: border-color 0.2s;
     }
-    .insight-label {
-      font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+    .strength-session:hover { border-color: var(--border2); }
+    .strength-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 22px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .strength-header-left { display:flex; flex-direction:column; gap:5px; }
+    .strength-title { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+    .strength-meta  { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted2); }
+    .strength-chevron { font-size: 14px; color: var(--muted); transition: transform 0.2s; }
+    .strength-session.open .strength-chevron { transform: rotate(180deg); }
+    .strength-body { display:none; padding: 0 22px 20px; }
+    .strength-session.open .strength-body { display:block; }
+    .ex-list { margin-bottom: 16px; }
+    .ex-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .ex-row:last-child { border-bottom: none; }
+    .ex-name   { flex:1; font-weight:600; }
+    .ex-detail { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted2); }
+    .ex-del {
+      background: none;
+      border: none;
       color: var(--muted);
-      letter-spacing: 0.12em;
-      margin-bottom: 6px;
-      font-weight: 500;
+      cursor: pointer;
+      font-size: 17px;
+      padding: 0 2px;
+      line-height: 1;
+      transition: color 0.15s;
     }
-    .insight-text { font-size: 13.5px; color: var(--muted3); line-height: 1.7; }
+    .ex-del:hover { color: var(--red); }
+    .add-ex-form {
+      background: var(--bg3);
+      border-radius: 12px;
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+    }
+    .add-ex-form .form-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    .add-ex-form input {
+      background: var(--bg4);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 9px 12px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .add-ex-form input:focus { border-color: var(--orange); }
+    .add-ex-form input.ex-input-name { flex:2; min-width:140px; }
+    .add-ex-form input.ex-input-sm   { width:72px; }
+    .add-ex-form input.ex-input-note { flex:1; min-width:120px; }
+    .add-ex-btn {
+      background: var(--orange-dim);
+      border: 1px solid rgba(255,140,66,0.25);
+      border-radius: 8px;
+      padding: 9px 20px;
+      color: var(--orange);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .add-ex-btn:hover { background: rgba(255,140,66,0.15); }
+    .no-sessions { color: var(--muted); font-size: 13px; font-family: 'JetBrains Mono', monospace; padding: 20px 0; }
 
     /* ─── CHAT ─── */
-    .chat-wrap {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      overflow: hidden;
-    }
+    .chat-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; }
     .chat-top {
       padding: 18px 22px;
       border-bottom: 1px solid var(--border);
@@ -542,25 +656,10 @@
       align-items: center;
       gap: 10px;
     }
-    .chat-dot {
-      width: 8px; height: 8px;
-      background: var(--purple);
-      border-radius: 50%;
-      box-shadow: 0 0 8px rgba(167,139,250,0.5);
-    }
+    .chat-dot { width:8px; height:8px; background:var(--purple); border-radius:50%; box-shadow:0 0 8px rgba(167,139,250,0.5); }
     .chat-title { font-size: 14px; font-weight: 700; letter-spacing: -0.2px; }
-    .chat-sub {
-      font-size: 10.5px;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--muted);
-      margin-left: auto;
-    }
-    .qprompts {
-      display: flex;
-      gap: 7px;
-      flex-wrap: wrap;
-      padding: 14px 22px 6px;
-    }
+    .chat-sub   { font-size: 10.5px; font-family: 'JetBrains Mono', monospace; color: var(--muted); margin-left: auto; }
+    .qprompts   { display:flex; gap:7px; flex-wrap:wrap; padding:14px 22px 6px; }
     .qp {
       font-size: 11px;
       font-family: 'JetBrains Mono', monospace;
@@ -583,13 +682,9 @@
       flex-direction: column;
       gap: 14px;
     }
-    .messages::-webkit-scrollbar { width: 3px; }
-    .messages::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
-    .msg {
-      font-size: 14px;
-      line-height: 1.7;
-      max-width: 82%;
-    }
+    .messages::-webkit-scrollbar { width:3px; }
+    .messages::-webkit-scrollbar-thumb { background:var(--border2); border-radius:99px; }
+    .msg { font-size: 14px; line-height: 1.7; max-width: 82%; }
     .msg.user {
       align-self: flex-end;
       background: var(--bg4);
@@ -604,22 +699,10 @@
       border-radius: 14px 14px 14px 3px;
       padding: 11px 15px;
     }
-    .msg-from {
-      font-size: 9.5px;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--muted);
-      margin-bottom: 5px;
-      letter-spacing: 0.08em;
-      font-weight: 600;
-    }
-    .chat-input {
-      display: flex;
-      gap: 10px;
-      padding: 16px 22px;
-      border-top: 1px solid var(--border);
-    }
+    .msg-from { font-size:9.5px; font-family:'JetBrains Mono',monospace; color:var(--muted); margin-bottom:5px; letter-spacing:0.08em; font-weight:600; }
+    .chat-input { display:flex; gap:10px; padding:16px 22px; border-top:1px solid var(--border); }
     .chat-input input {
-      flex: 1;
+      flex:1;
       background: var(--bg3);
       border: 1px solid var(--border2);
       border-radius: 10px;
@@ -644,167 +727,25 @@
       cursor: pointer;
       transition: opacity 0.2s, transform 0.15s;
     }
-    .send-btn:hover { opacity: 0.88; transform: translateY(-1px); }
-    .send-btn:active { transform: translateY(0); }
-
-    /* ─── HERO ─── */
-    .hero { text-align: center; padding: 52px 20px 44px; }
-    .hero h2 {
-      font-size: 44px;
-      font-weight: 900;
-      letter-spacing: -2.5px;
-      line-height: 1.05;
-      margin-bottom: 14px;
-    }
-    .hero p {
-      font-size: 15px;
-      color: var(--muted3);
-      max-width: 420px;
-      margin: 0 auto 40px;
-      line-height: 1.75;
-    }
-    .hero-nav {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
-      gap: 10px;
-      max-width: 820px;
-      margin: 0 auto;
-    }
-    .hero-card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 22px 20px;
-      cursor: pointer;
-      transition: all 0.2s;
-      text-align: left;
-    }
-    .hero-card:hover {
-      border-color: var(--border3);
-      transform: translateY(-2px);
-      background: var(--bg3);
-    }
-    .hero-card-icon { font-size: 22px; margin-bottom: 12px; }
-    .hero-card-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.2px; }
-    .hero-card-desc { font-size: 11.5px; color: var(--muted2); font-family: 'JetBrains Mono', monospace; }
-
-    /* ─── STYRKA ─── */
-    .strength-session {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      margin-bottom: 10px;
-      overflow: hidden;
-      transition: border-color 0.2s;
-    }
-    .strength-session:hover { border-color: var(--border2); }
-    .strength-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 18px 22px;
-      cursor: pointer;
-      user-select: none;
-    }
-    .strength-header-left { display: flex; flex-direction: column; gap: 5px; }
-    .strength-title { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
-    .strength-meta { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted2); }
-    .strength-chevron { font-size: 14px; color: var(--muted); transition: transform 0.2s; }
-    .strength-session.open .strength-chevron { transform: rotate(180deg); }
-    .strength-body { display: none; padding: 0 22px 20px; }
-    .strength-session.open .strength-body { display: block; }
-    .ex-list { margin-bottom: 16px; }
-    .ex-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 9px 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 13px;
-    }
-    .ex-row:last-child { border-bottom: none; }
-    .ex-name { flex: 1; font-weight: 600; }
-    .ex-detail { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted2); }
-    .ex-del {
-      background: none;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 17px;
-      padding: 0 2px;
-      line-height: 1;
-      transition: color 0.15s;
-    }
-    .ex-del:hover { color: var(--red); }
-    .add-ex-form {
-      background: var(--bg3);
-      border-radius: 12px;
-      padding: 16px 18px;
-      border: 1px solid var(--border);
-    }
-    .add-ex-form .form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-    .add-ex-form input {
-      background: var(--bg4);
-      border: 1px solid var(--border2);
-      border-radius: 8px;
-      padding: 9px 12px;
-      color: var(--text);
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    .add-ex-form input:focus { border-color: var(--green); }
-    .add-ex-form input.ex-input-name { flex: 2; min-width: 140px; }
-    .add-ex-form input.ex-input-sm { width: 72px; }
-    .add-ex-form input.ex-input-note { flex: 1; min-width: 120px; }
-    .add-ex-btn {
-      background: var(--green-dim);
-      border: 1px solid rgba(0,229,160,0.2);
-      border-radius: 8px;
-      padding: 9px 20px;
-      color: var(--green);
-      font-family: 'Inter', sans-serif;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .add-ex-btn:hover { background: var(--green-glow); }
-    .no-sessions { color: var(--muted); font-size: 13px; font-family: 'JetBrains Mono', monospace; padding: 20px 0; }
+    .send-btn:hover { opacity:0.88; transform:translateY(-1px); }
 
     /* ─── MOBILE ─── */
     @media (max-width: 720px) {
       :root { --sidebar-w: 0px; }
       .sidebar {
-        width: 100%;
-        height: 58px;
-        flex-direction: row;
-        position: fixed;
-        top: auto; bottom: 0;
-        left: 0; right: 0;
-        border-right: none;
-        border-top: 1px solid var(--border);
+        width:100%; height:58px; flex-direction:row;
+        position:fixed; top:auto; bottom:0; left:0; right:0;
+        border-right:none; border-top:1px solid var(--border);
       }
-      .sidebar-logo { display: none; }
-      .nav {
-        flex-direction: row;
-        padding: 6px 8px;
-        gap: 0;
-        justify-content: space-around;
-        overflow: visible;
-      }
-      .nav-item {
-        flex-direction: column;
-        gap: 3px;
-        padding: 6px 10px;
-        font-size: 9.5px;
-      }
-      .nav-item.active::before { display: none; }
-      .nav-icon { font-size: 18px; width: auto; }
-      .sidebar-bottom { display: none; }
-      .main { margin-left: 0; padding: 20px 18px 80px; max-width: 100vw; }
-      .hero h2 { font-size: 32px; }
+      .sidebar-logo { display:none; }
+      .nav { flex-direction:row; padding:6px 8px; gap:0; justify-content:space-around; overflow:visible; }
+      .nav-item { flex-direction:column; gap:3px; padding:6px 10px; font-size:9.5px; }
+      .nav-item.active::before { display:none; }
+      .nav-icon { font-size:18px; width:auto; }
+      .sidebar-bottom { display:none; }
+      .main { margin-left:0; padding:20px 18px 80px; max-width:100vw; }
+      .hero h2 { font-size:32px; }
+      .goals-row { grid-template-columns:1fr; }
     }
   </style>
 </head>
@@ -814,13 +755,13 @@
   <nav class="sidebar">
     <div class="sidebar-logo">
       <h1>Träning</h1>
-      <p>sub 10:00 · aug 2026</p>
+      <p>Starkare · Snabbare · 2026</p>
     </div>
     <div class="nav">
       <div class="nav-item active" onclick="goto('home')"><span class="nav-icon">⌂</span><span>Hem</span></div>
       <div class="nav-item" onclick="goto('health')"><span class="nav-icon">♡</span><span>Hälsa</span></div>
       <div class="nav-item" onclick="goto('history')"><span class="nav-icon">◷</span><span>Historik</span></div>
-      <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Kommande</span></div>
+      <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Plan</span></div>
       <div class="nav-item" onclick="goto('records')"><span class="nav-icon">◉</span><span>Rekord</span></div>
       <div class="nav-item" onclick="goto('strength')"><span class="nav-icon">◈</span><span>Styrka</span></div>
       <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">✦</span><span>Coach</span></div>
@@ -839,13 +780,13 @@
     <!-- HEM -->
     <div class="page active" id="page-home">
       <div class="hero">
-        <h2>Hej, löpare<span class="cg">.</span></h2>
-        <p>Du är 27 sekunder från målet. Välj en sektion nedan.</p>
+        <h2>Bli starkare<span class="co">.</span><br>Bli snabbare<span class="cg">.</span></h2>
+        <p>Dubbelt fokus — löpning och styrka i ett. Träna mer, progressa konsekvent.</p>
         <div class="hero-nav">
           <div class="hero-card" onclick="goto('health')"><div class="hero-card-icon">♡</div><div class="hero-card-title">Hälsa</div><div class="hero-card-desc">HRV · sömn · stress · batteri</div></div>
           <div class="hero-card" onclick="goto('history')"><div class="hero-card-icon">◷</div><div class="hero-card-title">Historik</div><div class="hero-card-desc">Senaste pass & aktiviteter</div></div>
-          <div class="hero-card" onclick="goto('upcoming')"><div class="hero-card-icon">◈</div><div class="hero-card-title">Kommande pass</div><div class="hero-card-desc">Din 13-veckorsplan</div></div>
-          <div class="hero-card" onclick="goto('records')"><div class="hero-card-icon">◉</div><div class="hero-card-title">Rekord</div><div class="hero-card-desc">PR · personbästa · statistik</div></div>
+          <div class="hero-card" onclick="goto('upcoming')"><div class="hero-card-icon">◈</div><div class="hero-card-title">Träningsplan</div><div class="hero-card-desc">Löpning + styrka integrerat</div></div>
+          <div class="hero-card" onclick="goto('strength')"><div class="hero-card-icon">◈</div><div class="hero-card-title">Styrka</div><div class="hero-card-desc">Logga övningar & progress</div></div>
           <div class="hero-card" onclick="goto('coach')"><div class="hero-card-icon">✦</div><div class="hero-card-title">AI-coach</div><div class="hero-card-desc">Fråga om din träning</div></div>
         </div>
       </div>
@@ -859,38 +800,59 @@
         <div class="card"><div class="card-label">dagar kvar</div><div class="card-val cb" id="days-left">—</div><div class="card-sub">Till slutet aug</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
       </div>
 
+      <div class="sl">Mina mål</div>
+      <div class="goals-row">
+        <!-- Löpmål -->
+        <div class="goal-card run">
+          <div class="goal-card-top">
+            <div>
+              <div class="goal-card-label">LÖPMÅL · AUG 2026</div>
+              <div class="goal-card-title">3 km under 10 minuter</div>
+            </div>
+            <div class="goal-card-time" id="prediction-3k">9:59</div>
+          </div>
+          <div class="goal-stats">
+            <div><div class="goal-stat-label">nu</div><div class="goal-stat-val ca">10:27</div></div>
+            <div><div class="goal-stat-label">mål</div><div class="goal-stat-val cg">9:59</div></div>
+            <div><div class="goal-stat-label">gap</div><div class="goal-stat-val cb">27 sek</div></div>
+          </div>
+          <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-bottom:8px;letter-spacing:0.1em;">PROGRESS</div>
+          <div class="bigbar"><div class="bigbar-fill" id="goal-bar-run" style="width:0%"></div></div>
+        </div>
+        <!-- Styrkmål -->
+        <div class="goal-card lift">
+          <div class="goal-card-top">
+            <div>
+              <div class="goal-card-label">STYRKEMÅL · LÖPANDE</div>
+              <div class="goal-card-title">Bli starkare — progressera varje vecka</div>
+            </div>
+            <div class="goal-card-time co">2×/v</div>
+          </div>
+          <div class="goal-stats">
+            <div><div class="goal-stat-label">pass/v</div><div class="goal-stat-val co">2</div></div>
+            <div><div class="goal-stat-label">fokus</div><div class="goal-stat-val cp">Stor&shy;lyft</div></div>
+            <div><div class="goal-stat-label">princip</div><div class="goal-stat-val ca">Prog.</div></div>
+          </div>
+          <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-bottom:8px;letter-spacing:0.1em;">KONSEKVENS</div>
+          <div class="bigbar"><div class="bigbar-fill" id="goal-bar-lift" style="width:0%"></div></div>
+        </div>
+      </div>
+
       <div class="sl">Rekommendation idag</div>
       <div class="bigcard accent-amber" style="margin-bottom:32px;">
         <div class="today-header">
           <h3 id="today-title">Lugnt återhämtningspass</h3>
           <span class="today-badge badge-amber" id="today-badge">HRV LÅG</span>
         </div>
-        <p id="today-body">Din HRV är låg (22%) och kroppen återhämtar sig fortfarande efter GöteborgsVarvet. Kör ett lätt Z2-pass 30–40 min — håller motoriken igång utan att tömma batteriet.</p>
+        <p id="today-body">Din HRV är låg och kroppen återhämtar sig. Kör ett lätt Z2-pass 30–40 min — håller motoriken igång utan att tömma batteriet.</p>
         <div class="tempo-table">
-          <div class="tempo-label-top">NÄR DU KÖR 3 KM — MÅLTEMPON</div>
+          <div class="tempo-label-top">3 KM — MÅLTEMPON</div>
           <div class="tempo-row"><span class="tempo-name">Måltempo (sub 10:00)</span><span class="tempo-val cg">3:19 /km</span></div>
           <div class="tempo-row"><span class="tempo-name">Km 1 — konservativt ut</span><span class="tempo-val ca">3:22 /km</span></div>
           <div class="tempo-row"><span class="tempo-name">Km 2 — håll jämnt</span><span class="tempo-val ca">3:20 /km</span></div>
           <div class="tempo-row"><span class="tempo-name">Km 3 — negativ split</span><span class="tempo-val cg">3:15 /km</span></div>
           <div class="tempo-row"><span class="tempo-name">Bästa nuvarande tid</span><span class="tempo-val cb">10:27</span></div>
         </div>
-      </div>
-
-      <div class="goal-section">
-        <div class="goal-top">
-          <div>
-            <div class="goal-title">Mål: 3 km under 10 minuter</div>
-            <div style="font-size:12px;color:var(--muted2);margin-top:5px;font-family:'JetBrains Mono',monospace;">Nuvarande bästa: 10:27 · Gap: 27 sek</div>
-          </div>
-          <div class="goal-time" id="prediction-3k">9:59</div>
-        </div>
-        <div class="goal-3cols">
-          <div><div class="goal-col-label">nu</div><div class="goal-col-val ca">10:27</div></div>
-          <div><div class="goal-col-label">mål</div><div class="goal-col-val cg">9:59</div></div>
-          <div><div class="goal-col-label">kvar</div><div class="goal-col-val cb">27 sek</div></div>
-        </div>
-        <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-bottom:8px;letter-spacing:0.1em;">PROGRESS</div>
-        <div class="bigbar"><div class="bigbar-fill" id="goal-bar" style="width:0%"></div></div>
         <div class="insight-box">
           <div class="insight-label">AI-INSIKT</div>
           <div class="insight-text" id="ai-insight">Tryck på "Uppdatera data" för en personlig analys baserad på din senaste träning.</div>
@@ -926,7 +888,7 @@
 
     <!-- HISTORIK -->
     <div class="page" id="page-history">
-      <div class="page-header"><h2>Historik</h2><p>Senaste 30 dagarna · live från Garmin</p></div>
+      <div class="page-header"><h2>Historik</h2><p>Alla aktiviteter · live från Garmin</p></div>
       <div class="sl">Senaste pass</div>
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
         <table class="history-table">
@@ -946,29 +908,130 @@
       </div>
     </div>
 
-    <!-- KOMMANDE -->
+    <!-- PLAN -->
     <div class="page" id="page-upcoming">
-      <div class="page-header"><h2>Kommande pass</h2><p>13-veckorsplan · sub 10:00 på 3 km</p></div>
+      <div class="page-header"><h2>Träningsplan</h2><p>Löpning + styrka integrerat · sub 10:00 på 3 km</p></div>
 
-      <div class="sl" style="margin-bottom:16px;">Fas 1 — Aerob bas (v.23–25)</div>
+      <div class="sl" style="margin-bottom:16px;">Fas 1 — Bas & återhämtning (v.23–25)</div>
       <div class="session-list" style="margin-bottom:32px;">
-        <div class="session"><div class="session-stripe" style="background:var(--green)"></div><div class="session-week">V.23<br>Tisdag</div><div class="session-body"><div class="session-title">Lugnt återhämtningsjogg</div><div class="session-desc">Z2, inga krav på tempo. Vila efter Varvet.</div><div class="pills"><span class="pill">30–35 min</span><span class="pill">Z2</span><span class="pill">4:45–5:15 /km</span></div></div></div>
-        <div class="session"><div class="session-stripe" style="background:var(--amber)"></div><div class="session-week">V.24<br>Tisdag</div><div class="session-body"><div class="session-title">4×1000 m intervaller</div><div class="session-desc">Tröskelintroduktion. 3 min vila. Uppv. + nedv. 2 km.</div><div class="pills"><span class="pill">3:35 /km</span><span class="pill">~8 km totalt</span><span class="pill">Z3–Z4</span></div></div></div>
-        <div class="session"><div class="session-stripe" style="background:var(--amber)"></div><div class="session-week">V.24<br>Lördag</div><div class="session-body"><div class="session-title">6×400 m snabba drag</div><div class="session-desc">Anaerob stimulans — Garmin flaggar detta som din svaghet. 90 sek vila, bana.</div><div class="pills"><span class="pill">3:10 /km</span><span class="pill">Bana</span><span class="pill">Z5</span></div></div></div>
-        <div class="session"><div class="session-stripe" style="background:var(--amber)"></div><div class="session-week">V.25<br>Onsdag</div><div class="session-body"><div class="session-title">5×1000 m tröskelprogression</div><div class="session-desc">Ökar från v.24. 2:30 min vila. Håll jämnt tempo hela vägen.</div><div class="pills"><span class="pill">3:35 /km</span><span class="pill">~10 km totalt</span><span class="pill">Z3–Z4</span></div></div></div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--green)"></div>
+          <div class="session-week">V.23<br>Tisdag</div>
+          <div class="session-body">
+            <div class="session-type st-run">🏃 Löpning</div>
+            <div class="session-title">Lugnt återhämtningsjogg</div>
+            <div class="session-desc">Z2, inga krav på tempo. Vila efter GöteborgsVarvet.</div>
+            <div class="pills"><span class="pill">30–35 min</span><span class="pill">Z2</span><span class="pill">4:45–5:15 /km</span></div>
+          </div>
+        </div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--orange)"></div>
+          <div class="session-week">V.23<br>Torsdag</div>
+          <div class="session-body">
+            <div class="session-type st-lift">🏋️ Styrka</div>
+            <div class="session-title">Helkropp — introduktionsvikt</div>
+            <div class="session-desc">Knäböj, marklyft, bänkpress, latsdrag. Lätt vikt, fokus på teknik och rörlighet.</div>
+            <div class="pills"><span class="pill">4 övningar</span><span class="pill">3×8</span><span class="pill">60–70% av max</span></div>
+          </div>
+        </div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--amber)"></div>
+          <div class="session-week">V.24<br>Tisdag</div>
+          <div class="session-body">
+            <div class="session-type st-run">🏃 Löpning</div>
+            <div class="session-title">4×1000 m intervaller</div>
+            <div class="session-desc">Tröskelintroduktion. 3 min vila. Uppv. + nedv. 2 km.</div>
+            <div class="pills"><span class="pill">3:35 /km</span><span class="pill">~8 km totalt</span><span class="pill">Z3–Z4</span></div>
+          </div>
+        </div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--orange)"></div>
+          <div class="session-week">V.24<br>Torsdag</div>
+          <div class="session-body">
+            <div class="session-type st-lift">🏋️ Styrka</div>
+            <div class="session-title">Underkropp + core</div>
+            <div class="session-desc">Knäböj, rumänsk marklyft, benpress, bulgarska split-squat, plankan. Öka vikt från v.23.</div>
+            <div class="pills"><span class="pill">5 övningar</span><span class="pill">3–4 set</span><span class="pill">Progressiv</span></div>
+          </div>
+        </div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--amber)"></div>
+          <div class="session-week">V.24<br>Lördag</div>
+          <div class="session-body">
+            <div class="session-type st-run">🏃 Löpning</div>
+            <div class="session-title">6×400 m snabba drag</div>
+            <div class="session-desc">Anaerob stimulans. 90 sek vila, bana.</div>
+            <div class="pills"><span class="pill">3:10 /km</span><span class="pill">Bana</span><span class="pill">Z5</span></div>
+          </div>
+        </div>
       </div>
 
-      <div class="sl" style="margin-bottom:16px;">Fas 2 — Tröskel & specifik fart (v.26–29)</div>
+      <div class="sl" style="margin-bottom:16px;">Fas 2 — Tröskel & styrkeuppbyggnad (v.26–29)</div>
       <div class="session-list" style="margin-bottom:32px;">
-        <div class="session"><div class="session-stripe" style="background:var(--purple)"></div><div class="session-week">V.26<br>Tisdag</div><div class="session-body"><div class="session-title">3×2000 m tröskelpass</div><div class="session-desc">Längre drag på tröskelfart. 3 min vila.</div><div class="pills"><span class="pill">3:35 /km</span><span class="pill">Z4</span></div></div></div>
-        <div class="session"><div class="session-stripe" style="background:var(--purple)"></div><div class="session-week">V.27<br>Tisdag</div><div class="session-body"><div class="session-title">2×3000 m @ 3:35/km</div><div class="session-desc">4 min vila. Längsta tröskeldraget hittills.</div><div class="pills"><span class="pill">3:35 /km</span><span class="pill">Z4</span></div></div></div>
-        <div class="session"><div class="session-stripe" style="background:var(--blue)"></div><div class="session-week">V.29<br>Lördag</div><div class="session-body"><div class="session-title cg">3 km kontrolltest ★</div><div class="session-desc">Halvvägsmätning. Under 10:10 = planen funkar.</div><div class="pills"><span class="pill" style="border-color:var(--green);color:var(--green);">Måltempo 3:19</span><span class="pill">Bana</span><span class="pill">Tävlingsintensitet</span></div></div></div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--purple)"></div>
+          <div class="session-week">V.26–27<br>Tisdag</div>
+          <div class="session-body">
+            <div class="session-type st-run">🏃 Löpning</div>
+            <div class="session-title">3×2000 m tröskelpass</div>
+            <div class="session-desc">Längre drag på tröskelfart. 3 min vila.</div>
+            <div class="pills"><span class="pill">3:35 /km</span><span class="pill">Z4</span></div>
+          </div>
+        </div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--orange)"></div>
+          <div class="session-week">V.26–27<br>Torsdag</div>
+          <div class="session-body">
+            <div class="session-type st-lift">🏋️ Styrka</div>
+            <div class="session-title">Överkropp + bål — tung fas</div>
+            <div class="session-desc">Bänkpress, axelpress, latsdrag, rodd, dips. Progressiv överlast varje vecka.</div>
+            <div class="pills"><span class="pill">5 övningar</span><span class="pill">4×6–8</span><span class="pill">80% av max</span></div>
+          </div>
+        </div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--blue)"></div>
+          <div class="session-week">V.29<br>Lördag</div>
+          <div class="session-body">
+            <div class="session-type st-run">🏃 Löpning</div>
+            <div class="session-title cg">3 km kontrolltest ★</div>
+            <div class="session-desc">Halvvägsmätning. Under 10:10 = planen funkar.</div>
+            <div class="pills"><span class="pill" style="border-color:var(--green);color:var(--green);">Måltempo 3:19</span><span class="pill">Bana</span><span class="pill">Tävlingsintensitet</span></div>
+          </div>
+        </div>
       </div>
 
       <div class="sl" style="margin-bottom:16px;">Fas 3 — Spetsning (v.30–34)</div>
       <div class="session-list">
-        <div class="session"><div class="session-stripe" style="background:var(--red)"></div><div class="session-week">V.30–31<br>Tisdag</div><div class="session-body"><div class="session-title">6×500 m sharpening</div><div class="session-desc">Under tävlingsfart. 2 min vila.</div><div class="pills"><span class="pill">3:10 /km</span><span class="pill">Z5</span></div></div></div>
-        <div class="session"><div class="session-stripe" style="background:var(--red)"></div><div class="session-week">V.34<br>Tävling</div><div class="session-body"><div class="session-title cg">3 KM — SUB 10:00 ★★</div><div class="session-desc">Ut på 3:22/km, negativ split sista km på 3:15.</div><div class="pills"><span class="pill" style="border-color:var(--green);color:var(--green);">Mål: 9:59</span><span class="pill">Bana</span></div></div></div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--red)"></div>
+          <div class="session-week">V.30–31<br>Tisdag</div>
+          <div class="session-body">
+            <div class="session-type st-run">🏃 Löpning</div>
+            <div class="session-title">6×500 m sharpening</div>
+            <div class="session-desc">Under tävlingsfart. 2 min vila.</div>
+            <div class="pills"><span class="pill">3:10 /km</span><span class="pill">Z5</span></div>
+          </div>
+        </div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--orange)"></div>
+          <div class="session-week">V.30–33<br>Torsdag</div>
+          <div class="session-body">
+            <div class="session-type st-lift">🏋️ Styrka</div>
+            <div class="session-title">Underhållsstyrka — reducerad volym</div>
+            <div class="session-desc">Bibehåll styrkevinster under spetsningsfasen. Kortare session, samma intensitet.</div>
+            <div class="pills"><span class="pill">3 övningar</span><span class="pill">3×5</span><span class="pill">85% av max</span></div>
+          </div>
+        </div>
+        <div class="session">
+          <div class="session-stripe" style="background:var(--red)"></div>
+          <div class="session-week">V.34<br>Tävling</div>
+          <div class="session-body">
+            <div class="session-type st-run">🏃 Löpning</div>
+            <div class="session-title cg">3 KM — SUB 10:00 ★★</div>
+            <div class="session-desc">Ut på 3:22/km, negativ split sista km på 3:15.</div>
+            <div class="pills"><span class="pill" style="border-color:var(--green);color:var(--green);">Mål: 9:59</span><span class="pill">Bana</span></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -995,7 +1058,7 @@
 
     <!-- STYRKA -->
     <div class="page" id="page-strength">
-      <div class="page-header"><h2>Styrka</h2><p>Styrkepass från Garmin · logga övningar</p></div>
+      <div class="page-header"><h2>Styrka</h2><p>Styrkepass från Garmin · logga övningar & progression</p></div>
       <div id="strength-list"><div style="color:var(--muted);font-size:13px;font-family:'JetBrains Mono',monospace;">Hämtar pass...</div></div>
     </div>
 
@@ -1009,17 +1072,17 @@
           <span class="chat-sub">Claude Sonnet</span>
         </div>
         <div class="qprompts">
-          <button class="qp" onclick="qa('Ska jag köra hårt idag?')">Träna idag?</button>
-          <button class="qp" onclick="qa('Varför är mitt HRV lågt?')">HRV lågt?</button>
+          <button class="qp" onclick="qa('Ska jag köra löpning eller styrka idag?')">Löpning eller styrka?</button>
+          <button class="qp" onclick="qa('Hur kombinerar jag löpning och styrka bäst?')">Kombinera träning</button>
           <button class="qp" onclick="qa('Vilket är nästa kvalitetspass?')">Nästa pass</button>
-          <button class="qp" onclick="qa('Hur ligger jag till mot sub 10:00?')">Hur ligger jag till?</button>
-          <button class="qp" onclick="qa('Vad är min svaghet just nu?')">Min svaghet?</button>
+          <button class="qp" onclick="qa('Hur ligger jag till mot sub 10:00?')">Sub 10:00?</button>
+          <button class="qp" onclick="qa('Hur ska jag progressera i styrketräningen?')">Styrka progress</button>
           <button class="qp" onclick="qa('Ge mig en motivationsboost!')">Motivera mig!</button>
         </div>
         <div class="messages" id="messages">
           <div class="msg ai">
             <div class="msg-from">COACH</div>
-            Hej! Jag känner till din Garmin-data, ditt mål (sub 10:00 på 3 km) och din träningsplan. Vad vill du veta?
+            Hej! Jag känner till ditt dubbla mål — sub 10:00 på 3 km OCH att bli starkare. Vad vill du veta?
           </div>
         </div>
         <div class="chat-input">
@@ -1068,7 +1131,6 @@ async function tryLogin() {
   }
 }
 
-// Add password to all API calls
 const originalFetch = window.fetch;
 window.fetch = (url, opts = {}) => {
   if (url.startsWith('/api/')) {
@@ -1076,6 +1138,7 @@ window.fetch = (url, opts = {}) => {
   }
   return originalFetch(url, opts);
 };
+
   // Navigation
   function goto(id) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1085,22 +1148,26 @@ window.fetch = (url, opts = {}) => {
       if (n.getAttribute('onclick') === "goto('" + id + "')") n.classList.add('active');
     });
     window.scrollTo(0, 0);
-    if (id === 'history') loadHistory();
-    if (id === 'health') loadHealth();
+    if (id === 'history')  loadHistory();
+    if (id === 'health')   loadHealth();
     if (id === 'strength') loadStrength();
   }
 
-  // Days left
+  // Days left + goal bars
   const target = new Date('2026-08-31');
-  const start = new Date('2026-05-27');
-  const total = Math.ceil((target - start) / 86400000);
-  const left = Math.max(0, Math.ceil((target - new Date()) / 86400000));
+  const start  = new Date('2026-05-27');
+  const total  = Math.ceil((target - start) / 86400000);
+  const left   = Math.max(0, Math.ceil((target - new Date()) / 86400000));
   document.getElementById('days-left').textContent = left;
   document.getElementById('days-bar').style.width = Math.max(0,(1-left/total)*100) + '%';
-  setTimeout(() => { document.getElementById('goal-bar').style.width = '97%'; }, 500);
+  setTimeout(() => {
+    document.getElementById('goal-bar-run').style.width = '97%';
+    // Styrka-bar baseras på veckor tränade — statisk placeholder
+    document.getElementById('goal-bar-lift').style.width = '45%';
+  }, 500);
   loadHealth();
 
-  // Load history from Garmin
+  // Load history
   async function loadHistory() {
     const tbody = document.getElementById('history-tbody');
     tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);font-size:13px;padding:20px 14px;">Hämtar aktiviteter från Garmin...</td></tr>';
@@ -1108,8 +1175,8 @@ window.fetch = (url, opts = {}) => {
       const res = await fetch('/api/activities?days=30');
       const data = await res.json();
       if (!data.activities) throw new Error('Ingen data');
-      const typeLabels = { running:'LÖPNING', track_running:'BANLÖPNING', treadmill_running:'LÖPBAND', trail_running:'TERRÄNGLÖPNING', cycling:'CYKLING', walking:'PROMENAD' };
-      const typeColors = { track_running:'var(--purple)', trail_running:'var(--green)', treadmill_running:'var(--blue)', cycling:'var(--amber)' };
+      const typeLabels = { running:'LÖPNING', track_running:'BANLÖPNING', treadmill_running:'LÖPBAND', trail_running:'TERRÄNGLÖPNING', cycling:'CYKLING', walking:'PROMENAD', strength_training:'STYRKA', fitness_equipment:'GYM', indoor_cardio:'CARDIO', bouldering:'BOULDER' };
+      const typeColors = { track_running:'var(--purple)', trail_running:'var(--green)', treadmill_running:'var(--blue)', cycling:'var(--amber)', strength_training:'var(--orange)', fitness_equipment:'var(--orange)', bouldering:'var(--red)' };
       const fmt = s => { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60); return h>0?h+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0'):m+':'+String(sec).padStart(2,'0'); };
       const fmtDist = m => m>=1000?(m/1000).toFixed(1)+' km':Math.round(m)+' m';
       const fmtDate = s => new Date(s).toLocaleDateString('sv-SE',{day:'numeric',month:'short'});
@@ -1136,7 +1203,6 @@ window.fetch = (url, opts = {}) => {
       const res = await fetch('/api/health');
       const h = await res.json();
       if (h.error) return;
-
       const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
 
       if (h.readiness?.score != null) {
@@ -1149,7 +1215,6 @@ window.fetch = (url, opts = {}) => {
         document.getElementById('h-readiness-bar').style.width = score + '%';
         document.getElementById('h-readiness-bar').style.background = col;
       }
-
       if (h.hrv?.lastNightAvg != null) {
         const pct = h.hrv.pct || 0;
         const col = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
@@ -1159,7 +1224,6 @@ window.fetch = (url, opts = {}) => {
         document.getElementById('h-hrv-bar').style.width = Math.min(pct,100) + '%';
         document.getElementById('h-hrv-bar').style.background = col;
       }
-
       if (h.restingHR?.value != null) {
         const rhr = h.restingHR.value;
         const col = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
@@ -1170,13 +1234,10 @@ window.fetch = (url, opts = {}) => {
         document.getElementById('h-rhr-bar').style.width = pct + '%';
         document.getElementById('h-rhr-bar').style.background = col;
       }
-
       if (h.sleep?.totalSec) {
         document.getElementById('h-sleep-score-val').textContent = h.sleep.score || '—';
         document.getElementById('h-sleep-score-sub').textContent = fmtTime(h.sleep.totalSec);
-        if (h.sleep.score) {
-          document.getElementById('h-sleep-score-bar').style.width = h.sleep.score + '%';
-        }
+        if (h.sleep.score) document.getElementById('h-sleep-score-bar').style.width = h.sleep.score + '%';
         document.getElementById('h-deep-val').textContent = h.sleep.deepPct + '%';
         document.getElementById('h-deep-sub').textContent = fmtTime(h.sleep.deepSec);
         document.getElementById('h-deep-bar').style.width = h.sleep.deepPct + '%';
@@ -1184,12 +1245,10 @@ window.fetch = (url, opts = {}) => {
         document.getElementById('h-rem-sub').textContent = fmtTime(h.sleep.remSec);
         document.getElementById('h-rem-bar').style.width = h.sleep.remPct + '%';
       }
-
       if (h.hrv?.lastNightAvg != null) {
         document.getElementById('h-hrv-sleep-val').textContent = h.hrv.lastNightAvg;
         document.getElementById('h-hrv-sleep-bar').style.width = Math.min(h.hrv.lastNightAvg, 100) + '%';
       }
-
       if (h.bodyBattery?.current != null) {
         const bb = h.bodyBattery.current;
         const col = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
@@ -1199,7 +1258,6 @@ window.fetch = (url, opts = {}) => {
         document.getElementById('h-bb-bar').style.width = bb + '%';
         document.getElementById('h-bb-bar').style.background = col;
       }
-
       if (h.stress?.avg != null) {
         const s = h.stress.avg;
         const col = s <= 25 ? 'var(--green)' : s <= 50 ? 'var(--amber)' : 'var(--red)';
@@ -1209,20 +1267,17 @@ window.fetch = (url, opts = {}) => {
         document.getElementById('h-stress-bar').style.width = s + '%';
         document.getElementById('h-stress-bar').style.background = col;
       }
-
       if (h.spo2?.avg != null) {
         document.getElementById('h-spo2-val').textContent = h.spo2.avg + '%';
         document.getElementById('h-spo2-sub').textContent = 'Lägst: ' + (h.spo2.min ? h.spo2.min+'%' : '—');
         document.getElementById('h-spo2-bar').style.width = h.spo2.avg + '%';
       }
-
       if (h.respiration?.avg != null) {
         document.getElementById('h-resp-val').textContent = h.respiration.avg;
         document.getElementById('h-resp-sub').textContent = 'Under sömn: ' + (h.respiration.sleepAvg||'—');
       }
-
       const d = new Date();
-      document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric', month:'long', year:'numeric'}) + ' · Garmin live-data';
+      document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric',month:'long',year:'numeric'}) + ' · Garmin live-data';
 
       if (h.readiness?.score != null) {
         const score = h.readiness.score;
@@ -1262,7 +1317,6 @@ window.fetch = (url, opts = {}) => {
         document.getElementById('snap-hrv-bar').style.width = Math.min(pct, 100) + '%';
         document.getElementById('snap-hrv-bar').style.background = col;
       }
-
     } catch(e) { console.error('Health error:', e); }
   }
 
@@ -1277,7 +1331,6 @@ window.fetch = (url, opts = {}) => {
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-
       if (data.todayRecommendation) {
         const titles = { easy:'Lugnt pass idag', quality:'Kvalitetspass idag', rest:'Vilodag idag' };
         const badges = { easy:'badge-green', quality:'badge-amber', rest:'badge-red' };
@@ -1290,7 +1343,6 @@ window.fetch = (url, opts = {}) => {
       }
       if (data.prediction3k) document.getElementById('prediction-3k').textContent = data.prediction3k;
       if (data.insight) document.getElementById('ai-insight').textContent = data.insight;
-
       btn.textContent = '✓ Uppdaterad';
       btn.style.color = 'var(--green)';
       setTimeout(() => { btn.textContent = '↻ Uppdatera data'; btn.style.color = ''; btn.disabled = false; }, 3000);
@@ -1301,15 +1353,24 @@ window.fetch = (url, opts = {}) => {
     }
   }
 
-  const CTX = `Du är en personlig träningscoach för en löpare med följande profil:
-- Mål: springa 3 km under 10 minuter (nuvarande bästa: 10:27, gap 27 sek)
-- Tidsram: till slutet av augusti 2026 (~13 veckor kvar)
+  const CTX = `Du är en personlig träningscoach för en löpare/idrottare med DUBBELT fokus:
+
+LÖPMÅL: Springa 3 km under 10 minuter (nuvarande bästa: 10:27, gap 27 sek)
+- Tidsram: till slutet av augusti 2026
 - VO2max: 59, Garmin predictions: 5K 17:56, 10K 37:30, halvmarathon 1:23:30
-- Dagens träningsberedskap: 50/100, HRV låg (22%), sömn 91/100, body battery 40
-- Garmin flaggar: anaerob brist
 - Nyligen: GöteborgsVarvet halvmarathon 1:27:23 (23 maj)
-- Plan: V23 återhämtning → V24-25 intervaller → V26-29 tröskel → V30-34 spetsning
-Svara alltid på svenska. Var konkret och personlig. Max 3–4 meningar.`;
+- Löpplan: V23 återhämtning → V24-25 intervaller → V26-29 tröskel → V30-34 spetsning
+- Garmin flaggar: anaerob brist (behöver mer Z5-träning)
+
+STYRKEMÅL: Bli progressivt starkare — 2 styrkepass per vecka
+- Storlyftarna: knäböj, marklyft, bänkpress, axelpress
+- Princip: progressiv överlast — öka vikt eller reps varje vecka
+- Styrka stödjer löpningen: stärker core, minskar skaderisk, ökar kraftuttag
+
+HÄLSODATA (aktuell):
+- Träningsberedskap: 50/100, HRV låg (22%), sömn 91/100, body battery 40
+
+Svara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen i ditt svar. Max 3–4 meningar.`;
 
   const history = [];
 
