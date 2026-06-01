@@ -2,40 +2,48 @@ from flask import Flask, request, jsonify, send_from_directory
 from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
-import sqlite3, json, time, requests, os
+import json, time, requests, psycopg2, psycopg2.extras
 from datetime import date
 
 app = Flask(__name__, static_folder='public')
 
 config = dotenv_values('.env')
-PASSWORD = config.get('SITE_PASSWORD', 'hugo123')
+PASSWORD    = config.get('SITE_PASSWORD', 'hugo123')
 ANTHROPIC_KEY = config.get('ANTHROPIC_API_KEY', '')
-TOKEN_DIR = str(Path.home() / '.garminconnect')
-DB_PATH = 'dashboard.db'
+TOKEN_DIR   = str(Path.home() / '.garminconnect')
+DATABASE_URL = config.get('DATABASE_URL', '')
 
 # --- Databas ---
 def db():
-    return sqlite3.connect(DB_PATH)
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+    conn.autocommit = False
+    return conn
 
 def setup_db():
     with db() as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS activities (
-            id INTEGER PRIMARY KEY, name TEXT, date TEXT, type TEXT,
-            distance REAL, duration REAL, avg_hr INTEGER,
-            raw TEXT, created_at REAL)''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS cache (
-            key TEXT PRIMARY KEY, value TEXT, updated_at REAL)''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS strength_exercises (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            exercise TEXT NOT NULL,
-            sets INTEGER,
-            reps TEXT,
-            weight REAL,
-            note TEXT,
-            created_at REAL)''')
+        with conn.cursor() as cur:
+            cur.execute('''CREATE TABLE IF NOT EXISTS activities (
+                id BIGINT PRIMARY KEY, name TEXT, date TEXT, type TEXT,
+                distance REAL, duration REAL, avg_hr INTEGER,
+                raw JSONB, created_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS cache (
+                key TEXT PRIMARY KEY, value JSONB, updated_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS strength_exercises (
+                id SERIAL PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                exercise TEXT NOT NULL,
+                sets INTEGER,
+                reps TEXT,
+                weight REAL,
+                note TEXT,
+                created_at REAL)''')
+        conn.commit()
+    print('Databas: klar')
 
-setup_db()
+try:
+    setup_db()
+except Exception as e:
+    print('Databas fel:', e)
 
 # --- Garmin ---
 _garmin = None
@@ -51,16 +59,39 @@ def get_garmin():
 
 def save_activities(activities):
     with db() as conn:
-        for a in activities:
-            try:
-                conn.execute(
-                    'INSERT OR REPLACE INTO activities (id,name,date,type,distance,duration,avg_hr,raw,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
-                    (a.get('activityId'), a.get('activityName'), a.get('startTimeLocal'),
-                     a.get('activityType', {}).get('typeKey'),
-                     a.get('distance'), a.get('duration'), a.get('averageHR'),
-                     json.dumps(a), time.time()))
-            except Exception as e:
-                print('Spara aktivitet fel:', e)
+        with conn.cursor() as cur:
+            for a in activities:
+                try:
+                    cur.execute('''INSERT INTO activities (id,name,date,type,distance,duration,avg_hr,raw,created_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (id) DO UPDATE SET raw=EXCLUDED.raw, name=EXCLUDED.name''',
+                        (a.get('activityId'), a.get('activityName'), a.get('startTimeLocal'),
+                         a.get('activityType', {}).get('typeKey'),
+                         a.get('distance'), a.get('duration'), a.get('averageHR'),
+                         json.dumps(a), time.time()))
+                except Exception as e:
+                    print('Spara aktivitet fel:', e)
+        conn.commit()
+
+def get_cache(key):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value, updated_at FROM cache WHERE key=%s", (key,))
+            return cur.fetchone()
+
+def set_cache(key, value):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''INSERT INTO cache (key, value, updated_at) VALUES (%s, %s, %s)
+                ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at''',
+                (key, json.dumps(value), time.time()))
+        conn.commit()
+
+def clear_cache(*keys):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM cache WHERE key = ANY(%s)", (list(keys),))
+        conn.commit()
 
 # --- Auth ---
 @app.before_request
@@ -75,7 +106,7 @@ def check_auth():
 # --- Endpoints ---
 @app.post('/api/login')
 def login():
-    if request.json.get('password') == PASSWORD:
+    if (request.json or {}).get('password') == PASSWORD:
         return jsonify({'ok': True})
     return jsonify({'ok': False}), 401
 
@@ -86,9 +117,11 @@ def status():
 @app.get('/api/activities')
 def activities():
     with db() as conn:
-        rows = conn.execute('SELECT raw FROM activities ORDER BY date DESC LIMIT 50').fetchall()
+        with conn.cursor() as cur:
+            cur.execute('SELECT raw FROM activities ORDER BY date DESC LIMIT 50')
+            rows = cur.fetchall()
     if rows:
-        return jsonify({'activities': [json.loads(r[0]) for r in rows], 'source': 'database'})
+        return jsonify({'activities': [r[0] for r in rows], 'source': 'database'})
     try:
         client = get_garmin()
         acts = client.get_activities(0, 50)
@@ -100,11 +133,9 @@ def activities():
 @app.get('/api/health')
 def health_data():
     today = date.today().isoformat()
-
-    with db() as conn:
-        row = conn.execute("SELECT value, updated_at FROM cache WHERE key='health'").fetchone()
+    row = get_cache('health')
     if row and (time.time() - row[1]) < 30 * 60:
-        return jsonify(json.loads(row[0]))
+        return jsonify(row[0])
 
     try:
         client = get_garmin()
@@ -121,44 +152,37 @@ def health_data():
         total_sleep_sec = s.get('sleepTimeSeconds', 0)
         deep_sec  = s.get('deepSleepSeconds', 0)
         rem_sec   = s.get('remSleepSeconds', 0)
-        light_sec = s.get('lightSleepSeconds', 0)
         sleep_scores = s.get('sleepScores') or {}
         sleep_score_val = sleep_scores.get('overall', {}).get('value') if isinstance(sleep_scores, dict) else None
 
-        hrv_sum   = hrv.get('hrvSummary', {})
-        hrv_pct   = round((hrv_sum.get('lastNightAvg', 0) / hrv_sum.get('weeklyAvg', 1)) * 100) if hrv_sum.get('weeklyAvg') else None
+        hrv_sum = hrv.get('hrvSummary', {})
+        hrv_pct = round((hrv_sum.get('lastNightAvg', 0) / hrv_sum.get('weeklyAvg', 1)) * 100) if hrv_sum.get('weeklyAvg') else None
 
-        bb_today  = bb[0] if bb else {}
-        bb_vals   = bb_today.get('bodyBatteryValuesArray', [])
-        bb_now    = bb_vals[-1][1] if bb_vals else None
-        bb_max    = max(v[1] for v in bb_vals) if bb_vals else None
+        bb_today = bb[0] if bb else {}
+        bb_vals  = bb_today.get('bodyBatteryValuesArray', [])
+        bb_now   = bb_vals[-1][1] if bb_vals else None
+        bb_max   = max(v[1] for v in bb_vals) if bb_vals else None
 
-        ready     = readiness[0] if readiness else {}
-
-        avg_resp  = resp.get('avgWakingRespirationValue') or resp.get('avgRespirationValue')
+        ready    = readiness[0] if readiness else {}
+        avg_resp = resp.get('avgWakingRespirationValue') or resp.get('avgRespirationValue')
         sleep_resp = resp.get('avgSleepRespirationValue')
-
         avg_spo2 = spo2.get('averageSpO2')
         if avg_spo2: avg_spo2 = round(avg_spo2)
-        min_spo2 = spo2.get('lowestSpO2')
 
         result = {
             'date': today,
-            'readiness':     {'score': ready.get('score'), 'level': ready.get('level'), 'feedback': ready.get('feedbackShort')},
-            'hrv':           {'lastNightAvg': hrv_sum.get('lastNightAvg'), 'weeklyAvg': hrv_sum.get('weeklyAvg'), 'status': hrv_sum.get('status'), 'pct': hrv_pct},
-            'restingHR':     {'value': hr.get('restingHeartRate'), 'sevenDayAvg': hr.get('lastSevenDaysAvgRestingHeartRate'), 'min': hr.get('minHeartRate')},
-            'sleep':         {'totalSec': total_sleep_sec, 'deepSec': deep_sec, 'remSec': rem_sec, 'lightSec': light_sec, 'score': sleep_score_val,
-                              'deepPct': round(deep_sec/total_sleep_sec*100) if total_sleep_sec else 0,
-                              'remPct':  round(rem_sec/total_sleep_sec*100)  if total_sleep_sec else 0},
-            'bodyBattery':   {'current': bb_now, 'max': bb_max, 'charged': bb_today.get('charged'), 'drained': bb_today.get('drained')},
-            'stress':        {'avg': stress.get('avgStressLevel'), 'max': stress.get('maxStressLevel')},
-            'respiration':   {'avg': round(avg_resp) if avg_resp else None, 'sleepAvg': round(sleep_resp) if sleep_resp else None},
-            'spo2':          {'avg': avg_spo2, 'min': min_spo2},
+            'readiness':   {'score': ready.get('score'), 'level': ready.get('level'), 'feedback': ready.get('feedbackShort')},
+            'hrv':         {'lastNightAvg': hrv_sum.get('lastNightAvg'), 'weeklyAvg': hrv_sum.get('weeklyAvg'), 'status': hrv_sum.get('status'), 'pct': hrv_pct},
+            'restingHR':   {'value': hr.get('restingHeartRate'), 'sevenDayAvg': hr.get('lastSevenDaysAvgRestingHeartRate'), 'min': hr.get('minHeartRate')},
+            'sleep':       {'totalSec': total_sleep_sec, 'deepSec': deep_sec, 'remSec': rem_sec, 'score': sleep_score_val,
+                            'deepPct': round(deep_sec/total_sleep_sec*100) if total_sleep_sec else 0,
+                            'remPct':  round(rem_sec/total_sleep_sec*100)  if total_sleep_sec else 0},
+            'bodyBattery': {'current': bb_now, 'max': bb_max, 'charged': bb_today.get('charged'), 'drained': bb_today.get('drained')},
+            'stress':      {'avg': stress.get('avgStressLevel'), 'max': stress.get('maxStressLevel')},
+            'respiration': {'avg': round(avg_resp) if avg_resp else None, 'sleepAvg': round(sleep_resp) if sleep_resp else None},
+            'spo2':        {'avg': avg_spo2, 'min': spo2.get('lowestSpO2')},
         }
-
-        with db() as conn:
-            conn.execute("INSERT OR REPLACE INTO cache (key,value,updated_at) VALUES ('health',?,?)",
-                         (json.dumps(result), time.time()))
+        set_cache('health', result)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -169,19 +193,16 @@ def sync():
         client = get_garmin()
         acts = client.get_activities(0, 50)
         save_activities(acts)
-        # Rensa cachad hälsodata så nästa anrop hämtar färsk data
-        with db() as conn:
-            conn.execute("DELETE FROM cache WHERE key IN ('health','analysis')")
+        clear_cache('health', 'analysis')
         return jsonify({'ok': True, 'count': len(acts)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.post('/api/refresh')
 def refresh():
-    with db() as conn:
-        row = conn.execute("SELECT value, updated_at FROM cache WHERE key='analysis'").fetchone()
+    row = get_cache('analysis')
     if row and (time.time() - row[1]) < 5 * 60:
-        return jsonify(json.loads(row[0]))
+        return jsonify(row[0])
 
     try:
         client = get_garmin()
@@ -199,7 +220,7 @@ def refresh():
     ][:5]
 
     if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
-        return jsonify({'todayRecommendation': 'Lägg till Anthropic API-nyckel i .env för AI-analys.',
+        return jsonify({'todayRecommendation': 'Lägg till Anthropic API-nyckel i .env.',
                         'todayType': 'easy',
                         'nextSession': {'title': 'Lugnt jogg', 'desc': 'Z2, 30-40 min', 'tempo': '4:45-5:15 /km', 'distance': '~6 km'},
                         'prediction3k': '10:27', 'insight': 'AI-insikter kräver API-nyckel.'})
@@ -227,18 +248,14 @@ Svara ENDAST med detta JSON:
         headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
                  'content-type': 'application/json'})
 
-    text = resp.json()['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
+    text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
     analysis = json.loads(text)
-
-    with db() as conn:
-        conn.execute("INSERT OR REPLACE INTO cache (key,value,updated_at) VALUES ('analysis',?,?)",
-                     (json.dumps(analysis), time.time()))
-
+    set_cache('analysis', analysis)
     return jsonify(analysis)
 
 @app.post('/api/chat')
 def chat():
-    data = request.json
+    data = request.json or {}
     if not ANTHROPIC_KEY:
         return jsonify({'reply': 'API-nyckel saknas.'})
     resp = requests.post('https://api.anthropic.com/v1/messages',
@@ -250,16 +267,18 @@ def chat():
     return jsonify({'reply': resp.json()['content'][0]['text']})
 
 # --- Styrka ---
-STRENGTH_TYPES = {'strength_training', 'fitness_equipment', 'gym', 'indoor_cardio', 'cardio', 'bouldering'}
+STRENGTH_TYPES = ('strength_training', 'fitness_equipment', 'gym', 'indoor_cardio', 'cardio', 'bouldering')
 
 @app.get('/api/strength')
 def strength_sessions():
     with db() as conn:
-        rows = conn.execute("SELECT raw FROM activities WHERE type IN ({}) ORDER BY date DESC LIMIT 30".format(
-            ','.join('?' * len(STRENGTH_TYPES))), list(STRENGTH_TYPES)).fetchall()
+        with conn.cursor() as cur:
+            cur.execute("SELECT raw FROM activities WHERE type = ANY(%s) ORDER BY date DESC LIMIT 30",
+                        (list(STRENGTH_TYPES),))
+            rows = cur.fetchall()
     sessions = []
     for r in rows:
-        a = json.loads(r[0])
+        a = r[0]
         sessions.append({
             'id': str(a.get('activityId')),
             'name': a.get('activityName', 'Styrkepass'),
@@ -274,25 +293,30 @@ def strength_sessions():
 @app.get('/api/strength/<session_id>/exercises')
 def get_exercises(session_id):
     with db() as conn:
-        rows = conn.execute(
-            'SELECT id, exercise, sets, reps, weight, note FROM strength_exercises WHERE session_id=? ORDER BY id',
-            (session_id,)).fetchall()
+        with conn.cursor() as cur:
+            cur.execute('SELECT id, exercise, sets, reps, weight, note FROM strength_exercises WHERE session_id=%s ORDER BY id',
+                        (session_id,))
+            rows = cur.fetchall()
     return jsonify({'exercises': [{'id': r[0], 'exercise': r[1], 'sets': r[2], 'reps': r[3], 'weight': r[4], 'note': r[5]} for r in rows]})
 
 @app.post('/api/strength/<session_id>/exercises')
 def add_exercise(session_id):
     data = request.get_json(force=True, silent=True) or {}
     with db() as conn:
-        cur = conn.execute(
-            'INSERT INTO strength_exercises (session_id, exercise, sets, reps, weight, note, created_at) VALUES (?,?,?,?,?,?,?)',
-            (session_id, data.get('exercise',''), data.get('sets'), data.get('reps',''), data.get('weight'), data.get('note',''), time.time()))
-        new_id = cur.lastrowid
+        with conn.cursor() as cur:
+            cur.execute('INSERT INTO strength_exercises (session_id,exercise,sets,reps,weight,note,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                        (session_id, data.get('exercise',''), data.get('sets'), data.get('reps',''),
+                         data.get('weight'), data.get('note',''), time.time()))
+            new_id = cur.fetchone()[0]
+        conn.commit()
     return jsonify({'ok': True, 'id': new_id})
 
 @app.delete('/api/strength/exercises/<int:ex_id>')
 def delete_exercise(ex_id):
     with db() as conn:
-        conn.execute('DELETE FROM strength_exercises WHERE id=?', (ex_id,))
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM strength_exercises WHERE id=%s', (ex_id,))
+        conn.commit()
     return jsonify({'ok': True})
 
 # --- Statiska filer ---
