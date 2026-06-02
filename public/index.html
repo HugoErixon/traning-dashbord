@@ -729,6 +729,52 @@
     }
     .send-btn:hover { opacity:0.88; transform:translateY(-1px); }
 
+    /* ─── TOOLTIP ─── */
+    .tip-box {
+      position: fixed;
+      z-index: 999;
+      background: var(--bg4);
+      border: 1px solid var(--border3);
+      border-radius: 12px;
+      padding: 14px 16px;
+      width: 260px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.15s, transform 0.15s;
+    }
+    .tip-box.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .tip-title {
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      letter-spacing: -0.2px;
+    }
+    .tip-desc {
+      font-size: 12px;
+      color: var(--muted3);
+      line-height: 1.6;
+      margin-bottom: 10px;
+    }
+    .tip-ranges {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .tip-range {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .tip-range-label { color: var(--muted2); }
+    .tip-range-val   { font-weight: 600; }
+
     /* ─── COACH LAYOUT ─── */
     @media (max-width: 900px) {
       #page-coach > div[style*="grid-template-columns"] {
@@ -1009,24 +1055,24 @@
       <div class="page-header"><h2>Hälsa</h2><p id="h-date-label">Laddar...</p></div>
       <div class="sl">Återhämtning & kondition</div>
       <div class="grid">
-        <div class="card"><div class="card-label">träningsberedskap</div><div id="h-readiness-val" class="card-val ca">—</div><div id="h-readiness-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">hrv natt (ms)</div><div id="h-hrv-val" class="card-val cr">—</div><div id="h-hrv-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
-        <div class="card"><div class="card-label">vilopuls</div><div id="h-rhr-val" class="card-val cg">—</div><div id="h-rhr-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-rhr-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">vo2max</div><div class="card-val cg">59</div><div class="card-sub">Löpning · stabil</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
+        <div class="card has-tip" data-tip="readiness"><div class="card-label">träningsberedskap <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-readiness-val" class="card-val ca">—</div><div id="h-readiness-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card has-tip" data-tip="hrv"><div class="card-label">hrv natt (ms) <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-hrv-val" class="card-val cr">—</div><div id="h-hrv-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
+        <div class="card has-tip" data-tip="rhr"><div class="card-label">vilopuls <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-rhr-val" class="card-val cg">—</div><div id="h-rhr-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-rhr-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card has-tip" data-tip="vo2max"><div class="card-label">vo2max <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div class="card-val cg">59</div><div class="card-sub">Löpning · stabil</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
       </div>
       <div class="sl">Sömn</div>
       <div class="grid">
-        <div class="card"><div class="card-label">sömnpoäng</div><div id="h-sleep-score-val" class="card-val cg">—</div><div id="h-sleep-score-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-sleep-score-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">djupsömn</div><div id="h-deep-val" class="card-val cb">—</div><div id="h-deep-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-deep-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div></div>
-        <div class="card"><div class="card-label">rem-sömn</div><div id="h-rem-val" class="card-val cp">—</div><div id="h-rem-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-rem-bar" class="bar-fill" style="width:0%;background:var(--purple)"></div></div></div>
-        <div class="card"><div class="card-label">hrv under sömn (ms)</div><div id="h-hrv-sleep-val" class="card-val cg">—</div><div class="card-sub">Nattmätning</div><div class="bar"><div id="h-hrv-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card has-tip" data-tip="sleep-score"><div class="card-label">sömnpoäng <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-sleep-score-val" class="card-val cg">—</div><div id="h-sleep-score-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-sleep-score-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card has-tip" data-tip="deep"><div class="card-label">djupsömn <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-deep-val" class="card-val cb">—</div><div id="h-deep-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-deep-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div></div>
+        <div class="card has-tip" data-tip="rem"><div class="card-label">rem-sömn <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-rem-val" class="card-val cp">—</div><div id="h-rem-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-rem-bar" class="bar-fill" style="width:0%;background:var(--purple)"></div></div></div>
+        <div class="card has-tip" data-tip="hrv-sleep"><div class="card-label">hrv under sömn (ms) <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-hrv-sleep-val" class="card-val cg">—</div><div class="card-sub">Nattmätning</div><div class="bar"><div id="h-hrv-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
       </div>
       <div class="sl">Energi & stress</div>
       <div class="grid">
-        <div class="card"><div class="card-label">body battery</div><div id="h-bb-val" class="card-val ca">—</div><div id="h-bb-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">stress</div><div id="h-stress-val" class="card-val cg">—</div><div id="h-stress-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-stress-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">spo2</div><div id="h-spo2-val" class="card-val cg">—</div><div id="h-spo2-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-spo2-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">andning (andetag/min)</div><div id="h-resp-val" class="card-val cb">—</div><div id="h-resp-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-resp-bar" class="bar-fill" style="width:55%;background:var(--blue)"></div></div></div>
+        <div class="card has-tip" data-tip="bb"><div class="card-label">body battery <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-bb-val" class="card-val ca">—</div><div id="h-bb-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card has-tip" data-tip="stress"><div class="card-label">stress <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-stress-val" class="card-val cg">—</div><div id="h-stress-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-stress-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card has-tip" data-tip="spo2"><div class="card-label">spo2 <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-spo2-val" class="card-val cg">—</div><div id="h-spo2-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-spo2-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card has-tip" data-tip="resp"><div class="card-label">andning (andetag/min) <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-resp-val" class="card-val cb">—</div><div id="h-resp-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-resp-bar" class="bar-fill" style="width:55%;background:var(--blue)"></div></div></div>
       </div>
     </div>
 
@@ -1662,6 +1708,184 @@ HÄLSODATA (aktuell):
     await loadExercises(sessionId);
   }
   document.getElementById('chat-input').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
+
+  // ─── TOOLTIPS ───────────────────────────────────────────────
+  const TIPS = {
+    readiness: {
+      title: 'Träningsberedskap',
+      desc: 'Garmins samlade bedömning av hur redo kroppen är att träna hårt, baserat på HRV, sömn, stress och aktivitetshistorik.',
+      ranges: [
+        { label: '75 – 100', val: 'Peakad — kör kvalitet', col: 'var(--green)' },
+        { label: '50 – 74',  val: 'Klar — normal träning',  col: 'var(--amber)' },
+        { label: '25 – 49',  val: 'Återhämtar sig',         col: 'var(--amber)' },
+        { label: '0 – 24',   val: 'Låg — vila/Z2 max',      col: 'var(--red)'   },
+      ]
+    },
+    hrv: {
+      title: 'HRV — Heart Rate Variability',
+      desc: 'Variabiliteten mellan hjärtslagen under sömn. Högt HRV = kroppen i parasympatiskt läge = bra återhämtning. Mycket individuellt — jämför alltid mot ditt eget snitt.',
+      ranges: [
+        { label: '> 100% av snitt', val: 'Utmärkt återhämtning', col: 'var(--green)' },
+        { label: '80 – 100%',       val: 'Bra',                  col: 'var(--green)' },
+        { label: '50 – 79%',        val: 'Acceptabel',           col: 'var(--amber)' },
+        { label: '< 50%',           val: 'Låg — vila rekommenderas', col: 'var(--red)' },
+      ]
+    },
+    rhr: {
+      title: 'Vilopuls (bpm)',
+      desc: 'Lägsta puls under vila/sömn. Lägre = bättre kondition. Minskar ofta med ökad aerob träning. Plötslig ökning kan signalera sjukdom eller överträning.',
+      ranges: [
+        { label: '< 45 bpm',  val: 'Elitidrottare',    col: 'var(--green)' },
+        { label: '45 – 55',   val: 'Vältränad',        col: 'var(--green)' },
+        { label: '56 – 70',   val: 'Genomsnitt',       col: 'var(--amber)' },
+        { label: '> 70 bpm',  val: 'Förhöjd',          col: 'var(--red)'   },
+      ]
+    },
+    vo2max: {
+      title: 'VO2max (ml/kg/min)',
+      desc: 'Maximal syreupptagningsförmåga — det viktigaste måttet på kondition. Garmin uppskattar den via löpdata. Ökar gradvis med aerob träning.',
+      ranges: [
+        { label: '> 60',   val: 'Elitlöpare',        col: 'var(--green)' },
+        { label: '55 – 60', val: 'Utmärkt (män 20–35)', col: 'var(--green)' },
+        { label: '46 – 54', val: 'Bra – över genomsnitt', col: 'var(--amber)' },
+        { label: '< 46',   val: 'Genomsnitt/under',  col: 'var(--red)'   },
+      ]
+    },
+    'sleep-score': {
+      title: 'Sömnpoäng',
+      desc: 'Garmins samlade bedömning av sömnkvaliteten baserat på duration, sömncykler, HRV och andning under natten.',
+      ranges: [
+        { label: '90 – 100', val: 'Utmärkt',  col: 'var(--green)' },
+        { label: '80 – 89',  val: 'Bra',      col: 'var(--green)' },
+        { label: '60 – 79',  val: 'Acceptabel', col: 'var(--amber)' },
+        { label: '< 60',     val: 'Dålig — prioritera sömn', col: 'var(--red)' },
+      ]
+    },
+    deep: {
+      title: 'Djupsömn (slow-wave)',
+      desc: 'Den mest fysiskt återhämtande sömnfasen — kroppen reparerar muskler och vävnad. Viktigast för idrottare. Minskar naturligt med åldern.',
+      ranges: [
+        { label: '20 – 25%', val: 'Utmärkt (ca 1,5–2h)', col: 'var(--green)' },
+        { label: '13 – 19%', val: 'Normalt',              col: 'var(--green)' },
+        { label: '8 – 12%',  val: 'Lite låg',             col: 'var(--amber)' },
+        { label: '< 8%',     val: 'För lite',             col: 'var(--red)'   },
+      ]
+    },
+    rem: {
+      title: 'REM-sömn',
+      desc: 'Rapid Eye Movement-sömn — hjärnan konsoliderar minnen och bearbetar intryck. Viktig för mental återhämtning, motorinlärning och motivation.',
+      ranges: [
+        { label: '20 – 25%', val: 'Utmärkt (ca 1,5–2h)',  col: 'var(--green)'  },
+        { label: '15 – 19%', val: 'Normalt',               col: 'var(--green)'  },
+        { label: '10 – 14%', val: 'Lite låg',              col: 'var(--amber)'  },
+        { label: '< 10%',    val: 'För lite',              col: 'var(--red)'    },
+      ]
+    },
+    'hrv-sleep': {
+      title: 'HRV under sömn (ms)',
+      desc: 'Genomsnittlig HRV mätt under hela natten. Mer stabilt mått än dagsmätning. Stiger normalt under djupsömn och REM. Absoluta värden varierar mycket mellan individer.',
+      ranges: [
+        { label: 'Vältränade', val: 'Typiskt 55–100+ ms',    col: 'var(--green)' },
+        { label: 'Genomsnitt', val: 'Typiskt 25–55 ms',      col: 'var(--amber)' },
+        { label: 'Trend',      val: 'Jämför mot ditt snitt', col: 'var(--blue)'  },
+        { label: 'Obs!',       val: 'Plötslig sänkning = vila', col: 'var(--red)' },
+      ]
+    },
+    bb: {
+      title: 'Body Battery',
+      desc: 'Garmins energireserv-mätare baserad på HRV, stress och sömn. Laddas under sömn och vila, töms av aktivitet och stress. Bra guide för om du klarar ett hårt pass.',
+      ranges: [
+        { label: '75 – 100', val: 'Hög energi — kör hårt',   col: 'var(--green)' },
+        { label: '50 – 74',  val: 'Moderat — normal träning', col: 'var(--green)' },
+        { label: '25 – 49',  val: 'Låg — håll det lugnt',     col: 'var(--amber)' },
+        { label: '0 – 24',   val: 'Tom — vila prioriterat',   col: 'var(--red)'   },
+      ]
+    },
+    stress: {
+      title: 'Stressnivå',
+      desc: 'Garmin beräknar stress utifrån HRV-variationer under dagen. Hög stress aktiverar det sympatiska nervsystemet och bromsar återhämtning. Inkluderar fysisk och mental stress.',
+      ranges: [
+        { label: '0 – 25',  val: 'Vila / avslappnad',     col: 'var(--green)' },
+        { label: '26 – 50', val: 'Låg stress',            col: 'var(--green)' },
+        { label: '51 – 75', val: 'Måttlig stress',        col: 'var(--amber)' },
+        { label: '76 – 100', val: 'Hög stress — bromsar återhämtning', col: 'var(--red)' },
+      ]
+    },
+    spo2: {
+      title: 'SpO2 — Syremättnad (%)',
+      desc: 'Andelen hemoglobin i blodet som bär syre. Mäts med pulsoximeter. Normalt konstant hos friska — sjunker på hög höjd eller vid andningsproblem.',
+      ranges: [
+        { label: '97 – 100%', val: 'Optimalt',           col: 'var(--green)' },
+        { label: '95 – 96%',  val: 'Normalt',            col: 'var(--green)' },
+        { label: '90 – 94%',  val: 'Lätt sänkt — obs!', col: 'var(--amber)' },
+        { label: '< 90%',     val: 'Kritiskt lågt',      col: 'var(--red)'   },
+      ]
+    },
+    resp: {
+      title: 'Andningsfrekvens (andetag/min)',
+      desc: 'Antal andetag per minut i vila. Lägre frekvens hos vältränade (djupare andetag). Förhöjd frekvens under sömn kan signalera sjukdom eller dålig sömnkvalitet.',
+      ranges: [
+        { label: '8 – 12/min',  val: 'Vältränad idrottare', col: 'var(--green)' },
+        { label: '12 – 16/min', val: 'Normalt vuxen',       col: 'var(--green)' },
+        { label: '17 – 20/min', val: 'Lite förhöjd',        col: 'var(--amber)' },
+        { label: '> 20/min',    val: 'Förhöjd — undersök',  col: 'var(--red)'   },
+      ]
+    },
+  };
+
+  // Skapa tooltip-elementet
+  const tipBox = document.createElement('div');
+  tipBox.className = 'tip-box';
+  document.body.appendChild(tipBox);
+
+  let tipTimeout;
+
+  function showTip(key, rect) {
+    const data = TIPS[key];
+    if (!data) return;
+    clearTimeout(tipTimeout);
+
+    const rangesHtml = data.ranges.map(r =>
+      `<div class="tip-range">
+        <span class="tip-range-label">${r.label}</span>
+        <span class="tip-range-val" style="color:${r.col}">${r.val}</span>
+      </div>`
+    ).join('');
+
+    tipBox.innerHTML = `
+      <div class="tip-title">${data.title}</div>
+      <div class="tip-desc">${data.desc}</div>
+      <div class="tip-ranges">${rangesHtml}</div>`;
+
+    // Positionera — försök visa under kortet, annars ovan
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const W  = 260;
+    const H  = tipBox.offsetHeight || 180;
+
+    let left = rect.left;
+    let top  = rect.bottom + 8;
+
+    if (left + W > vw - 12) left = vw - W - 12;
+    if (left < 12) left = 12;
+    if (top + H > vh - 12) top = rect.top - H - 8;
+
+    tipBox.style.left = left + 'px';
+    tipBox.style.top  = top  + 'px';
+    tipBox.classList.add('visible');
+  }
+
+  function hideTip() {
+    tipTimeout = setTimeout(() => tipBox.classList.remove('visible'), 80);
+  }
+
+  document.querySelectorAll('.has-tip').forEach(card => {
+    card.style.cursor = 'default';
+    card.addEventListener('mouseenter', e => {
+      showTip(card.dataset.tip, card.getBoundingClientRect());
+    });
+    card.addEventListener('mouseleave', hideTip);
+  });
 
   // ─── KALENDER ───────────────────────────────────────────────
   // Sessioner: { dow: 0=mån … 6=sön, week: ISO-vecka, type, title, detail }
