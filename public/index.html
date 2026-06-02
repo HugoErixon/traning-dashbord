@@ -729,6 +729,159 @@
     }
     .send-btn:hover { opacity:0.88; transform:translateY(-1px); }
 
+    /* ─── HÄLSOGRUPPER ─── */
+    .hg-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+    @media(max-width:960px) { .hg-row { grid-template-columns: 1fr; } }
+
+    .hg-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .hg-card:hover { border-color: var(--border2); }
+
+    .hg-top {
+      padding: 22px 24px 18px;
+      position: relative;
+    }
+    .hg-top::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+    }
+    .hg-card.c-recovery .hg-top::after { background: linear-gradient(90deg, var(--green)  0%, transparent 55%); }
+    .hg-card.c-sleep    .hg-top::after { background: linear-gradient(90deg, var(--purple) 0%, transparent 55%); }
+    .hg-card.c-energy   .hg-top::after { background: linear-gradient(90deg, var(--amber)  0%, transparent 55%); }
+
+    .hg-cat {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      letter-spacing: 0.14em;
+      font-weight: 500;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .hg-score-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .hg-score {
+      font-size: 64px;
+      font-weight: 900;
+      letter-spacing: -4px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .hg-score-right { display: flex; flex-direction: column; gap: 5px; padding-bottom: 4px; }
+    .hg-status {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      display: inline-block;
+    }
+    .hs-great  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.2); }
+    .hs-ok     { background: var(--amber-dim);  color: var(--amber);  border: 1px solid rgba(245,166,35,0.2); }
+    .hs-low    { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
+    .hs-purple { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(167,139,250,0.2); }
+
+    .hg-summary {
+      font-size: 13px;
+      color: var(--muted3);
+      line-height: 1.5;
+    }
+    .hg-bar-wrap { margin-top: 14px; }
+    .hg-bar {
+      height: 5px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .hg-bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 1.2s cubic-bezier(.4,0,.2,1);
+    }
+    .hg-card.c-recovery .hg-bar-fill { background: linear-gradient(90deg, var(--green), var(--blue)); }
+    .hg-card.c-sleep    .hg-bar-fill { background: linear-gradient(90deg, var(--purple), var(--blue)); }
+    .hg-card.c-energy   .hg-bar-fill { background: linear-gradient(90deg, var(--amber), var(--green)); }
+
+    /* Detaljer */
+    .hg-toggle {
+      width: 100%;
+      background: none;
+      border: none;
+      border-top: 1px solid var(--border);
+      padding: 10px 24px;
+      color: var(--muted2);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: color 0.15s, background 0.15s;
+      letter-spacing: 0.06em;
+    }
+    .hg-toggle:hover { color: var(--text); background: var(--bg3); }
+    .hg-toggle-arrow { transition: transform 0.2s; }
+    .hg-card.open .hg-toggle-arrow { transform: rotate(180deg); }
+
+    .hg-details {
+      display: none;
+      padding: 0 24px 18px;
+      flex-direction: column;
+      gap: 0;
+      border-top: 1px solid var(--border);
+    }
+    .hg-card.open .hg-details { display: flex; }
+
+    .hg-metric {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .hg-metric:last-child { border-bottom: none; }
+    .hg-metric-icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
+    .hg-metric-body { flex: 1; }
+    .hg-metric-name {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--muted3);
+      margin-bottom: 2px;
+    }
+    .hg-metric-desc { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+    .hg-metric-right { text-align: right; }
+    .hg-metric-val {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      font-variant-numeric: tabular-nums;
+    }
+    .hg-metric-status {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted2);
+      margin-top: 2px;
+    }
+
     /* ─── TOOLTIP ─── */
     .tip-box {
       position: fixed;
@@ -1053,26 +1206,209 @@
     <!-- HÄLSA -->
     <div class="page" id="page-health">
       <div class="page-header"><h2>Hälsa</h2><p id="h-date-label">Laddar...</p></div>
-      <div class="sl">Återhämtning & kondition</div>
-      <div class="grid">
-        <div class="card has-tip" data-tip="readiness"><div class="card-label">träningsberedskap <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-readiness-val" class="card-val ca">—</div><div id="h-readiness-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card has-tip" data-tip="hrv"><div class="card-label">hrv natt (ms) <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-hrv-val" class="card-val cr">—</div><div id="h-hrv-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
-        <div class="card has-tip" data-tip="rhr"><div class="card-label">vilopuls <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-rhr-val" class="card-val cg">—</div><div id="h-rhr-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-rhr-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card has-tip" data-tip="vo2max"><div class="card-label">vo2max <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div class="card-val cg">59</div><div class="card-sub">Löpning · stabil</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
-      </div>
-      <div class="sl">Sömn</div>
-      <div class="grid">
-        <div class="card has-tip" data-tip="sleep-score"><div class="card-label">sömnpoäng <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-sleep-score-val" class="card-val cg">—</div><div id="h-sleep-score-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-sleep-score-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card has-tip" data-tip="deep"><div class="card-label">djupsömn <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-deep-val" class="card-val cb">—</div><div id="h-deep-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-deep-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div></div>
-        <div class="card has-tip" data-tip="rem"><div class="card-label">rem-sömn <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-rem-val" class="card-val cp">—</div><div id="h-rem-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-rem-bar" class="bar-fill" style="width:0%;background:var(--purple)"></div></div></div>
-        <div class="card has-tip" data-tip="hrv-sleep"><div class="card-label">hrv under sömn (ms) <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-hrv-sleep-val" class="card-val cg">—</div><div class="card-sub">Nattmätning</div><div class="bar"><div id="h-hrv-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-      </div>
-      <div class="sl">Energi & stress</div>
-      <div class="grid">
-        <div class="card has-tip" data-tip="bb"><div class="card-label">body battery <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-bb-val" class="card-val ca">—</div><div id="h-bb-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card has-tip" data-tip="stress"><div class="card-label">stress <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-stress-val" class="card-val cg">—</div><div id="h-stress-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-stress-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card has-tip" data-tip="spo2"><div class="card-label">spo2 <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-spo2-val" class="card-val cg">—</div><div id="h-spo2-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-spo2-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card has-tip" data-tip="resp"><div class="card-label">andning (andetag/min) <span style="color:var(--muted);font-size:9px;">ⓘ</span></div><div id="h-resp-val" class="card-val cb">—</div><div id="h-resp-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="h-resp-bar" class="bar-fill" style="width:55%;background:var(--blue)"></div></div></div>
+      <div class="hg-row">
+
+        <!-- ÅTERHÄMTNING -->
+        <div class="hg-card c-recovery" id="hg-recovery">
+          <div class="hg-top">
+            <div class="hg-cat">Återhämtning</div>
+            <div class="hg-score-row">
+              <div class="hg-score cg" id="hg-recovery-score">—</div>
+              <div class="hg-score-right">
+                <span class="hg-status hs-ok" id="hg-recovery-badge">Hämtar...</span>
+                <span class="hg-summary" id="hg-recovery-summary" style="font-size:11px;"></span>
+              </div>
+            </div>
+            <div class="hg-summary" id="hg-recovery-desc">Beredskap, HRV och vilopuls hämtas...</div>
+            <div class="hg-bar-wrap">
+              <div class="hg-bar"><div class="hg-bar-fill" id="hg-recovery-bar" style="width:0%"></div></div>
+            </div>
+          </div>
+          <button class="hg-toggle" onclick="toggleHG('recovery')">
+            <span class="hg-toggle-arrow">▾</span> DETALJER
+          </button>
+          <div class="hg-details" id="hg-recovery-details">
+            <div class="hg-metric">
+              <span class="hg-metric-icon">🎯</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Träningsberedskap</div>
+                <div class="hg-metric-desc" id="hd-readiness-desc">Garmins samlade bedömning</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-readiness-val">—</div>
+                <div class="hg-metric-status" id="hd-readiness-status">/ 100</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">💓</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">HRV natt</div>
+                <div class="hg-metric-desc" id="hd-hrv-desc">vs ditt veckogenomsnitt</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-hrv-val">—</div>
+                <div class="hg-metric-status" id="hd-hrv-status">ms</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">❤️</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Vilopuls</div>
+                <div class="hg-metric-desc" id="hd-rhr-desc">Under vila/sömn</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-rhr-val">—</div>
+                <div class="hg-metric-status" id="hd-rhr-status">bpm</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">🫁</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">VO2max</div>
+                <div class="hg-metric-desc">Syreupptagning · löpning</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val cg">59</div>
+                <div class="hg-metric-status">Utmärkt</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SÖMN -->
+        <div class="hg-card c-sleep" id="hg-sleep">
+          <div class="hg-top">
+            <div class="hg-cat">Sömn</div>
+            <div class="hg-score-row">
+              <div class="hg-score cp" id="hg-sleep-score">—</div>
+              <div class="hg-score-right">
+                <span class="hg-status hs-purple" id="hg-sleep-badge">Hämtar...</span>
+                <span class="hg-summary" id="hg-sleep-summary" style="font-size:11px;"></span>
+              </div>
+            </div>
+            <div class="hg-summary" id="hg-sleep-desc">Sömnkvalitet och sömncykler hämtas...</div>
+            <div class="hg-bar-wrap">
+              <div class="hg-bar"><div class="hg-bar-fill" id="hg-sleep-bar" style="width:0%"></div></div>
+            </div>
+          </div>
+          <button class="hg-toggle" onclick="toggleHG('sleep')">
+            <span class="hg-toggle-arrow">▾</span> DETALJER
+          </button>
+          <div class="hg-details" id="hg-sleep-details">
+            <div class="hg-metric">
+              <span class="hg-metric-icon">⭐</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Sömnpoäng</div>
+                <div class="hg-metric-desc" id="hd-sscore-desc">Bra: 80+, utmärkt: 90+</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-sscore-val">—</div>
+                <div class="hg-metric-status" id="hd-sscore-status">/ 100</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">🌑</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Djupsömn</div>
+                <div class="hg-metric-desc" id="hd-deep-desc">Mål: 15–25% av total sömn</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-deep-val">—</div>
+                <div class="hg-metric-status" id="hd-deep-status">%</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">🌀</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">REM-sömn</div>
+                <div class="hg-metric-desc" id="hd-rem-desc">Mål: 20–25% av total sömn</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-rem-val">—</div>
+                <div class="hg-metric-status" id="hd-rem-status">%</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">⏱️</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Total sömntid</div>
+                <div class="hg-metric-desc">Rekommenderat: 7–9 timmar</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-stotal-val">—</div>
+                <div class="hg-metric-status" id="hd-stotal-status"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ENERGI & STRESS -->
+        <div class="hg-card c-energy" id="hg-energy">
+          <div class="hg-top">
+            <div class="hg-cat">Energi & Stress</div>
+            <div class="hg-score-row">
+              <div class="hg-score ca" id="hg-energy-score">—</div>
+              <div class="hg-score-right">
+                <span class="hg-status hs-ok" id="hg-energy-badge">Hämtar...</span>
+                <span class="hg-summary" id="hg-energy-summary" style="font-size:11px;"></span>
+              </div>
+            </div>
+            <div class="hg-summary" id="hg-energy-desc">Body battery och stressnivå hämtas...</div>
+            <div class="hg-bar-wrap">
+              <div class="hg-bar"><div class="hg-bar-fill" id="hg-energy-bar" style="width:0%"></div></div>
+            </div>
+          </div>
+          <button class="hg-toggle" onclick="toggleHG('energy')">
+            <span class="hg-toggle-arrow">▾</span> DETALJER
+          </button>
+          <div class="hg-details" id="hg-energy-details">
+            <div class="hg-metric">
+              <span class="hg-metric-icon">🔋</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Body Battery</div>
+                <div class="hg-metric-desc" id="hd-bb-desc">75–100: hög energi · &lt;25: vila</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-bb-val">—</div>
+                <div class="hg-metric-status" id="hd-bb-status">/ 100</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">🧠</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Stressnivå</div>
+                <div class="hg-metric-desc" id="hd-stress-desc">0–25: vila · 26–50: ok · 75+: hög</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-stress-val">—</div>
+                <div class="hg-metric-status" id="hd-stress-status">/ 100</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">🩸</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Syremättnad (SpO2)</div>
+                <div class="hg-metric-desc" id="hd-spo2-desc">Normalt: 95–100%</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-spo2-val">—</div>
+                <div class="hg-metric-status" id="hd-spo2-status">%</div>
+              </div>
+            </div>
+            <div class="hg-metric">
+              <span class="hg-metric-icon">💨</span>
+              <div class="hg-metric-body">
+                <div class="hg-metric-name">Andningsfrekvens</div>
+                <div class="hg-metric-desc" id="hd-resp-desc">Normalt: 12–20/min i vila</div>
+              </div>
+              <div class="hg-metric-right">
+                <div class="hg-metric-val" id="hd-resp-val">—</div>
+                <div class="hg-metric-status" id="hd-resp-status">/min</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1321,6 +1657,42 @@ window.fetch = (url, opts = {}) => {
     }
   }
 
+  function toggleHG(id) {
+    const card = document.getElementById('hg-' + id);
+    card.classList.toggle('open');
+  }
+
+  function setHG(scoreId, barId, badgeId, descId, score, desc) {
+    const el = document.getElementById(scoreId);
+    const bar = document.getElementById(barId);
+    const badge = document.getElementById(badgeId);
+    const descEl = document.getElementById(descId);
+    if (!el) return;
+    el.textContent = Math.round(score);
+    bar.style.width = Math.min(score, 100) + '%';
+    descEl.textContent = desc;
+    if (score >= 75) {
+      el.style.color = 'var(--green)';
+      badge.className = 'hg-status hs-great';
+      badge.textContent = 'Bra';
+    } else if (score >= 50) {
+      el.style.color = 'var(--amber)';
+      badge.className = 'hg-status hs-ok';
+      badge.textContent = 'Ok';
+    } else {
+      el.style.color = 'var(--red)';
+      badge.className = 'hg-status hs-low';
+      badge.textContent = 'Vila';
+    }
+  }
+
+  function setMetric(valId, statusId, value, unit, statusText, col) {
+    const v = document.getElementById(valId);
+    const s = document.getElementById(statusId);
+    if (v) { v.textContent = value; v.style.color = col || ''; }
+    if (s) { s.textContent = statusText || unit || ''; s.style.color = col || ''; }
+  }
+
   // Hälsodata
   async function loadHealth() {
     try {
@@ -1329,118 +1701,151 @@ window.fetch = (url, opts = {}) => {
       if (h.error) return;
       const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
 
+      // ── ÅTERHÄMTNING ──
+      let recoveryScore = 50;
       if (h.readiness?.score != null) {
-        const score = h.readiness.score;
-        const col = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
+        recoveryScore = h.readiness.score;
         const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
-        document.getElementById('h-readiness-val').textContent = score;
-        document.getElementById('h-readiness-val').style.color = col;
-        document.getElementById('h-readiness-sub').textContent = (lblMap[h.readiness.level] || h.readiness.level || '') + ' · lyssna på kroppen';
-        document.getElementById('h-readiness-bar').style.width = score + '%';
-        document.getElementById('h-readiness-bar').style.background = col;
+        const lvl = lblMap[h.readiness.level] || '';
+        const col = recoveryScore >= 70 ? 'var(--green)' : recoveryScore >= 40 ? 'var(--amber)' : 'var(--red)';
+        const statusText = recoveryScore >= 75 ? 'Redo för hårt pass' : recoveryScore >= 50 ? 'Normal träning ok' : 'Vila eller Z2 max';
+        setMetric('hd-readiness-val', 'hd-readiness-status', recoveryScore, '/ 100', statusText, col);
+        document.getElementById('hd-readiness-desc').textContent = lvl + (h.readiness.feedback ? ' · ' + h.readiness.feedback : '');
       }
       if (h.hrv?.lastNightAvg != null) {
         const pct = h.hrv.pct || 0;
         const col = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('h-hrv-val').textContent = h.hrv.lastNightAvg;
-        document.getElementById('h-hrv-val').style.color = col;
-        document.getElementById('h-hrv-sub').textContent = 'Snitt ' + (h.hrv.weeklyAvg||'—') + ' ms · ' + (h.hrv.status||'');
-        document.getElementById('h-hrv-bar').style.width = Math.min(pct,100) + '%';
-        document.getElementById('h-hrv-bar').style.background = col;
+        const statusText = pct >= 80 ? `${pct}% av snitt — bra` : pct >= 50 ? `${pct}% av snitt — ok` : `${pct}% av snitt — låg`;
+        setMetric('hd-hrv-val', 'hd-hrv-status', h.hrv.lastNightAvg, 'ms', statusText, col);
+        document.getElementById('hd-hrv-desc').textContent = `Snitt ${h.hrv.weeklyAvg || '—'} ms · ${h.hrv.status || ''}`;
       }
       if (h.restingHR?.value != null) {
         const rhr = h.restingHR.value;
         const col = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
-        const pct = Math.max(0, Math.min(100, Math.round((1 - (rhr-30)/70)*100)));
-        document.getElementById('h-rhr-val').textContent = rhr;
-        document.getElementById('h-rhr-val').style.color = col;
-        document.getElementById('h-rhr-sub').textContent = '7-dagarssnitt: ' + (h.restingHR.sevenDayAvg||'—');
-        document.getElementById('h-rhr-bar').style.width = pct + '%';
-        document.getElementById('h-rhr-bar').style.background = col;
+        const statusText = rhr <= 50 ? 'Vältränad' : rhr <= 65 ? 'Normalt' : 'Förhöjd';
+        setMetric('hd-rhr-val', 'hd-rhr-status', rhr, 'bpm', statusText, col);
+        document.getElementById('hd-rhr-desc').textContent = '7-dagarssnitt: ' + (h.restingHR.sevenDayAvg || '—') + ' bpm';
       }
+      const recoveryDesc = h.readiness?.score != null
+        ? (h.readiness.score >= 75 ? 'Kroppen är peakad — perfekt för ett kvalitetspass.' :
+           h.readiness.score >= 50 ? 'Bra återhämtning — normal träning fungerar fint.' :
+           'Kroppen återhämtar sig. Håll det lugnt idag.')
+        : 'Hämtar återhämtningsdata...';
+      setHG('hg-recovery-score', 'hg-recovery-bar', 'hg-recovery-badge', 'hg-recovery-desc', recoveryScore, recoveryDesc);
+
+      // ── SÖMN ──
+      let sleepScore = 50;
       if (h.sleep?.totalSec) {
-        document.getElementById('h-sleep-score-val').textContent = h.sleep.score || '—';
-        document.getElementById('h-sleep-score-sub').textContent = fmtTime(h.sleep.totalSec);
-        if (h.sleep.score) document.getElementById('h-sleep-score-bar').style.width = h.sleep.score + '%';
-        document.getElementById('h-deep-val').textContent = h.sleep.deepPct + '%';
-        document.getElementById('h-deep-sub').textContent = fmtTime(h.sleep.deepSec);
-        document.getElementById('h-deep-bar').style.width = h.sleep.deepPct + '%';
-        document.getElementById('h-rem-val').textContent = h.sleep.remPct + '%';
-        document.getElementById('h-rem-sub').textContent = fmtTime(h.sleep.remSec);
-        document.getElementById('h-rem-bar').style.width = h.sleep.remPct + '%';
+        sleepScore = h.sleep.score || 50;
+        const totalH = Math.floor(h.sleep.totalSec / 3600);
+        const totalM = Math.floor((h.sleep.totalSec % 3600) / 60);
+
+        // Sömnpoäng
+        const sc = h.sleep.score;
+        const scCol = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
+        const scStatus = sc >= 90 ? 'Utmärkt' : sc >= 80 ? 'Bra' : sc >= 60 ? 'Acceptabel' : 'Dålig';
+        setMetric('hd-sscore-val', 'hd-sscore-status', sc || '—', '/ 100', scStatus, scCol);
+
+        // Djupsömn
+        const deep = h.sleep.deepPct;
+        const deepCol = deep >= 15 ? 'var(--green)' : deep >= 10 ? 'var(--amber)' : 'var(--red)';
+        const deepStatus = deep >= 20 ? 'Utmärkt' : deep >= 15 ? 'Normalt' : deep >= 10 ? 'Lite lågt' : 'För lite';
+        setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus} · mål 15–25%`, deepCol);
+        document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + ' · mål: 15–25% av sömnen';
+
+        // REM
+        const rem = h.sleep.remPct;
+        const remCol = rem >= 20 ? 'var(--green)' : rem >= 15 ? 'var(--amber)' : 'var(--red)';
+        const remStatus = rem >= 20 ? 'Utmärkt' : rem >= 15 ? 'Normalt' : rem >= 10 ? 'Lite lågt' : 'För lite';
+        setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus} · mål 20–25%`, remCol);
+        document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + ' · mål: 20–25% av sömnen';
+
+        // Total sömntid
+        const totalCol = totalH >= 7 ? 'var(--green)' : totalH >= 6 ? 'var(--amber)' : 'var(--red)';
+        const totalStatus = totalH >= 8 ? 'Utmärkt' : totalH >= 7 ? 'Bra' : totalH >= 6 ? 'Lite kort' : 'För lite';
+        setMetric('hd-stotal-val', 'hd-stotal-status', `${totalH}h ${totalM}m`, '', totalStatus, totalCol);
+
+        const sleepDesc = sleepScore >= 80
+          ? `${totalH}h ${totalM}m sömn — bra återhämtning för natten.`
+          : sleepScore >= 60
+          ? `${totalH}h ${totalM}m sömn — acceptabelt men kan förbättras.`
+          : `${totalH}h ${totalM}m sömn — prioritera mer sömn ikväll.`;
+        setHG('hg-sleep-score', 'hg-sleep-bar', 'hg-sleep-badge', 'hg-sleep-desc', sleepScore, sleepDesc);
+        document.getElementById('hg-sleep-score').style.color = sleepScore >= 80 ? 'var(--purple)' : sleepScore >= 60 ? 'var(--amber)' : 'var(--red)';
+        const badge = document.getElementById('hg-sleep-badge');
+        badge.className = sleepScore >= 80 ? 'hg-status hs-purple' : sleepScore >= 60 ? 'hg-status hs-ok' : 'hg-status hs-low';
+        badge.textContent = sleepScore >= 80 ? 'Bra' : sleepScore >= 60 ? 'Ok' : 'Dålig';
       }
-      if (h.hrv?.lastNightAvg != null) {
-        document.getElementById('h-hrv-sleep-val').textContent = h.hrv.lastNightAvg;
-        document.getElementById('h-hrv-sleep-bar').style.width = Math.min(h.hrv.lastNightAvg, 100) + '%';
+
+      // ── ENERGI & STRESS ──
+      let energyScore = 50;
+      if (h.bodyBattery?.current != null || h.stress?.avg != null) {
+        const bb = h.bodyBattery?.current ?? 50;
+        const stress = h.stress?.avg ?? 50;
+        energyScore = Math.round(bb * 0.6 + (100 - stress) * 0.4);
+
+        // Body Battery
+        const bbCol = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
+        const bbStatus = bb >= 75 ? 'Hög energi' : bb >= 50 ? 'Moderat' : bb >= 25 ? 'Låg' : 'Tom — vila';
+        setMetric('hd-bb-val', 'hd-bb-status', bb, '/ 100', bbStatus, bbCol);
+        document.getElementById('hd-bb-desc').textContent = `Max idag: ${h.bodyBattery?.max || '—'} · Min: ${h.bodyBattery?.drained ? bb : '—'}`;
+
+        // Stress
+        const stressCol = stress <= 25 ? 'var(--green)' : stress <= 50 ? 'var(--amber)' : 'var(--red)';
+        const stressStatus = stress <= 25 ? 'Avslappnad' : stress <= 50 ? 'Låg stress' : stress <= 75 ? 'Måttlig' : 'Hög stress';
+        setMetric('hd-stress-val', 'hd-stress-status', stress, '/ 100', stressStatus, stressCol);
+
+        // SpO2
+        if (h.spo2?.avg != null) {
+          const spo2 = h.spo2.avg;
+          const spo2Col = spo2 >= 97 ? 'var(--green)' : spo2 >= 95 ? 'var(--green)' : spo2 >= 90 ? 'var(--amber)' : 'var(--red)';
+          const spo2Status = spo2 >= 97 ? 'Optimalt' : spo2 >= 95 ? 'Normalt' : spo2 >= 90 ? 'Sänkt — obs!' : 'Kritiskt lågt!';
+          setMetric('hd-spo2-val', 'hd-spo2-status', spo2 + '%', '%', spo2Status, spo2Col);
+          document.getElementById('hd-spo2-desc').textContent = `Lägst: ${h.spo2.min ? h.spo2.min + '%' : '—'} · normalt: 95–100%`;
+        }
+
+        // Andning
+        if (h.respiration?.avg != null) {
+          const resp = h.respiration.avg;
+          const respCol = resp <= 16 ? 'var(--green)' : resp <= 20 ? 'var(--amber)' : 'var(--red)';
+          const respStatus = resp <= 12 ? 'Idrottare — utmärkt' : resp <= 16 ? 'Normalt' : resp <= 20 ? 'Lite förhöjd' : 'Förhöjd';
+          setMetric('hd-resp-val', 'hd-resp-status', resp, '/min', respStatus, respCol);
+          document.getElementById('hd-resp-desc').textContent = `Under sömn: ${h.respiration.sleepAvg || '—'}/min · normalt: 12–20/min`;
+        }
+
+        const energyDesc = energyScore >= 70
+          ? `Body battery ${bb}/100 — kroppen har energi för ett bra pass.`
+          : energyScore >= 45
+          ? `Body battery ${bb}/100 — moderat energinivå, håll träningen lagom.`
+          : `Body battery ${bb}/100 — kroppen är trött. Prioritera vila och återhämtning.`;
+        setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
       }
-      if (h.bodyBattery?.current != null) {
-        const bb = h.bodyBattery.current;
-        const col = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('h-bb-val').textContent = bb;
-        document.getElementById('h-bb-val').style.color = col;
-        document.getElementById('h-bb-sub').textContent = 'Max idag: ' + (h.bodyBattery.max||'—');
-        document.getElementById('h-bb-bar').style.width = bb + '%';
-        document.getElementById('h-bb-bar').style.background = col;
-      }
-      if (h.stress?.avg != null) {
-        const s = h.stress.avg;
-        const col = s <= 25 ? 'var(--green)' : s <= 50 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('h-stress-val').textContent = s;
-        document.getElementById('h-stress-val').style.color = col;
-        document.getElementById('h-stress-sub').textContent = 'Max: ' + (h.stress.max||'—');
-        document.getElementById('h-stress-bar').style.width = s + '%';
-        document.getElementById('h-stress-bar').style.background = col;
-      }
-      if (h.spo2?.avg != null) {
-        document.getElementById('h-spo2-val').textContent = h.spo2.avg + '%';
-        document.getElementById('h-spo2-sub').textContent = 'Lägst: ' + (h.spo2.min ? h.spo2.min+'%' : '—');
-        document.getElementById('h-spo2-bar').style.width = h.spo2.avg + '%';
-      }
-      if (h.respiration?.avg != null) {
-        document.getElementById('h-resp-val').textContent = h.respiration.avg;
-        document.getElementById('h-resp-sub').textContent = 'Under sömn: ' + (h.respiration.sleepAvg||'—');
-      }
+
       const d = new Date();
       document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric',month:'long',year:'numeric'}) + ' · Garmin live-data';
 
-      if (h.readiness?.score != null) {
-        const score = h.readiness.score;
-        const col = score >= 70 ? 'var(--green)' : score >= 40 ? 'var(--amber)' : 'var(--red)';
-        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
-        document.getElementById('snap-readiness-val').textContent = score;
-        document.getElementById('snap-readiness-val').style.color = col;
-        document.getElementById('snap-readiness-sub').textContent = lblMap[h.readiness.level] || h.readiness.level || '';
-        document.getElementById('snap-readiness-bar').style.width = score + '%';
-        document.getElementById('snap-readiness-bar').style.background = col;
-      }
-      if (h.sleep?.score != null) {
-        const sc = h.sleep.score;
-        const col = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('snap-sleep-val').textContent = sc;
-        document.getElementById('snap-sleep-val').style.color = col;
-        document.getElementById('snap-sleep-sub').textContent = fmtTime(h.sleep.totalSec);
-        document.getElementById('snap-sleep-bar').style.width = sc + '%';
-        document.getElementById('snap-sleep-bar').style.background = col;
-      }
-      if (h.bodyBattery?.current != null) {
-        const bb = h.bodyBattery.current;
-        const col = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('snap-bb-val').textContent = bb;
-        document.getElementById('snap-bb-val').style.color = col;
-        document.getElementById('snap-bb-sub').textContent = 'Max idag: ' + (h.bodyBattery.max || '—');
-        document.getElementById('snap-bb-bar').style.width = bb + '%';
-        document.getElementById('snap-bb-bar').style.background = col;
-      }
-      if (h.hrv?.lastNightAvg != null) {
-        const hrv = h.hrv.lastNightAvg;
-        const pct = h.hrv.pct || 0;
-        const col = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('snap-hrv-val').textContent = hrv;
-        document.getElementById('snap-hrv-val').style.color = col;
-        document.getElementById('snap-hrv-sub').textContent = 'Snitt ' + (h.hrv.weeklyAvg || '—') + ' ms';
-        document.getElementById('snap-hrv-bar').style.width = Math.min(pct, 100) + '%';
-        document.getElementById('snap-hrv-bar').style.background = col;
-      }
+      // Snapshot på hemsidan
+      const snapSets = [
+        { valId:'snap-readiness-val', subId:'snap-readiness-sub', barId:'snap-readiness-bar',
+          val: h.readiness?.score, sub: (()=>{ const m={VERY_HIGH:'Mycket hög',HIGH:'Hög',MODERATE:'Måttlig',LOW:'Låg',VERY_LOW:'Mycket låg'}; return m[h.readiness?.level]||''; })(),
+          col: h.readiness?.score >= 70 ? 'var(--green)' : h.readiness?.score >= 40 ? 'var(--amber)' : 'var(--red)', pct: h.readiness?.score },
+        { valId:'snap-sleep-val', subId:'snap-sleep-sub', barId:'snap-sleep-bar',
+          val: h.sleep?.score, sub: h.sleep?.totalSec ? fmtTime(h.sleep.totalSec) : '',
+          col: h.sleep?.score >= 80 ? 'var(--green)' : h.sleep?.score >= 60 ? 'var(--amber)' : 'var(--red)', pct: h.sleep?.score },
+        { valId:'snap-bb-val', subId:'snap-bb-sub', barId:'snap-bb-bar',
+          val: h.bodyBattery?.current, sub: 'Max idag: ' + (h.bodyBattery?.max || '—'),
+          col: h.bodyBattery?.current >= 60 ? 'var(--green)' : h.bodyBattery?.current >= 30 ? 'var(--amber)' : 'var(--red)', pct: h.bodyBattery?.current },
+        { valId:'snap-hrv-val', subId:'snap-hrv-sub', barId:'snap-hrv-bar',
+          val: h.hrv?.lastNightAvg, sub: 'Snitt ' + (h.hrv?.weeklyAvg || '—') + ' ms',
+          col: (h.hrv?.pct||0) >= 80 ? 'var(--green)' : (h.hrv?.pct||0) >= 50 ? 'var(--amber)' : 'var(--red)', pct: Math.min(h.hrv?.pct||0, 100) },
+      ];
+      snapSets.forEach(s => {
+        if (s.val == null) return;
+        const v = document.getElementById(s.valId); if (v) { v.textContent = s.val; v.style.color = s.col; }
+        const b = document.getElementById(s.subId); if (b) b.textContent = s.sub;
+        const r = document.getElementById(s.barId);  if (r) { r.style.width = (s.pct||0) + '%'; r.style.background = s.col; }
+      });
+
     } catch(e) { console.error('Health error:', e); }
   }
 
