@@ -729,6 +729,142 @@
     }
     .send-btn:hover { opacity:0.88; transform:translateY(-1px); }
 
+    /* ─── KALENDER ─── */
+    .cal-week {
+      margin-bottom: 10px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .cal-week:hover { border-color: var(--border2); }
+    .cal-week-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+    }
+    .cal-week-num {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      font-weight: 600;
+      min-width: 36px;
+    }
+    .cal-week-range {
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted2);
+    }
+    .cal-week-badges {
+      display: flex;
+      gap: 6px;
+      margin-left: auto;
+    }
+    .cal-week-badge {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-weight: 600;
+    }
+    .cwb-run  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.2); }
+    .cwb-lift { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.2); }
+    .cwb-race { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
+
+    .cal-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+    }
+    .cal-day {
+      padding: 12px 10px;
+      border-right: 1px solid var(--border);
+      min-height: 72px;
+      position: relative;
+    }
+    .cal-day:last-child { border-right: none; }
+    .cal-day-header {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 8px;
+    }
+    .cal-day-name {
+      font-size: 9px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+    .cal-day-num {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      line-height: 1.2;
+      color: var(--muted2);
+    }
+    .cal-day.today .cal-day-num {
+      color: var(--text);
+    }
+    .cal-day.today::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--purple);
+    }
+    .cal-day.today .cal-day-name { color: var(--purple); }
+    .cal-day.past .cal-day-num  { color: var(--muted); opacity: 0.5; }
+    .cal-day.past .cal-session-pill { opacity: 0.45; }
+
+    .cal-session-pill {
+      display: block;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      padding: 3px 7px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      line-height: 1.4;
+      cursor: default;
+    }
+    .csp-run  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.18); }
+    .csp-lift { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.18); }
+    .csp-race { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
+    .csp-rest { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.18); }
+
+    /* Tooltip on hover */
+    .cal-session-pill[title]:hover::after {
+      content: attr(title);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 0;
+      background: var(--bg4);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 11px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-weight: 400;
+      white-space: nowrap;
+      z-index: 100;
+      max-width: 220px;
+      white-space: normal;
+      pointer-events: none;
+    }
+
+    @media (max-width: 900px) {
+      .cal-days { grid-template-columns: repeat(7, minmax(0,1fr)); }
+      .cal-session-pill { font-size: 9px; padding: 2px 5px; }
+      .cal-day { padding: 8px 6px; min-height: 60px; }
+      .cal-day-num { font-size: 13px; }
+    }
+
     /* ─── MOBILE ─── */
     @media (max-width: 720px) {
       :root { --sidebar-w: 0px; }
@@ -910,129 +1046,26 @@
 
     <!-- PLAN -->
     <div class="page" id="page-upcoming">
-      <div class="page-header"><h2>Träningsplan</h2><p>Löpning + styrka integrerat · sub 10:00 på 3 km</p></div>
-
-      <div class="sl" style="margin-bottom:16px;">Fas 1 — Bas & återhämtning (v.23–25)</div>
-      <div class="session-list" style="margin-bottom:32px;">
-        <div class="session">
-          <div class="session-stripe" style="background:var(--green)"></div>
-          <div class="session-week">V.23<br>Tisdag</div>
-          <div class="session-body">
-            <div class="session-type st-run">🏃 Löpning</div>
-            <div class="session-title">Lugnt återhämtningsjogg</div>
-            <div class="session-desc">Z2, inga krav på tempo. Vila efter GöteborgsVarvet.</div>
-            <div class="pills"><span class="pill">30–35 min</span><span class="pill">Z2</span><span class="pill">4:45–5:15 /km</span></div>
-          </div>
+      <div class="page-header"><h2>Träningsplan</h2><p>Löpning + styrka · sub 10:00 · jun–aug 2026</p></div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;align-items:center;">
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--green);opacity:0.7;"></span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Löpning</span>
         </div>
-        <div class="session">
-          <div class="session-stripe" style="background:var(--orange)"></div>
-          <div class="session-week">V.23<br>Torsdag</div>
-          <div class="session-body">
-            <div class="session-type st-lift">🏋️ Styrka</div>
-            <div class="session-title">Helkropp — introduktionsvikt</div>
-            <div class="session-desc">Knäböj, marklyft, bänkpress, latsdrag. Lätt vikt, fokus på teknik och rörlighet.</div>
-            <div class="pills"><span class="pill">4 övningar</span><span class="pill">3×8</span><span class="pill">60–70% av max</span></div>
-          </div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--orange);opacity:0.7;"></span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Styrka</span>
         </div>
-        <div class="session">
-          <div class="session-stripe" style="background:var(--amber)"></div>
-          <div class="session-week">V.24<br>Tisdag</div>
-          <div class="session-body">
-            <div class="session-type st-run">🏃 Löpning</div>
-            <div class="session-title">4×1000 m intervaller</div>
-            <div class="session-desc">Tröskelintroduktion. 3 min vila. Uppv. + nedv. 2 km.</div>
-            <div class="pills"><span class="pill">3:35 /km</span><span class="pill">~8 km totalt</span><span class="pill">Z3–Z4</span></div>
-          </div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--red);opacity:0.7;"></span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Tävling / Test</span>
         </div>
-        <div class="session">
-          <div class="session-stripe" style="background:var(--orange)"></div>
-          <div class="session-week">V.24<br>Torsdag</div>
-          <div class="session-body">
-            <div class="session-type st-lift">🏋️ Styrka</div>
-            <div class="session-title">Underkropp + core</div>
-            <div class="session-desc">Knäböj, rumänsk marklyft, benpress, bulgarska split-squat, plankan. Öka vikt från v.23.</div>
-            <div class="pills"><span class="pill">5 övningar</span><span class="pill">3–4 set</span><span class="pill">Progressiv</span></div>
-          </div>
-        </div>
-        <div class="session">
-          <div class="session-stripe" style="background:var(--amber)"></div>
-          <div class="session-week">V.24<br>Lördag</div>
-          <div class="session-body">
-            <div class="session-type st-run">🏃 Löpning</div>
-            <div class="session-title">6×400 m snabba drag</div>
-            <div class="session-desc">Anaerob stimulans. 90 sek vila, bana.</div>
-            <div class="pills"><span class="pill">3:10 /km</span><span class="pill">Bana</span><span class="pill">Z5</span></div>
-          </div>
+        <div style="display:flex;align-items:center;gap:7px;">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--purple);"></span>
+          <span style="font-size:12px;color:var(--muted3);font-family:'JetBrains Mono',monospace;">Idag</span>
         </div>
       </div>
-
-      <div class="sl" style="margin-bottom:16px;">Fas 2 — Tröskel & styrkeuppbyggnad (v.26–29)</div>
-      <div class="session-list" style="margin-bottom:32px;">
-        <div class="session">
-          <div class="session-stripe" style="background:var(--purple)"></div>
-          <div class="session-week">V.26–27<br>Tisdag</div>
-          <div class="session-body">
-            <div class="session-type st-run">🏃 Löpning</div>
-            <div class="session-title">3×2000 m tröskelpass</div>
-            <div class="session-desc">Längre drag på tröskelfart. 3 min vila.</div>
-            <div class="pills"><span class="pill">3:35 /km</span><span class="pill">Z4</span></div>
-          </div>
-        </div>
-        <div class="session">
-          <div class="session-stripe" style="background:var(--orange)"></div>
-          <div class="session-week">V.26–27<br>Torsdag</div>
-          <div class="session-body">
-            <div class="session-type st-lift">🏋️ Styrka</div>
-            <div class="session-title">Överkropp + bål — tung fas</div>
-            <div class="session-desc">Bänkpress, axelpress, latsdrag, rodd, dips. Progressiv överlast varje vecka.</div>
-            <div class="pills"><span class="pill">5 övningar</span><span class="pill">4×6–8</span><span class="pill">80% av max</span></div>
-          </div>
-        </div>
-        <div class="session">
-          <div class="session-stripe" style="background:var(--blue)"></div>
-          <div class="session-week">V.29<br>Lördag</div>
-          <div class="session-body">
-            <div class="session-type st-run">🏃 Löpning</div>
-            <div class="session-title cg">3 km kontrolltest ★</div>
-            <div class="session-desc">Halvvägsmätning. Under 10:10 = planen funkar.</div>
-            <div class="pills"><span class="pill" style="border-color:var(--green);color:var(--green);">Måltempo 3:19</span><span class="pill">Bana</span><span class="pill">Tävlingsintensitet</span></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="sl" style="margin-bottom:16px;">Fas 3 — Spetsning (v.30–34)</div>
-      <div class="session-list">
-        <div class="session">
-          <div class="session-stripe" style="background:var(--red)"></div>
-          <div class="session-week">V.30–31<br>Tisdag</div>
-          <div class="session-body">
-            <div class="session-type st-run">🏃 Löpning</div>
-            <div class="session-title">6×500 m sharpening</div>
-            <div class="session-desc">Under tävlingsfart. 2 min vila.</div>
-            <div class="pills"><span class="pill">3:10 /km</span><span class="pill">Z5</span></div>
-          </div>
-        </div>
-        <div class="session">
-          <div class="session-stripe" style="background:var(--orange)"></div>
-          <div class="session-week">V.30–33<br>Torsdag</div>
-          <div class="session-body">
-            <div class="session-type st-lift">🏋️ Styrka</div>
-            <div class="session-title">Underhållsstyrka — reducerad volym</div>
-            <div class="session-desc">Bibehåll styrkevinster under spetsningsfasen. Kortare session, samma intensitet.</div>
-            <div class="pills"><span class="pill">3 övningar</span><span class="pill">3×5</span><span class="pill">85% av max</span></div>
-          </div>
-        </div>
-        <div class="session">
-          <div class="session-stripe" style="background:var(--red)"></div>
-          <div class="session-week">V.34<br>Tävling</div>
-          <div class="session-body">
-            <div class="session-type st-run">🏃 Löpning</div>
-            <div class="session-title cg">3 KM — SUB 10:00 ★★</div>
-            <div class="session-desc">Ut på 3:22/km, negativ split sista km på 3:15.</div>
-            <div class="pills"><span class="pill" style="border-color:var(--green);color:var(--green);">Mål: 9:59</span><span class="pill">Bana</span></div>
-          </div>
-        </div>
-      </div>
+      <div id="cal-container"></div>
     </div>
 
     <!-- REKORD -->
@@ -1509,6 +1542,202 @@ Svara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen
     await loadExercises(sessionId);
   }
   document.getElementById('chat-input').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
+
+  // ─── KALENDER ───────────────────────────────────────────────
+  // Sessioner: { dow: 0=mån … 6=sön, week: ISO-vecka, type, title, detail }
+  const PLAN_SESSIONS = [
+    // V.23 — Bas & återhämtning
+    { week:23, dow:1, type:'run',  title:'Återhämtningsjogg',      detail:'Z2 · 30–35 min · 4:45–5:15/km. Vila efter GöteborgsVarvet.' },
+    { week:23, dow:3, type:'lift', title:'Helkropp – intro',        detail:'Knäböj, marklyft, bänkpress, latsdrag · 3×8 · 60–70% av max' },
+
+    // V.24
+    { week:24, dow:1, type:'run',  title:'4×1000m intervaller',     detail:'Z3–Z4 · 3:35/km · 3 min vila · ~8 km totalt' },
+    { week:24, dow:3, type:'lift', title:'Underkropp + core',       detail:'Knäböj, RDL, benpress, split-squat, plankan · 3–4 set' },
+    { week:24, dow:5, type:'run',  title:'6×400m snabba drag',      detail:'Z5 · 3:10/km · 90 sek vila · Bana' },
+
+    // V.25
+    { week:25, dow:2, type:'run',  title:'5×1000m tröskel',         detail:'Z3–Z4 · 3:35/km · 2:30 min vila · ~10 km totalt' },
+    { week:25, dow:3, type:'lift', title:'Överkropp',               detail:'Bänkpress, axelpress, latsdrag, rodd · 3–4 set · Progressiv' },
+    { week:25, dow:5, type:'run',  title:'Lugnt långpass',          detail:'Z2 · 50–60 min · 5:00–5:20/km' },
+
+    // V.26 — Tröskel & styrkebygge
+    { week:26, dow:1, type:'run',  title:'3×2000m tröskel',         detail:'Z4 · 3:35/km · 3 min vila' },
+    { week:26, dow:3, type:'lift', title:'Underkropp – tung',       detail:'Knäböj, marklyft, bulgarska · 4×6–8 · 80% av max' },
+    { week:26, dow:5, type:'run',  title:'8×400m fartlek',          detail:'Varierande tempo Z4–Z5 · 90 sek vila' },
+
+    // V.27
+    { week:27, dow:1, type:'run',  title:'2×3000m @ 3:35/km',      detail:'Z4 · 4 min vila · Längsta tröskeldraget hittills' },
+    { week:27, dow:3, type:'lift', title:'Överkropp – tung',        detail:'Bänkpress, axelpress, dips, chins · 4×6 · 80% av max' },
+    { week:27, dow:5, type:'run',  title:'Lugnt långpass',          detail:'Z2 · 60 min · 5:00/km' },
+
+    // V.28
+    { week:28, dow:1, type:'run',  title:'5×1000m tröskel',         detail:'Z4 · 3:33/km · Ökad intensitet' },
+    { week:28, dow:3, type:'lift', title:'Underkropp – tung',       detail:'Knäböj, RDL, benpress · 4×5 · 82% av max' },
+    { week:28, dow:5, type:'run',  title:'6×500m sharpening',       detail:'Z5 · 3:12/km · 90 sek vila' },
+
+    // V.29 — Kontrolltest
+    { week:29, dow:1, type:'run',  title:'Lätt tröskelpass',        detail:'2×2000m · Z4 · 3 min vila · Spara benen' },
+    { week:29, dow:3, type:'lift', title:'Lätt styrka',             detail:'3 övningar · 3×6 · 75% · Spara inför test' },
+    { week:29, dow:5, type:'race', title:'⭐ 3 km KONTROLLTEST',   detail:'Halvvägsmätning. Mål: under 10:10. 3:19/km.' },
+
+    // V.30 — Spetsning
+    { week:30, dow:1, type:'run',  title:'6×500m sharpening',       detail:'Z5 · 3:10/km · 2 min vila' },
+    { week:30, dow:3, type:'lift', title:'Underhållsstyrka',        detail:'3 övningar · 3×5 · 85% av max · Kortare session' },
+    { week:30, dow:5, type:'run',  title:'Lätt fartlek',            detail:'30 min · 4 stycken 1 min snabba drag i Z2-pass' },
+
+    // V.31
+    { week:31, dow:1, type:'run',  title:'6×500m sharpening',       detail:'Z5 · 3:08/km · 2 min vila' },
+    { week:31, dow:3, type:'lift', title:'Underhållsstyrka',        detail:'3 övningar · 3×5 · 85% av max' },
+    { week:31, dow:5, type:'run',  title:'Lugnt återhämtningsjogg', detail:'Z2 · 30 min · Håll motoriken igång' },
+
+    // V.32
+    { week:32, dow:1, type:'run',  title:'4×1000m vid tävlingsfart',detail:'Z4–Z5 · 3:19/km · 3 min vila' },
+    { week:32, dow:3, type:'lift', title:'Underhållsstyrka',        detail:'3 övningar · 3×5 · 85% av max' },
+    { week:32, dow:5, type:'run',  title:'Lätt jogg + strides',     detail:'25 min Z2 + 6×80m strides' },
+
+    // V.33
+    { week:33, dow:1, type:'run',  title:'3×1000m tävlingsfart',    detail:'Z5 · 3:15–3:19/km · 4 min vila · Spetsning' },
+    { week:33, dow:3, type:'lift', title:'Kort underhållsstyrka',   detail:'2 övningar · 2×5 · 80% · Håll kroppen aktiv' },
+    { week:33, dow:4, type:'run',  title:'Lätt jogg',               detail:'20 min Z2 · Sista kvalitetsdagen' },
+
+    // V.34 — TÄVLING
+    { week:34, dow:0, type:'run',  title:'Lätt jogg + uppvärmning', detail:'15 min lätt · Förbereder kroppen' },
+    { week:34, dow:1, type:'run',  title:'Strides + aktivering',    detail:'10 min jogg + 4×80m strides · Två dagar kvar' },
+    { week:34, dow:3, type:'race', title:'🏆 3 KM — SUB 10:00',    detail:'UT: 3:22/km · Km 2: 3:20/km · KM 3: 3:15/km. MÅL: 9:59!' },
+  ];
+
+  function getISOWeek(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  }
+
+  function getMondayOfISOWeek(week, year) {
+    const jan4 = new Date(year, 0, 4);
+    const startDay = jan4.getDay() || 7;
+    const monday = new Date(jan4);
+    monday.setDate(jan4.getDate() - startDay + 1 + (week - 1) * 7);
+    return monday;
+  }
+
+  function buildCalendar() {
+    const container = document.getElementById('cal-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const dayNames = ['Mån','Tis','Ons','Tor','Fre','Lör','Sön'];
+    const monthNames = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+
+    // Fas-rubriker
+    const phases = {
+      23: 'Fas 1 — Aerob bas & återhämtning',
+      26: 'Fas 2 — Tröskel & styrkeuppbyggnad',
+      30: 'Fas 3 — Spetsning',
+    };
+
+    const START_WEEK = 23;
+    const END_WEEK   = 34;
+    const YEAR       = 2026;
+
+    // Index sessions by week+dow
+    const sessionMap = {};
+    PLAN_SESSIONS.forEach(s => {
+      const key = s.week + '-' + s.dow;
+      if (!sessionMap[key]) sessionMap[key] = [];
+      sessionMap[key].push(s);
+    });
+
+    for (let w = START_WEEK; w <= END_WEEK; w++) {
+      // Fas-rubrik?
+      if (phases[w]) {
+        const ph = document.createElement('div');
+        ph.className = 'sl';
+        ph.style.marginTop = w === START_WEEK ? '0' : '28px';
+        ph.style.marginBottom = '12px';
+        ph.textContent = phases[w];
+        container.appendChild(ph);
+      }
+
+      const monday = getMondayOfISOWeek(w, YEAR);
+
+      // Räkna pass i veckan
+      let runCount = 0, liftCount = 0, raceCount = 0;
+      for (let d = 0; d < 7; d++) {
+        const sessions = sessionMap[w + '-' + d] || [];
+        sessions.forEach(s => {
+          if (s.type === 'run')  runCount++;
+          if (s.type === 'lift') liftCount++;
+          if (s.type === 'race') raceCount++;
+        });
+      }
+
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const rangeStr =
+        monday.getDate() + ' ' + monthNames[monday.getMonth()] +
+        ' – ' +
+        sunday.getDate() + ' ' + monthNames[sunday.getMonth()];
+
+      // Veckokort
+      const weekEl = document.createElement('div');
+      weekEl.className = 'cal-week';
+
+      // Header
+      const headerEl = document.createElement('div');
+      headerEl.className = 'cal-week-header';
+      let badgesHtml = '';
+      if (runCount)  badgesHtml += `<span class="cal-week-badge cwb-run">🏃 ${runCount} löp</span>`;
+      if (liftCount) badgesHtml += `<span class="cal-week-badge cwb-lift">🏋️ ${liftCount} styrka</span>`;
+      if (raceCount) badgesHtml += `<span class="cal-week-badge cwb-race">⭐ tävling</span>`;
+      headerEl.innerHTML = `
+        <span class="cal-week-num">V.${w}</span>
+        <span class="cal-week-range">${rangeStr}</span>
+        <div class="cal-week-badges">${badgesHtml}</div>`;
+      weekEl.appendChild(headerEl);
+
+      // Dagar
+      const daysEl = document.createElement('div');
+      daysEl.className = 'cal-days';
+
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + d);
+        date.setHours(0,0,0,0);
+
+        const isToday = date.getTime() === today.getTime();
+        const isPast  = date < today;
+
+        const dayEl = document.createElement('div');
+        dayEl.className = 'cal-day' + (isToday ? ' today' : '') + (isPast ? ' past' : '');
+
+        let pillsHtml = '';
+        const sessions = sessionMap[w + '-' + d] || [];
+        sessions.forEach(s => {
+          const cls = s.type === 'run' ? 'csp-run' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
+          const escaped = s.detail.replace(/"/g, '&quot;');
+          pillsHtml += `<span class="cal-session-pill ${cls}" title="${escaped}">${s.title}</span>`;
+        });
+
+        dayEl.innerHTML = `
+          <div class="cal-day-header">
+            <span class="cal-day-name">${dayNames[d]}</span>
+            <span class="cal-day-num">${date.getDate()}</span>
+          </div>
+          ${pillsHtml}`;
+        daysEl.appendChild(dayEl);
+      }
+
+      weekEl.appendChild(daysEl);
+      container.appendChild(weekEl);
+    }
+  }
+
+  // Bygg kalendern direkt + när Plan-fliken öppnas
+  buildCalendar();
 </script>
 </body>
 </html>
