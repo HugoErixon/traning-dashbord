@@ -37,6 +37,11 @@ def setup_db():
                 weight REAL,
                 note TEXT,
                 created_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS user_notes (
+                id SERIAL PRIMARY KEY,
+                text TEXT NOT NULL,
+                category TEXT DEFAULT 'general',
+                created_at REAL)''')
         conn.commit()
     print('Databas: klar')
 
@@ -99,6 +104,8 @@ def check_auth():
     if not request.path.startswith('/api/'):
         return
     if request.path == '/api/login':
+        return
+    if request.host.startswith('localhost') or request.host.startswith('127.0.0.1'):
         return
     if request.headers.get('x-site-password') != PASSWORD:
         return jsonify({'error': 'Unauthorized'}), 401
@@ -265,6 +272,38 @@ def chat():
         headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
                  'content-type': 'application/json'})
     return jsonify({'reply': resp.json()['content'][0]['text']})
+
+# --- Minne / Noteringar ---
+@app.get('/api/notes')
+def get_notes():
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id, text, category, created_at FROM user_notes ORDER BY created_at DESC')
+            rows = cur.fetchall()
+    return jsonify({'notes': [{'id': r[0], 'text': r[1], 'category': r[2], 'created_at': r[3]} for r in rows]})
+
+@app.post('/api/notes')
+def add_note():
+    data = request.get_json(force=True, silent=True) or {}
+    text = data.get('text', '').strip()
+    category = data.get('category', 'general')
+    if not text:
+        return jsonify({'error': 'Tom notering'}), 400
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('INSERT INTO user_notes (text, category, created_at) VALUES (%s, %s, %s) RETURNING id',
+                        (text, category, time.time()))
+            new_id = cur.fetchone()[0]
+        conn.commit()
+    return jsonify({'ok': True, 'id': new_id})
+
+@app.delete('/api/notes/<int:note_id>')
+def delete_note(note_id):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM user_notes WHERE id=%s', (note_id,))
+        conn.commit()
+    return jsonify({'ok': True})
 
 # --- Styrka ---
 STRENGTH_TYPES = ('strength_training', 'fitness_equipment', 'gym', 'indoor_cardio', 'cardio', 'bouldering')

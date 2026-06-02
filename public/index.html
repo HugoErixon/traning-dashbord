@@ -729,6 +729,14 @@
     }
     .send-btn:hover { opacity:0.88; transform:translateY(-1px); }
 
+    /* ─── COACH LAYOUT ─── */
+    @media (max-width: 900px) {
+      #page-coach > div[style*="grid-template-columns"] {
+        display: flex !important;
+        flex-direction: column !important;
+      }
+    }
+
     /* ─── KALENDER ─── */
     .cal-week {
       margin-bottom: 10px;
@@ -1098,30 +1106,66 @@
     <!-- COACH -->
     <div class="page" id="page-coach">
       <div class="page-header"><h2>AI-träningscoach</h2><p>Powered by Claude · Anthropic</p></div>
-      <div class="chat-wrap">
-        <div class="chat-top">
-          <div class="chat-dot"></div>
-          <span class="chat-title">Din personliga coach</span>
-          <span class="chat-sub">Claude Sonnet</span>
-        </div>
-        <div class="qprompts">
-          <button class="qp" onclick="qa('Ska jag köra löpning eller styrka idag?')">Löpning eller styrka?</button>
-          <button class="qp" onclick="qa('Hur kombinerar jag löpning och styrka bäst?')">Kombinera träning</button>
-          <button class="qp" onclick="qa('Vilket är nästa kvalitetspass?')">Nästa pass</button>
-          <button class="qp" onclick="qa('Hur ligger jag till mot sub 10:00?')">Sub 10:00?</button>
-          <button class="qp" onclick="qa('Hur ska jag progressera i styrketräningen?')">Styrka progress</button>
-          <button class="qp" onclick="qa('Ge mig en motivationsboost!')">Motivera mig!</button>
-        </div>
-        <div class="messages" id="messages">
-          <div class="msg ai">
-            <div class="msg-from">COACH</div>
-            Hej! Jag känner till ditt dubbla mål — sub 10:00 på 3 km OCH att bli starkare. Vad vill du veta?
+
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start;">
+
+        <!-- Chat -->
+        <div class="chat-wrap">
+          <div class="chat-top">
+            <div class="chat-dot"></div>
+            <span class="chat-title">Din personliga coach</span>
+            <span class="chat-sub">Claude Sonnet</span>
+          </div>
+          <div class="qprompts">
+            <button class="qp" onclick="qa('Ska jag köra löpning eller styrka idag?')">Löpning eller styrka?</button>
+            <button class="qp" onclick="qa('Hur kombinerar jag löpning och styrka bäst?')">Kombinera träning</button>
+            <button class="qp" onclick="qa('Vilket är nästa kvalitetspass?')">Nästa pass</button>
+            <button class="qp" onclick="qa('Hur ligger jag till mot sub 10:00?')">Sub 10:00?</button>
+            <button class="qp" onclick="qa('Hur ska jag progressera i styrketräningen?')">Styrka progress</button>
+            <button class="qp" onclick="qa('Ge mig en motivationsboost!')">Motivera mig!</button>
+          </div>
+          <div class="messages" id="messages">
+            <div class="msg ai">
+              <div class="msg-from">COACH</div>
+              Hej! Jag känner till ditt dubbla mål — sub 10:00 på 3 km OCH att bli starkare. Jag läser också dina sparade noteringar automatiskt. Vad vill du veta?
+            </div>
+          </div>
+          <div class="chat-input">
+            <input type="text" id="chat-input" placeholder="Skriv din fråga..." />
+            <button class="send-btn" onclick="send()">Skicka</button>
           </div>
         </div>
-        <div class="chat-input">
-          <input type="text" id="chat-input" placeholder="Skriv din fråga..." />
-          <button class="send-btn" onclick="send()">Skicka</button>
+
+        <!-- Minne / Noteringar -->
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+              <span style="font-size:13px;font-weight:700;">Coachens minne</span>
+              <span id="notes-count" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-left:auto;">0 noteringar</span>
+            </div>
+            <div style="padding:10px 14px;border-bottom:1px solid var(--border);">
+              <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.1em;margin-bottom:8px;">LÄGG TILL NOTERING</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <select id="note-category" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--muted2);font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;">
+                  <option value="kropp">🩹 Kropp & skador</option>
+                  <option value="kost">🥗 Kost & återhämtning</option>
+                  <option value="mål">🎯 Mål & fokus</option>
+                  <option value="utrustning">👟 Utrustning</option>
+                  <option value="general">📝 Övrigt</option>
+                </select>
+                <textarea id="note-input" rows="3" placeholder="T.ex. Känningar i höger vad sedan igår..." style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;" onfocus="this.style.borderColor='var(--purple)'" onblur="this.style.borderColor='var(--border2)'"></textarea>
+                <button onclick="saveNote()" style="background:var(--purple-dim);border:1px solid rgba(167,139,250,0.25);border-radius:8px;padding:8px;color:var(--purple);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;width:100%;" onmouseover="this.style.background='rgba(167,139,250,0.15)'" onmouseout="this.style.background='var(--purple-dim)'">+ Spara i minnet</button>
+              </div>
+            </div>
+            <div id="notes-list" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;">
+              <div style="color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;">Laddar...</div>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;padding:0 4px;line-height:1.6;">
+            Coachen läser alla noteringar automatiskt i varje svar.
+          </div>
         </div>
+
       </div>
     </div>
 
@@ -1184,6 +1228,7 @@ window.fetch = (url, opts = {}) => {
     if (id === 'history')  loadHistory();
     if (id === 'health')   loadHealth();
     if (id === 'strength') loadStrength();
+    if (id === 'coach')    loadNotes();
   }
 
   // Days left + goal bars
@@ -1386,7 +1431,10 @@ window.fetch = (url, opts = {}) => {
     }
   }
 
-  const CTX = `Du är en personlig träningscoach för en löpare/idrottare med DUBBELT fokus:
+  // Noteringar — laddas från DB och används i varje AI-anrop
+  let userNotes = [];
+
+  const BASE_CTX = `Du är en personlig träningscoach för en löpare/idrottare med DUBBELT fokus:
 
 LÖPMÅL: Springa 3 km under 10 minuter (nuvarande bästa: 10:27, gap 27 sek)
 - Tidsram: till slutet av augusti 2026
@@ -1401,9 +1449,81 @@ STYRKEMÅL: Bli progressivt starkare — 2 styrkepass per vecka
 - Styrka stödjer löpningen: stärker core, minskar skaderisk, ökar kraftuttag
 
 HÄLSODATA (aktuell):
-- Träningsberedskap: 50/100, HRV låg (22%), sömn 91/100, body battery 40
+- Träningsberedskap: 50/100, HRV låg (22%), sömn 91/100, body battery 40`;
 
-Svara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen i ditt svar. Max 3–4 meningar.`;
+  function buildCTX() {
+    let ctx = BASE_CTX;
+    if (userNotes.length > 0) {
+      const catLabels = { kropp:'Kropp & skador', kost:'Kost & återhämtning', mål:'Mål & fokus', utrustning:'Utrustning', general:'Övrigt' };
+      ctx += '\n\nSPARADE NOTERINGAR FRÅN ANVÄNDAREN (ta alltid hänsyn till dessa):';
+      userNotes.forEach(n => {
+        const cat = catLabels[n.category] || n.category;
+        ctx += `\n- [${cat}] ${n.text}`;
+      });
+    }
+    ctx += '\n\nSvara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen i ditt svar. Max 3–4 meningar.';
+    return ctx;
+  }
+
+  async function loadNotes() {
+    try {
+      const res = await fetch('/api/notes');
+      const data = await res.json();
+      userNotes = data.notes || [];
+      renderNotes();
+    } catch(e) { console.error('Notes error:', e); }
+  }
+
+  const catEmoji = { kropp:'🩹', kost:'🥗', mål:'🎯', utrustning:'👟', general:'📝' };
+  const catLabel = { kropp:'Kropp & skador', kost:'Kost & återhämtning', mål:'Mål & fokus', utrustning:'Utrustning', general:'Övrigt' };
+  const catColor = { kropp:'var(--red)', kost:'var(--green)', mål:'var(--blue)', utrustning:'var(--amber)', general:'var(--muted2)' };
+
+  function renderNotes() {
+    const list = document.getElementById('notes-list');
+    const count = document.getElementById('notes-count');
+    if (!list) return;
+    count.textContent = userNotes.length + (userNotes.length === 1 ? ' notering' : ' noteringar');
+    if (!userNotes.length) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:4px 0;">Inga noteringar ännu. Lägg till saker coachen bör veta.</div>';
+      return;
+    }
+    list.innerHTML = userNotes.map(n => {
+      const emoji = catEmoji[n.category] || '📝';
+      const col   = catColor[n.category]  || 'var(--muted2)';
+      const label = catLabel[n.category]  || n.category;
+      const date  = new Date(n.created_at * 1000).toLocaleDateString('sv-SE', {day:'numeric', month:'short'});
+      return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 12px;position:relative;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+          <span style="font-size:11px;color:${col};font-family:'JetBrains Mono',monospace;font-weight:600;">${emoji} ${label}</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto;font-family:'JetBrains Mono',monospace;">${date}</span>
+          <button onclick="deleteNote(${n.id})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;transition:color 0.15s;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">×</button>
+        </div>
+        <div style="font-size:13px;color:var(--muted3);line-height:1.5;">${n.text}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function saveNote() {
+    const input = document.getElementById('note-input');
+    const category = document.getElementById('note-category').value;
+    const text = input.value.trim();
+    if (!text) { input.focus(); return; }
+    await fetch('/api/notes', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ text, category })
+    });
+    input.value = '';
+    await loadNotes();
+  }
+
+  async function deleteNote(id) {
+    await fetch('/api/notes/' + id, { method: 'DELETE' });
+    await loadNotes();
+  }
+
+  // Ladda noteringar direkt vid start
+  loadNotes();
 
   const history = [];
 
@@ -1424,7 +1544,7 @@ Svara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen
     box.scrollTop = box.scrollHeight;
     history.push({ role:'user', content:msg });
     try {
-      const res = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:CTX, history }) });
+      const res = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:buildCTX(), history }) });
       const data = await res.json();
       const reply = data.reply || data.error || 'Inget svar.';
       aDiv.innerHTML = '<div class="msg-from">COACH</div>' + reply;
