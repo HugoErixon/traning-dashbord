@@ -1917,12 +1917,20 @@ HÄLSODATA (aktuell):
       });
       if (upcoming.length > 0) {
         ctx += '\n\nARBETS- OCH AKTIVITETSSCHEMA (kommande 7 dagar från Google Kalender):';
+        const earlyDays = [];
         upcoming.forEach(ev => {
           const timeStr = ev.allDay ? 'heldag' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
           const dayName = new Date(ev.start).toLocaleDateString('sv-SE', { weekday:'long', day:'numeric', month:'short' });
           ctx += `\n- ${dayName}: ${ev.title} (${timeStr})`;
+          if (!ev.allDay) {
+            const hour = new Date(ev.start).getHours();
+            if (hour < 7) earlyDays.push(dayName);
+          }
         });
         ctx += '\nAnpassa alltid träningsrekommendationer efter schemat — t.ex. flytta hårda pass till lediga dagar.';
+        if (earlyDays.length > 0) {
+          ctx += `\nKONSEKVENS AV TIDIGA ARBETSPASS: Följande dagar har event som börjar före 07:00 — detta innebär troligen förkortad sömn och sämre återhämtning: ${earlyDays.join(', ')}. Undvik kvalitetspass (intervaller, tröskel, tävling) dessa dagar och dagen efter. Prioritera vila eller lugna pass (Z1-Z2).`;
+        }
       }
     }
 
@@ -1935,6 +1943,92 @@ HÄLSODATA (aktuell):
         ctx += `\n- [${cat}] ${n.text}`;
       });
     }
+    // Volymsanalys för innevarande vecka
+    const now = new Date();
+    const isoWeek = (() => {
+      const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+      const day = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - day);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    })();
+    const weekMonday = new Date(now);
+    weekMonday.setDate(now.getDate() - ((now.getDay() || 7) - 1));
+    weekMonday.setHours(0,0,0,0);
+    const weekSunday = new Date(weekMonday);
+    weekSunday.setDate(weekMonday.getDate() + 7);
+
+    const plannedKmWeek = PLAN_SESSIONS
+      .filter(s => s.week === isoWeek)
+      .reduce((sum, s) => sum + (s.km || 0), 0);
+
+    const completedKmWeek = recentActivities
+      .filter(a => {
+        const d = new Date(a.startTimeLocal || a.beginTimestamp);
+        return d >= weekMonday && d < weekSunday &&
+          ['running','track_running','treadmill_running','trail_running'].includes(a.activityType?.typeKey);
+      })
+      .reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
+
+    const remainingKm = Math.max(0, plannedKmWeek - completedKmWeek);
+    const weekCap = Math.round(plannedKmWeek * 1.1); // max 10% över plan
+
+    ctx += `\n\nVECKOVOLYM V.${isoWeek}: Planerat ${plannedKmWeek} km · Genomfört ${completedKmWeek.toFixed(1)} km · Kvar enligt plan ${remainingKm.toFixed(1)} km · Veckans tak ${weekCap} km. Om ett missat pass föreslås ombokas, kontrollera att total veckodistans inte överstiger ${weekCap} km — i så fall rekommendera vila eller skjut passet till nästa vecka istället.`;
+
+    // Training load (ACWR) — estimera load för planerade kvarvarande pass
+    if (trainingLoadData && trainingLoadData.acute != null) {
+      // Load/km-schabloner baserade på historiska Garmin-värden
+      // easy (Z2): ~7/km, run (intervall/tröskel): ~22/km, race: ~25/km, lift: 40 fast
+      const loadPerKm = { easy: 7, run: 22, race: 25, lift: 0 };
+      const loadFlat  = { lift: 40 };
+
+      const todayDow = (now.getDay() + 6) % 7; // 0=mån
+      const remainingSessions = PLAN_SESSIONS.filter(s =>
+        s.week === isoWeek && s.dow > todayDow
+      );
+
+      const estimatedRemainingLoad = remainingSessions.reduce((sum, s) => {
+        if (s.type === 'lift') return sum + 40;
+        return sum + (s.km || 0) * (loadPerKm[s.type] || 7);
+      }, 0);
+
+      // Genomförd load denna vecka från Garmin
+      const completedLoadWeek = recentActivities
+        .filter(a => {
+          const d = new Date(a.startTimeLocal || a.beginTimestamp);
+          return d >= weekMonday && d < weekSunday;
+        })
+        .reduce((sum, a) => sum + (a.activityTrainingLoad || 0), 0);
+
+      const projectedAcute  = trainingLoadData.acute + estimatedRemainingLoad;
+      const chronic         = trainingLoadData.chronic || 1;
+      const projectedRatio  = (projectedAcute / chronic).toFixed(2);
+      const safeToAdd       = projectedRatio <= 1.3;
+
+      const statusMap = {
+        RECOVERY_2: 'Återhämtning', MAINTAINING: 'Underhåll',
+        IMPROVING: 'Förbättring', PRODUCTIVE: 'Produktiv', PEAKING: 'Peaking',
+        OVERREACHING: 'Överbelastning', UNPRODUCTIVE: 'Oproduktiv'
+      };
+      const statusLabel = statusMap[trainingLoadData.statusPhrase] || trainingLoadData.statusPhrase || '—';
+
+      const feedbackMap = {
+        AEROBIC_LOW_SHORTAGE: 'för lite lågintensiv aerob träning',
+        AEROBIC_HIGH_SHORTAGE: 'för lite högintensiv aerob träning',
+        ANAEROBIC_SHORTAGE: 'för lite anaerob träning',
+        OPTIMAL: 'optimal belastningsbalans'
+      };
+      const feedbackLabel = feedbackMap[trainingLoadData.loadBalanceFeedback] || trainingLoadData.loadBalanceFeedback || '—';
+
+      ctx += `\n\nTRÄNINGSLAST (ACWR-modell):`;
+      ctx += `\n- Akut last (7 dagar): ${trainingLoadData.acute} · Kronisk last (28 dagar): ${trainingLoadData.chronic}`;
+      ctx += `\n- Aktuell ACWR-kvot: ${trainingLoadData.ratio} (${trainingLoadData.acwrStatus}) · Träningsstatus: ${statusLabel}`;
+      ctx += `\n- Genomförd load denna vecka: ${Math.round(completedLoadWeek)} · Estimerad last för kvarvarande planerade pass: ${Math.round(estimatedRemainingLoad)}`;
+      ctx += `\n- Projicerad ACWR om alla pass genomförs: ${projectedRatio} → ${safeToAdd ? '✓ inom säker zon (≤1.3)' : '⚠ ÖVERSTIGER säker zon (>1.3)'}`;
+      ctx += `\n- Belastningsbalans: ${feedbackLabel}`;
+      ctx += `\nREGEL: Optimal ACWR är 0.8–1.3. Om ett ombokas pass skulle driva projicerad ACWR över 1.3 — ersätt med Z2-jogg eller vila istället. Estimerade load/km: Z2=7, intervall/tröskel=22, race=25, styrka=40 fast.`;
+    }
+
     ctx += '\n\nSvara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen i ditt svar. Max 3–4 meningar.';
     return ctx;
   }
@@ -1998,6 +2092,28 @@ HÄLSODATA (aktuell):
 
   // Ladda noteringar direkt vid start
   loadNotes();
+
+  // Garmin-aktiviteter cached globalt för coachens volyms- och loadberäkning
+  let recentActivities = [];
+  async function loadRecentActivities() {
+    try {
+      const res = await fetch('/api/activities?days=14');
+      const data = await res.json();
+      recentActivities = data.activities || [];
+    } catch(e) {}
+  }
+  loadRecentActivities();
+
+  // Training load (ACWR) cached globalt
+  let trainingLoadData = null;
+  async function loadTrainingLoad() {
+    try {
+      const res = await fetch('/api/training-load');
+      const data = await res.json();
+      if (!data.error) trainingLoadData = data;
+    } catch(e) {}
+  }
+  loadTrainingLoad();
 
   const history = [];
 

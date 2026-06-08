@@ -209,6 +209,52 @@ def health_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.get('/api/training-load')
+def training_load():
+    row = get_cache('training_load')
+    if row and (time.time() - row[1]) < 30 * 60:
+        return jsonify(row[0])
+    try:
+        client = get_garmin()
+        today  = date.today().isoformat()
+        status = client.get_training_status(today)
+
+        # Plocka ut data från primär enhet
+        dev_map  = status.get('mostRecentTrainingStatus', {}).get('latestTrainingStatusData', {})
+        dev      = next(iter(dev_map.values()), {}) if dev_map else {}
+        acwr_dto = dev.get('acuteTrainingLoadDTO', {})
+
+        acute   = acwr_dto.get('dailyTrainingLoadAcute')
+        chronic = acwr_dto.get('dailyTrainingLoadChronic')
+        ratio   = acwr_dto.get('dailyAcuteChronicWorkloadRatio')
+        status_phrase = dev.get('trainingStatusFeedbackPhrase', '')
+
+        # Belastningsbalans per månad
+        lb_map  = status.get('mostRecentTrainingLoadBalance', {}).get('metricsTrainingLoadBalanceDTOMap', {})
+        lb      = next(iter(lb_map.values()), {}) if lb_map else {}
+
+        result = {
+            'acute':   round(acute)   if acute   is not None else None,
+            'chronic': round(chronic) if chronic is not None else None,
+            'ratio':   round(ratio, 2) if ratio  is not None else None,
+            'acwrStatus':   acwr_dto.get('acwrStatus'),
+            'statusPhrase': status_phrase,
+            'monthlyAerobicLow':  round(lb.get('monthlyLoadAerobicLow',  0)),
+            'monthlyAerobicHigh': round(lb.get('monthlyLoadAerobicHigh', 0)),
+            'monthlyAnaerobic':   round(lb.get('monthlyLoadAnaerobic',   0)),
+            'aerobicLowMin':  lb.get('monthlyLoadAerobicLowTargetMin'),
+            'aerobicLowMax':  lb.get('monthlyLoadAerobicLowTargetMax'),
+            'aerobicHighMin': lb.get('monthlyLoadAerobicHighTargetMin'),
+            'aerobicHighMax': lb.get('monthlyLoadAerobicHighTargetMax'),
+            'anaerobicMin':   lb.get('monthlyLoadAnaerobicTargetMin'),
+            'anaerobicMax':   lb.get('monthlyLoadAnaerobicTargetMax'),
+            'loadBalanceFeedback': lb.get('trainingBalanceFeedbackPhrase'),
+        }
+        set_cache('training_load', result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.post('/api/sync')
 def sync():
     try:
