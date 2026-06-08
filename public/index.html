@@ -990,7 +990,9 @@
     .cwb-run  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.2); }
     .cwb-lift { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.2); }
     .cwb-race { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
-    .cwb-km   { background: var(--bg4);        color: var(--muted3); border: 1px solid var(--border2);       margin-left: auto; }
+    .cwb-km   { background: var(--bg4);        color: var(--muted3); border: 1px solid var(--border2); }
+    .cwb-work { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.2); }
+    .csp-work { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.2); font-style: normal; }
 
     .cal-days {
       display: grid;
@@ -1428,6 +1430,14 @@
     <!-- PLAN -->
     <div class="page" id="page-upcoming">
       <div class="page-header"><h2>Kalender</h2><p>Löpning + styrka · 40–50 km/v · sub 10:00 · jun–aug 2026</p></div>
+      <div id="gcal-banner" style="display:none;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:12px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span style="font-size:18px;">📅</span>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;" id="gcal-status-text">Kopplar Google Kalender...</div>
+          <div style="font-size:11px;color:var(--muted2);font-family:'JetBrains Mono',monospace;margin-top:2px;" id="gcal-status-sub"></div>
+        </div>
+        <button id="gcal-sync-btn" onclick="syncGcal()" style="background:var(--blue-dim);border:1px solid rgba(77,159,255,0.25);border-radius:8px;padding:7px 14px;color:var(--blue);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;display:none;">↻ Synka</button>
+      </div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;align-items:center;">
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--green);opacity:0.7;"></span>
@@ -1602,6 +1612,7 @@ window.fetch = (url, opts = {}) => {
     if (id === 'health')   loadHealth();
     if (id === 'strength') loadStrength();
     if (id === 'coach')    loadNotes();
+    if (id === 'upcoming') checkGcalStatus();
   }
 
   // Days left + goal bars
@@ -1895,6 +1906,27 @@ HÄLSODATA (aktuell):
 
   function buildCTX() {
     let ctx = BASE_CTX;
+
+    // Lägg in arbetsschema för kommande 7 dagar
+    if (gcalEvents.length > 0) {
+      const today = new Date();
+      const in7 = new Date(today); in7.setDate(today.getDate() + 7);
+      const upcoming = gcalEvents.filter(ev => {
+        const d = new Date(ev.start);
+        return d >= today && d <= in7;
+      });
+      if (upcoming.length > 0) {
+        ctx += '\n\nARBETS- OCH AKTIVITETSSCHEMA (kommande 7 dagar från Google Kalender):';
+        upcoming.forEach(ev => {
+          const timeStr = ev.allDay ? 'heldag' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
+          const dayName = new Date(ev.start).toLocaleDateString('sv-SE', { weekday:'long', day:'numeric', month:'short' });
+          ctx += `\n- ${dayName}: ${ev.title} (${timeStr})`;
+        });
+        ctx += '\nAnpassa alltid träningsrekommendationer efter schemat — t.ex. flytta hårda pass till lediga dagar.';
+      }
+    }
+
+    // Sparade noteringar
     if (userNotes.length > 0) {
       const catLabels = { kropp:'Kropp & skador', kost:'Kost & återhämtning', mål:'Mål & fokus', utrustning:'Utrustning', general:'Övrigt' };
       ctx += '\n\nSPARADE NOTERINGAR FRÅN ANVÄNDAREN (ta alltid hänsyn till dessa):';
@@ -2480,8 +2512,16 @@ HÄLSODATA (aktuell):
 
       const monday = getMondayOfISOWeek(w, YEAR);
 
+      // Indexera Google Calendar-events per datum för denna vecka
+      const gcalMap = {}; // 'YYYY-MM-DD' -> [events]
+      gcalEvents.forEach(ev => {
+        const key = gcalDateKey(ev.start);
+        if (!gcalMap[key]) gcalMap[key] = [];
+        gcalMap[key].push(ev);
+      });
+
       // Räkna pass och km
-      let runCount = 0, liftCount = 0, raceCount = 0, totalKm = 0;
+      let runCount = 0, liftCount = 0, raceCount = 0, totalKm = 0, workCount = 0;
       for (let d = 0; d < 7; d++) {
         const sessions = sessionMap[w + '-' + d] || [];
         sessions.forEach(s => {
@@ -2490,6 +2530,10 @@ HÄLSODATA (aktuell):
           if (s.type === 'race')  raceCount++;
           totalKm += s.km || 0;
         });
+        const dayDate = new Date(monday);
+        dayDate.setDate(monday.getDate() + d);
+        const dayKey = dayDate.toISOString().substring(0,10);
+        workCount += (gcalMap[dayKey] || []).length;
       }
 
       const sunday = new Date(monday);
@@ -2510,6 +2554,7 @@ HÄLSODATA (aktuell):
       if (runCount)  badgesHtml += `<span class="cal-week-badge cwb-run">🏃 ${runCount} löp</span>`;
       if (liftCount) badgesHtml += `<span class="cal-week-badge cwb-lift">🏋️ ${liftCount} styrka</span>`;
       if (raceCount) badgesHtml += `<span class="cal-week-badge cwb-race">⭐ tävling</span>`;
+      if (workCount) badgesHtml += `<span class="cal-week-badge cwb-work">💼 ${workCount} jobb</span>`;
       if (totalKm > 0) badgesHtml += `<span class="cal-week-badge cwb-km">~${totalKm} km</span>`;
       headerEl.innerHTML = `
         <span class="cal-week-num">V.${w}</span>
@@ -2532,7 +2577,17 @@ HÄLSODATA (aktuell):
         const dayEl = document.createElement('div');
         dayEl.className = 'cal-day' + (isToday ? ' today' : '') + (isPast ? ' past' : '');
 
+        // Google Calendar-events för denna dag (visas först)
+        const dateKey = date.toISOString().substring(0, 10);
+        const dayGcal = gcalMap[dateKey] || [];
+
         let pillsHtml = '';
+        dayGcal.forEach(ev => {
+          const timeStr = ev.allDay ? 'Heldag' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
+          const tip = `${ev.title} · ${timeStr}${ev.location ? ' · ' + ev.location : ''}`;
+          pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}">💼 ${ev.title}</span>`;
+        });
+
         const sessions = sessionMap[w + '-' + d] || [];
         sessions.forEach(s => {
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
@@ -2554,8 +2609,71 @@ HÄLSODATA (aktuell):
     }
   }
 
+  // ─── GOOGLE CALENDAR ────────────────────────────────────────
+  let gcalEvents = [];   // { title, start, end, allDay }
+
+  function gcalDateKey(isoStr) {
+    // Returnerar "YYYY-MM-DD" oavsett om det är dateTime eller date
+    return isoStr ? isoStr.substring(0, 10) : '';
+  }
+
+  function fmtEventTime(isoStr) {
+    if (!isoStr || isoStr.length === 10) return 'Heldag';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
+    } catch { return ''; }
+  }
+
+  async function checkGcalStatus() {
+    const banner = document.getElementById('gcal-banner');
+    if (!banner) return;
+    banner.style.display = 'flex';
+    try {
+      const r = await fetch('/api/calendar/status');
+      const d = await r.json();
+      if (!d.hasCreds) {
+        document.getElementById('gcal-status-text').textContent = 'Google Kalender ej kopplad';
+        document.getElementById('gcal-status-sub').textContent = 'Lägg google_credentials.json i projektmappen för att aktivera';
+        banner.style.borderColor = 'rgba(77,159,255,0.15)';
+      } else if (!d.hasToken) {
+        document.getElementById('gcal-status-text').textContent = 'Klicka för att logga in med Google';
+        document.getElementById('gcal-status-sub').textContent = 'Första gången öppnas en webbläsare för att godkänna åtkomst';
+        document.getElementById('gcal-sync-btn').style.display = 'block';
+        document.getElementById('gcal-sync-btn').textContent = '🔑 Logga in';
+      } else {
+        document.getElementById('gcal-sync-btn').style.display = 'block';
+        await syncGcal();
+      }
+    } catch(e) {
+      banner.style.display = 'none';
+    }
+  }
+
+  async function syncGcal() {
+    const btn = document.getElementById('gcal-sync-btn');
+    const sub = document.getElementById('gcal-status-sub');
+    if (btn) { btn.textContent = '↻ Hämtar...'; btn.disabled = true; }
+    try {
+      const r = await fetch('/api/calendar');
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || 'Fel');
+      gcalEvents = d.events || [];
+      document.getElementById('gcal-status-text').textContent = `📅 Google Kalender synkad`;
+      if (sub) sub.textContent = `${gcalEvents.length} händelser de närmaste 3 veckorna`;
+      if (btn) { btn.textContent = '↻ Synka'; btn.disabled = false; }
+      buildCalendar(); // Bygg om kalendern med arbetspass
+    } catch(e) {
+      document.getElementById('gcal-status-text').textContent = 'Google Kalender — fel: ' + e.message;
+      if (btn) { btn.textContent = '↻ Försök igen'; btn.disabled = false; }
+    }
+  }
+
   // Bygg kalendern direkt + när Plan-fliken öppnas
   buildCalendar();
+  if (document.getElementById('page-upcoming').classList.contains('active')) {
+    checkGcalStatus();
+  }
 </script>
 </body>
 </html>

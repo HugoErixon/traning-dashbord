@@ -3,15 +3,30 @@ from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
 import json, time, requests, psycopg2, psycopg2.extras
-from datetime import date
+from datetime import date, datetime, timedelta
+import os
+
+# Google Calendar (valfritt — kräver google_credentials.json)
+try:
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request as GRequest
+    from googleapiclient.discovery import build as gbuild
+    GCAL_AVAILABLE = True
+except ImportError:
+    GCAL_AVAILABLE = False
 
 app = Flask(__name__, static_folder='public')
 
 config = dotenv_values('.env')
 PASSWORD    = config.get('SITE_PASSWORD', 'hugo123')
 ANTHROPIC_KEY = config.get('ANTHROPIC_API_KEY', '')
-TOKEN_DIR   = str(Path.home() / '.garminconnect')
-DATABASE_URL = config.get('DATABASE_URL', '')
+TOKEN_DIR     = str(Path.home() / '.garminconnect')
+DATABASE_URL  = config.get('DATABASE_URL', '')
+GCAL_ID       = config.get('GOOGLE_CALENDAR_ID', 'primary')
+GCAL_CREDS    = 'google_credentials.json'
+GCAL_TOKEN    = 'google_token.json'
+GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
 
 # --- Databas ---
 def db():
@@ -272,6 +287,74 @@ def chat():
         headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
                  'content-type': 'application/json'})
     return jsonify({'reply': resp.json()['content'][0]['text']})
+
+# --- Google Calendar ---
+def get_gcal_service():
+    if not GCAL_AVAILABLE:
+        return None
+    if not os.path.exists(GCAL_CREDS):
+        return None
+    creds = None
+    if os.path.exists(GCAL_TOKEN):
+        creds = Credentials.from_authorized_user_file(GCAL_TOKEN, GCAL_SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(GRequest())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(GCAL_CREDS, GCAL_SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open(GCAL_TOKEN, 'w') as f:
+            f.write(creds.to_json())
+    return gbuild('calendar', 'v3', credentials=creds)
+
+def fetch_gcal_events(days=14):
+    svc = get_gcal_service()
+    if not svc:
+        return []
+    now = datetime.utcnow()
+    time_min = now.isoformat() + 'Z'
+    time_max = (now + timedelta(days=days)).isoformat() + 'Z'
+    try:
+        result = svc.events().list(
+            calendarId=GCAL_ID,
+            timeMin=time_min,
+            timeMax=time_max,
+            maxResults=50,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        events = []
+        for e in result.get('items', []):
+            start = e['start'].get('dateTime', e['start'].get('date', ''))
+            end   = e['end'].get('dateTime',   e['end'].get('date', ''))
+            events.append({
+                'id':       e.get('id'),
+                'title':    e.get('summary', 'Händelse'),
+                'start':    start,
+                'end':      end,
+                'allDay':   'dateTime' not in e['start'],
+                'location': e.get('location', ''),
+                'desc':     e.get('description', ''),
+            })
+        return events
+    except Exception as ex:
+        print('Google Calendar fel:', ex)
+        return []
+
+@app.get('/api/calendar')
+def calendar_events():
+    if not os.path.exists(GCAL_CREDS):
+        return jsonify({'ok': False, 'error': 'google_credentials.json saknas', 'events': []})
+    events = fetch_gcal_events(days=21)
+    # Cacha i DB i 30 min
+    set_cache('gcal_events', events)
+    return jsonify({'ok': True, 'events': events})
+
+@app.get('/api/calendar/status')
+def calendar_status():
+    has_creds = os.path.exists(GCAL_CREDS)
+    has_token = os.path.exists(GCAL_TOKEN)
+    return jsonify({'hasCreds': has_creds, 'hasToken': has_token, 'available': GCAL_AVAILABLE})
 
 # --- Minne / Noteringar ---
 @app.get('/api/notes')
