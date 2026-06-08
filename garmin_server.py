@@ -348,10 +348,11 @@ def _build_refresh_prompt(acts):
                 ev_date = ev_dt.date()
             except Exception:
                 continue
-            if today <= ev_date <= today + timedelta(days=7):
+            if today <= ev_date <= today + timedelta(days=14):
                 day_name = ev_dt.strftime('%A') + ' ' + str(ev_dt.day) + ' ' + ev_dt.strftime('%b')
                 time_str = ev_dt.strftime('%H:%M') if 'T' in start_str else 'heldag'
-                gcal_lines.append(f"- {day_name}: {ev.get('title','')} ({time_str})")
+                desc_str = f" — {ev['desc']}" if ev.get('desc') else ''
+                gcal_lines.append(f"- {day_name}: {ev.get('title','')} ({time_str}){desc_str}")
                 if ev_dt.hour < 7:
                     early_days.append(day_name)
 

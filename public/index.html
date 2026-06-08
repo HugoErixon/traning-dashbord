@@ -1921,7 +1921,7 @@ HÄLSODATA (aktuell):
         upcoming.forEach(ev => {
           const timeStr = ev.allDay ? 'heldag' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
           const dayName = new Date(ev.start).toLocaleDateString('sv-SE', { weekday:'long', day:'numeric', month:'short' });
-          ctx += `\n- ${dayName}: ${ev.title} (${timeStr})`;
+          ctx += `\n- ${dayName}: ${ev.title} (${timeStr})${ev.desc ? ' — ' + ev.desc : ''}`;
           if (!ev.allDay) {
             const hour = new Date(ev.start).getHours();
             if (hour < 7) earlyDays.push(dayName);
