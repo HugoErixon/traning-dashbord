@@ -4,3 +4,5 @@ dashboard.db
 __pycache__/
 *.pyc
 test-garmin*.js
+google_credentials.json
+google_token.json
