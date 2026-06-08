@@ -2776,7 +2776,7 @@ HÄLSODATA (aktuell):
       if (!d.ok) throw new Error(d.error || 'Fel');
       gcalEvents = d.events || [];
       document.getElementById('gcal-status-text').textContent = `📅 Google Kalender synkad`;
-      if (sub) sub.textContent = `${gcalEvents.length} händelser de närmaste 3 veckorna`;
+      if (sub) sub.textContent = `${gcalEvents.length} händelser t.o.m. v.34 (23 aug)`;
       if (btn) { btn.textContent = '↻ Synka'; btn.disabled = false; }
       buildCalendar(); // Bygg om kalendern med arbetspass
     } catch(e) {

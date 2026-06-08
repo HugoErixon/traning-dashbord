@@ -488,7 +488,7 @@ def fetch_gcal_events(days=14):
             calendarId=GCAL_ID,
             timeMin=time_min,
             timeMax=time_max,
-            maxResults=50,
+            maxResults=200,
             singleEvents=True,
             orderBy='startTime'
         ).execute()
@@ -514,7 +514,7 @@ def fetch_gcal_events(days=14):
 def calendar_events():
     if not os.path.exists(GCAL_CREDS):
         return jsonify({'ok': False, 'error': 'google_credentials.json saknas', 'events': []})
-    events = fetch_gcal_events(days=21)
+    events = fetch_gcal_events(days=90)
     # Cacha i DB i 30 min
     set_cache('gcal_events', events)
     return jsonify({'ok': True, 'events': events})
