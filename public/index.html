@@ -2629,11 +2629,27 @@ HÄLSODATA (aktuell):
       const monday = getMondayOfISOWeek(w, YEAR);
 
       // Indexera Google Calendar-events per datum för denna vecka
+      // Flerdagarsevent expanderas så varje dag i spannet får en entry
       const gcalMap = {}; // 'YYYY-MM-DD' -> [events]
       gcalEvents.forEach(ev => {
-        const key = gcalDateKey(ev.start);
-        if (!gcalMap[key]) gcalMap[key] = [];
-        gcalMap[key].push(ev);
+        const startKey = gcalDateKey(ev.start);
+        const endRaw   = gcalDateKey(ev.end);
+        // För heldagsevent är end exklusivt (Google-format), dra tillbaka ett dygn
+        let endKey = endRaw;
+        if (ev.allDay && endRaw > startKey) {
+          const d = new Date(endRaw);
+          d.setDate(d.getDate() - 1);
+          endKey = d.toISOString().substring(0, 10);
+        }
+        // Lägg eventet på varje dag från start t.o.m. end
+        const cur = new Date(startKey);
+        const last = new Date(endKey);
+        while (cur <= last) {
+          const key = cur.toISOString().substring(0, 10);
+          if (!gcalMap[key]) gcalMap[key] = [];
+          gcalMap[key].push(ev);
+          cur.setDate(cur.getDate() + 1);
+        }
       });
 
       // Räkna pass och km
