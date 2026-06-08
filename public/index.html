@@ -1115,19 +1115,21 @@
 
     <!-- HEM -->
     <div class="page active" id="page-home">
-      <div class="hero">
-        <h2>Bli starkare<span class="co">.</span><br>Bli snabbare<span class="cg">.</span></h2>
-        <p>Dubbelt fokus — löpning och styrka i ett. Träna mer, progressa konsekvent.</p>
-        <div class="hero-nav">
-          <div class="hero-card" onclick="goto('health')"><div class="hero-card-icon">♡</div><div class="hero-card-title">Hälsa</div><div class="hero-card-desc">HRV · sömn · stress · batteri</div></div>
-          <div class="hero-card" onclick="goto('history')"><div class="hero-card-icon">◷</div><div class="hero-card-title">Historik</div><div class="hero-card-desc">Senaste pass & aktiviteter</div></div>
-          <div class="hero-card" onclick="goto('upcoming')"><div class="hero-card-icon">◈</div><div class="hero-card-title">Träningsplan</div><div class="hero-card-desc">Löpning + styrka integrerat</div></div>
-          <div class="hero-card" onclick="goto('strength')"><div class="hero-card-icon">◈</div><div class="hero-card-title">Styrka</div><div class="hero-card-desc">Logga övningar & progress</div></div>
-          <div class="hero-card" onclick="goto('coach')"><div class="hero-card-icon">✦</div><div class="hero-card-title">AI-coach</div><div class="hero-card-desc">Fråga om din träning</div></div>
+
+      <div class="sl" style="margin-top:8px;">Rekommendation idag</div>
+      <div class="bigcard accent-amber" style="margin-bottom:24px;">
+        <div class="today-header">
+          <h3 id="today-title">Lugnt återhämtningspass</h3>
+          <span class="today-badge badge-amber" id="today-badge">HRV LÅG</span>
+        </div>
+        <p id="today-body">Din HRV är låg och kroppen återhämtar sig. Kör ett lätt Z2-pass 30–40 min — håller motoriken igång utan att tömma batteriet.</p>
+        <div class="insight-box">
+          <div class="insight-label">AI-INSIKT</div>
+          <div class="insight-text" id="ai-insight">Tryck på "Uppdatera data" för en personlig analys baserad på din senaste träning.</div>
         </div>
       </div>
 
-      <div class="sl" style="margin-top:8px;">Dagens snapshot</div>
+      <div class="sl">Dagens snapshot</div>
       <div class="grid">
         <div class="card"><div class="card-label">beredskap</div><div id="snap-readiness-val" class="card-val ca">—</div><div id="snap-readiness-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
         <div class="card"><div class="card-label">sömn</div><div id="snap-sleep-val" class="card-val cg">—</div><div id="snap-sleep-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
@@ -1171,27 +1173,6 @@
           </div>
           <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-bottom:8px;letter-spacing:0.1em;">KONSEKVENS</div>
           <div class="bigbar"><div class="bigbar-fill" id="goal-bar-lift" style="width:0%"></div></div>
-        </div>
-      </div>
-
-      <div class="sl">Rekommendation idag</div>
-      <div class="bigcard accent-amber" style="margin-bottom:32px;">
-        <div class="today-header">
-          <h3 id="today-title">Lugnt återhämtningspass</h3>
-          <span class="today-badge badge-amber" id="today-badge">HRV LÅG</span>
-        </div>
-        <p id="today-body">Din HRV är låg och kroppen återhämtar sig. Kör ett lätt Z2-pass 30–40 min — håller motoriken igång utan att tömma batteriet.</p>
-        <div class="tempo-table">
-          <div class="tempo-label-top">3 KM — MÅLTEMPON</div>
-          <div class="tempo-row"><span class="tempo-name">Måltempo (sub 10:00)</span><span class="tempo-val cg">3:19 /km</span></div>
-          <div class="tempo-row"><span class="tempo-name">Km 1 — konservativt ut</span><span class="tempo-val ca">3:22 /km</span></div>
-          <div class="tempo-row"><span class="tempo-name">Km 2 — håll jämnt</span><span class="tempo-val ca">3:20 /km</span></div>
-          <div class="tempo-row"><span class="tempo-name">Km 3 — negativ split</span><span class="tempo-val cg">3:15 /km</span></div>
-          <div class="tempo-row"><span class="tempo-name">Bästa nuvarande tid</span><span class="tempo-val cb">10:27</span></div>
-        </div>
-        <div class="insight-box">
-          <div class="insight-label">AI-INSIKT</div>
-          <div class="insight-text" id="ai-insight">Tryck på "Uppdatera data" för en personlig analys baserad på din senaste träning.</div>
         </div>
       </div>
     </div>
