@@ -266,6 +266,153 @@ def sync():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def _get_iso_week(d):
+    """Returnera ISO-veckonummer för ett date-objekt."""
+    return d.isocalendar()[1]
+
+def _build_refresh_prompt(acts):
+    """Bygg en fullständig prompt för startsidans AI-rekommendation."""
+    today     = date.today()
+    iso_week  = _get_iso_week(today)
+    weekday   = today.weekday()  # 0=mån
+
+    # Fas baserat på vecka
+    if iso_week <= 23:   phase = 'återhämtning'
+    elif iso_week <= 25: phase = 'intervallfas'
+    elif iso_week <= 29: phase = 'tröskelsfas'
+    else:                phase = 'spetsningsfas'
+
+    # Planerat km per vecka (från träningsplanen)
+    weekly_km_plan = {
+        23:28, 24:44, 25:47, 26:48, 27:49, 28:48,
+        29:38, 30:46, 31:43, 32:40, 33:30, 34:20
+    }
+    planned_km = weekly_km_plan.get(iso_week, 40)
+
+    # Senaste löppass med load-data
+    recent_runs = [
+        {'name': a.get('activityName'), 'date': a.get('startTimeLocal'),
+         'distance': f"{a.get('distance',0)/1000:.1f} km",
+         'duration': f"{int(a.get('duration',0)/60)} min",
+         'avgHR': a.get('averageHR'),
+         'trainingEffect': a.get('trainingEffectLabel'),
+         'load': round(a.get('activityTrainingLoad', 0) or 0)}
+        for a in acts if 'running' in (a.get('activityType', {}).get('typeKey') or '')
+    ][:5]
+
+    # Genomförd km + load denna vecka
+    monday = today - timedelta(days=weekday)
+    completed_km   = 0.0
+    completed_load = 0.0
+    for a in acts:
+        raw_date = a.get('startTimeLocal') or ''
+        try:
+            act_date = datetime.fromisoformat(raw_date[:10]).date()
+        except Exception:
+            continue
+        if act_date >= monday:
+            completed_km   += (a.get('distance') or 0) / 1000
+            completed_load += (a.get('activityTrainingLoad') or 0)
+
+    remaining_km = max(0, planned_km - completed_km)
+
+    # Training load (ACWR) från cache
+    tl_row = get_cache('training_load')
+    tl     = tl_row[0] if tl_row else {}
+    acute   = tl.get('acute')
+    chronic = tl.get('chronic')
+    ratio   = tl.get('ratio')
+    acwr_status = tl.get('acwrStatus', '')
+    load_feedback = tl.get('loadBalanceFeedback', '')
+
+    # Hälsodata från cache
+    h_row = get_cache('health')
+    h     = h_row[0] if h_row else {}
+    readiness    = (h.get('readiness') or {}).get('score')
+    hrv_avg      = (h.get('hrv') or {}).get('lastNightAvg')
+    hrv_weekly   = (h.get('hrv') or {}).get('weeklyAvg')
+    body_battery = (h.get('bodyBattery') or {}).get('current')
+    sleep_score  = (h.get('sleep') or {}).get('score')
+
+    # Google Calendar — kommande 7 dagar
+    cal_row = get_cache('gcal_events')
+    gcal_lines = []
+    early_days  = []
+    if cal_row:
+        for ev in (cal_row[0] or []):
+            start_str = ev.get('start', '')
+            if not start_str:
+                continue
+            try:
+                ev_dt   = datetime.fromisoformat(start_str[:16])
+                ev_date = ev_dt.date()
+            except Exception:
+                continue
+            if today <= ev_date <= today + timedelta(days=7):
+                day_name = ev_dt.strftime('%A') + ' ' + str(ev_dt.day) + ' ' + ev_dt.strftime('%b')
+                time_str = ev_dt.strftime('%H:%M') if 'T' in start_str else 'heldag'
+                gcal_lines.append(f"- {day_name}: {ev.get('title','')} ({time_str})")
+                if ev_dt.hour < 7:
+                    early_days.append(day_name)
+
+    # Bygg prompten
+    prompt = f"""Du är en personlig träningscoach. Analysera ALL data nedan och svara ENDAST med JSON.
+
+LÖPMÅL: 3 km under 10:00 (bästa: 10:27, gap 27 sek) — deadline slutet aug 2026
+VO2max: 59 · Plan: V23 återhämtning → V24-25 intervaller → V26-29 tröskel → V30-34 spetsning
+Nuvarande fas: {phase} (V{iso_week})
+
+SENASTE LÖPPASS:
+{json.dumps(recent_runs, ensure_ascii=False, indent=2)}
+
+VECKOSTATUS V{iso_week}:
+- Planerat: {planned_km} km · Genomfört: {completed_km:.1f} km · Kvar: {remaining_km:.1f} km
+- Genomförd träningsload veckan: {round(completed_load)}
+
+HÄLSODATA (idag):
+- Träningsberedskap: {readiness or '—'}/100
+- HRV natt: {hrv_avg or '—'} ms (veckosnitt {hrv_weekly or '—'} ms)
+- Body battery: {body_battery or '—'}/100
+- Sömnpoäng: {sleep_score or '—'}/100"""
+
+    if acute is not None:
+        load_feedback_sv = {
+            'AEROBIC_LOW_SHORTAGE':  'för lite lågintensiv aerob träning',
+            'AEROBIC_HIGH_SHORTAGE': 'för lite högintensiv aerob träning',
+            'ANAEROBIC_SHORTAGE':    'för lite anaerob träning',
+            'OPTIMAL':               'optimal balans',
+        }.get(load_feedback, load_feedback)
+        acwr_sv = {'LOW':'låg','OPTIMAL':'optimal','HIGH':'hög','VERY_HIGH':'mycket hög'}.get(acwr_status, acwr_status)
+        prompt += f"""
+
+TRÄNINGSLAST (ACWR):
+- Akut last (7 dagar): {acute} · Kronisk last (28 dagar): {chronic}
+- ACWR-kvot: {ratio} ({acwr_sv}) — optimal zon är 0.8–1.3
+- Belastningsbalans: {load_feedback_sv}
+REGEL: Om ACWR < 0.8 kan du öka intensiteten försiktigt. Om > 1.3, prioritera vila eller Z2."""
+
+    if gcal_lines:
+        prompt += f"""
+
+ARBETS- OCH AKTIVITETSSCHEMA (kommande 7 dagar):
+{chr(10).join(gcal_lines)}
+Anpassa rekommendationen — undvik hårda pass på tunga arbetsdagar."""
+
+    if early_days:
+        prompt += f"\nTidiga arbetspass (före 07:00, trolig sömnbrist): {', '.join(early_days)} — undvik kvalitetspass dessa dagar och dagen efter."
+
+    prompt += """
+
+Svara ENDAST med detta JSON (inga förklaringar utanför JSON):
+{
+  "todayRecommendation": "konkret rekommendation för idag baserad på ALL data ovan (1-2 meningar)",
+  "todayType": "easy|quality|rest",
+  "nextSession": {"title": "passnamn", "desc": "beskrivning", "tempo": "t.ex. 3:35 /km", "distance": "t.ex. ~8 km"},
+  "prediction3k": "t.ex. 10:15",
+  "insight": "en konkret insikt baserad på träningslasten eller hälsodata (1 mening)"
+}"""
+    return prompt
+
 @app.post('/api/refresh')
 def refresh():
     row = get_cache('analysis')
@@ -279,39 +426,15 @@ def refresh():
     except Exception as e:
         return jsonify({'error': 'Garmin-fel: ' + str(e)}), 500
 
-    recent_runs = [
-        {'name': a.get('activityName'), 'date': a.get('startTimeLocal'),
-         'distance': f"{a.get('distance',0)/1000:.1f} km",
-         'duration': f"{int(a.get('duration',0)/60)} min",
-         'avgHR': a.get('averageHR'), 'trainingEffect': a.get('trainingEffectLabel')}
-        for a in acts if 'running' in (a.get('activityType', {}).get('typeKey') or '')
-    ][:5]
-
     if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
         return jsonify({'todayRecommendation': 'Lägg till Anthropic API-nyckel i .env.',
                         'todayType': 'easy',
                         'nextSession': {'title': 'Lugnt jogg', 'desc': 'Z2, 30-40 min', 'tempo': '4:45-5:15 /km', 'distance': '~6 km'},
                         'prediction3k': '10:27', 'insight': 'AI-insikter kräver API-nyckel.'})
 
-    prompt = f"""Du är en träningscoach. Analysera och svara ENDAST med JSON.
-
-Senaste löppass:
-{json.dumps(recent_runs, ensure_ascii=False, indent=2)}
-
-Mål: 3 km under 10 minuter. Bästa: 10:27.
-Plan: återhämtning v.23 → intervaller v.24-25 → tröskel v.26-29 → spetsning v.30-34.
-
-Svara ENDAST med detta JSON:
-{{
-  "todayRecommendation": "rekommendation idag (1-2 meningar)",
-  "todayType": "easy|quality|rest",
-  "nextSession": {{"title": "passnamn", "desc": "beskrivning", "tempo": "t.ex. 3:35 /km", "distance": "t.ex. ~8 km"}},
-  "prediction3k": "t.ex. 10:15",
-  "insight": "en konkret insikt (1 mening)"
-}}"""
-
+    prompt = _build_refresh_prompt(acts)
     resp = requests.post('https://api.anthropic.com/v1/messages',
-        json={'model': 'claude-sonnet-4-6', 'max_tokens': 500,
+        json={'model': 'claude-sonnet-4-6', 'max_tokens': 600,
               'messages': [{'role': 'user', 'content': prompt}]},
         headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
                  'content-type': 'application/json'})
