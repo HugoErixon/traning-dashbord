@@ -5,6 +5,7 @@ from dotenv import dotenv_values
 import json, time, requests, psycopg2, psycopg2.extras
 from datetime import date, datetime, timedelta
 import os
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # Google Calendar (valfritt — kräver google_credentials.json)
 try:
@@ -57,6 +58,19 @@ def setup_db():
                 text TEXT NOT NULL,
                 category TEXT DEFAULT 'general',
                 created_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS plan_sessions (
+                id SERIAL PRIMARY KEY,
+                week INTEGER NOT NULL,
+                dow INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                km REAL DEFAULT 0,
+                title TEXT NOT NULL,
+                detail TEXT DEFAULT '',
+                status TEXT DEFAULT 'planned',
+                original_week INTEGER,
+                original_dow INTEGER,
+                ai_note TEXT,
+                modified_at REAL)''')
         conn.commit()
     print('Databas: klar')
 
@@ -633,6 +647,441 @@ def delete_exercise(ex_id):
     return jsonify({'ok': True})
 
 # --- Statiska filer ---
+# ─────────────────────────────────────────────
+# TRÄNINGSPLAN — seed-data (samma som JS-arrayen)
+# ─────────────────────────────────────────────
+PLAN_SEED = [
+    # V23 Återhämtning
+    {'week':23,'dow':1,'type':'run', 'km':6,  'title':'Återhämtningsjogg',      'detail':'Z2 · 6 km · 4:45–5:15/km · Vila efter GöteborgsVarvet'},
+    {'week':23,'dow':2,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2 · Lugnt tempo · 5:00–5:20/km · Aktiv återhämtning'},
+    {'week':23,'dow':3,'type':'lift','km':0,  'title':'Helkropp – intro',        'detail':'Knäböj, marklyft, bänkpress, latsdrag · 3×8 · 60–70%'},
+    {'week':23,'dow':4,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2 · Kort och lätt · Spola ur benen'},
+    {'week':23,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',     'detail':'Z2 · 5:00–5:20/km · Veckoavslutet'},
+    # V24 Bas
+    {'week':24,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2 · Aktivering inför veckans kvalitetspass'},
+    {'week':24,'dow':1,'type':'run', 'km':8,  'title':'4×1000m intervaller',     'detail':'Z3–Z4 · 3:35/km · 3 min vila · ~8 km totalt'},
+    {'week':24,'dow':2,'type':'easy','km':9,  'title':'Lätt Z2 · 9 km',         'detail':'Z2 · 5:00–5:15/km · Aktivt vilodygn'},
+    {'week':24,'dow':3,'type':'lift','km':0,  'title':'Underkropp + core',       'detail':'Knäböj, RDL, benpress, split-squat, plankan · 3–4 set'},
+    {'week':24,'dow':4,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2 · Inför lördagets bansprint'},
+    {'week':24,'dow':5,'type':'run', 'km':6,  'title':'6×400m snabba drag',      'detail':'Z5 · 3:10/km · 90 sek vila · Bana'},
+    {'week':24,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',     'detail':'Z2 · Aktiv återhämtning efter banpasset'},
+    # V25 Bas
+    {'week':25,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2 · Kort aktivering'},
+    {'week':25,'dow':1,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · 5:00/km · Aerob bas'},
+    {'week':25,'dow':2,'type':'run', 'km':10, 'title':'5×1000m tröskel',         'detail':'Z3–Z4 · 3:35/km · 2:30 min vila · ~10 km totalt'},
+    {'week':25,'dow':3,'type':'lift','km':0,  'title':'Överkropp',               'detail':'Bänkpress, axelpress, latsdrag, rodd · 3–4 set'},
+    {'week':25,'dow':4,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2 · Återhämtning'},
+    {'week':25,'dow':5,'type':'run', 'km':12, 'title':'Långpass · 12 km',        'detail':'Z2 · 5:00–5:20/km'},
+    {'week':25,'dow':6,'type':'easy','km':5,  'title':'Lätt avslutning · 5 km', 'detail':'Z2 · Söndagsjogg'},
+    # V26 Tröskel
+    {'week':26,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2 · Aktivering'},
+    {'week':26,'dow':1,'type':'run', 'km':10, 'title':'3×2000m tröskel',         'detail':'Z4 · 3:35/km · 3 min vila · ~10 km'},
+    {'week':26,'dow':2,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · Aerob bas'},
+    {'week':26,'dow':3,'type':'lift','km':0,  'title':'Underkropp – tung',       'detail':'Knäböj, marklyft, bulgarska · 4×6–8 · 80%'},
+    {'week':26,'dow':4,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2 · Inför fartlekpass'},
+    {'week':26,'dow':5,'type':'run', 'km':8,  'title':'8×400m fartlek',          'detail':'Z4–Z5 · 90 sek vila · ~8 km'},
+    {'week':26,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',     'detail':'Z2'},
+    # V27 Tröskel
+    {'week':27,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
+    {'week':27,'dow':1,'type':'run', 'km':10, 'title':'2×3000m @ 3:35/km',      'detail':'Z4 · 4 min vila · ~10 km'},
+    {'week':27,'dow':2,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · Aktiv återhämtning'},
+    {'week':27,'dow':3,'type':'lift','km':0,  'title':'Överkropp – tung',        'detail':'Bänkpress, axelpress, dips, chins · 4×6 · 80%'},
+    {'week':27,'dow':4,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2'},
+    {'week':27,'dow':5,'type':'run', 'km':12, 'title':'Långpass · 12 km',        'detail':'Z2 · 5:00/km'},
+    {'week':27,'dow':6,'type':'easy','km':6,  'title':'Lätt avslutning · 6 km', 'detail':'Z2'},
+    # V28 Tröskel
+    {'week':28,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
+    {'week':28,'dow':1,'type':'run', 'km':10, 'title':'5×1000m tröskel',         'detail':'Z4 · 3:33/km · Ökad intensitet · ~10 km'},
+    {'week':28,'dow':2,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · 5:00/km'},
+    {'week':28,'dow':3,'type':'lift','km':0,  'title':'Underkropp – tung',       'detail':'Knäböj, RDL, benpress · 4×5 · 82%'},
+    {'week':28,'dow':4,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
+    {'week':28,'dow':5,'type':'run', 'km':7,  'title':'6×500m sharpening',       'detail':'Z5 · 3:12/km · 90 sek vila · ~7 km'},
+    {'week':28,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',     'detail':'Z2'},
+    # V29 Kontrolltest
+    {'week':29,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2 · Spara benen'},
+    {'week':29,'dow':1,'type':'run', 'km':8,  'title':'Lätt tröskelpass',        'detail':'2×2000m · Z4 · 3 min vila · ~8 km'},
+    {'week':29,'dow':2,'type':'easy','km':7,  'title':'Medium Z2 · 7 km',       'detail':'Z2'},
+    {'week':29,'dow':3,'type':'lift','km':0,  'title':'Lätt styrka',             'detail':'3 övningar · 3×6 · 75%'},
+    {'week':29,'dow':4,'type':'easy','km':5,  'title':'Lätt jogg · 5 km',       'detail':'Z2 · Aktivering dagen innan test'},
+    {'week':29,'dow':5,'type':'race','km':7,  'title':'⭐ 3 km KONTROLLTEST',   'detail':'Uppvärmning 2 km + 3 km test (mål <10:10) + nedvarvning 2 km'},
+    {'week':29,'dow':6,'type':'easy','km':6,  'title':'Återhämtningsjogg · 6 km','detail':'Z2 · Lätt efter gårdagens test'},
+    # V30 Spetsning
+    {'week':30,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
+    {'week':30,'dow':1,'type':'run', 'km':7,  'title':'6×500m sharpening',       'detail':'Z5 · 3:10/km · 2 min vila · ~7 km'},
+    {'week':30,'dow':2,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · Aerob bas'},
+    {'week':30,'dow':3,'type':'lift','km':0,  'title':'Underhållsstyrka',        'detail':'3 övningar · 3×5 · 85%'},
+    {'week':30,'dow':4,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2'},
+    {'week':30,'dow':5,'type':'run', 'km':8,  'title':'Lätt fartlek',            'detail':'Z2 med 4×1 min snabba drag · ~8 km'},
+    {'week':30,'dow':6,'type':'easy','km':9,  'title':'Söndagsjogg · 9 km',      'detail':'Z2'},
+    # V31 Spetsning
+    {'week':31,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
+    {'week':31,'dow':1,'type':'run', 'km':7,  'title':'6×500m sharpening',       'detail':'Z5 · 3:08/km · ~7 km'},
+    {'week':31,'dow':2,'type':'easy','km':8,  'title':'Medium Z2 · 8 km',       'detail':'Z2 · 5:00/km'},
+    {'week':31,'dow':3,'type':'lift','km':0,  'title':'Underhållsstyrka',        'detail':'3 övningar · 3×5 · 85%'},
+    {'week':31,'dow':4,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
+    {'week':31,'dow':5,'type':'easy','km':8,  'title':'Mellanlångt Z2 · 8 km',  'detail':'Z2 · Sista längre pass i spetsningsfasen'},
+    {'week':31,'dow':6,'type':'easy','km':8,  'title':'Söndagsjogg · 8 km',      'detail':'Z2'},
+    # V32 Avtrappning
+    {'week':32,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2'},
+    {'week':32,'dow':1,'type':'run', 'km':8,  'title':'4×1000m tävlingsfart',    'detail':'Z4–Z5 · 3:19/km · 3 min vila · ~8 km'},
+    {'week':32,'dow':2,'type':'easy','km':8,  'title':'Medium Z2 · 8 km',       'detail':'Z2 · Aktiv återhämtning'},
+    {'week':32,'dow':3,'type':'lift','km':0,  'title':'Underhållsstyrka',        'detail':'3 övningar · 3×5 · 85%'},
+    {'week':32,'dow':4,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2'},
+    {'week':32,'dow':5,'type':'run', 'km':6,  'title':'Lätt jogg + strides',     'detail':'25 min Z2 + 6×80m strides'},
+    {'week':32,'dow':6,'type':'easy','km':8,  'title':'Söndagsjogg · 8 km',      'detail':'Z2'},
+    # V33 Nedtrappning
+    {'week':33,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2 · Spara benen'},
+    {'week':33,'dow':1,'type':'run', 'km':7,  'title':'3×1000m tävlingsfart',    'detail':'Z5 · 3:15–3:19/km · 4 min vila · ~7 km'},
+    {'week':33,'dow':2,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2'},
+    {'week':33,'dow':3,'type':'lift','km':0,  'title':'Kort underhållsstyrka',   'detail':'2 övningar · 2×5 · 80%'},
+    {'week':33,'dow':4,'type':'easy','km':5,  'title':'Lätt jogg · 5 km',       'detail':'Z2 · 20 min'},
+    {'week':33,'dow':6,'type':'easy','km':6,  'title':'Söndagsjogg · 6 km',      'detail':'Z2 · Lugn avslutning'},
+    # V34 Tävlingsvecka
+    {'week':34,'dow':0,'type':'easy','km':5,  'title':'Lätt aktivering · 5 km', 'detail':'Z2 · 15–20 min'},
+    {'week':34,'dow':1,'type':'easy','km':5,  'title':'Strides · 5 km',         'detail':'10 min Z2 + 4×80m strides'},
+    {'week':34,'dow':2,'type':'rest','km':0,  'title':'Vila',                    'detail':'Fullständig vila. Ät bra, sov länge, visualisera loppet.'},
+    {'week':34,'dow':3,'type':'race','km':10, 'title':'🏆 3 KM — SUB 10:00',    'detail':'Uppvärm 3 km · UT: 3:22/km · Km 2: 3:20 · Km 3: 3:15 · MÅL: 9:59!'},
+]
+
+def seed_plan():
+    """Fyll plan_sessions från PLAN_SEED om tabellen är tom."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM plan_sessions')
+            if cur.fetchone()[0] > 0:
+                return  # redan seedat
+            for s in PLAN_SEED:
+                cur.execute('''INSERT INTO plan_sessions
+                    (week, dow, type, km, title, detail, status, original_week, original_dow)
+                    VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s)''',
+                    (s['week'], s['dow'], s['type'], s['km'],
+                     s['title'], s['detail'], s['week'], s['dow']))
+        conn.commit()
+    print(f'Plan seedat: {len(PLAN_SEED)} pass')
+
+try:
+    seed_plan()
+except Exception as e:
+    print('Seed-fel:', e)
+
+
+# ─────────────────────────────────────────────
+# PLAN API
+# ─────────────────────────────────────────────
+@app.get('/api/plan')
+def get_plan():
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('SELECT * FROM plan_sessions ORDER BY week, dow')
+            rows = cur.fetchall()
+    return jsonify({'sessions': [dict(r) for r in rows]})
+
+@app.patch('/api/plan/<int:session_id>')
+def update_session(session_id):
+    data = request.json or {}
+    allowed = {'status','week','dow','title','detail','km','ai_note'}
+    fields = {k: v for k, v in data.items() if k in allowed}
+    if not fields:
+        return jsonify({'error': 'Inga giltiga fält'}), 400
+    fields['modified_at'] = time.time()
+    set_clause = ', '.join(f'{k} = %s' for k in fields)
+    vals = list(fields.values()) + [session_id]
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f'UPDATE plan_sessions SET {set_clause} WHERE id = %s', vals)
+        conn.commit()
+    return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+# AKTIVITETSMATCHNING
+# ─────────────────────────────────────────────
+def _iso_week_dow(d):
+    """Returnera (iso_week, dow_0mon) för ett date-objekt."""
+    iso = d.isocalendar()
+    return iso[1], iso[2] - 1  # dow: 0=mån
+
+def match_activities_to_plan():
+    """
+    Jämför Garmin-aktiviteter mot planerade pass.
+    Markerar pass som completed eller missed.
+    Körs varje morgon innan AI-justeraren.
+    """
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    y_week, y_dow = _iso_week_dow(yesterday)
+
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # Hämta gårdagens planerade pass som fortfarande är 'planned'
+            cur.execute('''SELECT * FROM plan_sessions
+                WHERE week = %s AND dow = %s AND status = 'planned' ''',
+                (y_week, y_dow))
+            planned = cur.fetchall()
+            if not planned:
+                return
+
+            # Hämta Garmin-aktiviteter från igår
+            cur.execute('''SELECT raw FROM activities
+                WHERE date >= %s AND date < %s''',
+                (yesterday.isoformat(), today.isoformat()))
+            acts = [r['raw'] for r in cur.fetchall()]
+
+        run_types = {'running','track_running','treadmill_running','trail_running'}
+        did_run    = any(a.get('activityType',{}).get('typeKey','') in run_types for a in acts)
+        did_lift   = any(a.get('activityType',{}).get('typeKey','') in
+                        {'strength_training','fitness_equipment'} for a in acts)
+
+        with conn.cursor() as cur:
+            for p in planned:
+                if p['type'] in ('run','easy','race'):
+                    completed = did_run
+                elif p['type'] == 'lift':
+                    completed = did_lift
+                elif p['type'] == 'rest':
+                    completed = True  # vilodag räknas alltid som genomförd
+                else:
+                    completed = False
+
+                new_status = 'completed' if completed else 'missed'
+                cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
+                    WHERE id = %s''', (new_status, time.time(), p['id']))
+        conn.commit()
+    print(f'Aktivitetsmatchning klar för {yesterday}')
+
+
+# ─────────────────────────────────────────────
+# AI-JUSTERARE
+# ─────────────────────────────────────────────
+def ai_adjust_plan():
+    """
+    Kärnan i den automatiska planjusteringen.
+    Körs kl 07:30 varje morgon efter sömndata kommit in.
+    """
+    if not ANTHROPIC_KEY:
+        print('AI-justering: API-nyckel saknas')
+        return
+
+    today     = date.today()
+    iso_week  = today.isocalendar()[1]
+
+    # 1. Synka Garmin och hälsodata
+    try:
+        client = get_garmin()
+        acts = client.get_activities(0, 20)
+        save_activities(acts)
+        # Rensa hälso-cache så färsk sömndata hämtas
+        clear_cache('health', 'training_load')
+    except Exception as e:
+        print('AI-justering: Garmin-fel', e)
+
+    # 2. Hämta hälsodata
+    try:
+        client = get_garmin()
+        today_str = today.isoformat()
+        sleep     = client.get_sleep_data(today_str)
+        readiness = client.get_training_readiness(today_str)
+        hrv       = client.get_hrv_data(today_str)
+        tl_status = client.get_training_status(today_str)
+
+        s         = sleep.get('dailySleepDTO', {})
+        sleep_score = (s.get('sleepScores') or {}).get('overall', {}).get('value')
+        deep_pct  = round(s.get('deepSleepSeconds',0) / s.get('sleepTimeSeconds',1) * 100) if s.get('sleepTimeSeconds') else 0
+        rem_pct   = round(s.get('remSleepSeconds',0)  / s.get('sleepTimeSeconds',1) * 100) if s.get('sleepTimeSeconds') else 0
+        total_h   = round(s.get('sleepTimeSeconds',0) / 3600, 1)
+        ready_score = (readiness[0] if readiness else {}).get('score')
+        hrv_sum   = hrv.get('hrvSummary', {})
+        hrv_avg   = hrv_sum.get('lastNightAvg')
+        hrv_weekly = hrv_sum.get('weeklyAvg')
+        hrv_pct   = round((hrv_avg / hrv_weekly) * 100) if hrv_weekly and hrv_avg else None
+
+        dev_map   = tl_status.get('mostRecentTrainingStatus',{}).get('latestTrainingStatusData',{})
+        dev       = next(iter(dev_map.values()), {})
+        acwr_dto  = dev.get('acuteTrainingLoadDTO', {})
+        acute     = acwr_dto.get('dailyTrainingLoadAcute')
+        chronic   = acwr_dto.get('dailyTrainingLoadChronic')
+        acwr      = acwr_dto.get('dailyAcuteChronicWorkloadRatio')
+    except Exception as e:
+        print('AI-justering: hälsodata-fel', e)
+        sleep_score = deep_pct = rem_pct = total_h = None
+        ready_score = hrv_avg = hrv_weekly = hrv_pct = None
+        acute = chronic = acwr = None
+
+    # 3. Hämta missade pass + kommande 14 dagar
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT * FROM plan_sessions
+                WHERE status = 'missed' AND week >= %s
+                ORDER BY week, dow''', (iso_week - 1,))
+            missed = [dict(r) for r in cur.fetchall()]
+
+            cur.execute('''SELECT * FROM plan_sessions
+                WHERE status = 'planned' AND week >= %s
+                ORDER BY week, dow LIMIT 20''', (iso_week,))
+            upcoming = [dict(r) for r in cur.fetchall()]
+
+            # Genomförd km och load denna vecka
+            cur.execute('''SELECT raw FROM activities WHERE date >= %s''',
+                ((today - timedelta(days=today.weekday())).isoformat(),))
+            week_acts = [r['raw'] for r in cur.fetchall()]
+
+    completed_km   = sum((a.get('distance',0) or 0)/1000 for a in week_acts
+                         if any(t in (a.get('activityType',{}).get('typeKey',''))
+                                for t in ('running','track_running','treadmill_running','trail_running')))
+    completed_load = sum(a.get('activityTrainingLoad',0) or 0 for a in week_acts)
+
+    weekly_km_plan = {23:28,24:44,25:47,26:48,27:49,28:48,29:38,30:46,31:43,32:40,33:30,34:20}
+    planned_km = weekly_km_plan.get(iso_week, 40)
+    week_cap   = round(planned_km * 1.1)
+
+    # 4. Google Calendar — hämta från cache
+    cal_row = get_cache('gcal_events')
+    gcal_str = ''
+    if cal_row:
+        upcoming_evs = []
+        for ev in (cal_row[0] or []):
+            try:
+                ev_date = datetime.fromisoformat(ev.get('start','')[:10]).date()
+                if today <= ev_date <= today + timedelta(days=14):
+                    desc_part = f" — {ev['desc']}" if ev.get('desc') else ''
+                    upcoming_evs.append(f"- {ev_date}: {ev.get('title','')}{desc_part}")
+            except Exception:
+                continue
+        gcal_str = '\n'.join(upcoming_evs)
+
+    # 5. Bygg AI-prompt
+    prompt = f"""Du är en intelligent träningsplanerare. Din uppgift är att justera träningsschemat för en löpare baserat på aktuell hälsodata.
+
+MÅL: 3 km under 10:00 (bästa: 10:27) — deadline slutet aug 2026
+DAGENS DATUM: {today} (V{iso_week})
+
+SÖMNDATA IDAG:
+- Sömnpoäng: {sleep_score or '—'}/100 · Total sömn: {total_h or '—'} h
+- Djupsömn: {deep_pct or '—'}% (mål 15–25%) · REM: {rem_pct or '—'}% (mål 20–25%)
+- Garmin beredskap: {ready_score or '—'}/100
+- HRV natt: {hrv_avg or '—'} ms ({hrv_pct or '—'}% av veckosnitt {hrv_weekly or '—'} ms)
+
+TRÄNINGSLAST (ACWR):
+- Akut: {acute or '—'} · Kronisk: {chronic or '—'} · Kvot: {acwr or '—'}
+- Optimal zon: 0.8–1.3. Om ombokning driver kvoten >1.3 → ersätt med Z2 eller hoppa.
+
+VECKOSTATUS V{iso_week}:
+- Genomfört: {completed_km:.1f} km · Veckans tak: {week_cap} km
+- Genomförd load: {round(completed_load)}
+
+MISSADE PASS (behöver beslutas):
+{json.dumps(missed, ensure_ascii=False, indent=2) if missed else '(inga missade pass)'}
+
+KOMMANDE PLANERADE PASS (nästa 14 dagar):
+{json.dumps([{'id':s['id'],'week':s['week'],'dow':s['dow'],'type':s['type'],'km':s['km'],'title':s['title']} for s in upcoming], ensure_ascii=False, indent=2)}
+
+GOOGLE KALENDER (kommande 14 dagar):
+{gcal_str or '(inga events)'}
+
+REGLER:
+1. Flytta ett missat kvalitetspass (run/race) till närmast lediga dag om ACWR-kvoten tillåter det (<1.3)
+2. Flytta INTE till en dag som redan har ett annat kvalitetspass
+3. Om veckans km-tak är nått → ersätt med Z2 eller markera som 'skipped'
+4. Missad styrka → flytta till närmast lediga dag (helst ej dagen efter ett hårt löppass)
+5. Om djupsömn <10% eller REM <15% → undvik hårda pass idag (V{iso_week}, dag {today.weekday()})
+6. Beakta Google Calendar — undvik hårda pass på tunga arbetsdagar
+
+Svara ENDAST med detta JSON (inga kommentarer utanför):
+{{
+  "changes": [
+    {{
+      "session_id": <int>,
+      "action": "reschedule|skip|keep",
+      "new_week": <int eller null>,
+      "new_dow": <int 0-6 eller null>,
+      "reason": "<kort motivering på svenska>"
+    }}
+  ],
+  "summary": "<en mening som sammanfattar vad som justerades>"
+}}"""
+
+    # 6. Anropa Claude
+    try:
+        resp = requests.post('https://api.anthropic.com/v1/messages',
+            json={'model': 'claude-sonnet-4-6', 'max_tokens': 1000,
+                  'messages': [{'role': 'user', 'content': prompt}]},
+            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
+                     'content-type': 'application/json'})
+        text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
+        result = json.loads(text)
+    except Exception as e:
+        print('AI-justering: Claude-fel', e)
+        return
+
+    # 7. Applicera ändringarna på DB
+    changes_applied = 0
+    with db() as conn:
+        with conn.cursor() as cur:
+            for change in result.get('changes', []):
+                sid    = change.get('session_id')
+                action = change.get('action')
+                if not sid or action == 'keep':
+                    continue
+                if action == 'skip':
+                    cur.execute('''UPDATE plan_sessions
+                        SET status='skipped', ai_note=%s, modified_at=%s WHERE id=%s''',
+                        (change.get('reason',''), time.time(), sid))
+                    changes_applied += 1
+                elif action == 'reschedule':
+                    new_week = change.get('new_week')
+                    new_dow  = change.get('new_dow')
+                    if new_week and new_dow is not None:
+                        cur.execute('''UPDATE plan_sessions
+                            SET status='planned', week=%s, dow=%s,
+                                ai_note=%s, modified_at=%s WHERE id=%s''',
+                            (new_week, new_dow, change.get('reason',''), time.time(), sid))
+                        changes_applied += 1
+        conn.commit()
+
+    summary = result.get('summary', '')
+    print(f'AI-justering klar: {changes_applied} ändringar. {summary}')
+    set_cache('last_plan_adjustment', {
+        'date': today.isoformat(),
+        'changes': changes_applied,
+        'summary': summary
+    })
+
+
+# ─────────────────────────────────────────────
+# MANUELL TRIGGER (för testning)
+# ─────────────────────────────────────────────
+@app.post('/api/plan/adjust')
+def manual_adjust():
+    """Trigga AI-justeringen manuellt (t.ex. för testning)."""
+    try:
+        match_activities_to_plan()
+        ai_adjust_plan()
+        row = get_cache('last_plan_adjustment')
+        return jsonify({'ok': True, 'result': row[0] if row else {}})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.get('/api/plan/status')
+def plan_status():
+    """Senaste AI-justeringens status."""
+    row = get_cache('last_plan_adjustment')
+    return jsonify(row[0] if row else {'date': None, 'changes': 0, 'summary': ''})
+
+
+# ─────────────────────────────────────────────
+# SCHEDULER — kör kl 07:30 varje morgon
+# ─────────────────────────────────────────────
+def morning_job():
+    print(f'[{datetime.now().strftime("%H:%M")}] Morgonrutin startar...')
+    match_activities_to_plan()
+    ai_adjust_plan()
+
+scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
+scheduler.add_job(morning_job, 'cron', hour=7, minute=30)
+scheduler.start()
+print('Schemaläggare aktiv — AI-justering körs kl 07:30 varje morgon')
+
+
 @app.get('/')
 def index():
     return send_from_directory('public', 'index.html')

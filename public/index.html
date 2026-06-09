@@ -2566,9 +2566,26 @@ HÄLSODATA (aktuell):
   });
 
   // ─── KALENDER ───────────────────────────────────────────────
-  // Sessioner: { dow: 0=mån … 6=sön, week: ISO-vecka, type, title, detail }
-  // km=0 för styrkepass, km>0 för löppass. type:'easy' = utfyllnadspass (muten grön)
-  const PLAN_SESSIONS = [
+  // PLAN_SESSIONS laddas dynamiskt från DB via /api/plan
+  // Fallback till hårdkodad array om API-anropet misslyckas
+  let PLAN_SESSIONS = [];
+
+  async function loadPlan() {
+    try {
+      const r = await fetch('/api/plan');
+      const d = await r.json();
+      if (d.sessions && d.sessions.length > 0) {
+        PLAN_SESSIONS = d.sessions;
+        buildCalendar();
+      }
+    } catch(e) {
+      console.warn('Plan-hämtning misslyckades, använder fallback', e);
+    }
+  }
+  loadPlan();
+
+  // Fallback-data (används om DB är otillgänglig)
+  const PLAN_SESSIONS_FALLBACK = [
 
     // ── V.23 · Återhämtning · mål ~28 km ──────────────────
     { week:23, dow:1, type:'run',  km:6,  title:'Återhämtningsjogg',       detail:'Z2 · 6 km · 4:45–5:15/km · Vila efter GöteborgsVarvet' },
@@ -2672,6 +2689,9 @@ HÄLSODATA (aktuell):
     { week:34, dow:2, type:'rest', km:0,  title:'Vila',                     detail:'Fullständig vila. Ät bra, sov länge, visualisera loppet.' },
     { week:34, dow:3, type:'race', km:10, title:'🏆 3 KM — SUB 10:00',     detail:'Uppvärm 3 km · UT: 3:22/km · Km 2: 3:20 · Km 3: 3:15 · MÅL: 9:59!' },
   ];
+
+  // Använd fallback om DB-laddningen ännu inte är klar
+  if (PLAN_SESSIONS.length === 0) PLAN_SESSIONS = PLAN_SESSIONS_FALLBACK;
 
   function getISOWeek(date) {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -2826,8 +2846,15 @@ HÄLSODATA (aktuell):
         const sessions = sessionMap[w + '-' + d] || [];
         sessions.forEach(s => {
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
-          const escaped = s.detail.replace(/"/g, '&quot;');
-          pillsHtml += `<span class="cal-session-pill ${cls}" data-freetip="${escaped}">${s.title}</span>`;
+          const escaped = (s.detail || '').replace(/"/g, '&quot;');
+          const statusNote = s.status === 'missed'      ? ' · ⚠ Missat'
+                           : s.status === 'skipped'     ? ' · Överhoppat'
+                           : s.status === 'completed'   ? ' · ✓ Klart'
+                           : s.status === 'rescheduled' ? ' · ↩ Omplanerat'
+                           : '';
+          const tipText = escaped + (s.ai_note ? ` · AI: ${s.ai_note}` : '') + statusNote;
+          const opacity = s.status === 'missed' || s.status === 'skipped' ? 'opacity:0.45;text-decoration:line-through;' : '';
+          pillsHtml += `<span class="cal-session-pill ${cls}" style="${opacity}" data-freetip="${tipText}">${s.title}${statusNote}</span>`;
         });
 
         dayEl.innerHTML = `
