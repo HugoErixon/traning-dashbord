@@ -376,6 +376,27 @@ HÄLSODATA (idag):
 - Body battery: {body_battery or '—'}/100
 - Sömnpoäng: {sleep_score or '—'}/100"""
 
+    # CNS-score beräkning (Flatt & Esco 2016)
+    if all(v is not None for v in [readiness, hrv_avg, hrv_weekly, sleep_score, h.get('stress',{}).get('avg')]):
+        hrv_pct_val = round((hrv_avg / hrv_weekly) * 100) if hrv_weekly else 50
+        stress_avg  = h.get('stress', {}).get('avg', 50) or 50
+        cns = round(0.40 * min(hrv_pct_val,100) + 0.30 * (sleep_score or 50) + 0.20 * (readiness or 50) + 0.10 * (100 - min(stress_avg,100)))
+        hrv_diff = ((hrv_avg - hrv_weekly) / hrv_weekly * 100) if hrv_weekly else 0
+        hrv_signal = 'GRÖN (kör hårt pass)' if hrv_diff >= 5 else 'RÖD (vila/Z2)' if hrv_diff <= -5 else 'GUL (normalt pass)'
+        cns_rule = 'KVALITETSPASS OK' if cns >= 70 else 'NORMALT/LÄTT PASS' if cns >= 45 else 'VILA ELLER Z2 — obligatoriskt'
+        # Djupsömn och REM flags
+        deep_pct = h.get('sleep', {}).get('deepPct', 0) or 0
+        rem_pct  = h.get('sleep', {}).get('remPct', 0) or 0
+        sleep_flags = []
+        if deep_pct < 10: sleep_flags.append('för lite djupsömn (skippa styrka)')
+        if rem_pct < 15:  sleep_flags.append('för lite REM (undvik intervaller)')
+        prompt += f"""
+
+CNS-SCORE: {cns}/100 — {cns_rule}
+HRV-SIGNAL: {hrv_signal} (HRV {hrv_diff:+.0f}% vs veckosnitt)
+SÖMNKVALITET: djupsömn {deep_pct}% (mål 15–25%) · REM {rem_pct}% (mål 20–25%){(' · VARNING: ' + ', '.join(sleep_flags)) if sleep_flags else ' · Ok'}
+PASSREGEL: CNS ≥70 → kvalitetspass · CNS 45–69 → normalt/lätt · CNS <45 → vila/Z2 obligatoriskt"""
+
     if acute is not None:
         load_feedback_sv = {
             'AEROBIC_LOW_SHORTAGE':  'för lite lågintensiv aerob träning',

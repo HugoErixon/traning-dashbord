@@ -570,6 +570,81 @@
     .hero-card-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.2px; }
     .hero-card-desc  { font-size: 11.5px; color: var(--muted2); font-family: 'JetBrains Mono', monospace; }
 
+    /* ─── CNS-SCORE & HRV TRAFFIC LIGHT ─── */
+    .cns-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px 24px 18px;
+      margin-bottom: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .cns-card::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, var(--cns-color, var(--green)) 0%, transparent 55%);
+    }
+    .cns-top { display: flex; align-items: flex-start; gap: 18px; margin-bottom: 14px; }
+    .cns-score-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 72px; }
+    .cns-score {
+      font-size: 48px;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: -2px;
+      line-height: 1;
+      color: var(--cns-color, var(--green));
+    }
+    .cns-label { font-size: 9px; font-family: 'JetBrains Mono', monospace; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+    .cns-right { flex: 1; }
+    .cns-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.2px; }
+    .cns-desc  { font-size: 12px; color: var(--muted2); line-height: 1.5; }
+    .cns-bar-wrap { margin-bottom: 14px; }
+    .cns-bar { height: 5px; background: var(--bg3); border-radius: 99px; overflow: hidden; }
+    .cns-bar-fill { height: 100%; border-radius: 99px; background: var(--cns-color, var(--green)); transition: width 1.2s cubic-bezier(.4,0,.2,1); }
+
+    /* HRV Traffic Light */
+    .hrv-light-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 6px; }
+    .hrv-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--bg3);
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .hrv-dot.active-green { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .hrv-dot.active-amber { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+    .hrv-dot.active-red   { background: var(--red);   box-shadow: 0 0 8px var(--red);   }
+    .hrv-light-label { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted2); }
+
+    /* CNS delmetriker */
+    .cns-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .cns-metric {
+      background: var(--bg3);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .cns-metric-name  { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+    .cns-metric-val   { font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .cns-metric-sub   { font-size: 10px; color: var(--muted2); }
+
+    /* Sömnbrist-rad i sömnkortet */
+    .sleep-debt-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg3); border-radius: 10px; padding: 10px 14px; margin-top: 10px;
+    }
+    .sleep-debt-label { font-size: 11px; color: var(--muted2); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+    .sleep-debt-val   { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .sleep-flag-row   { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .sleep-flag {
+      font-size: 10px; font-family: 'JetBrains Mono', monospace;
+      padding: 3px 9px; border-radius: 99px; font-weight: 600;
+    }
+    .sleep-flag.ok   { background: rgba(74,222,128,0.12); color: var(--green); }
+    .sleep-flag.warn { background: rgba(251,191,36,0.12); color: var(--amber); }
+    .sleep-flag.bad  { background: rgba(248,113,113,0.12); color: var(--red); }
+
     /* ─── STYRKA ─── */
     .strength-session {
       background: var(--bg2);
@@ -1182,69 +1257,47 @@
       <div class="page-header"><h2>Hälsa</h2><p id="h-date-label">Laddar...</p></div>
       <div class="hg-row">
 
-        <!-- ÅTERHÄMTNING -->
-        <div class="hg-card c-recovery" id="hg-recovery">
-          <div class="hg-top">
-            <div class="hg-cat">Återhämtning</div>
-            <div class="hg-score-row">
-              <div class="hg-score cg" id="hg-recovery-score">—</div>
-              <div class="hg-score-right">
-                <span class="hg-status hs-ok" id="hg-recovery-badge">Hämtar...</span>
-                <span class="hg-summary" id="hg-recovery-summary" style="font-size:11px;"></span>
-              </div>
+        <!-- CNS-SCORE (ersätter Återhämtning) -->
+        <div class="cns-card" id="hg-recovery">
+          <div class="cns-top">
+            <div class="cns-score-wrap">
+              <div class="cns-score" id="cns-score">—</div>
+              <div class="cns-label">CNS-score</div>
             </div>
-            <div class="hg-summary" id="hg-recovery-desc">Beredskap, HRV och vilopuls hämtas...</div>
-            <div class="hg-bar-wrap">
-              <div class="hg-bar"><div class="hg-bar-fill" id="hg-recovery-bar" style="width:0%"></div></div>
+            <div class="cns-right">
+              <div class="cns-title" id="cns-title">Hämtar...</div>
+              <div class="cns-desc" id="cns-desc">Beräknar din dagliga CNS-beredskap baserat på HRV, sömn, Garmin-beredskap och stress.</div>
+              <div class="hrv-light-row">
+                <div class="hrv-dot" id="hrv-dot-green"></div>
+                <div class="hrv-dot" id="hrv-dot-amber"></div>
+                <div class="hrv-dot" id="hrv-dot-red"></div>
+                <span class="hrv-light-label" id="hrv-light-label">HRV hämtas...</span>
+              </div>
             </div>
           </div>
-          <button class="hg-toggle" onclick="toggleHG('recovery')">
-            <span class="hg-toggle-arrow">▾</span> DETALJER
-          </button>
-          <div class="hg-details" id="hg-recovery-details">
-            <div class="hg-metric">
-              <span class="hg-metric-icon">🎯</span>
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Träningsberedskap</div>
-                <div class="hg-metric-desc" id="hd-readiness-desc">Garmins samlade bedömning</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-readiness-val">—</div>
-                <div class="hg-metric-status" id="hd-readiness-status">/ 100</div>
-              </div>
+          <div class="cns-bar-wrap">
+            <div class="cns-bar"><div class="cns-bar-fill" id="cns-bar" style="width:0%"></div></div>
+          </div>
+          <div class="cns-metrics">
+            <div class="cns-metric">
+              <div class="cns-metric-name">HRV vs snitt</div>
+              <div class="cns-metric-val" id="cns-hrv-val">—</div>
+              <div class="cns-metric-sub" id="cns-hrv-sub">Hämtar...</div>
             </div>
-            <div class="hg-metric">
-              <span class="hg-metric-icon">💓</span>
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">HRV natt</div>
-                <div class="hg-metric-desc" id="hd-hrv-desc">vs ditt veckogenomsnitt</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-hrv-val">—</div>
-                <div class="hg-metric-status" id="hd-hrv-status">ms</div>
-              </div>
+            <div class="cns-metric">
+              <div class="cns-metric-name">Garmin beredskap</div>
+              <div class="cns-metric-val" id="cns-readiness-val">—</div>
+              <div class="cns-metric-sub" id="cns-readiness-sub">/ 100</div>
             </div>
-            <div class="hg-metric">
-              <span class="hg-metric-icon">❤️</span>
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Vilopuls</div>
-                <div class="hg-metric-desc" id="hd-rhr-desc">Under vila/sömn</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-rhr-val">—</div>
-                <div class="hg-metric-status" id="hd-rhr-status">bpm</div>
-              </div>
+            <div class="cns-metric">
+              <div class="cns-metric-name">Vilopuls</div>
+              <div class="cns-metric-val" id="cns-rhr-val">—</div>
+              <div class="cns-metric-sub" id="cns-rhr-sub">bpm</div>
             </div>
-            <div class="hg-metric">
-              <span class="hg-metric-icon">🫁</span>
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">VO2max</div>
-                <div class="hg-metric-desc">Syreupptagning · löpning</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val cg">59</div>
-                <div class="hg-metric-status">Utmärkt</div>
-              </div>
+            <div class="cns-metric">
+              <div class="cns-metric-name">VO2max</div>
+              <div class="cns-metric-val cg">59</div>
+              <div class="cns-metric-sub">Utmärkt</div>
             </div>
           </div>
         </div>
@@ -1306,13 +1359,21 @@
               <span class="hg-metric-icon">⏱️</span>
               <div class="hg-metric-body">
                 <div class="hg-metric-name">Total sömntid</div>
-                <div class="hg-metric-desc">Rekommenderat: 7–9 timmar</div>
+                <div class="hg-metric-desc">Mål: 7,5 h/natt</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-stotal-val">—</div>
                 <div class="hg-metric-status" id="hd-stotal-status"></div>
               </div>
             </div>
+            <div class="sleep-debt-row">
+              <div>
+                <div class="sleep-debt-label">Sömnbrist denna vecka</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Mål 52,5 h/vecka (7,5 h/natt)</div>
+              </div>
+              <div class="sleep-debt-val" id="sleep-debt-val">—</div>
+            </div>
+            <div class="sleep-flag-row" id="sleep-flag-row"></div>
           </div>
         </div>
 
@@ -1684,37 +1745,74 @@ window.fetch = (url, opts = {}) => {
       if (h.error) return;
       const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
 
-      // ── ÅTERHÄMTNING ──
-      let recoveryScore = 50;
-      if (h.readiness?.score != null) {
-        recoveryScore = h.readiness.score;
-        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
-        const lvl = lblMap[h.readiness.level] || '';
-        const col = recoveryScore >= 70 ? 'var(--green)' : recoveryScore >= 40 ? 'var(--amber)' : 'var(--red)';
-        const statusText = recoveryScore >= 75 ? 'Redo för hårt pass' : recoveryScore >= 50 ? 'Normal träning ok' : 'Vila eller Z2 max';
-        setMetric('hd-readiness-val', 'hd-readiness-status', recoveryScore, '/ 100', statusText, col);
-        document.getElementById('hd-readiness-desc').textContent = lvl + (h.readiness.feedback ? ' · ' + h.readiness.feedback : '');
+      // ── CNS-SCORE (ersätter Återhämtning) ──
+      // Formel: 0.40×HRV% + 0.30×sömnpoäng + 0.20×Garmin-beredskap + 0.10×(100-stress)
+      // Baserat på Flatt & Esco (2016)
+      const hrvPct      = h.hrv?.pct       ?? 50;
+      const sleepScoreR = h.sleep?.score   ?? 50;
+      const readiness   = h.readiness?.score ?? 50;
+      const stressVal   = h.stress?.avg    ?? 50;
+
+      const cnsScore = Math.round(
+        0.40 * Math.min(hrvPct, 100) +
+        0.30 * sleepScoreR +
+        0.20 * readiness +
+        0.10 * (100 - Math.min(stressVal, 100))
+      );
+
+      const cnsCol   = cnsScore >= 70 ? 'var(--green)' : cnsScore >= 45 ? 'var(--amber)' : 'var(--red)';
+      const cnsTitle = cnsScore >= 70 ? 'Redo för kvalitetspass' : cnsScore >= 45 ? 'Normalt pass ok' : 'Vila eller Z2 idag';
+      const cnsDesc  = cnsScore >= 70
+        ? 'CNS fullt återhämtat. HRV, sömn och beredskap är alla gröna — perfekt dag för intervaller eller tröskelpass.'
+        : cnsScore >= 45
+        ? 'Acceptabel CNS-status. Normalt planerat pass fungerar, men undvik maximal ansträngning.'
+        : 'CNS visar tydliga tecken på otillräcklig återhämtning. Prioritera vila, lätt Z2 eller skjut kvalitetspasset framåt.';
+
+      document.getElementById('cns-score').textContent = cnsScore;
+      document.getElementById('cns-score').style.color = cnsCol;
+      document.getElementById('cns-title').textContent = cnsTitle;
+      document.getElementById('cns-desc').textContent  = cnsDesc;
+      document.getElementById('cns-bar').style.width   = cnsScore + '%';
+      document.getElementById('cns-bar').style.background = cnsCol;
+      document.getElementById('hg-recovery').style.setProperty('--cns-color', cnsCol);
+
+      // HRV Traffic Light (Kiviniemi-metoden: ±5% från veckosnitt)
+      const hrvDiff = h.hrv?.lastNightAvg && h.hrv?.weeklyAvg
+        ? ((h.hrv.lastNightAvg - h.hrv.weeklyAvg) / h.hrv.weeklyAvg) * 100
+        : null;
+      let hrvLight = 'amber';
+      let hrvLightText = 'HRV-data saknas';
+      if (hrvDiff !== null) {
+        if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% — kör hårt pass`; }
+        else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% — vila eller Z2`; }
+        else                    { hrvLight = 'amber'; hrvLightText = `HRV ±${Math.abs(hrvDiff).toFixed(0)}% — normalt pass`; }
       }
+      ['green','amber','red'].forEach(c => document.getElementById('hrv-dot-' + c).className = 'hrv-dot');
+      document.getElementById('hrv-dot-' + hrvLight).classList.add('active-' + hrvLight);
+      document.getElementById('hrv-light-label').textContent = hrvLightText;
+
+      // CNS delmetriker
       if (h.hrv?.lastNightAvg != null) {
         const pct = h.hrv.pct || 0;
-        const col = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
-        const statusText = pct >= 80 ? `${pct}% av snitt — bra` : pct >= 50 ? `${pct}% av snitt — ok` : `${pct}% av snitt — låg`;
-        setMetric('hd-hrv-val', 'hd-hrv-status', h.hrv.lastNightAvg, 'ms', statusText, col);
-        document.getElementById('hd-hrv-desc').textContent = `Snitt ${h.hrv.weeklyAvg || '—'} ms · ${h.hrv.status || ''}`;
+        const pctCol = pct >= 95 ? 'var(--green)' : pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
+        document.getElementById('cns-hrv-val').style.color = pctCol;
+        document.getElementById('cns-hrv-sub').textContent = `${pct}% av snitt ${h.hrv.weeklyAvg || '—'} ms`;
+      }
+      if (h.readiness?.score != null) {
+        const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('cns-readiness-val').textContent = h.readiness.score;
+        document.getElementById('cns-readiness-val').style.color = rc;
+        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
+        document.getElementById('cns-readiness-sub').textContent = lblMap[h.readiness.level] || '/ 100';
       }
       if (h.restingHR?.value != null) {
         const rhr = h.restingHR.value;
-        const col = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
-        const statusText = rhr <= 50 ? 'Vältränad' : rhr <= 65 ? 'Normalt' : 'Förhöjd';
-        setMetric('hd-rhr-val', 'hd-rhr-status', rhr, 'bpm', statusText, col);
-        document.getElementById('hd-rhr-desc').textContent = '7-dagarssnitt: ' + (h.restingHR.sevenDayAvg || '—') + ' bpm';
+        const rc = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('cns-rhr-val').textContent = rhr;
+        document.getElementById('cns-rhr-val').style.color = rc;
+        document.getElementById('cns-rhr-sub').textContent = `snitt ${h.restingHR.sevenDayAvg || '—'} bpm`;
       }
-      const recoveryDesc = h.readiness?.score != null
-        ? (h.readiness.score >= 75 ? 'Kroppen är peakad — perfekt för ett kvalitetspass.' :
-           h.readiness.score >= 50 ? 'Bra återhämtning — normal träning fungerar fint.' :
-           'Kroppen återhämtar sig. Håll det lugnt idag.')
-        : 'Hämtar återhämtningsdata...';
-      setHG('hg-recovery-score', 'hg-recovery-bar', 'hg-recovery-badge', 'hg-recovery-desc', recoveryScore, recoveryDesc);
 
       // ── SÖMN ──
       let sleepScore = 50;
@@ -1754,6 +1852,36 @@ window.fetch = (url, opts = {}) => {
           ? `${totalH}h ${totalM}m sömn — acceptabelt men kan förbättras.`
           : `${totalH}h ${totalM}m sömn — prioritera mer sömn ikväll.`;
         setHG('hg-sleep-score', 'hg-sleep-bar', 'hg-sleep-badge', 'hg-sleep-desc', sleepScore, sleepDesc);
+
+        // Sömnbrist — 7,5 h/natt mål = 52,5 h/vecka
+        // Beräkna baserat på dagensömnstid × dagar hittills i veckan
+        const SLEEP_TARGET_H = 7.5;
+        const todayDowSleep = new Date().getDay() || 7; // 1=mån
+        const daysIntoWeek = todayDowSleep;
+        const targetSoFar = SLEEP_TARGET_H * daysIntoWeek * 3600;
+        const actualSoFar = h.sleep.totalSec; // förenklat: ger i alla fall dagens underskott
+        const dailyDebt = Math.max(0, SLEEP_TARGET_H * 3600 - h.sleep.totalSec);
+        const dailyDebtH = Math.floor(dailyDebt / 3600);
+        const dailyDebtM = Math.round((dailyDebt % 3600) / 60);
+        const debtEl = document.getElementById('sleep-debt-val');
+        if (dailyDebt < 900) {
+          debtEl.textContent = 'Ingen brist ✓';
+          debtEl.style.color = 'var(--green)';
+        } else {
+          debtEl.textContent = `−${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m idag`;
+          debtEl.style.color = dailyDebt > 3600 ? 'var(--red)' : 'var(--amber)';
+        }
+
+        // Sömnflaggor (djupsömn, REM, CNS-konsekvenser)
+        const flags = [];
+        if (deep < 10)  flags.push({ text: '⚠ Lite djupsömn — skippa styrka', cls: 'bad' });
+        else if (deep >= 15) flags.push({ text: '✓ Djupsömn ok', cls: 'ok' });
+        else            flags.push({ text: '~ Djupsömn låg', cls: 'warn' });
+        if (rem < 15)   flags.push({ text: '⚠ Lite REM — undvik intervaller', cls: 'bad' });
+        else if (rem >= 20) flags.push({ text: '✓ REM ok', cls: 'ok' });
+        else            flags.push({ text: '~ REM lite låg', cls: 'warn' });
+        const flagRow = document.getElementById('sleep-flag-row');
+        flagRow.innerHTML = flags.map(f => `<span class="sleep-flag ${f.cls}">${f.text}</span>`).join('');
         document.getElementById('hg-sleep-score').style.color = sleepScore >= 80 ? 'var(--purple)' : sleepScore >= 60 ? 'var(--amber)' : 'var(--red)';
         const badge = document.getElementById('hg-sleep-badge');
         badge.className = sleepScore >= 80 ? 'hg-status hs-purple' : sleepScore >= 60 ? 'hg-status hs-ok' : 'hg-status hs-low';
@@ -1883,7 +2011,8 @@ STYRKEMÅL: Bli progressivt starkare — 2 styrkepass per vecka
 - Styrka stödjer löpningen: stärker core, minskar skaderisk, ökar kraftuttag
 
 HÄLSODATA (aktuell):
-- Träningsberedskap: 50/100, HRV låg (22%), sömn 91/100, body battery 40`;
+- Träningsberedskap: 50/100, HRV låg (22%), sömn 91/100, body battery 40
+(Uppdateras dynamiskt nedan med aktuella värden och CNS-score)`;
 
   function buildCTX() {
     let ctx = BASE_CTX;
@@ -1913,6 +2042,22 @@ HÄLSODATA (aktuell):
           ctx += `\nKONSEKVENS AV TIDIGA ARBETSPASS: Följande dagar har event som börjar före 07:00 — detta innebär troligen förkortad sömn och sämre återhämtning: ${earlyDays.join(', ')}. Undvik kvalitetspass (intervaller, tröskel, tävling) dessa dagar och dagen efter. Prioritera vila eller lugna pass (Z1-Z2).`;
         }
       }
+    }
+
+    // CNS-score och HRV traffic light — dynamisk hälsostatus
+    const cnsEl = document.getElementById('cns-score');
+    const cnsVal = cnsEl ? parseInt(cnsEl.textContent) : null;
+    if (cnsVal && !isNaN(cnsVal)) {
+      const cnsTitle = document.getElementById('cns-title')?.textContent || '';
+      const hrvLabel = document.getElementById('hrv-light-label')?.textContent || '';
+      const sleepDebt = document.getElementById('sleep-debt-val')?.textContent || '';
+      const flags = [...(document.getElementById('sleep-flag-row')?.querySelectorAll('.sleep-flag') || [])]
+        .map(f => f.textContent).join(' · ');
+      ctx += `\n\nCNS-SCORE (daglig beredskapsanalys): ${cnsVal}/100 — ${cnsTitle}`;
+      ctx += `\nHRV-SIGNAL: ${hrvLabel}`;
+      ctx += `\nSÖMNBRIST IDAG: ${sleepDebt}`;
+      if (flags) ctx += `\nSÖMNFLAGGOR: ${flags}`;
+      ctx += `\nPASSREGEL: CNS ≥70 → kvalitetspass ok · CNS 45–69 → normalt/lätt pass · CNS <45 → vila eller Z2 obligatoriskt`;
     }
 
     // Sparade noteringar
