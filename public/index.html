@@ -576,9 +576,10 @@
       border: 1px solid var(--border);
       border-radius: 18px;
       padding: 22px 24px 18px;
-      margin-bottom: 16px;
+      margin-bottom: 0;
       position: relative;
       overflow: hidden;
+      box-sizing: border-box;
     }
     .cns-card::after {
       content: '';
@@ -816,6 +817,7 @@
     .hg-row {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
+      align-items: stretch;
       gap: 12px;
       margin-bottom: 32px;
     }
@@ -1318,10 +1320,7 @@
               <div class="hg-bar"><div class="hg-bar-fill" id="hg-sleep-bar" style="width:0%"></div></div>
             </div>
           </div>
-          <button class="hg-toggle" onclick="toggleHG('sleep')">
-            <span class="hg-toggle-arrow">▾</span> DETALJER
-          </button>
-          <div class="hg-details" id="hg-sleep-details">
+          <div class="hg-details" id="hg-sleep-details" style="display:flex;border-top:1px solid var(--border)">
             <div class="hg-metric">
               <span class="hg-metric-icon">⭐</span>
               <div class="hg-metric-body">
@@ -1393,10 +1392,7 @@
               <div class="hg-bar"><div class="hg-bar-fill" id="hg-energy-bar" style="width:0%"></div></div>
             </div>
           </div>
-          <button class="hg-toggle" onclick="toggleHG('energy')">
-            <span class="hg-toggle-arrow">▾</span> DETALJER
-          </button>
-          <div class="hg-details" id="hg-energy-details">
+          <div class="hg-details" id="hg-energy-details" style="display:flex;border-top:1px solid var(--border)">
             <div class="hg-metric">
               <span class="hg-metric-icon">🔋</span>
               <div class="hg-metric-body">
@@ -1701,12 +1697,7 @@ window.fetch = (url, opts = {}) => {
     }
   }
 
-  function toggleHG(id) {
-    const card = document.getElementById('hg-' + id);
-    card.classList.toggle('open');
-  }
-
-  function setHG(scoreId, barId, badgeId, descId, score, desc) {
+function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const el = document.getElementById(scoreId);
     const bar = document.getElementById(barId);
     const badge = document.getElementById(badgeId);
