@@ -1076,10 +1076,20 @@ def morning_job():
     match_activities_to_plan()
     ai_adjust_plan()
 
+def backup_job():
+    """Körs 10:00 — bara om justeringen inte redan gjorts idag."""
+    row = get_cache('last_plan_adjustment')
+    if row and row[0].get('date') == date.today().isoformat():
+        print('[10:00] Justering redan gjord idag, hoppar över.')
+        return
+    print('[10:00] Ingen justering gjord ännu idag — kör nu.')
+    morning_job()
+
 scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
 scheduler.add_job(morning_job, 'cron', hour=7, minute=30)
+scheduler.add_job(backup_job,  'cron', hour=10, minute=0)
 scheduler.start()
-print('Schemaläggare aktiv — AI-justering körs kl 07:30 varje morgon')
+print('Schemaläggare aktiv — AI-justering kl 07:30, backup kl 10:00')
 
 
 @app.get('/')
