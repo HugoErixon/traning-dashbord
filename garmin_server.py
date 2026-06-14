@@ -166,6 +166,80 @@ def activities():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# ─────────────────────────────────────────────
+# HRV-LOGIK (Garmin HRV Status + personlig baslinje)
+# ─────────────────────────────────────────────
+# Garmin returnerar:
+#   status: BALANCED / UNBALANCED / LOW / POOR / NONE  (trend över 7-dygns-snitt mot baslinje)
+#   baseline: { lowUpper, balancedLow, balancedUpper }  (din personliga balanced-range)
+# Primär signal = Garmins status (samma symbol som i Garmin Connect-appen).
+# Sekundär finmätare = gårnattens HRV relativt baslinjebandet + råförhållande mot veckosnitt.
+
+HRV_STATUS_LIGHT = {       # status → trafikljus
+    'BALANCED':   'green',
+    'UNBALANCED': 'amber',
+    'LOW':        'red',
+    'POOR':       'red',
+    'NONE':       None,
+}
+HRV_STATUS_CAP = {         # status → taklimit för HRV-komponenten i CNS (trendstraff)
+    'BALANCED':   100,
+    'UNBALANCED':  80,
+    'LOW':         60,
+    'POOR':        45,
+    'NONE':        None,
+}
+HRV_STATUS_VERDICT = {     # status → kort verdikt (engelska)
+    'BALANCED':   'Balanced — autonomic system in your normal range',
+    'UNBALANCED': 'Unbalanced — outside your normal range, train with caution',
+    'LOW':        'Low — below baseline, prioritize recovery',
+    'POOR':       'Poor — sustained low HRV, rest needed',
+    'NONE':       'Not enough baseline data yet',
+}
+
+def hrv_component(last_night, low_upper, balanced_low, status, raw_pct):
+    """
+    HRV-komponent (0–100) för CNS-scoren.
+    Bygger på gårnattens HRV relativt din personliga baslinje (samma som Garmins nattprick),
+    med ett tak baserat på Garmins trendstatus. Faller tillbaka på råförhållande om baslinje saknas.
+    """
+    pos = None
+    if last_night and balanced_low and low_upper:
+        if last_night >= balanced_low:
+            pos = 100.0
+        elif last_night >= low_upper:
+            span = balanced_low - low_upper
+            pos = 70 + 30 * (last_night - low_upper) / span if span else 85.0
+        else:
+            pos = max(25.0, 70 * last_night / low_upper)
+    cap = HRV_STATUS_CAP.get((status or 'NONE').upper())
+    if pos is None:
+        # Ingen baslinje → använd råförhållande (gammal metod) som fallback
+        if raw_pct is None:
+            return cap  # kan vara None
+        pos = min(raw_pct, 100)
+    if cap is None:
+        return round(pos)
+    return round(min(pos, cap))
+
+def hrv_signal(status, last_night, weekly):
+    """
+    Returnerar (light, verdict) för trafikljuset.
+    Primärt Garmins status; om den saknas faller vi tillbaka på Kiviniemi ±5% mot veckosnitt.
+    """
+    st = (status or 'NONE').upper()
+    light = HRV_STATUS_LIGHT.get(st)
+    if light:
+        return light, HRV_STATUS_VERDICT.get(st, st.title())
+    # Fallback: råförhållande
+    if last_night and weekly:
+        diff = (last_night - weekly) / weekly * 100
+        if diff >= 5:   return 'green', f'HRV +{diff:.0f}% vs weekly avg — train hard'
+        if diff <= -5:  return 'red',   f'HRV {diff:.0f}% vs weekly avg — rest or Z2'
+        return 'amber', f'HRV {diff:+.0f}% vs weekly avg — normal session'
+    return 'amber', 'HRV data unavailable'
+
+
 @app.get('/api/health')
 def health_data():
     today = date.today().isoformat()
@@ -191,8 +265,14 @@ def health_data():
         sleep_scores = s.get('sleepScores') or {}
         sleep_score_val = sleep_scores.get('overall', {}).get('value') if isinstance(sleep_scores, dict) else None
 
-        hrv_sum = hrv.get('hrvSummary', {})
-        hrv_pct = round((hrv_sum.get('lastNightAvg', 0) / hrv_sum.get('weeklyAvg', 1)) * 100) if hrv_sum.get('weeklyAvg') else None
+        hrv_sum  = hrv.get('hrvSummary', {})
+        hrv_base = hrv_sum.get('baseline') or {}
+        hrv_ln   = hrv_sum.get('lastNightAvg')
+        hrv_wk   = hrv_sum.get('weeklyAvg')
+        hrv_st   = hrv_sum.get('status')
+        hrv_pct  = round((hrv_ln / hrv_wk) * 100) if hrv_wk and hrv_ln else None
+        hrv_comp = hrv_component(hrv_ln, hrv_base.get('lowUpper'), hrv_base.get('balancedLow'), hrv_st, hrv_pct)
+        hrv_lt, hrv_verdict = hrv_signal(hrv_st, hrv_ln, hrv_wk)
 
         bb_today = bb[0] if bb else {}
         bb_vals  = bb_today.get('bodyBatteryValuesArray', [])
@@ -208,7 +288,10 @@ def health_data():
         result = {
             'date': today,
             'readiness':   {'score': ready.get('score'), 'level': ready.get('level'), 'feedback': ready.get('feedbackShort')},
-            'hrv':         {'lastNightAvg': hrv_sum.get('lastNightAvg'), 'weeklyAvg': hrv_sum.get('weeklyAvg'), 'status': hrv_sum.get('status'), 'pct': hrv_pct},
+            'hrv':         {'lastNightAvg': hrv_ln, 'weeklyAvg': hrv_wk, 'status': hrv_st, 'pct': hrv_pct,
+                            'balancedLow': hrv_base.get('balancedLow'), 'balancedUpper': hrv_base.get('balancedUpper'),
+                            'lowUpper': hrv_base.get('lowUpper'), 'component': hrv_comp,
+                            'light': hrv_lt, 'verdict': hrv_verdict},
             'restingHR':   {'value': hr.get('restingHeartRate'), 'sevenDayAvg': hr.get('lastSevenDaysAvgRestingHeartRate'), 'min': hr.get('minHeartRate')},
             'sleep':       {'totalSec': total_sleep_sec, 'deepSec': deep_sec, 'remSec': rem_sec, 'score': sleep_score_val,
                             'deepPct': round(deep_sec/total_sleep_sec*100) if total_sleep_sec else 0,
@@ -292,14 +375,22 @@ def _build_refresh_prompt(acts):
 
     # Fas baserat på vecka
     if iso_week <= 23:   phase = 'återhämtning'
-    elif iso_week <= 25: phase = 'intervallfas'
-    elif iso_week <= 29: phase = 'tröskelsfas'
-    else:                phase = 'spetsningsfas'
+    elif iso_week <= 25: phase = 'återhämtning/bas'
+    elif iso_week <= 29: phase = 'basbygge'
+    elif iso_week <= 33: phase = 'tröskel/tempo'
+    elif iso_week <= 37: phase = 'tävlingsspecifik'
+    elif iso_week <= 39: phase = 'avtrappning'
+    elif iso_week <= 40: phase = 'taper'
+    else:                phase = 'tävlingsvecka'
 
     # Planerat km per vecka (från träningsplanen)
     weekly_km_plan = {
-        23:28, 24:44, 25:47, 26:48, 27:49, 28:48,
-        29:38, 30:46, 31:43, 32:40, 33:30, 34:20
+        23:35, 24:40, 25:45,
+        26:50, 27:55, 28:55, 29:58,
+        30:62, 31:65, 32:65, 33:60,
+        34:68, 35:70, 36:68, 37:65,
+        38:55, 39:50,
+        40:35, 41:15
     }
     planned_km = weekly_km_plan.get(iso_week, 40)
 
@@ -343,8 +434,13 @@ def _build_refresh_prompt(acts):
     h_row = get_cache('health')
     h     = h_row[0] if h_row else {}
     readiness    = (h.get('readiness') or {}).get('score')
-    hrv_avg      = (h.get('hrv') or {}).get('lastNightAvg')
-    hrv_weekly   = (h.get('hrv') or {}).get('weeklyAvg')
+    hrv_obj      = h.get('hrv') or {}
+    hrv_avg      = hrv_obj.get('lastNightAvg')
+    hrv_weekly   = hrv_obj.get('weeklyAvg')
+    hrv_status   = hrv_obj.get('status')
+    hrv_bal_low  = hrv_obj.get('balancedLow')
+    hrv_bal_high = hrv_obj.get('balancedUpper')
+    hrv_comp     = hrv_obj.get('component')
     body_battery = (h.get('bodyBattery') or {}).get('current')
     sleep_score  = (h.get('sleep') or {}).get('score')
 
@@ -371,81 +467,112 @@ def _build_refresh_prompt(acts):
                     early_days.append(day_name)
 
     # Bygg prompten
-    prompt = f"""Du är en personlig träningscoach. Analysera ALL data nedan och svara ENDAST med JSON.
+    # Hämta dagens och nästa planerade pass från DB
+    today_session = None
+    next_session  = None
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""SELECT * FROM plan_sessions
+                WHERE week=%s AND dow=%s AND status='planned'
+                LIMIT 1""", (iso_week, weekday))
+            today_session = cur.fetchone()
+            cur.execute("""SELECT * FROM plan_sessions
+                WHERE status='planned' AND (week > %s OR (week = %s AND dow > %s))
+                ORDER BY week, dow LIMIT 1""", (iso_week, iso_week, weekday))
+            next_session = cur.fetchone()
 
-LÖPMÅL: 3 km under 10:00 (bästa: 10:27, gap 27 sek) — deadline slutet aug 2026
-VO2max: 59 · Plan: V23 återhämtning → V24-25 intervaller → V26-29 tröskel → V30-34 spetsning
-Nuvarande fas: {phase} (V{iso_week})
+    today_session_str = f"{today_session['title']} — {today_session['detail']}" if today_session else "Rest day (no session scheduled)"
+    next_session_str  = f"{next_session['title']} — {next_session['detail']}"   if next_session  else "No upcoming session found"
 
-SENASTE LÖPPASS:
+    prompt = f"""You are a personal training coach. Analyze ALL data below and respond ONLY with JSON. All text fields in the JSON must be in English.
+
+GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026 · Current best: 1:26:19
+SECONDARY GOAL: Build a strong body in all areas — running strength, upper body, core, mobility
+VO2max: 59 · Plan: W23–41 · Current phase: {phase} (W{iso_week})
+
+TODAY'S SCHEDULED SESSION (from training plan):
+{today_session_str}
+
+NEXT SCHEDULED SESSION:
+{next_session_str}
+
+RECENT RUNS:
 {json.dumps(recent_runs, ensure_ascii=False, indent=2)}
 
-VECKOSTATUS V{iso_week}:
-- Planerat: {planned_km} km · Genomfört: {completed_km:.1f} km · Kvar: {remaining_km:.1f} km
-- Genomförd träningsload veckan: {round(completed_load)}
+WEEK STATUS W{iso_week}:
+- Planned: {planned_km} km · Completed: {completed_km:.1f} km · Remaining: {remaining_km:.1f} km
+- Training load this week: {round(completed_load)}
 
-HÄLSODATA (idag):
-- Träningsberedskap: {readiness or '—'}/100
-- HRV natt: {hrv_avg or '—'} ms (veckosnitt {hrv_weekly or '—'} ms)
+HEALTH DATA (today):
+- Training readiness: {readiness or '—'}/100
+- Garmin HRV Status: {hrv_status or 'NONE'} (this is Garmin's trend assessment vs your personal baseline)
+- HRV last night: {hrv_avg or '—'} ms · your balanced baseline range: {hrv_bal_low or '—'}–{hrv_bal_high or '—'} ms · weekly avg: {hrv_weekly or '—'} ms
 - Body battery: {body_battery or '—'}/100
-- Sömnpoäng: {sleep_score or '—'}/100"""
+- Sleep score: {sleep_score or '—'}/100"""
 
-    # CNS-score beräkning (Flatt & Esco 2016)
+    # CNS-score beräkning (Flatt & Esco 2016) — HRV-komponenten bygger nu på Garmins baslinje
     if all(v is not None for v in [readiness, hrv_avg, hrv_weekly, sleep_score, h.get('stress',{}).get('avg')]):
+        # Primärt: baslinje-baserad HRV-komponent. Fallback: råförhållande mot veckosnitt.
         hrv_pct_val = round((hrv_avg / hrv_weekly) * 100) if hrv_weekly else 50
+        hrv_score   = hrv_comp if hrv_comp is not None else min(hrv_pct_val, 100)
         stress_avg  = h.get('stress', {}).get('avg', 50) or 50
-        cns = round(0.40 * min(hrv_pct_val,100) + 0.30 * (sleep_score or 50) + 0.20 * (readiness or 50) + 0.10 * (100 - min(stress_avg,100)))
-        hrv_diff = ((hrv_avg - hrv_weekly) / hrv_weekly * 100) if hrv_weekly else 0
-        hrv_signal = 'GRÖN (kör hårt pass)' if hrv_diff >= 5 else 'RÖD (vila/Z2)' if hrv_diff <= -5 else 'GUL (normalt pass)'
-        cns_rule = 'KVALITETSPASS OK' if cns >= 70 else 'NORMALT/LÄTT PASS' if cns >= 45 else 'VILA ELLER Z2 — obligatoriskt'
-        # Djupsömn och REM flags
+        cns = round(0.40 * hrv_score + 0.30 * (sleep_score or 50) + 0.20 * (readiness or 50) + 0.10 * (100 - min(stress_avg,100)))
+        st = (hrv_status or 'NONE').upper()
+        hrv_signal_str = {'BALANCED':'GREEN (balanced — train as planned)',
+                          'UNBALANCED':'YELLOW (unbalanced — caution)',
+                          'LOW':'RED (low — recover)',
+                          'POOR':'RED (poor — rest)'}.get(st)
+        if not hrv_signal_str:
+            hrv_diff = ((hrv_avg - hrv_weekly) / hrv_weekly * 100) if hrv_weekly else 0
+            hrv_signal_str = 'GREEN (go hard)' if hrv_diff >= 5 else 'RED (rest/Z2)' if hrv_diff <= -5 else 'YELLOW (normal session)'
+        cns_rule = 'QUALITY SESSION OK' if cns >= 70 else 'NORMAL/EASY SESSION' if cns >= 45 else 'REST OR Z2 — mandatory'
         deep_pct = h.get('sleep', {}).get('deepPct', 0) or 0
         rem_pct  = h.get('sleep', {}).get('remPct', 0) or 0
         sleep_flags = []
-        if deep_pct < 10: sleep_flags.append('för lite djupsömn (skippa styrka)')
-        if rem_pct < 15:  sleep_flags.append('för lite REM (undvik intervaller)')
+        if deep_pct < 10: sleep_flags.append('low deep sleep (skip strength)')
+        if rem_pct < 15:  sleep_flags.append('low REM (avoid intervals)')
         prompt += f"""
 
-CNS-SCORE: {cns}/100 — {cns_rule}
-HRV-SIGNAL: {hrv_signal} (HRV {hrv_diff:+.0f}% vs veckosnitt)
-SÖMNKVALITET: djupsömn {deep_pct}% (mål 15–25%) · REM {rem_pct}% (mål 20–25%){(' · VARNING: ' + ', '.join(sleep_flags)) if sleep_flags else ' · Ok'}
-PASSREGEL: CNS ≥70 → kvalitetspass · CNS 45–69 → normalt/lätt · CNS <45 → vila/Z2 obligatoriskt"""
+CNS SCORE: {cns}/100 — {cns_rule}
+HRV SIGNAL (Garmin Status): {hrv_signal_str}
+SLEEP QUALITY: deep sleep {deep_pct}% (goal 15–25%) · REM {rem_pct}% (goal 20–25%){(' · WARNING: ' + ', '.join(sleep_flags)) if sleep_flags else ' · OK'}
+SESSION RULE: CNS ≥70 → quality session ok · CNS 45–69 → normal/easy · CNS <45 → rest/Z2 mandatory"""
 
     if acute is not None:
-        load_feedback_sv = {
-            'AEROBIC_LOW_SHORTAGE':  'för lite lågintensiv aerob träning',
-            'AEROBIC_HIGH_SHORTAGE': 'för lite högintensiv aerob träning',
-            'ANAEROBIC_SHORTAGE':    'för lite anaerob träning',
-            'OPTIMAL':               'optimal balans',
+        load_feedback_en = {
+            'AEROBIC_LOW_SHORTAGE':  'too little low-intensity aerobic training',
+            'AEROBIC_HIGH_SHORTAGE': 'too little high-intensity aerobic training',
+            'ANAEROBIC_SHORTAGE':    'too little anaerobic training',
+            'OPTIMAL':               'optimal balance',
         }.get(load_feedback, load_feedback)
-        acwr_sv = {'LOW':'låg','OPTIMAL':'optimal','HIGH':'hög','VERY_HIGH':'mycket hög'}.get(acwr_status, acwr_status)
+        acwr_en = {'LOW':'low','OPTIMAL':'optimal','HIGH':'high','VERY_HIGH':'very high'}.get(acwr_status, acwr_status)
         prompt += f"""
 
-TRÄNINGSLAST (ACWR):
-- Akut last (7 dagar): {acute} · Kronisk last (28 dagar): {chronic}
-- ACWR-kvot: {ratio} ({acwr_sv}) — optimal zon är 0.8–1.3
-- Belastningsbalans: {load_feedback_sv}
-REGEL: Om ACWR < 0.8 kan du öka intensiteten försiktigt. Om > 1.3, prioritera vila eller Z2."""
+TRAINING LOAD (ACWR):
+- Acute load (7 days): {acute} · Chronic load (28 days): {chronic}
+- ACWR ratio: {ratio} ({acwr_en}) — optimal zone is 0.8–1.3
+- Load balance: {load_feedback_en}
+RULE: If ACWR < 0.8 you can carefully increase intensity. If > 1.3, prioritize rest or Z2."""
 
     if gcal_lines:
         prompt += f"""
 
-ARBETS- OCH AKTIVITETSSCHEMA (kommande 7 dagar):
+CALENDAR (next 7 days):
 {chr(10).join(gcal_lines)}
-Anpassa rekommendationen — undvik hårda pass på tunga arbetsdagar."""
+Factor this into the recommendation — avoid hard sessions on heavy work days."""
 
     if early_days:
-        prompt += f"\nTidiga arbetspass (före 07:00, trolig sömnbrist): {', '.join(early_days)} — undvik kvalitetspass dessa dagar och dagen efter."
+        prompt += f"\nEarly starts (before 07:00, likely reduced sleep): {', '.join(early_days)} — avoid quality sessions on these days and the day after."
 
     prompt += """
 
-Svara ENDAST med detta JSON (inga förklaringar utanför JSON):
+Respond ONLY with this JSON (no explanation outside JSON):
 {
-  "todayRecommendation": "konkret rekommendation för idag baserad på ALL data ovan (1-2 meningar)",
+  "todayRecommendation": "1-2 sentence recommendation for today that references the scheduled session above — confirm it, modify it, or replace it based on the health data",
   "todayType": "easy|quality|rest",
-  "nextSession": {"title": "passnamn", "desc": "beskrivning", "tempo": "t.ex. 3:35 /km", "distance": "t.ex. ~8 km"},
-  "prediction3k": "t.ex. 10:15",
-  "insight": "en konkret insikt baserad på träningslasten eller hälsodata (1 mening)"
+  "nextSession": {"title": "session name", "desc": "description", "tempo": "e.g. 3:35 /km", "distance": "e.g. ~8 km"},
+  "prediction3k": "e.g. 10:15",
+  "insight": "one concrete insight based on training load or health data"
 }"""
     return prompt
 
@@ -487,7 +614,7 @@ def chat():
         return jsonify({'reply': 'API-nyckel saknas.'})
     resp = requests.post('https://api.anthropic.com/v1/messages',
         json={'model': 'claude-sonnet-4-6', 'max_tokens': 1024,
-              'system': data.get('context', 'Du är en personlig träningscoach. Svara på svenska.'),
+              'system': data.get('context', 'You are a personal training coach. Always respond in English.'),
               'messages': [{'role': 'user', 'content': data.get('message', '')}]},
         headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
                  'content-type': 'application/json'})
@@ -651,96 +778,142 @@ def delete_exercise(ex_id):
 # TRÄNINGSPLAN — seed-data (samma som JS-arrayen)
 # ─────────────────────────────────────────────
 PLAN_SEED = [
-    # V23 Återhämtning
-    {'week':23,'dow':1,'type':'run', 'km':6,  'title':'Återhämtningsjogg',      'detail':'Z2 · 6 km · 4:45–5:15/km · Vila efter GöteborgsVarvet'},
-    {'week':23,'dow':2,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2 · Lugnt tempo · 5:00–5:20/km · Aktiv återhämtning'},
-    {'week':23,'dow':3,'type':'lift','km':0,  'title':'Helkropp – intro',        'detail':'Knäböj, marklyft, bänkpress, latsdrag · 3×8 · 60–70%'},
-    {'week':23,'dow':4,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2 · Kort och lätt · Spola ur benen'},
-    {'week':23,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',     'detail':'Z2 · 5:00–5:20/km · Veckoavslutet'},
-    # V24 Bas
-    {'week':24,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2 · Aktivering inför veckans kvalitetspass'},
-    {'week':24,'dow':1,'type':'run', 'km':8,  'title':'4×1000m intervaller',     'detail':'Z3–Z4 · 3:35/km · 3 min vila · ~8 km totalt'},
-    {'week':24,'dow':2,'type':'easy','km':9,  'title':'Lätt Z2 · 9 km',         'detail':'Z2 · 5:00–5:15/km · Aktivt vilodygn'},
-    {'week':24,'dow':3,'type':'lift','km':0,  'title':'Underkropp + core',       'detail':'Knäböj, RDL, benpress, split-squat, plankan · 3–4 set'},
-    {'week':24,'dow':4,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2 · Inför lördagets bansprint'},
-    {'week':24,'dow':5,'type':'run', 'km':6,  'title':'6×400m snabba drag',      'detail':'Z5 · 3:10/km · 90 sek vila · Bana'},
-    {'week':24,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',     'detail':'Z2 · Aktiv återhämtning efter banpasset'},
-    # V25 Bas
-    {'week':25,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2 · Kort aktivering'},
-    {'week':25,'dow':1,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · 5:00/km · Aerob bas'},
-    {'week':25,'dow':2,'type':'run', 'km':10, 'title':'5×1000m tröskel',         'detail':'Z3–Z4 · 3:35/km · 2:30 min vila · ~10 km totalt'},
-    {'week':25,'dow':3,'type':'lift','km':0,  'title':'Överkropp',               'detail':'Bänkpress, axelpress, latsdrag, rodd · 3–4 set'},
-    {'week':25,'dow':4,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2 · Återhämtning'},
-    {'week':25,'dow':5,'type':'run', 'km':12, 'title':'Långpass · 12 km',        'detail':'Z2 · 5:00–5:20/km'},
-    {'week':25,'dow':6,'type':'easy','km':5,  'title':'Lätt avslutning · 5 km', 'detail':'Z2 · Söndagsjogg'},
-    # V26 Tröskel
-    {'week':26,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2 · Aktivering'},
-    {'week':26,'dow':1,'type':'run', 'km':10, 'title':'3×2000m tröskel',         'detail':'Z4 · 3:35/km · 3 min vila · ~10 km'},
-    {'week':26,'dow':2,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · Aerob bas'},
-    {'week':26,'dow':3,'type':'lift','km':0,  'title':'Underkropp – tung',       'detail':'Knäböj, marklyft, bulgarska · 4×6–8 · 80%'},
-    {'week':26,'dow':4,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2 · Inför fartlekpass'},
-    {'week':26,'dow':5,'type':'run', 'km':8,  'title':'8×400m fartlek',          'detail':'Z4–Z5 · 90 sek vila · ~8 km'},
-    {'week':26,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',     'detail':'Z2'},
-    # V27 Tröskel
-    {'week':27,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
-    {'week':27,'dow':1,'type':'run', 'km':10, 'title':'2×3000m @ 3:35/km',      'detail':'Z4 · 4 min vila · ~10 km'},
-    {'week':27,'dow':2,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · Aktiv återhämtning'},
-    {'week':27,'dow':3,'type':'lift','km':0,  'title':'Överkropp – tung',        'detail':'Bänkpress, axelpress, dips, chins · 4×6 · 80%'},
-    {'week':27,'dow':4,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2'},
-    {'week':27,'dow':5,'type':'run', 'km':12, 'title':'Långpass · 12 km',        'detail':'Z2 · 5:00/km'},
-    {'week':27,'dow':6,'type':'easy','km':6,  'title':'Lätt avslutning · 6 km', 'detail':'Z2'},
-    # V28 Tröskel
-    {'week':28,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
-    {'week':28,'dow':1,'type':'run', 'km':10, 'title':'5×1000m tröskel',         'detail':'Z4 · 3:33/km · Ökad intensitet · ~10 km'},
-    {'week':28,'dow':2,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · 5:00/km'},
-    {'week':28,'dow':3,'type':'lift','km':0,  'title':'Underkropp – tung',       'detail':'Knäböj, RDL, benpress · 4×5 · 82%'},
-    {'week':28,'dow':4,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
-    {'week':28,'dow':5,'type':'run', 'km':7,  'title':'6×500m sharpening',       'detail':'Z5 · 3:12/km · 90 sek vila · ~7 km'},
-    {'week':28,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',     'detail':'Z2'},
-    # V29 Kontrolltest
-    {'week':29,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2 · Spara benen'},
-    {'week':29,'dow':1,'type':'run', 'km':8,  'title':'Lätt tröskelpass',        'detail':'2×2000m · Z4 · 3 min vila · ~8 km'},
-    {'week':29,'dow':2,'type':'easy','km':7,  'title':'Medium Z2 · 7 km',       'detail':'Z2'},
-    {'week':29,'dow':3,'type':'lift','km':0,  'title':'Lätt styrka',             'detail':'3 övningar · 3×6 · 75%'},
-    {'week':29,'dow':4,'type':'easy','km':5,  'title':'Lätt jogg · 5 km',       'detail':'Z2 · Aktivering dagen innan test'},
-    {'week':29,'dow':5,'type':'race','km':7,  'title':'⭐ 3 km KONTROLLTEST',   'detail':'Uppvärmning 2 km + 3 km test (mål <10:10) + nedvarvning 2 km'},
-    {'week':29,'dow':6,'type':'easy','km':6,  'title':'Återhämtningsjogg · 6 km','detail':'Z2 · Lätt efter gårdagens test'},
-    # V30 Spetsning
-    {'week':30,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
-    {'week':30,'dow':1,'type':'run', 'km':7,  'title':'6×500m sharpening',       'detail':'Z5 · 3:10/km · 2 min vila · ~7 km'},
-    {'week':30,'dow':2,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',       'detail':'Z2 · Aerob bas'},
-    {'week':30,'dow':3,'type':'lift','km':0,  'title':'Underhållsstyrka',        'detail':'3 övningar · 3×5 · 85%'},
-    {'week':30,'dow':4,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2'},
-    {'week':30,'dow':5,'type':'run', 'km':8,  'title':'Lätt fartlek',            'detail':'Z2 med 4×1 min snabba drag · ~8 km'},
-    {'week':30,'dow':6,'type':'easy','km':9,  'title':'Söndagsjogg · 9 km',      'detail':'Z2'},
-    # V31 Spetsning
-    {'week':31,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
-    {'week':31,'dow':1,'type':'run', 'km':7,  'title':'6×500m sharpening',       'detail':'Z5 · 3:08/km · ~7 km'},
-    {'week':31,'dow':2,'type':'easy','km':8,  'title':'Medium Z2 · 8 km',       'detail':'Z2 · 5:00/km'},
-    {'week':31,'dow':3,'type':'lift','km':0,  'title':'Underhållsstyrka',        'detail':'3 övningar · 3×5 · 85%'},
-    {'week':31,'dow':4,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',         'detail':'Z2'},
-    {'week':31,'dow':5,'type':'easy','km':8,  'title':'Mellanlångt Z2 · 8 km',  'detail':'Z2 · Sista längre pass i spetsningsfasen'},
-    {'week':31,'dow':6,'type':'easy','km':8,  'title':'Söndagsjogg · 8 km',      'detail':'Z2'},
-    # V32 Avtrappning
-    {'week':32,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2'},
-    {'week':32,'dow':1,'type':'run', 'km':8,  'title':'4×1000m tävlingsfart',    'detail':'Z4–Z5 · 3:19/km · 3 min vila · ~8 km'},
-    {'week':32,'dow':2,'type':'easy','km':8,  'title':'Medium Z2 · 8 km',       'detail':'Z2 · Aktiv återhämtning'},
-    {'week':32,'dow':3,'type':'lift','km':0,  'title':'Underhållsstyrka',        'detail':'3 övningar · 3×5 · 85%'},
-    {'week':32,'dow':4,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2'},
-    {'week':32,'dow':5,'type':'run', 'km':6,  'title':'Lätt jogg + strides',     'detail':'25 min Z2 + 6×80m strides'},
-    {'week':32,'dow':6,'type':'easy','km':8,  'title':'Söndagsjogg · 8 km',      'detail':'Z2'},
-    # V33 Nedtrappning
-    {'week':33,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',         'detail':'Z2 · Spara benen'},
-    {'week':33,'dow':1,'type':'run', 'km':7,  'title':'3×1000m tävlingsfart',    'detail':'Z5 · 3:15–3:19/km · 4 min vila · ~7 km'},
-    {'week':33,'dow':2,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',         'detail':'Z2'},
-    {'week':33,'dow':3,'type':'lift','km':0,  'title':'Kort underhållsstyrka',   'detail':'2 övningar · 2×5 · 80%'},
-    {'week':33,'dow':4,'type':'easy','km':5,  'title':'Lätt jogg · 5 km',       'detail':'Z2 · 20 min'},
-    {'week':33,'dow':6,'type':'easy','km':6,  'title':'Söndagsjogg · 6 km',      'detail':'Z2 · Lugn avslutning'},
-    # V34 Tävlingsvecka
-    {'week':34,'dow':0,'type':'easy','km':5,  'title':'Lätt aktivering · 5 km', 'detail':'Z2 · 15–20 min'},
-    {'week':34,'dow':1,'type':'easy','km':5,  'title':'Strides · 5 km',         'detail':'10 min Z2 + 4×80m strides'},
-    {'week':34,'dow':2,'type':'rest','km':0,  'title':'Vila',                    'detail':'Fullständig vila. Ät bra, sov länge, visualisera loppet.'},
-    {'week':34,'dow':3,'type':'race','km':10, 'title':'🏆 3 KM — SUB 10:00',    'detail':'Uppvärm 3 km · UT: 3:22/km · Km 2: 3:20 · Km 3: 3:15 · MÅL: 9:59!'},
+    # ── V23 · Återhämtning efter GöteborgsVarvet · ~35 km ─────────────────────
+    {'week':23,'dow':1,'type':'run', 'km':6,  'title':'Återhämtningsjogg · 6 km',    'detail':'Z2 · 4:50–5:15/km · Lugn och lätt · Vila musklerna efter halvmaran'},
+    {'week':23,'dow':2,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',              'detail':'Z2 · 5:00–5:20/km · Aktiv återhämtning'},
+    {'week':23,'dow':3,'type':'lift','km':0,  'title':'Helkropp – intro',             'detail':'Knäböj 3×10, marklyft 3×8, bänkpress 3×10, latsdrag 3×10, plankan 3×45 sek · 60–65% av max'},
+    {'week':23,'dow':4,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',              'detail':'Z2 · 20–25 min · Spola ur benen'},
+    {'week':23,'dow':6,'type':'easy','km':10, 'title':'Söndagsjogg · 10 km',         'detail':'Z2 · 5:00–5:20/km · Lugnt och långsamt'},
+    # ── V24 · Bas · ~40 km ─────────────────────────────────────────────────────
+    {'week':24,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',              'detail':'Z2 · Aktivering inför veckans kvalitetspass'},
+    {'week':24,'dow':1,'type':'run', 'km':9,  'title':'5×1000m intervaller',          'detail':'Uppvärmning 2 km · 5×1000m @ 3:30/km · 2 min joggvila · Nedvarvning 2 km · ~9 km totalt'},
+    {'week':24,'dow':2,'type':'lift','km':0,  'title':'Överkropp + core',             'detail':'Bänkpress 4×8, axelpress 3×10, latsdrag 4×8, rodd 3×10, dips 3×max, dead bug 3×12 · 70%'},
+    {'week':24,'dow':3,'type':'easy','km':9,  'title':'Medium Z2 · 9 km',            'detail':'Z2 · 5:00–5:15/km · Aerob bas'},
+    {'week':24,'dow':4,'type':'lift','km':0,  'title':'Underkropp + core',            'detail':'Knäböj 4×8, RDL 3×10, benpress 3×12, bulgarska utfall 3×8/ben, plankan 4×45 sek · 70–75%'},
+    {'week':24,'dow':6,'type':'easy','km':12, 'title':'Långpass · 12 km',             'detail':'Z2 · 5:00–5:20/km · Bygg aerob grund'},
+    # ── V25 · Bas · ~45 km ─────────────────────────────────────────────────────
+    {'week':25,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',              'detail':'Z2 · Aktivering'},
+    {'week':25,'dow':1,'type':'run', 'km':10, 'title':'Tröskelpass · 10 km',          'detail':'Uppvärm 2 km · 6 km @ 4:05/km (tröskel) · Nedvarv 2 km · Kontrollerat och jämnt'},
+    {'week':25,'dow':2,'type':'lift','km':0,  'title':'Helkropp – progressiv',        'detail':'Knäböj 4×8, marklyft 3×6, bänkpress 4×8, axelpress 3×10, latsdrag 4×8, core-circuit 3 ronder · 72%'},
+    {'week':25,'dow':3,'type':'easy','km':10, 'title':'Medium Z2 · 10 km',           'detail':'Z2 · 5:00/km · Aerob bas'},
+    {'week':25,'dow':5,'type':'run', 'km':8,  'title':'6×600m intervaller',           'detail':'Uppvärm 2 km · 6×600m @ 3:25/km · 90 sek vila · Nedvarvning · Snabbt och kontrollerat'},
+    {'week':25,'dow':6,'type':'easy','km':14, 'title':'Långpass · 14 km',             'detail':'Z2 · 5:00–5:15/km · Håll det lugnt, bygg uthållighet'},
+    # ── V26 · Basbygge · ~50 km ────────────────────────────────────────────────
+    {'week':26,'dow':0,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',              'detail':'Z2 · Aktivering'},
+    {'week':26,'dow':1,'type':'run', 'km':11, 'title':'3×2000m tröskel',              'detail':'Uppvärm 2 km · 3×2000m @ 4:00/km · 3 min joggvila · Nedvarv 2 km · ~11 km totalt'},
+    {'week':26,'dow':2,'type':'lift','km':0,  'title':'Överkropp tung',               'detail':'Bänkpress 4×6, axelpress 4×6, latsdrag 4×6, smalgreppscurl 3×10, tricepspush 3×10, face pulls 3×15 · 78%'},
+    {'week':26,'dow':3,'type':'easy','km':10, 'title':'Medium Z2 · 10 km',           'detail':'Z2 · 5:00/km · Aerob underhåll'},
+    {'week':26,'dow':4,'type':'lift','km':0,  'title':'Underkropp tung',              'detail':'Knäböj 4×6, marklyft 4×5, bulgarska utfall 3×8, höftlyft 3×12, vadbågar 4×15, plankan 3×60 sek · 78%'},
+    {'week':26,'dow':5,'type':'run', 'km':10, 'title':'Fartlekpass · 10 km',          'detail':'2 km Z2 · 5×(3 min @ 3:50/km + 2 min Z2) · 2 km nedvarvning · Varierat och roligt'},
+    {'week':26,'dow':6,'type':'easy','km':15, 'title':'Långpass · 15 km',             'detail':'Z2 · 5:00–5:15/km · Sista 2 km @ 4:30/km'},
+    # ── V27 · Basbygge · ~55 km ────────────────────────────────────────────────
+    {'week':27,'dow':0,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',              'detail':'Z2'},
+    {'week':27,'dow':1,'type':'run', 'km':11, 'title':'Progressionsjogg · 11 km',     'detail':'3 km @ 5:10 · 3 km @ 4:45 · 3 km @ 4:20 · 2 km @ 4:00 · Kontrollerad ansträngning'},
+    {'week':27,'dow':2,'type':'lift','km':0,  'title':'Helkropp – styrka',            'detail':'Knäböj 4×6, bänkpress 4×6, marklyft 3×5, axelpress 3×8, latsdrag 4×6, core-circuit · 80%'},
+    {'week':27,'dow':3,'type':'easy','km':12, 'title':'Medium Z2 · 12 km',           'detail':'Z2 · 5:00/km'},
+    {'week':27,'dow':5,'type':'run', 'km':10, 'title':'4×1200m tempo',                'detail':'Uppvärm 2 km · 4×1200m @ 3:50/km · 2 min vila · Nedvarvning · ~10 km'},
+    {'week':27,'dow':6,'type':'easy','km':16, 'title':'Långpass · 16 km',             'detail':'Z2 · 5:00–5:10/km · Lugnt och uthålligt'},
+    # ── V28 · Basbygge · ~55 km ────────────────────────────────────────────────
+    {'week':28,'dow':0,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',              'detail':'Z2'},
+    {'week':28,'dow':1,'type':'run', 'km':12, 'title':'Tröskelpass · 12 km',          'detail':'Uppvärm 2 km · 8 km @ 3:58/km (halvmaratontröskel) · Nedvarv 2 km · Jämnt tempo'},
+    {'week':28,'dow':2,'type':'lift','km':0,  'title':'Överkropp + rörlighet',        'detail':'Bänkpress 4×6, axelpress 4×6, latsdrag 4×6, rodd 3×8, dips 3×max, axelrörlighet, t-spine 15 min · 80%'},
+    {'week':28,'dow':3,'type':'easy','km':11, 'title':'Medium Z2 · 11 km',           'detail':'Z2 · Aerob bas'},
+    {'week':28,'dow':4,'type':'lift','km':0,  'title':'Underkropp + plyometri',       'detail':'Knäböj 4×5, RDL 4×6, benpress 3×10, boxjumps 4×6, höftlyft 3×12, vadhopp 4×15 · 80%'},
+    {'week':28,'dow':6,'type':'easy','km':16, 'title':'Långpass · 16 km',             'detail':'Z2 · 5:00/km · Steady state · Sista 3 km lite snabbare'},
+    # ── V29 · Basbygge toppar · ~58 km ────────────────────────────────────────
+    {'week':29,'dow':0,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2'},
+    {'week':29,'dow':1,'type':'run', 'km':11, 'title':'4×2000m @ halvmaraton pace',   'detail':'Uppvärm 2 km · 4×2000m @ 3:52/km · 2:30 min joggvila · Nedvarv 2 km · Race-förnimmelse'},
+    {'week':29,'dow':2,'type':'lift','km':0,  'title':'Helkropp – max styrka',        'detail':'Knäböj 5×5, marklyft 4×4, bänkpress 5×5, axelpress 4×5, latsdrag 4×5 · 85%'},
+    {'week':29,'dow':3,'type':'easy','km':12, 'title':'Medium Z2 · 12 km',           'detail':'Z2 · 5:00/km'},
+    {'week':29,'dow':5,'type':'run', 'km':9,  'title':'10×400m bana',                 'detail':'Uppvärm 2 km · 10×400m @ 3:20/km · 90 sek vila · Nedvarv 2 km · Snabbt och skarpt'},
+    {'week':29,'dow':6,'type':'easy','km':18, 'title':'Långpass · 18 km',             'detail':'Z2 · 5:00–5:10/km · Viktigaste passet hittills'},
+    # ── V30 · Tröskel/Tempo · ~62 km ──────────────────────────────────────────
+    {'week':30,'dow':0,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2'},
+    {'week':30,'dow':1,'type':'run', 'km':13, 'title':'Tröskelpass · 13 km',          'detail':'Uppvärm 2 km · 9 km @ 3:55/km · Nedvarv 2 km · Stabilt och kontrollerat'},
+    {'week':30,'dow':2,'type':'lift','km':0,  'title':'Överkropp + core',             'detail':'Bänkpress 4×6, axelpress 4×6, latsdrag 4×5, rodd 3×8, plankan 4×60 sek, rygghäv 3×12 · 82%'},
+    {'week':30,'dow':3,'type':'easy','km':13, 'title':'Medium Z2 · 13 km',           'detail':'Z2 · Aerob volym'},
+    {'week':30,'dow':4,'type':'lift','km':0,  'title':'Underkropp + plyometri',       'detail':'Knäböj 4×5, marklyft 3×4, bulgarska 3×8, boxjumps 4×6, vadbågar 4×15 · 83%'},
+    {'week':30,'dow':5,'type':'run', 'km':10, 'title':'6×1000m @ 3:25/km',           'detail':'Uppvärm 2 km · 6×1000m @ 3:25/km · 2 min vila · Nedvarv 2 km · Sharpening'},
+    {'week':30,'dow':6,'type':'easy','km':20, 'title':'Långpass · 20 km',             'detail':'Z2 · 5:00/km · Hjärnträning i uthållighet · Håll det lugnt'},
+    # ── V31 · Tröskel/Tempo · ~65 km ──────────────────────────────────────────
+    {'week':31,'dow':0,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2'},
+    {'week':31,'dow':1,'type':'run', 'km':14, 'title':'Halvmaratonpace · 14 km',      'detail':'Uppvärm 2 km · 10 km @ 3:50/km (halvmaran pace) · Nedvarv 2 km · Känn farten'},
+    {'week':31,'dow':2,'type':'lift','km':0,  'title':'Helkropp – styrka',            'detail':'Knäböj 4×5, marklyft 4×4, bänkpress 4×5, axelpress 3×6, latsdrag 4×5, core · 83–85%'},
+    {'week':31,'dow':3,'type':'easy','km':13, 'title':'Medium Z2 · 13 km',           'detail':'Z2'},
+    {'week':31,'dow':5,'type':'run', 'km':12, 'title':'Tröskelpass · 12 km',          'detail':'Uppvärm 2 km · 8 km @ 3:53/km · Nedvarv 2 km · Konsekvent tempo'},
+    {'week':31,'dow':6,'type':'easy','km':20, 'title':'Långpass · 20 km',             'detail':'Z2 · 4:58–5:08/km · Starkt och jämnt'},
+    # ── V32 · Tröskel/Tempo · ~65 km ──────────────────────────────────────────
+    {'week':32,'dow':0,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2'},
+    {'week':32,'dow':1,'type':'run', 'km':13, 'title':'5×1600m @ 3:48/km',           'detail':'Uppvärm 2 km · 5×1600m @ 3:48/km · 2:30 min vila · Nedvarv 2 km · Race-specifik'},
+    {'week':32,'dow':2,'type':'lift','km':0,  'title':'Överkropp + core',             'detail':'Bänkpress 4×5, axelpress 4×5, latsdrag 4×5, rodd 3×8, core-circuit 3 ronder · 85%'},
+    {'week':32,'dow':3,'type':'easy','km':14, 'title':'Medium Z2 · 14 km',           'detail':'Z2'},
+    {'week':32,'dow':4,'type':'lift','km':0,  'title':'Underkropp',                   'detail':'Knäböj 4×5, RDL 4×5, bulgarska 3×8, vadhopp 4×15 · 85%'},
+    {'week':32,'dow':5,'type':'run', 'km':12, 'title':'Progressionsjogg · 12 km',     'detail':'4 km Z2 · 4 km @ 4:15 · 3 km @ 3:55 · 1 km @ 3:47 · Race-förnimmelse'},
+    {'week':32,'dow':6,'type':'easy','km':20, 'title':'Långpass · 20 km',             'detail':'Z2 · Peakpass för långdistans · Sista 4 km @ 4:30/km'},
+    # ── V33 · Tröskel · ~60 km ────────────────────────────────────────────────
+    {'week':33,'dow':0,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',              'detail':'Z2'},
+    {'week':33,'dow':1,'type':'run', 'km':13, 'title':'Halvmaratonpace · 14 km',      'detail':'Uppvärm 2 km · 10 km @ 3:47/km (målpace!) · Nedvarv 2 km · Känn målfarten'},
+    {'week':33,'dow':2,'type':'lift','km':0,  'title':'Helkropp – underhåll',         'detail':'Knäböj 3×5, marklyft 3×4, bänkpress 3×5, axelpress 3×6, latsdrag 3×6 · 83% (börja minska volym)'},
+    {'week':33,'dow':3,'type':'easy','km':12, 'title':'Medium Z2 · 12 km',           'detail':'Z2'},
+    {'week':33,'dow':5,'type':'run', 'km':9,  'title':'8×600m @ 3:25/km',            'detail':'Uppvärm 2 km · 8×600m @ 3:25/km · 90 sek vila · Nedvarv · Sharp och snabb'},
+    {'week':33,'dow':6,'type':'easy','km':18, 'title':'Långpass · 18 km',             'detail':'Z2 · 4:58/km · Sista riktiga långpasset'},
+    # ── V34 · Tävlingsspecifik · ~68 km ───────────────────────────────────────
+    {'week':34,'dow':0,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2'},
+    {'week':34,'dow':1,'type':'run', 'km':14, 'title':'Race simulation · 14 km',      'detail':'Uppvärm 2 km · 10 km @ 3:47/km (exakt målpace) · Nedvarv 2 km · Bekräfta formen'},
+    {'week':34,'dow':2,'type':'lift','km':0,  'title':'Överkropp – underhåll',        'detail':'Bänkpress 3×5, axelpress 3×5, latsdrag 3×5 · 80% · Håll muskelstimulus utan utmattning'},
+    {'week':34,'dow':3,'type':'easy','km':14, 'title':'Medium Z2 · 14 km',           'detail':'Z2'},
+    {'week':34,'dow':4,'type':'lift','km':0,  'title':'Underkropp – underhåll',       'detail':'Knäböj 3×5, RDL 3×5, bulgarska 2×8 · 80%'},
+    {'week':34,'dow':5,'type':'run', 'km':11, 'title':'Tröskelpass · 11 km',          'detail':'Uppvärm 2 km · 7 km @ 3:50/km · Nedvarv 2 km'},
+    {'week':34,'dow':6,'type':'easy','km':22, 'title':'Långpass · 22 km (peak!)',      'detail':'Z2 · 5:00/km · Längsta passet i hela planen · Mentalt starkt'},
+    # ── V35 · Tävlingsspecifik · ~70 km ───────────────────────────────────────
+    {'week':35,'dow':0,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2'},
+    {'week':35,'dow':1,'type':'run', 'km':12, 'title':'3×3000m @ 3:47/km',           'detail':'Uppvärm 2 km · 3×3000m @ 3:47/km · 3 min vila · Nedvarv 2 km · Race-spécifikt'},
+    {'week':35,'dow':2,'type':'lift','km':0,  'title':'Helkropp – underhåll',         'detail':'Knäböj 3×4, bänkpress 3×4, marklyft 3×3, axelpress 3×5, latsdrag 3×5 · 80%'},
+    {'week':35,'dow':3,'type':'easy','km':14, 'title':'Medium Z2 · 14 km',           'detail':'Z2'},
+    {'week':35,'dow':5,'type':'run', 'km':14, 'title':'Tröskelpass · 14 km',          'detail':'Uppvärm 2 km · 10 km @ 3:50/km · Nedvarv 2 km · Stark och kontrollerad'},
+    {'week':35,'dow':6,'type':'easy','km':22, 'title':'Långpass · 22 km',             'detail':'Z2 · 5:00/km · Volymens höjdpunkt'},
+    # ── V36 · Tävlingsspecifik · ~68 km ───────────────────────────────────────
+    {'week':36,'dow':0,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2'},
+    {'week':36,'dow':1,'type':'run', 'km':13, 'title':'Race tempo · 13 km',           'detail':'Uppvärm 2 km · 9 km @ 3:47–3:50/km · Nedvarv 2 km · Fokus på ekonomi'},
+    {'week':36,'dow':2,'type':'lift','km':0,  'title':'Överkropp lätt',               'detail':'Bänkpress 3×4, axelpress 3×4, latsdrag 3×5 · 78% · Underhåll utan stress'},
+    {'week':36,'dow':3,'type':'easy','km':13, 'title':'Medium Z2 · 13 km',           'detail':'Z2'},
+    {'week':36,'dow':4,'type':'lift','km':0,  'title':'Underkropp lätt',              'detail':'Knäböj 3×4, RDL 3×5, bulgarska 2×6 · 78%'},
+    {'week':36,'dow':5,'type':'run', 'km':10, 'title':'6×1000m @ 3:25/km',           'detail':'Uppvärm 2 km · 6×1000m @ 3:25/km · 2 min vila · Nedvarv · Sharp'},
+    {'week':36,'dow':6,'type':'easy','km':20, 'title':'Långpass · 20 km',             'detail':'Z2 · 5:00/km · Sista riktiga långpasset'},
+    # ── V37 · Tävlingsspecifik · ~65 km ───────────────────────────────────────
+    {'week':37,'dow':0,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',              'detail':'Z2'},
+    {'week':37,'dow':1,'type':'run', 'km':14, 'title':'Halvmaratonpace · 14 km',      'detail':'Uppvärm 2 km · 10 km @ 3:47/km · Nedvarv 2 km · Bekräfta formen'},
+    {'week':37,'dow':2,'type':'lift','km':0,  'title':'Helkropp – lätt',              'detail':'Knäböj 3×3, bänkpress 3×3, latsdrag 3×5 · 75% · Håll nervmönstret aktivt'},
+    {'week':37,'dow':3,'type':'easy','km':12, 'title':'Medium Z2 · 12 km',           'detail':'Z2'},
+    {'week':37,'dow':5,'type':'run', 'km':12, 'title':'Progressionsjogg · 12 km',     'detail':'4 km Z2 · 4 km @ 4:10 · 3 km @ 3:52 · 1 km @ 3:40 · Stark avslutning'},
+    {'week':37,'dow':6,'type':'easy','km':18, 'title':'Långpass · 18 km',             'detail':'Z2 · 5:00/km · Sista längre volympass'},
+    # ── V38 · Avtrappning start · ~55 km ──────────────────────────────────────
+    {'week':38,'dow':0,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',              'detail':'Z2'},
+    {'week':38,'dow':1,'type':'run', 'km':10, 'title':'4×1000m @ 3:25/km',           'detail':'Uppvärm 2 km · 4×1000m @ 3:25/km · 2 min vila · Nedvarv · Håll spetsen'},
+    {'week':38,'dow':2,'type':'lift','km':0,  'title':'Överkropp – lätt',             'detail':'Bänkpress 3×3, axelpress 3×3, latsdrag 3×4 · 73% · Underhåll'},
+    {'week':38,'dow':3,'type':'easy','km':10, 'title':'Medium Z2 · 10 km',           'detail':'Z2'},
+    {'week':38,'dow':5,'type':'run', 'km':9,  'title':'Tröskelpass · 9 km',           'detail':'Uppvärm 2 km · 5 km @ 3:50/km · Nedvarv 2 km · Skarp och ekonomisk'},
+    {'week':38,'dow':6,'type':'easy','km':18, 'title':'Långpass · 18 km',             'detail':'Z2 · 5:00/km · Sista riktigt långa passet'},
+    # ── V39 · Taper · ~50 km ──────────────────────────────────────────────────
+    {'week':39,'dow':0,'type':'easy','km':6,  'title':'Lätt Z2 · 6 km',              'detail':'Z2'},
+    {'week':39,'dow':1,'type':'run', 'km':9,  'title':'Race tempo · 9 km',            'detail':'Uppvärm 2 km · 5 km @ 3:47/km · Nedvarv 2 km · Bekräfta kroppens redo-känsla'},
+    {'week':39,'dow':2,'type':'lift','km':0,  'title':'Styrka – underhåll lätt',      'detail':'Knäböj 2×3, bänkpress 2×3, latsdrag 2×4 · 70% · Minimal trötthet'},
+    {'week':39,'dow':3,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2'},
+    {'week':39,'dow':5,'type':'run', 'km':9,  'title':'4×1000m @ 3:25/km',           'detail':'Uppvärm 2 km · 4×1000m @ 3:25/km · 2 min vila · Nedvarv · Känn spetsen'},
+    {'week':39,'dow':6,'type':'easy','km':16, 'title':'Långpass · 16 km',             'detail':'Z2 · 5:00/km · Sista längre pass · Lugnt och tryggt'},
+    # ── V40 · Taper djup · ~35 km ─────────────────────────────────────────────
+    {'week':40,'dow':0,'type':'easy','km':5,  'title':'Lätt Z2 · 5 km',              'detail':'Z2 · Håll igång benen'},
+    {'week':40,'dow':1,'type':'run', 'km':7,  'title':'3×1000m @ 3:25/km + strides', 'detail':'Uppvärm 2 km · 3×1000m @ 3:25/km · 4×100m strides · Känn fräschheten'},
+    {'week':40,'dow':3,'type':'easy','km':7,  'title':'Lätt Z2 · 7 km',              'detail':'Z2 · 25–30 min · Lugnt'},
+    {'week':40,'dow':5,'type':'easy','km':6,  'title':'Lätt jogg + strides',         'detail':'15 min Z2 + 6×80m strides · Håll benen snabba inför loppet'},
+    {'week':40,'dow':6,'type':'easy','km':8,  'title':'Lätt Z2 · 8 km',              'detail':'Z2 · Mentalt förbered dig · Visualisera loppet'},
+    # ── V41 · Tävlingsvecka · ~15 km ─────────────────────────────────────────
+    {'week':41,'dow':0,'type':'easy','km':4,  'title':'Lätt aktivering · 4 km',      'detail':'Z2 · 15 min · 4×80m strides i slutet · Håll igång'},
+    {'week':41,'dow':1,'type':'run', 'km':4,  'title':'Kort shakeout',               'detail':'10 min Z2 + 3×100m strides @ tävlingsfart · Kort och piggt'},
+    {'week':41,'dow':2,'type':'rest','km':0,  'title':'Vila',                        'detail':'Fullständig vila · Ät kolhydratrikt · Sov länge · Packa väskan'},
+    {'week':41,'dow':3,'type':'rest','km':0,  'title':'Vila / rörlighet',             'detail':'Lätt stretching 20 min · Inga hårda övningar · Mental förberedelse'},
+    {'week':41,'dow':4,'type':'rest','km':0,  'title':'Vila · redo!',                'detail':'Fullständig vila · Ät bra · Lägg upp trasén · Sov tidigt'},
+    {'week':41,'dow':5,'type':'race','km':21, 'title':'TÄVLING — Halvmaraton sub 1:20','detail':'MÅL: 1:19:59 · Pace: 3:47/km · Km 1–5: 3:50/km (varm upp) · Km 6–18: 3:47/km · Km 19–21: ge allt · Lycka till!'},
 ]
 
 def seed_plan():
@@ -758,6 +931,20 @@ def seed_plan():
                      s['title'], s['detail'], s['week'], s['dow']))
         conn.commit()
     print(f'Plan seedat: {len(PLAN_SEED)} pass')
+
+def reseed_plan():
+    """Ersätt alla planerade pass med ny PLAN_SEED. Behåller completed/missed/skipped som historik."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM plan_sessions WHERE status = 'planned'")
+            for s in PLAN_SEED:
+                cur.execute('''INSERT INTO plan_sessions
+                    (week, dow, type, km, title, detail, status, original_week, original_dow)
+                    VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s)''',
+                    (s['week'], s['dow'], s['type'], s['km'],
+                     s['title'], s['detail'], s['week'], s['dow']))
+        conn.commit()
+    print(f'Plan omseedad: {len(PLAN_SEED)} nya pass')
 
 try:
     seed_plan()
@@ -930,7 +1117,7 @@ def ai_adjust_plan():
                                 for t in ('running','track_running','treadmill_running','trail_running')))
     completed_load = sum(a.get('activityTrainingLoad',0) or 0 for a in week_acts)
 
-    weekly_km_plan = {23:28,24:44,25:47,26:48,27:49,28:48,29:38,30:46,31:43,32:40,33:30,34:20}
+    weekly_km_plan = {23:35,24:40,25:45,26:50,27:55,28:55,29:58,30:62,31:65,32:65,33:60,34:68,35:70,36:68,37:65,38:55,39:50,40:35,41:15}
     planned_km = weekly_km_plan.get(iso_week, 40)
     week_cap   = round(planned_km * 1.1)
 
@@ -950,60 +1137,88 @@ def ai_adjust_plan():
         gcal_str = '\n'.join(upcoming_evs)
 
     # 5. Bygg AI-prompt
-    prompt = f"""Du är en intelligent träningsplanerare. Din uppgift är att justera träningsschemat för en löpare baserat på aktuell hälsodata.
+    def _sess(s):
+        return {'id': s['id'], 'vecka': s['week'], 'dag': s['dow'], 'typ': s['type'],
+                'km': s['km'], 'titel': s['title'], 'detalj': s['detail']}
+    missed_json   = json.dumps([_sess(s) for s in missed],   ensure_ascii=False, indent=2) if missed else '(inga missade pass)'
+    upcoming_json = json.dumps([_sess(s) for s in upcoming], ensure_ascii=False, indent=2)
 
-MÅL: 3 km under 10:00 (bästa: 10:27) — deadline slutet aug 2026
-DAGENS DATUM: {today} (V{iso_week})
+    prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning. You are working with a runner whose goal is a half marathon under 1:20 (3:47/km) on October 10, 2026. Current best: 1:26:19. Secondary goal: build a strong body in all areas — running strength, upper body, core, mobility. The plan runs W23–41 with phases: recovery → base building → threshold/tempo → race-specific → taper. Always respond in English. All JSON text fields must be in English.
 
-SÖMNDATA IDAG:
-- Sömnpoäng: {sleep_score or '—'}/100 · Total sömn: {total_h or '—'} h
-- Djupsömn: {deep_pct or '—'}% (mål 15–25%) · REM: {rem_pct or '—'}% (mål 20–25%)
-- Garmin beredskap: {ready_score or '—'}/100
-- HRV natt: {hrv_avg or '—'} ms ({hrv_pct or '—'}% av veckosnitt {hrv_weekly or '—'} ms)
+DAGENS DATUM: {today} (vecka {iso_week}, dag {today.weekday()} där 0=måndag)
 
-TRÄNINGSLAST (ACWR):
-- Akut: {acute or '—'} · Kronisk: {chronic or '—'} · Kvot: {acwr or '—'}
-- Optimal zon: 0.8–1.3. Om ombokning driver kvoten >1.3 → ersätt med Z2 eller hoppa.
+═══ LÖPARENS AKTUELLA STATUS ═══
 
-VECKOSTATUS V{iso_week}:
-- Genomfört: {completed_km:.1f} km · Veckans tak: {week_cap} km
-- Genomförd load: {round(completed_load)}
+Sömn idag:
+- Poäng: {sleep_score or 'saknas'}/100
+- Total: {total_h or 'saknas'} h · Djupsömn: {deep_pct or 'saknas'}% · REM: {rem_pct or 'saknas'}%
 
-MISSADE PASS (behöver beslutas):
-{json.dumps(missed, ensure_ascii=False, indent=2) if missed else '(inga missade pass)'}
+Återhämtning:
+- Garmin beredskap: {ready_score or 'saknas'}/100
+- HRV natt: {hrv_avg or 'saknas'} ms · Veckosnitt: {hrv_weekly or 'saknas'} ms · Avvikelse: {(str(hrv_pct - 100) + '%') if hrv_pct else 'saknas'}
 
-KOMMANDE PLANERADE PASS (nästa 14 dagar):
-{json.dumps([{'id':s['id'],'week':s['week'],'dow':s['dow'],'type':s['type'],'km':s['km'],'title':s['title']} for s in upcoming], ensure_ascii=False, indent=2)}
+Träningslast (ACWR):
+- Akut: {acute or 'saknas'} · Kronisk: {chronic or 'saknas'} · Kvot: {acwr or 'saknas'}
+- (Referens: <0.8 undertränad, 0.8–1.3 optimal, >1.3 skaderisk)
 
-GOOGLE KALENDER (kommande 14 dagar):
+Veckostatus V{iso_week}:
+- Genomfört löpning: {completed_km:.1f} km · Veckans planerade tak: {week_cap} km
+- Genomförd total load: {round(completed_load)}
+
+═══ PASS SOM BEHÖVER BESLUTAS ═══
+
+Missade pass:
+{missed_json}
+
+Kommande planerade pass (nästa 14 dagar):
+{upcoming_json}
+
+Google Calendar — kommande 14 dagar (påverkar återhämtning och timing):
 {gcal_str or '(inga events)'}
 
-REGLER:
-1. Flytta ett missat kvalitetspass (run/race) till närmast lediga dag om ACWR-kvoten tillåter det (<1.3)
-2. Flytta INTE till en dag som redan har ett annat kvalitetspass
-3. Om veckans km-tak är nått → ersätt med Z2 eller markera som 'skipped'
-4. Missad styrka → flytta till närmast lediga dag (helst ej dagen efter ett hårt löppass)
-5. Om djupsömn <10% eller REM <15% → undvik hårda pass idag (V{iso_week}, dag {today.weekday()})
-6. Beakta Google Calendar — undvik hårda pass på tunga arbetsdagar
+═══ DIN UPPGIFT ═══
+
+Analysera situationen som en coach och fatta de bästa besluten för löparens långsiktiga utveckling. Du har full frihet att:
+
+- Flytta pass (reschedule) — ange ny vecka och dag
+- Hoppa över pass (skip) — om det inte tillför värde givet tröttheten
+- Modifiera passinnehåll (modify) — ändra km, tempo, typ eller struktur
+- Kombinera logik — t.ex. flytta OCH ändra innehållet på samma pass
+- Lämna pass oförändrade (keep) — om det är rätt beslut
+
+Tänk som en coach, inte som ett regelblad. Exempel på resonemang du bör göra:
+- Om tre hårda pass ligger på rad → omfördela för att undvika ackumulerad trötthet
+- Om ett pass missats men nästa ändå passar bra strukturmässigt → kanske bättre att göra nästa pass lite längre än att pressa in det missade
+- Om löparen är i bra form (hög HRV, god sömn) → utnyttja det, höj en notch
+- Om löparen är trött → skydda kvalitetsanpassningarna, hellre ett bra pass än tre halvdåliga
+- Beakta Google Calendar — en stressig arbetsdag påverkar återhämtning
+- Undvik att stapla mer än 2 hårda pass i rad (löp-kvalitet eller styrka med hög belastning)
+- Håll pass som 'completed' eller 'skipped' oförändrade
+
+Skriv ditt resonemang kortfattat i "coaching_notes" innan du presenterar besluten.
 
 Svara ENDAST med detta JSON (inga kommentarer utanför):
 {{
+  "coaching_notes": "<2–4 meningar om hur du tolkar situationen och varför du väljer som du gör>",
   "changes": [
     {{
       "session_id": <int>,
-      "action": "reschedule|skip|keep",
+      "action": "reschedule|skip|keep|modify",
       "new_week": <int eller null>,
-      "new_dow": <int 0-6 eller null>,
-      "reason": "<kort motivering på svenska>"
+      "new_dow": <int 0–6 eller null>,
+      "new_km": <float eller null>,
+      "new_title": "<sträng eller null>",
+      "new_detail": "<fullt uppdaterad passbeskrivning med tempo, distans, instruktioner — eller null om oförändrad>",
+      "reason": "<en mening om varför just detta beslut>"
     }}
   ],
-  "summary": "<en mening som sammanfattar vad som justerades>"
+  "summary": "<en mening som sammanfattar dagens justeringar>"
 }}"""
 
     # 6. Anropa Claude
     try:
         resp = requests.post('https://api.anthropic.com/v1/messages',
-            json={'model': 'claude-sonnet-4-6', 'max_tokens': 1000,
+            json={'model': 'claude-sonnet-4-6', 'max_tokens': 3000,
                   'messages': [{'role': 'user', 'content': prompt}]},
             headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
                      'content-type': 'application/json'})
@@ -1031,25 +1246,63 @@ Svara ENDAST med detta JSON (inga kommentarer utanför):
                     new_week = change.get('new_week')
                     new_dow  = change.get('new_dow')
                     if new_week and new_dow is not None:
-                        cur.execute('''UPDATE plan_sessions
+                        # Tillåt även innehållsuppdatering vid ombokning
+                        extra_sets = []
+                        extra_vals = []
+                        if change.get('new_km') is not None:
+                            extra_sets.append('km=%s'); extra_vals.append(change['new_km'])
+                        if change.get('new_title'):
+                            extra_sets.append('title=%s'); extra_vals.append(change['new_title'])
+                        if change.get('new_detail'):
+                            extra_sets.append('detail=%s'); extra_vals.append(change['new_detail'])
+                        extra_sql = (',' + ','.join(extra_sets)) if extra_sets else ''
+                        cur.execute(f'''UPDATE plan_sessions
                             SET status='planned', week=%s, dow=%s,
-                                ai_note=%s, modified_at=%s WHERE id=%s''',
-                            (new_week, new_dow, change.get('reason',''), time.time(), sid))
+                                ai_note=%s, modified_at=%s{extra_sql} WHERE id=%s''',
+                            [new_week, new_dow, change.get('reason',''), time.time()] + extra_vals + [sid])
                         changes_applied += 1
+                elif action == 'modify':
+                    # Ändra passinnehåll utan att flytta det
+                    mod_sets = ['ai_note=%s', 'modified_at=%s']
+                    mod_vals = [change.get('reason',''), time.time()]
+                    if change.get('new_km') is not None:
+                        mod_sets.append('km=%s'); mod_vals.append(change['new_km'])
+                    if change.get('new_title'):
+                        mod_sets.append('title=%s'); mod_vals.append(change['new_title'])
+                    if change.get('new_detail'):
+                        mod_sets.append('detail=%s'); mod_vals.append(change['new_detail'])
+                    mod_vals.append(sid)
+                    cur.execute(f'''UPDATE plan_sessions
+                        SET {','.join(mod_sets)} WHERE id=%s AND status='planned' ''',
+                        mod_vals)
+                    changes_applied += 1
         conn.commit()
 
-    summary = result.get('summary', '')
+    summary        = result.get('summary', '')
+    coaching_notes = result.get('coaching_notes', '')
     print(f'AI-justering klar: {changes_applied} ändringar. {summary}')
+    if coaching_notes:
+        print(f'Coach: {coaching_notes}')
     set_cache('last_plan_adjustment', {
         'date': today.isoformat(),
         'changes': changes_applied,
-        'summary': summary
+        'summary': summary,
+        'coaching_notes': coaching_notes
     })
 
 
 # ─────────────────────────────────────────────
 # MANUELL TRIGGER (för testning)
 # ─────────────────────────────────────────────
+@app.post('/api/plan/reseed')
+def api_reseed():
+    """Ersätt alla planerade pass med ny PLAN_SEED (behåller historik)."""
+    try:
+        reseed_plan()
+        return jsonify({'ok': True, 'sessions': len(PLAN_SEED)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.post('/api/plan/adjust')
 def manual_adjust():
     """Trigga AI-justeringen manuellt (t.ex. för testning)."""
@@ -1065,7 +1318,7 @@ def manual_adjust():
 def plan_status():
     """Senaste AI-justeringens status."""
     row = get_cache('last_plan_adjustment')
-    return jsonify(row[0] if row else {'date': None, 'changes': 0, 'summary': ''})
+    return jsonify(row[0] if row else {'date': None, 'changes': 0, 'summary': '', 'coaching_notes': ''})
 
 
 # ─────────────────────────────────────────────

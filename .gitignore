@@ -6,3 +6,4 @@ __pycache__/
 test-garmin*.js
 google_credentials.json
 google_token.json
+*.log

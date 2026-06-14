@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Träningsdashboard</title>
+  <title>Training Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetGoodins+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg:      #080810;
@@ -481,9 +481,7 @@
     }
 
     /* ─── HISTORY TABLE ─── */
-    .history-table { width:100%; border-collapse:collapse; }
-    .history-table { table-layout: fixed; }
-    .history-table th {
+    .history-table-unused {
       font-size: 10px;
       font-family: 'JetBrains Mono', monospace;
       color: var(--muted);
@@ -633,7 +631,7 @@
     .cns-metric-val   { font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
     .cns-metric-sub   { font-size: 10px; color: var(--muted2); }
 
-    /* Sömnbrist-rad i sömnkortet */
+    
     .sleep-debt-row {
       display: flex; align-items: center; justify-content: space-between;
       background: var(--bg3); border-radius: 10px; padding: 10px 14px; margin-top: 10px;
@@ -1135,6 +1133,7 @@
     .csp-lift { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.18); }
     .csp-race { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
     .csp-rest { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.18); }
+    .csp-modified { outline: 1px dashed rgba(255,200,80,0.5); }
 
     /* Tooltip hanteras via JS tipBox istället */
 
@@ -1170,24 +1169,25 @@
 
   <nav class="sidebar">
     <div class="sidebar-logo">
-      <h1>Träning</h1>
-      <p>Starkare · Snabbare · 2026</p>
+      <h1>Training</h1>
+      <p>Stronger · Faster · 2026</p>
     </div>
     <div class="nav">
-      <div class="nav-item active" onclick="goto('home')"><span class="nav-icon">⌂</span><span>Hem</span></div>
-      <div class="nav-item" onclick="goto('health')"><span class="nav-icon">♡</span><span>Hälsa</span></div>
-      <div class="nav-item" onclick="goto('history')"><span class="nav-icon">◷</span><span>Historik</span></div>
-      <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Kalender</span></div>
-      <div class="nav-item" onclick="goto('records')"><span class="nav-icon">◉</span><span>Rekord</span></div>
-      <div class="nav-item" onclick="goto('strength')"><span class="nav-icon">◈</span><span>Styrka</span></div>
-      <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">✦</span><span>Coach</span></div>
+      <div class="nav-item active" onclick="goto('home')"><span class="nav-icon">⌂</span><span>Home</span></div>
+      <div class="nav-item" onclick="goto('health')"><span class="nav-icon">◇</span><span>Health</span></div>
+      <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Calendar</span></div>
+      <div class="nav-item" onclick="goto('strength')"><span class="nav-icon">◈</span><span>Strength</span></div>
+      <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">◬</span><span>Coach</span></div>
     </div>
     <div class="sidebar-bottom">
       <div class="live-row">
         <div class="live-dot"></div>
         <span class="live-label">GARMIN LIVE</span>
       </div>
-      <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">↻ Uppdatera data</button>
+      <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">↻ Refresh data</button>
+      <button class="refresh-btn" id="gcal-sync-btn" onclick="syncGcal()" style="margin-top:6px;color:var(--blue);">↻ Sync calendar</button>
+      <div id="gcal-status-text" style="display:none;"></div>
+      <div id="gcal-status-sub" style="display:none;"></div>
     </div>
   </nav>
 
@@ -1196,66 +1196,44 @@
     <!-- HEM -->
     <div class="page active" id="page-home">
 
-      <div class="sl" style="margin-top:8px;">Rekommendation idag</div>
+      <!-- TODAY'S SESSION from calendar -->
+      <div class="sl" style="margin-top:8px;">Today's session</div>
+      <div id="today-session-card" style="background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:18px 22px;margin-bottom:16px;display:flex;align-items:center;gap:18px;">
+        <div id="today-session-dot" style="width:10px;height:10px;border-radius:3px;background:var(--green);flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px;" id="today-session-title">Loading...</div>
+          <div style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="today-session-detail"></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:18px;font-weight:800;font-family:'JetBrains Mono',monospace;" id="today-session-km"></div>
+          <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:2px;" id="today-session-type"></div>
+        </div>
+      </div>
+
+      <!-- AI RECOMMENDATION -->
+      <div class="sl">Coach recommendation</div>
       <div class="bigcard accent-amber" style="margin-bottom:24px;">
         <div class="today-header">
-          <h3 id="today-title">Lugnt återhämtningspass</h3>
-          <span class="today-badge badge-amber" id="today-badge">HRV LÅG</span>
+          <h3 id="today-title">Easy recovery run</h3>
+          <span class="today-badge badge-amber" id="today-badge">HRV LOW</span>
         </div>
-        <p id="today-body">Din HRV är låg och kroppen återhämtar sig. Kör ett lätt Z2-pass 30–40 min — håller motoriken igång utan att tömma batteriet.</p>
+        <p id="today-body">Your HRV is low and your body is recovering. Do a light Z2 run 30–40 min — keeps the legs moving without draining the battery.</p>
       </div>
 
-      <div class="sl">Dagens snapshot</div>
+      <div class="sl">Today's snapshot</div>
       <div class="grid">
-        <div class="card"><div class="card-label">beredskap</div><div id="snap-readiness-val" class="card-val ca">—</div><div id="snap-readiness-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">sömn</div><div id="snap-sleep-val" class="card-val cg">—</div><div id="snap-sleep-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">body battery</div><div id="snap-bb-val" class="card-val ca">—</div><div id="snap-bb-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">hrv natt (ms)</div><div id="snap-hrv-val" class="card-val cr">—</div><div id="snap-hrv-sub" class="card-sub">Hämtar...</div><div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
-        <div class="card"><div class="card-label">dagar kvar</div><div class="card-val cb" id="days-left">—</div><div class="card-sub">Till slutet aug</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
+        <div class="card"><div class="card-label">readiness</div><div id="snap-readiness-val" class="card-val ca">—</div><div id="snap-readiness-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">sleep</div><div id="snap-sleep-val" class="card-val cg">—</div><div id="snap-sleep-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">body battery</div><div id="snap-bb-val" class="card-val ca">—</div><div id="snap-bb-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">hrv night (ms)</div><div id="snap-hrv-val" class="card-val cr">—</div><div id="snap-hrv-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
+        <div class="card"><div class="card-label">days left</div><div class="card-val cb" id="days-left">—</div><div class="card-sub">Until Oct 10</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
       </div>
 
-      <div class="sl">Mina mål</div>
-      <div class="goals-row">
-        <!-- Löpmål -->
-        <div class="goal-card run">
-          <div class="goal-card-top">
-            <div>
-              <div class="goal-card-label">LÖPMÅL · AUG 2026</div>
-              <div class="goal-card-title">3 km under 10 minuter</div>
-            </div>
-            <div class="goal-card-time" id="prediction-3k">9:59</div>
-          </div>
-          <div class="goal-stats">
-            <div><div class="goal-stat-label">nu</div><div class="goal-stat-val ca">10:27</div></div>
-            <div><div class="goal-stat-label">mål</div><div class="goal-stat-val cg">9:59</div></div>
-            <div><div class="goal-stat-label">gap</div><div class="goal-stat-val cb">27 sek</div></div>
-          </div>
-          <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-bottom:8px;letter-spacing:0.1em;">PROGRESS</div>
-          <div class="bigbar"><div class="bigbar-fill" id="goal-bar-run" style="width:0%"></div></div>
-        </div>
-        <!-- Styrkmål -->
-        <div class="goal-card lift">
-          <div class="goal-card-top">
-            <div>
-              <div class="goal-card-label">STYRKEMÅL · LÖPANDE</div>
-              <div class="goal-card-title">Bli starkare — progressera varje vecka</div>
-            </div>
-            <div class="goal-card-time co">2×/v</div>
-          </div>
-          <div class="goal-stats">
-            <div><div class="goal-stat-label">pass/v</div><div class="goal-stat-val co">2</div></div>
-            <div><div class="goal-stat-label">fokus</div><div class="goal-stat-val cp">Stor&shy;lyft</div></div>
-            <div><div class="goal-stat-label">princip</div><div class="goal-stat-val ca">Prog.</div></div>
-          </div>
-          <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-bottom:8px;letter-spacing:0.1em;">KONSEKVENS</div>
-          <div class="bigbar"><div class="bigbar-fill" id="goal-bar-lift" style="width:0%"></div></div>
-        </div>
-      </div>
     </div>
 
     <!-- HÄLSA -->
     <div class="page" id="page-health">
-      <div class="page-header"><h2>Hälsa</h2><p id="h-date-label">Laddar...</p></div>
+      <div class="page-header"><h2>Health</h2><p id="h-date-label">Loading...</p></div>
       <div class="hg-row">
 
         <!-- CNS-SCORE (ersätter Återhämtning) -->
@@ -1266,13 +1244,13 @@
               <div class="cns-label">CNS-score</div>
             </div>
             <div class="cns-right">
-              <div class="cns-title" id="cns-title">Hämtar...</div>
-              <div class="cns-desc" id="cns-desc">Beräknar din dagliga CNS-beredskap baserat på HRV, sömn, Garmin-beredskap och stress.</div>
+              <div class="cns-title" id="cns-title">Loading...</div>
+              <div class="cns-desc" id="cns-desc">Calculates your daily CNS readiness based on HRV, sleep, Garmin readiness and stress.</div>
               <div class="hrv-light-row">
                 <div class="hrv-dot" id="hrv-dot-green"></div>
                 <div class="hrv-dot" id="hrv-dot-amber"></div>
                 <div class="hrv-dot" id="hrv-dot-red"></div>
-                <span class="hrv-light-label" id="hrv-light-label">HRV hämtas...</span>
+                <span class="hrv-light-label" id="hrv-light-label">Loading HRV...</span>
               </div>
             </div>
           </div>
@@ -1281,17 +1259,17 @@
           </div>
           <div class="cns-metrics">
             <div class="cns-metric">
-              <div class="cns-metric-name">HRV vs snitt</div>
+              <div class="cns-metric-name">HRV vs avg</div>
               <div class="cns-metric-val" id="cns-hrv-val">—</div>
-              <div class="cns-metric-sub" id="cns-hrv-sub">Hämtar...</div>
+              <div class="cns-metric-sub" id="cns-hrv-sub">Loading...</div>
             </div>
             <div class="cns-metric">
-              <div class="cns-metric-name">Garmin beredskap</div>
+              <div class="cns-metric-name">Garmin readiness</div>
               <div class="cns-metric-val" id="cns-readiness-val">—</div>
               <div class="cns-metric-sub" id="cns-readiness-sub">/ 100</div>
             </div>
             <div class="cns-metric">
-              <div class="cns-metric-name">Vilopuls</div>
+              <div class="cns-metric-name">Resting HR</div>
               <div class="cns-metric-val" id="cns-rhr-val">—</div>
               <div class="cns-metric-sub" id="cns-rhr-sub">bpm</div>
             </div>
@@ -1301,15 +1279,15 @@
         <!-- SÖMN -->
         <div class="hg-card c-sleep" id="hg-sleep">
           <div class="hg-top">
-            <div class="hg-cat">Sömn</div>
+            <div class="hg-cat">Sleep</div>
             <div class="hg-score-row">
               <div class="hg-score cp" id="hg-sleep-score">—</div>
               <div class="hg-score-right">
-                <span class="hg-status hs-purple" id="hg-sleep-badge">Hämtar...</span>
+                <span class="hg-status hs-purple" id="hg-sleep-badge">Loading...</span>
                 <span class="hg-summary" id="hg-sleep-summary" style="font-size:11px;"></span>
               </div>
             </div>
-            <div class="hg-summary" id="hg-sleep-desc">Sömnkvalitet och sömncykler hämtas...</div>
+            <div class="hg-summary" id="hg-sleep-desc">Loading sleep quality and sleep cycles...</div>
             <div class="hg-bar-wrap">
               <div class="hg-bar"><div class="hg-bar-fill" id="hg-sleep-bar" style="width:0%"></div></div>
             </div>
@@ -1317,8 +1295,8 @@
           <div class="hg-details" id="hg-sleep-details" style="display:flex;border-top:1px solid var(--border)">
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Sömnpoäng</div>
-                <div class="hg-metric-desc" id="hd-sscore-desc">Bra: 80+, utmärkt: 90+</div>
+                <div class="hg-metric-name">Sleep score</div>
+                <div class="hg-metric-desc" id="hd-sscore-desc">Good: 80+, excellent: 90+</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-sscore-val">—</div>
@@ -1327,8 +1305,8 @@
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Djupsömn</div>
-                <div class="hg-metric-desc" id="hd-deep-desc">Mål: 15–25% av total sömn</div>
+                <div class="hg-metric-name">Deep sleep</div>
+                <div class="hg-metric-desc" id="hd-deep-desc">Goal: 15–25% of total sleep</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-deep-val">—</div>
@@ -1337,8 +1315,8 @@
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">REM-sömn</div>
-                <div class="hg-metric-desc" id="hd-rem-desc">Mål: 20–25% av total sömn</div>
+                <div class="hg-metric-name">REM sleep</div>
+                <div class="hg-metric-desc" id="hd-rem-desc">Goal: 20–25% of total sleep</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-rem-val">—</div>
@@ -1347,8 +1325,8 @@
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Total sömntid</div>
-                <div class="hg-metric-desc">Mål: 7,5 h/natt</div>
+                <div class="hg-metric-name">Total sleep</div>
+                <div class="hg-metric-desc">Goal: 7.5 h/night</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-stotal-val">—</div>
@@ -1357,8 +1335,8 @@
             </div>
             <div class="sleep-debt-row">
               <div>
-                <div class="sleep-debt-label">Sömnbrist denna vecka</div>
-                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Mål 52,5 h/vecka (7,5 h/natt)</div>
+                <div class="sleep-debt-label">Sleep debt this week</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Goal 52.5 h/week (7.5 h/night)</div>
               </div>
               <div class="sleep-debt-val" id="sleep-debt-val">—</div>
             </div>
@@ -1369,15 +1347,15 @@
         <!-- ENERGI & STRESS -->
         <div class="hg-card c-energy" id="hg-energy">
           <div class="hg-top">
-            <div class="hg-cat">Energi & Stress</div>
+            <div class="hg-cat">Energy & Stress</div>
             <div class="hg-score-row">
               <div class="hg-score ca" id="hg-energy-score">—</div>
               <div class="hg-score-right">
-                <span class="hg-status hs-ok" id="hg-energy-badge">Hämtar...</span>
+                <span class="hg-status hs-ok" id="hg-energy-badge">Loading...</span>
                 <span class="hg-summary" id="hg-energy-summary" style="font-size:11px;"></span>
               </div>
             </div>
-            <div class="hg-summary" id="hg-energy-desc">Body battery och stressnivå hämtas...</div>
+            <div class="hg-summary" id="hg-energy-desc">Loading body battery and stress level...</div>
             <div class="hg-bar-wrap">
               <div class="hg-bar"><div class="hg-bar-fill" id="hg-energy-bar" style="width:0%"></div></div>
             </div>
@@ -1386,7 +1364,7 @@
             <div class="hg-metric">
 <div class="hg-metric-body">
                 <div class="hg-metric-name">Body Battery</div>
-                <div class="hg-metric-desc" id="hd-bb-desc">75–100: hög energi · &lt;25: vila</div>
+                <div class="hg-metric-desc" id="hd-bb-desc">75–100: high energy · &lt;25: rest</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-bb-val">—</div>
@@ -1395,8 +1373,8 @@
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Stressnivå</div>
-                <div class="hg-metric-desc" id="hd-stress-desc">0–25: vila · 26–50: ok · 75+: hög</div>
+                <div class="hg-metric-name">Stress level</div>
+                <div class="hg-metric-desc" id="hd-stress-desc">0–25: rest · 26–50: ok · 75+: high</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-stress-val">—</div>
@@ -1405,8 +1383,8 @@
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Syremättnad (SpO2)</div>
-                <div class="hg-metric-desc" id="hd-spo2-desc">Normalt: 95–100%</div>
+                <div class="hg-metric-name">Blood oxygen (SpO2)</div>
+                <div class="hg-metric-desc" id="hd-spo2-desc">Normal: 95–100%</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-spo2-val">—</div>
@@ -1415,8 +1393,8 @@
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Andningsfrekvens</div>
-                <div class="hg-metric-desc" id="hd-resp-desc">Normalt: 12–20/min i vila</div>
+                <div class="hg-metric-name">Breathing rate</div>
+                <div class="hg-metric-desc" id="hd-resp-desc">Normal: 12–20/min at rest</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-resp-val">—</div>
@@ -1430,89 +1408,45 @@
     </div>
 
     <!-- HISTORIK -->
-    <div class="page" id="page-history">
-      <div class="page-header"><h2>Historik</h2><p>Alla aktiviteter · live från Garmin</p></div>
-      <div class="sl">Senaste pass</div>
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
-        <table class="history-table">
-          <thead>
-            <tr>
-              <th>Aktivitet</th>
-              <th>Datum</th>
-              <th>Distans</th>
-              <th>Tid</th>
-              <th>Snitt-puls</th>
-            </tr>
-          </thead>
-          <tbody id="history-tbody">
-            <tr><td colspan="5" style="color:var(--muted);font-size:13px;padding:20px 14px;">Laddar aktiviteter...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
 
     <!-- PLAN -->
     <div class="page" id="page-upcoming">
-      <div class="page-header"><h2>Kalender</h2><p>Löpning + styrka · 40–50 km/v · sub 10:00 · jun–aug 2026</p></div>
-      <div id="gcal-banner" style="display:none;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:12px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <span style="font-size:18px;">📅</span>
-        <div style="flex:1;">
-          <div style="font-size:13px;font-weight:600;" id="gcal-status-text">Kopplar Google Kalender...</div>
-          <div style="font-size:11px;color:var(--muted2);font-family:'JetBrains Mono',monospace;margin-top:2px;" id="gcal-status-sub"></div>
-        </div>
-        <button id="gcal-sync-btn" onclick="syncGcal()" style="background:var(--blue-dim);border:1px solid rgba(77,159,255,0.25);border-radius:8px;padding:7px 14px;color:var(--blue);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;display:none;">↻ Synka</button>
-      </div>
+      <div class="page-header"><h2>Calendar</h2><p>Running + strength · half marathon sub 1:20 · Oct 10 2026</p></div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;align-items:center;">
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--green);opacity:0.7;"></span>
-          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Löpning</span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Running</span>
         </div>
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--orange);opacity:0.7;"></span>
-          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Styrka</span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Strength</span>
         </div>
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--red);opacity:0.7;"></span>
-          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Tävling / Test</span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Race / Test</span>
         </div>
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--purple);"></span>
-          <span style="font-size:12px;color:var(--muted3);font-family:'JetBrains Mono',monospace;">Idag</span>
+          <span style="font-size:12px;color:var(--muted3);font-family:'JetBrains Mono',monospace;">Today</span>
         </div>
+      </div>
+      <div id="coach-notes-bar" style="display:none;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:14px 18px;margin-bottom:20px;">
+        <div style="font-size:11px;color:var(--muted2);font-family:'JetBrains Mono',monospace;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Coach · <span id="coach-notes-date"></span></div>
+        <div id="coach-notes-text" style="font-size:13px;color:var(--text);line-height:1.6;"></div>
       </div>
       <div id="cal-container"></div>
     </div>
 
     <!-- REKORD -->
-    <div class="page" id="page-records">
-      <div class="page-header"><h2>Rekord & prestationer</h2><p>Personbästa från Garmin Connect</p></div>
-      <div class="sl">Löprekord</div>
-      <div class="records-grid">
-        <div class="record-card"><div class="record-type">SNABBASTE 1 KM</div><div class="record-val cg">3:15</div><div class="record-sub">Per km</div></div>
-        <div class="record-card"><div class="record-type">SNABBASTE MILE</div><div class="record-val cg">5:34</div><div class="record-sub">1.609 km</div></div>
-        <div class="record-card"><div class="record-type">SNABBASTE 5 KM</div><div class="record-val ca">18:12</div><div class="record-sub">3:38 /km snitt</div></div>
-        <div class="record-card"><div class="record-type">SNABBASTE 10 KM</div><div class="record-val ca">38:14</div><div class="record-sub">3:49 /km snitt</div></div>
-        <div class="record-card"><div class="record-type">SNABBASTE HALVMARATHON</div><div class="record-val cb">1:26:19</div><div class="record-sub">GöteborgsVarvet 2026</div></div>
-        <div class="record-card"><div class="record-type">LÄNGSTA LÖPTUR</div><div class="record-val cp">21.87 km</div><div class="record-sub">Distansrekord</div></div>
-      </div>
-      <div class="sl">Konditionsprofil</div>
-      <div class="grid">
-        <div class="card"><div class="card-label">vo2max</div><div class="card-val cg">59</div><div class="card-sub">Garmin-uppskattning</div><div class="bar"><div class="bar-fill" style="width:78%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">förutspådd 5K</div><div class="card-val ca">17:56</div><div class="card-sub">Garmin race predictor</div></div>
-        <div class="card"><div class="card-label">förutspådd 10K</div><div class="card-val ca">37:30</div><div class="card-sub">Garmin race predictor</div></div>
-        <div class="card"><div class="card-label">förutspådd halvmarathon</div><div class="card-val cb">1:23:30</div><div class="card-sub">Garmin race predictor</div></div>
-      </div>
-    </div>
-
     <!-- STYRKA -->
     <div class="page" id="page-strength">
-      <div class="page-header"><h2>Styrka</h2><p>Styrkepass från Garmin · logga övningar & progression</p></div>
-      <div id="strength-list"><div style="color:var(--muted);font-size:13px;font-family:'JetBrains Mono',monospace;">Hämtar pass...</div></div>
+      <div class="page-header"><h2>Strength</h2><p>Strength sessions from Garmin · log exercises & progression</p></div>
+      <div id="strength-list"><div style="color:var(--muted);font-size:13px;font-family:'JetBrains Mono',monospace;">Loading sessions...</div></div>
     </div>
 
     <!-- COACH -->
     <div class="page" id="page-coach">
-      <div class="page-header"><h2>AI-träningscoach</h2><p>Powered by Claude · Anthropic</p></div>
+      <div class="page-header"><h2>AI training coach</h2><p>Powered by Claude · Anthropic</p></div>
 
       <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start;">
 
@@ -1520,26 +1454,26 @@
         <div class="chat-wrap">
           <div class="chat-top">
             <div class="chat-dot"></div>
-            <span class="chat-title">Din personliga coach</span>
+            <span class="chat-title">Your personal coach</span>
             <span class="chat-sub">Claude Sonnet</span>
           </div>
           <div class="qprompts">
-            <button class="qp" onclick="qa('Ska jag köra löpning eller styrka idag?')">Löpning eller styrka?</button>
-            <button class="qp" onclick="qa('Hur kombinerar jag löpning och styrka bäst?')">Kombinera träning</button>
-            <button class="qp" onclick="qa('Vilket är nästa kvalitetspass?')">Nästa pass</button>
-            <button class="qp" onclick="qa('Hur ligger jag till mot sub 10:00?')">Sub 10:00?</button>
-            <button class="qp" onclick="qa('Hur ska jag progressera i styrketräningen?')">Styrka progress</button>
-            <button class="qp" onclick="qa('Ge mig en motivationsboost!')">Motivera mig!</button>
+            <button class="qp" onclick="qa('Should I run or lift today?')">Run or lift?</button>
+            <button class="qp" onclick="qa('How do I best combine running and strength?')">Combine training</button>
+            <button class="qp" onclick="qa('What is my next quality session?')">Next session</button>
+            <button class="qp" onclick="qa('How am I tracking for half marathon sub 1:20?')">Sub 1:20?</button>
+            <button class="qp" onclick="qa('How should I progress in strength training?')">Strength progress</button>
+            <button class="qp" onclick="qa('Give me a motivation boost!')">Motivate me!</button>
           </div>
           <div class="messages" id="messages">
             <div class="msg ai">
               <div class="msg-from">COACH</div>
-              Hej! Jag känner till ditt dubbla mål — sub 10:00 på 3 km OCH att bli starkare. Jag läser också dina sparade noteringar automatiskt. Vad vill du veta?
+              <span>Hey! I know your goal — half marathon under 1:20 on October 10, with a focus on building a strong body in all areas. I also read your saved notes automatically. What would you like to know?</span>
             </div>
           </div>
           <div class="chat-input">
-            <input type="text" id="chat-input" placeholder="Skriv din fråga..." />
-            <button class="send-btn" onclick="send()">Skicka</button>
+            <input type="text" id="chat-input" placeholder="Ask me anything..." />
+            <button class="send-btn" onclick="send()">Send</button>
           </div>
         </div>
 
@@ -1547,29 +1481,29 @@
         <div style="display:flex;flex-direction:column;gap:10px;">
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
-              <span style="font-size:13px;font-weight:700;">Coachens minne</span>
-              <span id="notes-count" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-left:auto;">0 noteringar</span>
+              <span style="font-size:13px;font-weight:700;">Coach's memory</span>
+              <span id="notes-count" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-left:auto;">0 notes</span>
             </div>
             <div style="padding:10px 14px;border-bottom:1px solid var(--border);">
-              <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.1em;margin-bottom:8px;">LÄGG TILL NOTERING</div>
+              <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.1em;margin-bottom:8px;">ADD NOTE</div>
               <div style="display:flex;flex-direction:column;gap:8px;">
                 <select id="note-category" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--muted2);font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;">
-                  <option value="kropp">🩹 Kropp & skador</option>
-                  <option value="kost">🥗 Kost & återhämtning</option>
-                  <option value="mål">🎯 Mål & fokus</option>
-                  <option value="utrustning">👟 Utrustning</option>
-                  <option value="general">📝 Övrigt</option>
+                  <option value="kropp"> Body & injuries</option>
+                  <option value="kost"> Nutrition & recovery</option>
+                  <option value="mål"> Goals & focus</option>
+                  <option value="utrustning"> Gear</option>
+                  <option value="general"> Other</option>
                 </select>
-                <textarea id="note-input" rows="3" placeholder="T.ex. Känningar i höger vad sedan igår..." style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;" onfocus="this.style.borderColor='var(--purple)'" onblur="this.style.borderColor='var(--border2)'"></textarea>
-                <button onclick="saveNote()" style="background:var(--purple-dim);border:1px solid rgba(167,139,250,0.25);border-radius:8px;padding:8px;color:var(--purple);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;width:100%;" onmouseover="this.style.background='rgba(167,139,250,0.15)'" onmouseout="this.style.background='var(--purple-dim)'">+ Spara i minnet</button>
+                <textarea id="note-input" rows="3" placeholder="E.g. Tightness in right calf since yesterday..." style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;" onfocus="this.style.borderColor='var(--purple)'" onblur="this.style.borderColor='var(--border2)'"></textarea>
+                <button onclick="saveNote()" style="background:var(--purple-dim);border:1px solid rgba(167,139,250,0.25);border-radius:8px;padding:8px;color:var(--purple);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;width:100%;" onmouseover="this.style.background='rgba(167,139,250,0.15)'" onmouseout="this.style.background='var(--purple-dim)'">+ Save to memory</button>
               </div>
             </div>
             <div id="notes-list" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;">
-              <div style="color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;">Laddar...</div>
+              <div style="color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;">Loading...</div>
             </div>
           </div>
           <div style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;padding:0 4px;line-height:1.6;">
-            Coachen läser alla noteringar automatiskt i varje svar.
+            <span>The coach reads all notes automatically in every reply.</span>
           </div>
         </div>
 
@@ -1590,12 +1524,12 @@ function showLogin() {
   document.body.insertAdjacentHTML('beforeend', `
     <div id="login-screen" style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;">
       <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:18px;padding:40px;width:320px;text-align:center;">
-        <div style="font-size:22px;margin-bottom:8px;">🔒</div>
-        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;letter-spacing:-0.3px;">Träningsdashboard</h2>
-        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'JetBrains Mono',monospace;">Ange lösenord för att fortsätta</p>
-        <input id="login-input" type="password" placeholder="Lösenord..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:11px 14px;color:var(--text);font-family:'Inter',sans-serif;font-size:14px;outline:none;margin-bottom:12px;" />
+        <div style="font-size:22px;margin-bottom:8px;"></div>
+        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;letter-spacing:-0.3px;">Training Dashboard</h2>
+        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'JetBrains Mono',monospace;">Enter password to continue</p>
+        <input id="login-input" type="password" placeholder="Password..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:11px 14px;color:var(--text);font-family:'Inter',sans-serif;font-size:14px;outline:none;margin-bottom:12px;" />
         <button onclick="tryLogin()" style="width:100%;background:var(--purple);border:none;border-radius:10px;padding:12px;color:#08080f;font-family:'Inter',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
-        <p id="login-error" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel lösenord</p>
+        <p id="login-error" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Wrong password</p>
       </div>
     </div>
   `);
@@ -1632,7 +1566,6 @@ window.fetch = (url, opts = {}) => {
       if (n.getAttribute('onclick') === "goto('" + id + "')") n.classList.add('active');
     });
     window.scrollTo(0, 0);
-    if (id === 'history')  loadHistory();
     if (id === 'health')   loadHealth();
     if (id === 'strength') loadStrength();
     if (id === 'coach')    loadNotes();
@@ -1653,35 +1586,6 @@ window.fetch = (url, opts = {}) => {
   }, 500);
   loadHealth();
 
-  // Load history
-  async function loadHistory() {
-    const tbody = document.getElementById('history-tbody');
-    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);font-size:13px;padding:20px 14px;">Hämtar aktiviteter från Garmin...</td></tr>';
-    try {
-      const res = await fetch('/api/activities?days=30');
-      const data = await res.json();
-      if (!data.activities) throw new Error('Ingen data');
-      const typeLabels = { running:'LÖPNING', track_running:'BANLÖPNING', treadmill_running:'LÖPBAND', trail_running:'TERRÄNGLÖPNING', cycling:'CYKLING', walking:'PROMENAD', strength_training:'STYRKA', fitness_equipment:'GYM', indoor_cardio:'CARDIO', bouldering:'BOULDER' };
-      const typeColors = { track_running:'var(--purple)', trail_running:'var(--green)', treadmill_running:'var(--blue)', cycling:'var(--amber)', strength_training:'var(--orange)', fitness_equipment:'var(--orange)', bouldering:'var(--red)' };
-      const fmt = s => { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=Math.floor(s%60); return h>0?h+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0'):m+':'+String(sec).padStart(2,'0'); };
-      const fmtDist = m => m>=1000?(m/1000).toFixed(1)+' km':Math.round(m)+' m';
-      const fmtDate = s => new Date(s).toLocaleDateString('sv-SE',{day:'numeric',month:'short'});
-      tbody.innerHTML = data.activities.map(a => {
-        const typeKey = a.activityType?.typeKey || 'running';
-        const label = typeLabels[typeKey] || typeKey.toUpperCase();
-        const color = typeColors[typeKey] || 'var(--muted2)';
-        const isRace = a.eventType?.typeKey === 'race';
-        return '<tr><td><div style="font-size:13px;font-weight:600;">'+a.activityName+(a.pr?' <span style="color:var(--green);font-size:11px;">★ PR</span>':'')+'</div>'
-          +'<div style="color:'+color+';font-size:10.5px;font-family:JetBrains Mono,monospace;margin-top:3px;">'+label+(isRace?' · TÄVLING':'')+'</div></td>'
-          +'<td style="color:var(--muted2);font-family:JetBrains Mono,monospace;font-size:12px;">'+fmtDate(a.startTimeLocal)+'</td>'
-          +'<td style="font-family:JetBrains Mono,monospace;color:var(--green);font-size:13px;">'+fmtDist(a.distance)+'</td>'
-          +'<td style="font-family:JetBrains Mono,monospace;font-size:13px;">'+fmt(a.duration)+'</td>'
-          +'<td style="font-family:JetBrains Mono,monospace;font-size:13px;">'+(a.averageHR||'—')+'</td></tr>';
-      }).join('');
-    } catch(e) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--red);font-size:13px;padding:20px 14px;">Fel: '+e.message+'</td></tr>';
-    }
-  }
 
 function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const el = document.getElementById(scoreId);
@@ -1695,7 +1599,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (score >= 75) {
       el.style.color = 'var(--green)';
       badge.className = 'hg-status hs-great';
-      badge.textContent = 'Bra';
+      badge.textContent = 'Good';
     } else if (score >= 50) {
       el.style.color = 'var(--amber)';
       badge.className = 'hg-status hs-ok';
@@ -1703,7 +1607,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     } else {
       el.style.color = 'var(--red)';
       badge.className = 'hg-status hs-low';
-      badge.textContent = 'Vila';
+      badge.textContent = 'Rest';
     }
   }
 
@@ -1738,11 +1642,11 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       );
 
       const cnsCol   = cnsScore >= 70 ? 'var(--green)' : cnsScore >= 45 ? 'var(--amber)' : 'var(--red)';
-      const cnsTitle = cnsScore >= 70 ? 'Redo för kvalitetspass' : cnsScore >= 45 ? 'Normalt pass ok' : 'Vila eller Z2 idag';
+      const cnsTitle = cnsScore >= 70 ? 'Ready for quality session' : cnsScore >= 45 ? 'Normal session ok' : 'Rest or Z2 today';
       const cnsDesc  = cnsScore >= 70
-        ? 'CNS fullt återhämtat. HRV, sömn och beredskap är alla gröna — perfekt dag för intervaller eller tröskelpass.'
+        ? 'CNS fully recovered. HRV, sleep and readiness are all green — perfect day for intervals or threshold work.'
         : cnsScore >= 45
-        ? 'Acceptabel CNS-status. Normalt planerat pass fungerar, men undvik maximal ansträngning.'
+        ? 'Acceptable CNS status. Normal planned session is fine, but avoid maximal effort.'
         : 'CNS visar tydliga tecken på otillräcklig återhämtning. Prioritera vila, lätt Z2 eller skjut kvalitetspasset framåt.';
 
       document.getElementById('cns-score').textContent = cnsScore;
@@ -1753,7 +1657,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       document.getElementById('cns-bar').style.background = cnsCol;
       document.getElementById('hg-recovery').style.setProperty('--cns-color', cnsCol);
 
-      // HRV Traffic Light (Kiviniemi-metoden: ±5% från veckosnitt)
+      // HRV Traffic Light (Kiviniemi-metoden: ±5% från veckoavg)
       const hrvDiff = h.hrv?.lastNightAvg && h.hrv?.weeklyAvg
         ? ((h.hrv.lastNightAvg - h.hrv.weeklyAvg) / h.hrv.weeklyAvg) * 100
         : null;
@@ -1774,13 +1678,13 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const pctCol = pct >= 95 ? 'var(--green)' : pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
         document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
         document.getElementById('cns-hrv-val').style.color = pctCol;
-        document.getElementById('cns-hrv-sub').textContent = `${pct}% av snitt ${h.hrv.weeklyAvg || '—'} ms`;
+        document.getElementById('cns-hrv-sub').textContent = `${pct}% av avg ${h.hrv.weeklyAvg || '—'} ms`;
       }
       if (h.readiness?.score != null) {
         const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
         document.getElementById('cns-readiness-val').textContent = h.readiness.score;
         document.getElementById('cns-readiness-val').style.color = rc;
-        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
+        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'High', MODERATE:'Måttlig', LOW:'Low', VERY_LOW:'Mycket låg' };
         document.getElementById('cns-readiness-sub').textContent = lblMap[h.readiness.level] || '/ 100';
       }
       if (h.restingHR?.value != null) {
@@ -1788,7 +1692,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const rc = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
         document.getElementById('cns-rhr-val').textContent = rhr;
         document.getElementById('cns-rhr-val').style.color = rc;
-        document.getElementById('cns-rhr-sub').textContent = `snitt ${h.restingHR.sevenDayAvg || '—'} bpm`;
+        document.getElementById('cns-rhr-sub').textContent = `avg ${h.restingHR.sevenDayAvg || '—'} bpm`;
       }
 
       // ── SÖMN ──
@@ -1798,36 +1702,36 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const totalH = Math.floor(h.sleep.totalSec / 3600);
         const totalM = Math.floor((h.sleep.totalSec % 3600) / 60);
 
-        // Sömnpoäng
+        // Sleep score
         const sc = h.sleep.score;
         const scCol = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
-        const scStatus = sc >= 90 ? 'Utmärkt' : sc >= 80 ? 'Bra' : sc >= 60 ? 'Acceptabel' : 'Dålig';
+        const scStatus = sc >= 90 ? 'Excellent' : sc >= 80 ? 'Good' : sc >= 60 ? 'Acceptabel' : 'Dålig';
         setMetric('hd-sscore-val', 'hd-sscore-status', sc || '—', '/ 100', scStatus, scCol);
 
-        // Djupsömn
+        // Deep sleep
         const deep = h.sleep.deepPct;
         const deepCol = deep >= 15 ? 'var(--green)' : deep >= 10 ? 'var(--amber)' : 'var(--red)';
-        const deepStatus = deep >= 20 ? 'Utmärkt' : deep >= 15 ? 'Normalt' : deep >= 10 ? 'Lite lågt' : 'För lite';
+        const deepStatus = deep >= 20 ? 'Excellent' : deep >= 15 ? 'Normal' : deep >= 10 ? 'Slightly low' : 'För lite';
         setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus} · mål 15–25%`, deepCol);
         document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + ' · mål: 15–25% av sömnen';
 
         // REM
         const rem = h.sleep.remPct;
         const remCol = rem >= 20 ? 'var(--green)' : rem >= 15 ? 'var(--amber)' : 'var(--red)';
-        const remStatus = rem >= 20 ? 'Utmärkt' : rem >= 15 ? 'Normalt' : rem >= 10 ? 'Lite lågt' : 'För lite';
+        const remStatus = rem >= 20 ? 'Excellent' : rem >= 15 ? 'Normal' : rem >= 10 ? 'Slightly low' : 'För lite';
         setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus} · mål 20–25%`, remCol);
         document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + ' · mål: 20–25% av sömnen';
 
-        // Total sömntid
+        // Total sleep
         const totalCol = totalH >= 7 ? 'var(--green)' : totalH >= 6 ? 'var(--amber)' : 'var(--red)';
-        const totalStatus = totalH >= 8 ? 'Utmärkt' : totalH >= 7 ? 'Bra' : totalH >= 6 ? 'Lite kort' : 'För lite';
+        const totalStatus = totalH >= 8 ? 'Excellent' : totalH >= 7 ? 'Good' : totalH >= 6 ? 'Lite kort' : 'För lite';
         setMetric('hd-stotal-val', 'hd-stotal-status', `${totalH}h ${totalM}m`, '', totalStatus, totalCol);
 
         const sleepDesc = sleepScore >= 80
-          ? `${totalH}h ${totalM}m sömn — bra återhämtning för natten.`
+          ? `${totalH}h ${totalM}m sleep — bra återhämtning för natten.`
           : sleepScore >= 60
-          ? `${totalH}h ${totalM}m sömn — acceptabelt men kan förbättras.`
-          : `${totalH}h ${totalM}m sömn — prioritera mer sömn ikväll.`;
+          ? `${totalH}h ${totalM}m sleep — acceptabelt men kan förbättras.`
+          : `${totalH}h ${totalM}m sleep — prioritize more sleep tonight.`;
         setHG('hg-sleep-score', 'hg-sleep-bar', 'hg-sleep-badge', 'hg-sleep-desc', sleepScore, sleepDesc);
 
         // Sömnbrist — 7,5 h/natt mål = 52,5 h/vecka
@@ -1842,7 +1746,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const dailyDebtM = Math.round((dailyDebt % 3600) / 60);
         const debtEl = document.getElementById('sleep-debt-val');
         if (dailyDebt < 900) {
-          debtEl.textContent = 'Ingen brist ✓';
+          debtEl.textContent = 'Ingen brist ';
           debtEl.style.color = 'var(--green)';
         } else {
           debtEl.textContent = `−${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m idag`;
@@ -1851,18 +1755,18 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
         // Sömnflaggor (djupsömn, REM, CNS-konsekvenser)
         const flags = [];
-        if (deep < 10)  flags.push({ text: '⚠ Lite djupsömn — skippa styrka', cls: 'bad' });
-        else if (deep >= 15) flags.push({ text: '✓ Djupsömn ok', cls: 'ok' });
-        else            flags.push({ text: '~ Djupsömn låg', cls: 'warn' });
-        if (rem < 15)   flags.push({ text: '⚠ Lite REM — undvik intervaller', cls: 'bad' });
-        else if (rem >= 20) flags.push({ text: '✓ REM ok', cls: 'ok' });
-        else            flags.push({ text: '~ REM lite låg', cls: 'warn' });
+        if (deep < 10)  flags.push({ text: ' Low deep sleep — skip strength', cls: 'bad' });
+        else if (deep >= 15) flags.push({ text: ' Deep sleep ok', cls: 'ok' });
+        else            flags.push({ text: '~ Deep sleep low', cls: 'warn' });
+        if (rem < 15)   flags.push({ text: ' Low REM — avoid intervals', cls: 'bad' });
+        else if (rem >= 20) flags.push({ text: ' REM ok', cls: 'ok' });
+        else            flags.push({ text: '~ REM slightly low', cls: 'warn' });
         const flagRow = document.getElementById('sleep-flag-row');
         flagRow.innerHTML = flags.map(f => `<span class="sleep-flag ${f.cls}">${f.text}</span>`).join('');
         document.getElementById('hg-sleep-score').style.color = sleepScore >= 80 ? 'var(--purple)' : sleepScore >= 60 ? 'var(--amber)' : 'var(--red)';
         const badge = document.getElementById('hg-sleep-badge');
         badge.className = sleepScore >= 80 ? 'hg-status hs-purple' : sleepScore >= 60 ? 'hg-status hs-ok' : 'hg-status hs-low';
-        badge.textContent = sleepScore >= 80 ? 'Bra' : sleepScore >= 60 ? 'Ok' : 'Dålig';
+        badge.textContent = sleepScore >= 80 ? 'Good' : sleepScore >= 60 ? 'Ok' : 'Poor';
       }
 
       // ── ENERGI & STRESS ──
@@ -1874,20 +1778,20 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
         // Body Battery
         const bbCol = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
-        const bbStatus = bb >= 75 ? 'Hög energi' : bb >= 50 ? 'Moderat' : bb >= 25 ? 'Låg' : 'Tom — vila';
+        const bbStatus = bb >= 75 ? 'High energi' : bb >= 50 ? 'Moderat' : bb >= 25 ? 'Low' : 'Empty — rest';
         setMetric('hd-bb-val', 'hd-bb-status', bb, '/ 100', bbStatus, bbCol);
-        document.getElementById('hd-bb-desc').textContent = `Max idag: ${h.bodyBattery?.max || '—'} · Min: ${h.bodyBattery?.drained ? bb : '—'}`;
+        document.getElementById('hd-bb-desc').textContent = `Max today: ${h.bodyBattery?.max || '—'} · Min: ${h.bodyBattery?.drained ? bb : '—'}`;
 
         // Stress
         const stressCol = stress <= 25 ? 'var(--green)' : stress <= 50 ? 'var(--amber)' : 'var(--red)';
-        const stressStatus = stress <= 25 ? 'Avslappnad' : stress <= 50 ? 'Låg stress' : stress <= 75 ? 'Måttlig' : 'Hög stress';
+        const stressStatus = stress <= 25 ? 'Avslappnad' : stress <= 50 ? 'Low stress' : stress <= 75 ? 'Måttlig' : 'High stress';
         setMetric('hd-stress-val', 'hd-stress-status', stress, '/ 100', stressStatus, stressCol);
 
         // SpO2
         if (h.spo2?.avg != null) {
           const spo2 = h.spo2.avg;
           const spo2Col = spo2 >= 97 ? 'var(--green)' : spo2 >= 95 ? 'var(--green)' : spo2 >= 90 ? 'var(--amber)' : 'var(--red)';
-          const spo2Status = spo2 >= 97 ? 'Optimalt' : spo2 >= 95 ? 'Normalt' : spo2 >= 90 ? 'Sänkt — obs!' : 'Kritiskt lågt!';
+          const spo2Status = spo2 >= 97 ? 'Optimal' : spo2 >= 95 ? 'Normal' : spo2 >= 90 ? 'Sänkt — obs!' : 'Kritiskt lågt!';
           setMetric('hd-spo2-val', 'hd-spo2-status', spo2 + '%', '%', spo2Status, spo2Col);
           document.getElementById('hd-spo2-desc').textContent = `Lägst: ${h.spo2.min ? h.spo2.min + '%' : '—'} · normalt: 95–100%`;
         }
@@ -1896,7 +1800,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         if (h.respiration?.avg != null) {
           const resp = h.respiration.avg;
           const respCol = resp <= 16 ? 'var(--green)' : resp <= 20 ? 'var(--amber)' : 'var(--red)';
-          const respStatus = resp <= 12 ? 'Idrottare — utmärkt' : resp <= 16 ? 'Normalt' : resp <= 20 ? 'Lite förhöjd' : 'Förhöjd';
+          const respStatus = resp <= 12 ? 'Idrottare — utmärkt' : resp <= 16 ? 'Normal' : resp <= 20 ? 'Lite förhöjd' : 'Förhöjd';
           setMetric('hd-resp-val', 'hd-resp-status', resp, '/min', respStatus, respCol);
           document.getElementById('hd-resp-desc').textContent = `Under sömn: ${h.respiration.sleepAvg || '—'}/min · normalt: 12–20/min`;
         }
@@ -1905,23 +1809,23 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           ? `Body battery ${bb}/100 — kroppen har energi för ett bra pass.`
           : energyScore >= 45
           ? `Body battery ${bb}/100 — moderat energinivå, håll träningen lagom.`
-          : `Body battery ${bb}/100 — kroppen är trött. Prioritera vila och återhämtning.`;
+          : `Body battery ${bb}/100 — body is tired. Prioritize rest and recovery.`;
         setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
       }
 
       const d = new Date();
-      document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric',month:'long',year:'numeric'}) + ' · Garmin live-data';
+      document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric',month:'long',year:'numeric'}) + ' · Garmin live data';
 
       // Snapshot på hemsidan
       const snapSets = [
         { valId:'snap-readiness-val', subId:'snap-readiness-sub', barId:'snap-readiness-bar',
-          val: h.readiness?.score, sub: (()=>{ const m={VERY_HIGH:'Mycket hög',HIGH:'Hög',MODERATE:'Måttlig',LOW:'Låg',VERY_LOW:'Mycket låg'}; return m[h.readiness?.level]||''; })(),
+          val: h.readiness?.score, sub: (()=>{ const m={VERY_HIGH:'Mycket hög',HIGH:'High',MODERATE:'Måttlig',LOW:'Low',VERY_LOW:'Mycket låg'}; return m[h.readiness?.level]||''; })(),
           col: h.readiness?.score >= 70 ? 'var(--green)' : h.readiness?.score >= 40 ? 'var(--amber)' : 'var(--red)', pct: h.readiness?.score },
         { valId:'snap-sleep-val', subId:'snap-sleep-sub', barId:'snap-sleep-bar',
           val: h.sleep?.score, sub: h.sleep?.totalSec ? fmtTime(h.sleep.totalSec) : '',
           col: h.sleep?.score >= 80 ? 'var(--green)' : h.sleep?.score >= 60 ? 'var(--amber)' : 'var(--red)', pct: h.sleep?.score },
         { valId:'snap-bb-val', subId:'snap-bb-sub', barId:'snap-bb-bar',
-          val: h.bodyBattery?.current, sub: 'Max idag: ' + (h.bodyBattery?.max || '—'),
+          val: h.bodyBattery?.current, sub: 'Max today: ' + (h.bodyBattery?.max || '—'),
           col: h.bodyBattery?.current >= 60 ? 'var(--green)' : h.bodyBattery?.current >= 30 ? 'var(--amber)' : 'var(--red)', pct: h.bodyBattery?.current },
         { valId:'snap-hrv-val', subId:'snap-hrv-sub', barId:'snap-hrv-bar',
           val: h.hrv?.lastNightAvg, sub: 'Snitt ' + (h.hrv?.weeklyAvg || '—') + ' ms',
@@ -1939,12 +1843,12 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
   async function refreshData() {
     const btn = document.getElementById('refresh-btn');
-    btn.textContent = '↻ Hämtar...';
+    btn.textContent = '↻ Loading...';
     btn.style.color = 'var(--amber)';
     btn.disabled = true;
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadHistory()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -1958,38 +1862,35 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         badge.className = 'today-badge ' + (badges[data.todayType] || 'badge-amber');
         badge.textContent = badgeText[data.todayType] || 'AI';
       }
-      if (data.prediction3k) document.getElementById('prediction-3k').textContent = data.prediction3k;
-      if (data.insight) document.getElementById('ai-insight').textContent = data.insight;
-      btn.textContent = '✓ Uppdaterad';
+      btn.textContent = ' Uppdaterad';
       btn.style.color = 'var(--green)';
-      setTimeout(() => { btn.textContent = '↻ Uppdatera data'; btn.style.color = ''; btn.disabled = false; }, 3000);
+      setTimeout(() => { btn.textContent = '↻ Refresh data'; btn.style.color = ''; btn.disabled = false; }, 3000);
     } catch(e) {
-      btn.textContent = '✗ ' + e.message;
+      btn.textContent = ' ' + e.message;
       btn.style.color = 'var(--red)';
-      setTimeout(() => { btn.textContent = '↻ Uppdatera data'; btn.style.color = ''; btn.disabled = false; }, 4000);
+      setTimeout(() => { btn.textContent = '↻ Refresh data'; btn.style.color = ''; btn.disabled = false; }, 4000);
     }
   }
 
   // Noteringar — laddas från DB och används i varje AI-anrop
   let userNotes = [];
 
-  const BASE_CTX = `Du är en personlig träningscoach för en löpare/idrottare med DUBBELT fokus:
+  const BASE_CTX = `You are a personal training coach for a runner with a dual focus. Always respond in English.
 
-LÖPMÅL: Springa 3 km under 10 minuter (nuvarande bästa: 10:27, gap 27 sek)
-- Tidsram: till slutet av augusti 2026
-- VO2max: 59, Garmin predictions: 5K 17:56, 10K 37:30, halvmarathon 1:23:30
-- Nyligen: GöteborgsVarvet halvmarathon 1:27:23 (23 maj)
-- Löpplan: V23 återhämtning → V24-25 intervaller → V26-29 tröskel → V30-34 spetsning
-- Garmin flaggar: anaerob brist (behöver mer Z5-träning)
+GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026 · Current best: 1:26:19 (GöteborgsVarvet) · Gap: 6:20
+SECONDARY GOAL: Build a strong body in all areas — running strength, upper body, core, mobility
+- VO2max: 59 · Garmin predictions: 5K 17:56, 10K 37:30, half marathon 1:23:30
+- Recent: GöteborgsVarvet half marathon 1:26:19 (May 23)
+- Training plan: W23–41 · phases: recovery → base building → threshold/tempo → race-specific → taper
 
-STYRKEMÅL: Bli progressivt starkare — 2 styrkepass per vecka
-- Storlyftarna: knäböj, marklyft, bänkpress, axelpress
-- Princip: progressiv överlast — öka vikt eller reps varje vecka
-- Styrka stödjer löpningen: stärker core, minskar skaderisk, ökar kraftuttag
+STRENGTH GOAL: Progress every week — 2–3 strength sessions per week
+- Main lifts: squat, deadlift, bench press, overhead press
+- Principle: progressive overload — increase weight or reps each week
+- Strength supports running: builds core, reduces injury risk, improves power output
 
-HÄLSODATA (aktuell):
-- Träningsberedskap: 50/100, HRV låg (22%), sömn 91/100, body battery 40
-(Uppdateras dynamiskt nedan med aktuella värden och CNS-score)`;
+HEALTH DATA (current):
+- Training readiness: 50/100, HRV low (22%), sleep 91/100, body battery 40
+(Updated dynamically below with current values and CNS score)`;
 
   function buildCTX() {
     let ctx = BASE_CTX;
@@ -2016,7 +1917,7 @@ HÄLSODATA (aktuell):
         });
         ctx += '\nAnpassa alltid träningsrekommendationer efter schemat — t.ex. flytta hårda pass till lediga dagar.';
         if (earlyDays.length > 0) {
-          ctx += `\nKONSEKVENS AV TIDIGA ARBETSPASS: Följande dagar har event som börjar före 07:00 — detta innebär troligen förkortad sömn och sämre återhämtning: ${earlyDays.join(', ')}. Undvik kvalitetspass (intervaller, tröskel, tävling) dessa dagar och dagen efter. Prioritera vila eller lugna pass (Z1-Z2).`;
+          ctx += `\nEARLY WORK WARNING: The following days have events starting before 07:00 — this likely means shortened sleep and reduced recovery: ${earlyDays.join(', ')}. Avoid quality sessions (intervals, threshold, race) on these days and the day after. Prioritize rest or easy sessions (Z1-Z2).`;
         }
       }
     }
@@ -2037,7 +1938,7 @@ HÄLSODATA (aktuell):
       ctx += `\nPASSREGEL: CNS ≥70 → kvalitetspass ok · CNS 45–69 → normalt/lätt pass · CNS <45 → vila eller Z2 obligatoriskt`;
     }
 
-    // Sparade noteringar
+    // Sparade notes
     if (userNotes.length > 0) {
       const catLabels = { kropp:'Kropp & skador', kost:'Kost & återhämtning', mål:'Mål & fokus', utrustning:'Utrustning', general:'Övrigt' };
       ctx += '\n\nSPARADE NOTERINGAR FRÅN ANVÄNDAREN (ta alltid hänsyn till dessa):';
@@ -2127,9 +2028,9 @@ HÄLSODATA (aktuell):
       ctx += `\n- Akut last (7 dagar): ${trainingLoadData.acute} · Kronisk last (28 dagar): ${trainingLoadData.chronic}`;
       ctx += `\n- Aktuell ACWR-kvot: ${trainingLoadData.ratio} (${trainingLoadData.acwrStatus}) · Träningsstatus: ${statusLabel}`;
       ctx += `\n- Genomförd load denna vecka: ${Math.round(completedLoadWeek)} · Estimerad last för kvarvarande planerade pass: ${Math.round(estimatedRemainingLoad)}`;
-      ctx += `\n- Projicerad ACWR om alla pass genomförs: ${projectedRatio} → ${safeToAdd ? '✓ inom säker zon (≤1.3)' : '⚠ ÖVERSTIGER säker zon (>1.3)'}`;
+      ctx += `\n- Projicerad ACWR om alla pass genomförs: ${projectedRatio} → ${safeToAdd ? ' inom säker zon (≤1.3)' : ' ÖVERSTIGER säker zon (>1.3)'}`;
       ctx += `\n- Belastningsbalans: ${feedbackLabel}`;
-      ctx += `\nREGEL: Optimal ACWR är 0.8–1.3. Om ett ombokas pass skulle driva projicerad ACWR över 1.3 — ersätt med Z2-jogg eller vila istället. Estimerade load/km: Z2=7, intervall/tröskel=22, race=25, styrka=40 fast.`;
+      ctx += `\nRULE: Optimal ACWR is 0.8–1.3. If a rescheduled session would push projected ACWR above 1.3 — replace with Z2 jog or rest instead. Estimated load/km: Z2=7, interval/threshold=22, race=25, strength=40 fixed.`;
     }
 
     ctx += '\n\nSvara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen i ditt svar. Max 3–4 meningar.';
@@ -2145,7 +2046,7 @@ HÄLSODATA (aktuell):
     } catch(e) { console.error('Notes error:', e); }
   }
 
-  const catEmoji = { kropp:'🩹', kost:'🥗', mål:'🎯', utrustning:'👟', general:'📝' };
+  const catEmoji = { kropp:'', kost:'', mål:'', utrustning:'', general:'' };
   const catLabel = { kropp:'Kropp & skador', kost:'Kost & återhämtning', mål:'Mål & fokus', utrustning:'Utrustning', general:'Övrigt' };
   const catColor = { kropp:'var(--red)', kost:'var(--green)', mål:'var(--blue)', utrustning:'var(--amber)', general:'var(--muted2)' };
 
@@ -2153,13 +2054,13 @@ HÄLSODATA (aktuell):
     const list = document.getElementById('notes-list');
     const count = document.getElementById('notes-count');
     if (!list) return;
-    count.textContent = userNotes.length + (userNotes.length === 1 ? ' notering' : ' noteringar');
+    count.textContent = userNotes.length + (userNotes.length === 1 ? ' notering' : ' notes');
     if (!userNotes.length) {
-      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:4px 0;">Inga noteringar ännu. Lägg till saker coachen bör veta.</div>';
+      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:4px 0;">Inga notes ännu. Lägg till saker coachen bör veta.</div>';
       return;
     }
     list.innerHTML = userNotes.map(n => {
-      const emoji = catEmoji[n.category] || '📝';
+      const emoji = catEmoji[n.category] || '';
       const col   = catColor[n.category]  || 'var(--muted2)';
       const label = catLabel[n.category]  || n.category;
       const date  = new Date(n.created_at * 1000).toLocaleDateString('sv-SE', {day:'numeric', month:'short'});
@@ -2193,7 +2094,7 @@ HÄLSODATA (aktuell):
     await loadNotes();
   }
 
-  // Ladda noteringar direkt vid start
+  // Ladda notes direkt vid start
   loadNotes();
 
   // Garmin-aktiviteter cached globalt för coachens volyms- och loadberäkning
@@ -2263,13 +2164,13 @@ HÄLSODATA (aktuell):
 
   async function loadStrength() {
     const container = document.getElementById('strength-list');
-    container.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'JetBrains Mono\',monospace;">Hämtar pass...</div>';
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'JetBrains Mono\',monospace;">Loading sessions...</div>';
     try {
       const res = await fetch('/api/strength');
       const data = await res.json();
       const sessions = data.sessions || [];
       if (!sessions.length) {
-        container.innerHTML = '<div class="no-sessions">Inga styrkepass hittades i Garmin. Synka data för att uppdatera.</div>';
+        container.innerHTML = '<div class="no-sessions">No strength sessions hittades i Garmin. Synka data för att uppdatera.</div>';
         return;
       }
       container.innerHTML = sessions.map(s => `
@@ -2277,12 +2178,12 @@ HÄLSODATA (aktuell):
           <div class="strength-header" onclick="toggleSession('${s.id}')">
             <div class="strength-header-left">
               <div class="strength-title">${s.name}</div>
-              <div class="strength-meta">${fmtDateStr(s.date)} &nbsp;·&nbsp; ${fmtDur(s.duration)} &nbsp;·&nbsp; ${Math.round(s.calories||0)} kcal${s.avgHR?' &nbsp;·&nbsp; ♡ '+Math.round(s.avgHR)+' bpm':''}</div>
+              <div class="strength-meta">${fmtDateStr(s.date)} &nbsp;·&nbsp; ${fmtDur(s.duration)} &nbsp;·&nbsp; ${Math.round(s.calories||0)} kcal${s.avgHR?' &nbsp;·&nbsp;  '+Math.round(s.avgHR)+' bpm':''}</div>
             </div>
             <span class="strength-chevron">▾</span>
           </div>
           <div class="strength-body">
-            <div class="ex-list" id="exlist-${s.id}"><div style="color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;">Laddar...</div></div>
+            <div class="ex-list" id="exlist-${s.id}"><div style="color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;">Loading...</div></div>
             <div class="add-ex-form">
               <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOGGA ÖVNING</div>
               <div class="form-row">
@@ -2370,115 +2271,115 @@ HÄLSODATA (aktuell):
         { label: '75 – 100', val: 'Peakad — kör kvalitet', col: 'var(--green)' },
         { label: '50 – 74',  val: 'Klar — normal träning',  col: 'var(--amber)' },
         { label: '25 – 49',  val: 'Återhämtar sig',         col: 'var(--amber)' },
-        { label: '0 – 24',   val: 'Låg — vila/Z2 max',      col: 'var(--red)'   },
+        { label: '0 – 24',   val: 'Low — vila/Z2 max',      col: 'var(--red)'   },
       ]
     },
     hrv: {
       title: 'HRV — Heart Rate Variability',
-      desc: 'Variabiliteten mellan hjärtslagen under sömn. Högt HRV = kroppen i parasympatiskt läge = bra återhämtning. Mycket individuellt — jämför alltid mot ditt eget snitt.',
+      desc: 'Variabiliteten mellan hjärtslagen under sömn. Hight HRV = kroppen i parasympatiskt läge = bra återhämtning. Mycket individuellt — jämför alltid mot ditt eget avg.',
       ranges: [
-        { label: '> 100% av snitt', val: 'Utmärkt återhämtning', col: 'var(--green)' },
-        { label: '80 – 100%',       val: 'Bra',                  col: 'var(--green)' },
+        { label: '> 100% av avg', val: 'Excellent återhämtning', col: 'var(--green)' },
+        { label: '80 – 100%',       val: 'Good',                  col: 'var(--green)' },
         { label: '50 – 79%',        val: 'Acceptabel',           col: 'var(--amber)' },
-        { label: '< 50%',           val: 'Låg — vila rekommenderas', col: 'var(--red)' },
+        { label: '< 50%',           val: 'Low — vila rekommenderas', col: 'var(--red)' },
       ]
     },
     rhr: {
-      title: 'Vilopuls (bpm)',
+      title: 'Resting HR (bpm)',
       desc: 'Lägsta puls under vila/sömn. Lägre = bättre kondition. Minskar ofta med ökad aerob träning. Plötslig ökning kan signalera sjukdom eller överträning.',
       ranges: [
         { label: '< 45 bpm',  val: 'Elitidrottare',    col: 'var(--green)' },
         { label: '45 – 55',   val: 'Vältränad',        col: 'var(--green)' },
-        { label: '56 – 70',   val: 'Genomsnitt',       col: 'var(--amber)' },
+        { label: '56 – 70',   val: 'Genomavg',       col: 'var(--amber)' },
         { label: '> 70 bpm',  val: 'Förhöjd',          col: 'var(--red)'   },
       ]
     },
     vo2max: {
       title: 'VO2max (ml/kg/min)',
-      desc: 'Maximal syreupptagningsförmåga — det viktigaste måttet på kondition. Garmin uppskattar den via löpdata. Ökar gradvis med aerob träning.',
+      desc: 'Maximum oxygen uptake — the most important measure of fitness. Garmin estimates it via running data. Increases gradually with aerobic training.',
       ranges: [
-        { label: '> 60',   val: 'Elitlöpare',        col: 'var(--green)' },
-        { label: '55 – 60', val: 'Utmärkt (män 20–35)', col: 'var(--green)' },
-        { label: '46 – 54', val: 'Bra – över genomsnitt', col: 'var(--amber)' },
-        { label: '< 46',   val: 'Genomsnitt/under',  col: 'var(--red)'   },
+        { label: '> 60',   val: 'Elite runner',        col: 'var(--green)' },
+        { label: '55 – 60', val: 'Excellent (män 20–35)', col: 'var(--green)' },
+        { label: '46 – 54', val: 'Good – över genomavg', col: 'var(--amber)' },
+        { label: '< 46',   val: 'Genomavg/under',  col: 'var(--red)'   },
       ]
     },
     'sleep-score': {
-      title: 'Sömnpoäng',
+      title: 'Sleep score',
       desc: 'Garmins samlade bedömning av sömnkvaliteten baserat på duration, sömncykler, HRV och andning under natten.',
       ranges: [
-        { label: '90 – 100', val: 'Utmärkt',  col: 'var(--green)' },
-        { label: '80 – 89',  val: 'Bra',      col: 'var(--green)' },
+        { label: '90 – 100', val: 'Excellent',  col: 'var(--green)' },
+        { label: '80 – 89',  val: 'Good',      col: 'var(--green)' },
         { label: '60 – 79',  val: 'Acceptabel', col: 'var(--amber)' },
         { label: '< 60',     val: 'Dålig — prioritera sömn', col: 'var(--red)' },
       ]
     },
     deep: {
-      title: 'Djupsömn (slow-wave)',
+      title: 'Deep sleep (slow-wave)',
       desc: 'Den mest fysiskt återhämtande sömnfasen — kroppen reparerar muskler och vävnad. Viktigast för idrottare. Minskar naturligt med åldern.',
       ranges: [
-        { label: '20 – 25%', val: 'Utmärkt (ca 1,5–2h)', col: 'var(--green)' },
-        { label: '13 – 19%', val: 'Normalt',              col: 'var(--green)' },
+        { label: '20 – 25%', val: 'Excellent (ca 1,5–2h)', col: 'var(--green)' },
+        { label: '13 – 19%', val: 'Normal',              col: 'var(--green)' },
         { label: '8 – 12%',  val: 'Lite låg',             col: 'var(--amber)' },
         { label: '< 8%',     val: 'För lite',             col: 'var(--red)'   },
       ]
     },
     rem: {
-      title: 'REM-sömn',
-      desc: 'Rapid Eye Movement-sömn — hjärnan konsoliderar minnen och bearbetar intryck. Viktig för mental återhämtning, motorinlärning och motivation.',
+      title: 'REM sleep',
+      desc: 'Rapid Eye Movement-sleep — hjärnan konsoliderar minnen och bearbetar intryck. Viktig för mental återhämtning, motorinlärning och motivation.',
       ranges: [
-        { label: '20 – 25%', val: 'Utmärkt (ca 1,5–2h)',  col: 'var(--green)'  },
-        { label: '15 – 19%', val: 'Normalt',               col: 'var(--green)'  },
+        { label: '20 – 25%', val: 'Excellent (ca 1,5–2h)',  col: 'var(--green)'  },
+        { label: '15 – 19%', val: 'Normal',               col: 'var(--green)'  },
         { label: '10 – 14%', val: 'Lite låg',              col: 'var(--amber)'  },
         { label: '< 10%',    val: 'För lite',              col: 'var(--red)'    },
       ]
     },
     'hrv-sleep': {
       title: 'HRV under sömn (ms)',
-      desc: 'Genomsnittlig HRV mätt under hela natten. Mer stabilt mått än dagsmätning. Stiger normalt under djupsömn och REM. Absoluta värden varierar mycket mellan individer.',
+      desc: 'Genomavglig HRV mätt under hela natten. Mer stabilt mått än dagsmätning. Stiger normalt under djupsömn och REM. Absoluta värden varierar mycket mellan individer.',
       ranges: [
         { label: 'Vältränade', val: 'Typiskt 55–100+ ms',    col: 'var(--green)' },
-        { label: 'Genomsnitt', val: 'Typiskt 25–55 ms',      col: 'var(--amber)' },
-        { label: 'Trend',      val: 'Jämför mot ditt snitt', col: 'var(--blue)'  },
+        { label: 'Genomavg', val: 'Typiskt 25–55 ms',      col: 'var(--amber)' },
+        { label: 'Trend',      val: 'Jämför mot ditt avg', col: 'var(--blue)'  },
         { label: 'Obs!',       val: 'Plötslig sänkning = vila', col: 'var(--red)' },
       ]
     },
     bb: {
       title: 'Body Battery',
-      desc: 'Garmins energireserv-mätare baserad på HRV, stress och sömn. Laddas under sömn och vila, töms av aktivitet och stress. Bra guide för om du klarar ett hårt pass.',
+      desc: 'Garmins energireserv-mätare baserad på HRV, stress och sömn. Laddas under sömn och vila, töms av aktivitet och stress. Good guide för om du klarar ett hårt pass.',
       ranges: [
-        { label: '75 – 100', val: 'Hög energi — kör hårt',   col: 'var(--green)' },
+        { label: '75 – 100', val: 'High energi — kör hårt',   col: 'var(--green)' },
         { label: '50 – 74',  val: 'Moderat — normal träning', col: 'var(--green)' },
-        { label: '25 – 49',  val: 'Låg — håll det lugnt',     col: 'var(--amber)' },
-        { label: '0 – 24',   val: 'Tom — vila prioriterat',   col: 'var(--red)'   },
+        { label: '25 – 49',  val: 'Low — håll det lugnt',     col: 'var(--amber)' },
+        { label: '0 – 24',   val: 'Empty — rest prioriterat',   col: 'var(--red)'   },
       ]
     },
     stress: {
-      title: 'Stressnivå',
-      desc: 'Garmin beräknar stress utifrån HRV-variationer under dagen. Hög stress aktiverar det sympatiska nervsystemet och bromsar återhämtning. Inkluderar fysisk och mental stress.',
+      title: 'Stress level',
+      desc: 'Garmin beräknar stress utifrån HRV-variationer under dagen. High stress aktiverar det sympatiska nervsystemet och bromsar återhämtning. Inkluderar fysisk och mental stress.',
       ranges: [
-        { label: '0 – 25',  val: 'Vila / avslappnad',     col: 'var(--green)' },
-        { label: '26 – 50', val: 'Låg stress',            col: 'var(--green)' },
+        { label: '0 – 25',  val: 'Rest / avslappnad',     col: 'var(--green)' },
+        { label: '26 – 50', val: 'Low stress',            col: 'var(--green)' },
         { label: '51 – 75', val: 'Måttlig stress',        col: 'var(--amber)' },
-        { label: '76 – 100', val: 'Hög stress — bromsar återhämtning', col: 'var(--red)' },
+        { label: '76 – 100', val: 'High stress — bromsar återhämtning', col: 'var(--red)' },
       ]
     },
     spo2: {
       title: 'SpO2 — Syremättnad (%)',
-      desc: 'Andelen hemoglobin i blodet som bär syre. Mäts med pulsoximeter. Normalt konstant hos friska — sjunker på hög höjd eller vid andningsproblem.',
+      desc: 'Percentage of hemoglobin in the blood carrying oxygen. Measured with a pulse oximeter. Normally stable in healthy individuals — drops at high altitude or with breathing issues.',
       ranges: [
-        { label: '97 – 100%', val: 'Optimalt',           col: 'var(--green)' },
-        { label: '95 – 96%',  val: 'Normalt',            col: 'var(--green)' },
+        { label: '97 – 100%', val: 'Optimal',           col: 'var(--green)' },
+        { label: '95 – 96%',  val: 'Normal',            col: 'var(--green)' },
         { label: '90 – 94%',  val: 'Lätt sänkt — obs!', col: 'var(--amber)' },
         { label: '< 90%',     val: 'Kritiskt lågt',      col: 'var(--red)'   },
       ]
     },
     resp: {
-      title: 'Andningsfrekvens (andetag/min)',
+      title: 'Breathing rate (andetag/min)',
       desc: 'Antal andetag per minut i vila. Lägre frekvens hos vältränade (djupare andetag). Förhöjd frekvens under sömn kan signalera sjukdom eller dålig sömnkvalitet.',
       ranges: [
         { label: '8 – 12/min',  val: 'Vältränad idrottare', col: 'var(--green)' },
-        { label: '12 – 16/min', val: 'Normalt vuxen',       col: 'var(--green)' },
+        { label: '12 – 16/min', val: 'Normal vuxen',       col: 'var(--green)' },
         { label: '17 – 20/min', val: 'Lite förhöjd',        col: 'var(--amber)' },
         { label: '> 20/min',    val: 'Förhöjd — undersök',  col: 'var(--red)'   },
       ]
@@ -2570,6 +2471,65 @@ HÄLSODATA (aktuell):
   // Fallback till hårdkodad array om API-anropet misslyckas
   let PLAN_SESSIONS = [];
 
+  async function loadPlanStatus() {
+    try {
+      const r = await fetch('/api/plan/status');
+      const d = await r.json();
+      const bar = document.getElementById('coach-notes-bar');
+      if (d.coaching_notes && d.date) {
+        document.getElementById('coach-notes-text').textContent = d.coaching_notes;
+        document.getElementById('coach-notes-date').textContent = d.date;
+        bar.style.display = 'block';
+      } else {
+        bar.style.display = 'none';
+      }
+    } catch(e) {}
+  }
+  loadPlanStatus();
+
+  function renderTodaySession() {
+    const now = new Date();
+    // ISO week + weekday (0=Mon)
+    const jan4 = new Date(now.getFullYear(), 0, 4);
+    const startDay = jan4.getDay() || 7;
+    const monday = new Date(jan4);
+    monday.setDate(jan4.getDate() - startDay + 1);
+    const isoWeek = Math.ceil(((now - monday) / 86400000 + 1) / 7);
+    const dow = (now.getDay() + 6) % 7; // 0=Mon
+
+    const s = PLAN_SESSIONS.find(p => p.week === isoWeek && p.dow === dow && p.status === 'planned')
+           || PLAN_SESSIONS.find(p => p.week === isoWeek && p.dow === dow);
+
+    const card  = document.getElementById('today-session-card');
+    const dot   = document.getElementById('today-session-dot');
+    const title = document.getElementById('today-session-title');
+    const detail= document.getElementById('today-session-detail');
+    const km    = document.getElementById('today-session-km');
+    const type  = document.getElementById('today-session-type');
+
+    if (!s) {
+      title.textContent  = 'Rest day';
+      detail.textContent = 'No session scheduled today';
+      km.textContent     = '';
+      type.textContent   = 'REST';
+      dot.style.background = 'var(--muted)';
+      return;
+    }
+
+    const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
+    const typeLabels = { run:'RUN', easy:'EASY RUN', lift:'STRENGTH', race:'RACE', rest:'REST' };
+    const col = typeColors[s.type] || 'var(--green)';
+
+    dot.style.background   = col;
+    card.style.borderColor = col.replace('var(--','rgba(').replace(')',',0.25)');
+    title.textContent      = s.title;
+    title.style.color      = col;
+    detail.textContent     = s.detail || '';
+    km.textContent         = s.km > 0 ? s.km + ' km' : '';
+    km.style.color         = col;
+    type.textContent       = (typeLabels[s.type] || s.type.toUpperCase()) + (s.status !== 'planned' ? ' · ' + s.status.toUpperCase() : '');
+  }
+
   async function loadPlan() {
     try {
       const r = await fetch('/api/plan');
@@ -2577,9 +2537,10 @@ HÄLSODATA (aktuell):
       if (d.sessions && d.sessions.length > 0) {
         PLAN_SESSIONS = d.sessions;
         buildCalendar();
+        renderTodaySession();
       }
     } catch(e) {
-      console.warn('Plan-hämtning misslyckades, använder fallback', e);
+      console.warn('Plan fetch failed, using fallback', e);
     }
   }
   loadPlan();
@@ -2588,7 +2549,7 @@ HÄLSODATA (aktuell):
   const PLAN_SESSIONS_FALLBACK = [
 
     // ── V.23 · Återhämtning · mål ~28 km ──────────────────
-    { week:23, dow:1, type:'run',  km:6,  title:'Återhämtningsjogg',       detail:'Z2 · 6 km · 4:45–5:15/km · Vila efter GöteborgsVarvet' },
+    { week:23, dow:1, type:'run',  km:6,  title:'Återhämtningsjogg',       detail:'Z2 · 6 km · 4:45–5:15/km · Rest efter GöteborgsVarvet' },
     { week:23, dow:2, type:'easy', km:7,  title:'Lätt Z2 · 7 km',          detail:'Z2 · Lugnt tempo · 5:00–5:20/km · Aktiv återhämtning' },
     { week:23, dow:3, type:'lift', km:0,  title:'Helkropp – intro',         detail:'Knäböj, marklyft, bänkpress, latsdrag · 3×8 · 60–70% av max' },
     { week:23, dow:4, type:'easy', km:5,  title:'Lätt Z2 · 5 km',          detail:'Z2 · Kort och lätt · Spola ur benen' },
@@ -2645,7 +2606,7 @@ HÄLSODATA (aktuell):
     { week:29, dow:2, type:'easy', km:7,  title:'Medium Z2 · 7 km',        detail:'Z2 · Sista längre passet innan testet' },
     { week:29, dow:3, type:'lift', km:0,  title:'Lätt styrka',              detail:'3 övningar · 3×6 · 75% · Spara energi inför testet' },
     { week:29, dow:4, type:'easy', km:5,  title:'Lätt jogg · 5 km',        detail:'Z2 · Aktivering dagen innan test · Lugnt' },
-    { week:29, dow:5, type:'race', km:7,  title:'⭐ 3 km KONTROLLTEST',    detail:'Uppvärmning 2 km + 3 km test (mål <10:10) + nedvarvning 2 km' },
+    { week:29, dow:5, type:'race', km:7,  title:' 3 km KONTROLLTEST',    detail:'Uppvärmning 2 km + 3 km test (mål <10:10) + nedvarvning 2 km' },
     { week:29, dow:6, type:'easy', km:6,  title:'Återhämtningsjogg · 6 km',detail:'Z2 · Lätt efter gårdagens test · Spola ut mjölksyra' },
 
     // ── V.30 · Spetsning · mål ~46 km ─────────────────────
@@ -2686,8 +2647,8 @@ HÄLSODATA (aktuell):
     // ── V.34 · Tävlingsvecka · mål ~20 km ─────────────────
     { week:34, dow:0, type:'easy', km:5,  title:'Lätt aktivering · 5 km',  detail:'Z2 · 15–20 min · Håll benen spänstiga' },
     { week:34, dow:1, type:'easy', km:5,  title:'Strides · 5 km',          detail:'10 min Z2 + 4×80m strides · Deux dagar kvar' },
-    { week:34, dow:2, type:'rest', km:0,  title:'Vila',                     detail:'Fullständig vila. Ät bra, sov länge, visualisera loppet.' },
-    { week:34, dow:3, type:'race', km:10, title:'🏆 3 KM — SUB 10:00',     detail:'Uppvärm 3 km · UT: 3:22/km · Km 2: 3:20 · Km 3: 3:15 · MÅL: 9:59!' },
+    { week:34, dow:2, type:'rest', km:0,  title:'Rest',                     detail:'Fullständig vila. Ät bra, sov länge, visualisera loppet.' },
+    { week:34, dow:3, type:'race', km:10, title:' 3 KM — SUB 10:00',     detail:'Uppvärm 3 km · UT: 3:22/km · Km 2: 3:20 · Km 3: 3:15 · MÅL: 9:59!' },
   ];
 
   // Använd fallback om DB-laddningen ännu inte är klar
@@ -2702,11 +2663,19 @@ HÄLSODATA (aktuell):
   }
 
   function getMondayOfISOWeek(week, year) {
-    const jan4 = new Date(year, 0, 4);
-    const startDay = jan4.getDay() || 7;
-    const monday = new Date(jan4);
-    monday.setDate(jan4.getDate() - startDay + 1 + (week - 1) * 7);
+    const Jan4 = new Date(year, 0, 4);
+    const startDay = Jan4.getDay() || 7;
+    const monday = new Date(Jan4);
+    monday.setDate(Jan4.getDate() - startDay + 1 + (week - 1) * 7);
     return monday;
+  }
+
+  // Lokal datumnyckel "YYYY-MM-DD" — toISOString() räknar om till UTC, vilket
+  // gör att lokal midnatt i svensk tidszon hamnar på föregående dygn.
+  function localDateKey(d) {
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
   }
 
   function buildCalendar() {
@@ -2716,8 +2685,8 @@ HÄLSODATA (aktuell):
 
     const today = new Date();
     today.setHours(0,0,0,0);
-    const dayNames = ['Mån','Tis','Ons','Tor','Fre','Lör','Sön'];
-    const monthNames = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+    const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
     // Fas-rubriker
     const phases = {
@@ -2787,7 +2756,7 @@ HÄLSODATA (aktuell):
         });
         const dayDate = new Date(monday);
         dayDate.setDate(monday.getDate() + d);
-        const dayKey = dayDate.toISOString().substring(0,10);
+        const dayKey = localDateKey(dayDate);
         workCount += (gcalMap[dayKey] || []).length;
       }
 
@@ -2806,10 +2775,10 @@ HÄLSODATA (aktuell):
       const headerEl = document.createElement('div');
       headerEl.className = 'cal-week-header';
       let badgesHtml = '';
-      if (runCount)  badgesHtml += `<span class="cal-week-badge cwb-run">🏃 ${runCount} löp</span>`;
-      if (liftCount) badgesHtml += `<span class="cal-week-badge cwb-lift">🏋️ ${liftCount} styrka</span>`;
-      if (raceCount) badgesHtml += `<span class="cal-week-badge cwb-race">⭐ tävling</span>`;
-      if (workCount) badgesHtml += `<span class="cal-week-badge cwb-work">💼 ${workCount} jobb</span>`;
+      if (runCount)  badgesHtml += `<span class="cal-week-badge cwb-run"> ${runCount} run</span>`;
+      if (liftCount) badgesHtml += `<span class="cal-week-badge cwb-lift"> ${liftCount} strength</span>`;
+      if (raceCount) badgesHtml += `<span class="cal-week-badge cwb-race"> race</span>`;
+      if (workCount) badgesHtml += `<span class="cal-week-badge cwb-work"> ${workCount} work</span>`;
       if (totalKm > 0) badgesHtml += `<span class="cal-week-badge cwb-km">~${totalKm} km</span>`;
       headerEl.innerHTML = `
         <span class="cal-week-num">V.${w}</span>
@@ -2833,28 +2802,31 @@ HÄLSODATA (aktuell):
         dayEl.className = 'cal-day' + (isToday ? ' today' : '') + (isPast ? ' past' : '');
 
         // Google Calendar-events för denna dag (visas först)
-        const dateKey = date.toISOString().substring(0, 10);
+        const dateKey = localDateKey(date);
         const dayGcal = gcalMap[dateKey] || [];
 
         let pillsHtml = '';
         dayGcal.forEach(ev => {
           const timeStr = ev.allDay ? 'Heldag' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
           const tip = `${ev.title} · ${timeStr}${ev.location ? ' · ' + ev.location : ''}`;
-          pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}">💼 ${ev.title}</span>`;
+          pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}"> ${ev.title}</span>`;
         });
 
         const sessions = sessionMap[w + '-' + d] || [];
         sessions.forEach(s => {
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
           const escaped = (s.detail || '').replace(/"/g, '&quot;');
-          const statusNote = s.status === 'missed'      ? ' · ⚠ Missat'
-                           : s.status === 'skipped'     ? ' · Överhoppat'
-                           : s.status === 'completed'   ? ' · ✓ Klart'
-                           : s.status === 'rescheduled' ? ' · ↩ Omplanerat'
+          const isModified = s.ai_note && s.status === 'planned' && s.modified_at;
+          const statusNote = s.status === 'missed'      ? ' · ⚠ Missed'
+                           : s.status === 'skipped'     ? ' · Skipped'
+                           : s.status === 'completed'   ? ' · ✓ Done'
+                           : s.status === 'rescheduled' ? ' · ↩ Rescheduled'
+                           : isModified                 ? ' · ✏ Adjusted'
                            : '';
           const tipText = escaped + (s.ai_note ? ` · AI: ${s.ai_note}` : '') + statusNote;
           const opacity = s.status === 'missed' || s.status === 'skipped' ? 'opacity:0.45;text-decoration:line-through;' : '';
-          pillsHtml += `<span class="cal-session-pill ${cls}" style="${opacity}" data-freetip="${tipText}">${s.title}${statusNote}</span>`;
+          const modCls  = isModified ? ' csp-modified' : '';
+          pillsHtml += `<span class="cal-session-pill ${cls}${modCls}" style="${opacity}" data-freetip="${tipText}">${s.title}${statusNote}</span>`;
         });
 
         dayEl.innerHTML = `
@@ -2888,45 +2860,24 @@ HÄLSODATA (aktuell):
   }
 
   async function checkGcalStatus() {
-    const banner = document.getElementById('gcal-banner');
-    if (!banner) return;
-    banner.style.display = 'flex';
     try {
       const r = await fetch('/api/calendar/status');
       const d = await r.json();
-      if (!d.hasCreds) {
-        document.getElementById('gcal-status-text').textContent = 'Google Kalender ej kopplad';
-        document.getElementById('gcal-status-sub').textContent = 'Lägg google_credentials.json i projektmappen för att aktivera';
-        banner.style.borderColor = 'rgba(77,159,255,0.15)';
-      } else if (!d.hasToken) {
-        document.getElementById('gcal-status-text').textContent = 'Klicka för att logga in med Google';
-        document.getElementById('gcal-status-sub').textContent = 'Första gången öppnas en webbläsare för att godkänna åtkomst';
-        document.getElementById('gcal-sync-btn').style.display = 'block';
-        document.getElementById('gcal-sync-btn').textContent = '🔑 Logga in';
-      } else {
-        document.getElementById('gcal-sync-btn').style.display = 'block';
-        await syncGcal();
-      }
-    } catch(e) {
-      banner.style.display = 'none';
-    }
+      if (d.hasToken) await syncGcal();
+    } catch(e) {}
   }
 
   async function syncGcal() {
     const btn = document.getElementById('gcal-sync-btn');
-    const sub = document.getElementById('gcal-status-sub');
-    if (btn) { btn.textContent = '↻ Hämtar...'; btn.disabled = true; }
+    if (btn) { btn.textContent = '↻ Loading...'; btn.disabled = true; }
     try {
       const r = await fetch('/api/calendar');
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || 'Fel');
       gcalEvents = d.events || [];
-      document.getElementById('gcal-status-text').textContent = `📅 Google Kalender synkad`;
-      if (sub) sub.textContent = `${gcalEvents.length} händelser t.o.m. v.34 (23 aug)`;
-      if (btn) { btn.textContent = '↻ Synka'; btn.disabled = false; }
-      buildCalendar(); // Bygg om kalendern med arbetspass
+      if (btn) { btn.textContent = '↻ Sync calendar'; btn.disabled = false; }
+      buildCalendar();
     } catch(e) {
-      document.getElementById('gcal-status-text').textContent = 'Google Kalender — fel: ' + e.message;
       if (btn) { btn.textContent = '↻ Försök igen'; btn.disabled = false; }
     }
   }
@@ -2936,6 +2887,7 @@ HÄLSODATA (aktuell):
   if (document.getElementById('page-upcoming').classList.contains('active')) {
     checkGcalStatus();
   }
+
 </script>
 </body>
 </html>
