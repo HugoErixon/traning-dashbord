@@ -162,6 +162,38 @@
     }
     .refresh-btn:hover { border-color: var(--green); color: var(--green); background: var(--green-dim); }
     .refresh-btn:disabled { opacity:0.45; cursor:not-allowed; }
+    .ac-control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .ac-loop-status {
+      font-size: 12px;
+      color: var(--muted2);
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1.5;
+    }
+    .ac-loop-btn {
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      color: var(--muted2);
+      cursor: pointer;
+      flex-shrink: 0;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 9px 14px;
+      transition: all 0.2s;
+    }
+    .ac-loop-btn:hover { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
+    .ac-loop-btn.is-on { border-color: rgba(74,222,128,0.35); color: var(--green); background: var(--green-dim); }
+    .ac-loop-btn.is-off { border-color: rgba(248,113,113,0.35); color: var(--red); background: var(--red-dim); }
+    .ac-loop-btn:disabled { opacity:0.45; cursor:not-allowed; }
 
     /* ─── MAIN ─── */
     .main {
@@ -1248,6 +1280,10 @@
           <span class="today-badge badge-amber" id="ac-badge">AC</span>
         </div>
         <p id="ac-body">Reading room temperature…</p>
+        <div class="ac-control-row">
+          <div class="ac-loop-status" id="ac-loop-status">Control loop: checking...</div>
+          <button class="ac-loop-btn" id="ac-loop-toggle" onclick="toggleAcLoop()" disabled>Loading...</button>
+        </div>
       </div>
 
     </div>
@@ -2269,7 +2305,66 @@ HEALTH DATA (current):
   }
   loadTrainingReview();
 
-  // AC / rumstemperatur — hämtas från ac-keeper via dashboardens proxy (/api/ac)
+  let acLoopEnabled = false;
+
+  function renderAcLoopControl(status) {
+    const label = document.getElementById('ac-loop-status');
+    const btn = document.getElementById('ac-loop-toggle');
+    if (!label || !btn) return;
+
+    if (!status || status.available === false) {
+      acLoopEnabled = false;
+      label.textContent = 'Control loop: unavailable';
+      btn.textContent = 'Unavailable';
+      btn.className = 'ac-loop-btn is-off';
+      btn.disabled = true;
+      return;
+    }
+
+    acLoopEnabled = !!status.enabled;
+    label.textContent = 'Control loop: ' + (acLoopEnabled ? 'running' : 'stopped') + ' · ' + (status.service || 'ac-keeper-loop');
+    btn.textContent = acLoopEnabled ? 'Disable control' : 'Enable control';
+    btn.className = 'ac-loop-btn ' + (acLoopEnabled ? 'is-on' : 'is-off');
+    btn.disabled = false;
+  }
+
+  async function loadAcLoopStatus() {
+    try {
+      const res = await fetch('/api/ac/loop');
+      const status = await res.json();
+      renderAcLoopControl(status);
+    } catch(e) {
+      renderAcLoopControl({ available: false });
+    }
+  }
+
+  async function toggleAcLoop() {
+    const btn = document.getElementById('ac-loop-toggle');
+    const label = document.getElementById('ac-loop-status');
+    if (!btn) return;
+    const nextEnabled = !acLoopEnabled;
+    btn.disabled = true;
+    btn.textContent = nextEnabled ? 'Enabling...' : 'Disabling...';
+    if (label) label.textContent = 'Control loop: updating...';
+
+    try {
+      const res = await fetch('/api/ac/loop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextEnabled })
+      });
+      const status = await res.json();
+      if (!res.ok || status.ok === false) throw new Error(status.error || 'Could not update AC control loop');
+      renderAcLoopControl(status);
+      loadAcStatus();
+    } catch(e) {
+      if (label) label.textContent = 'Control loop: ' + e.message;
+      btn.textContent = acLoopEnabled ? 'Disable control' : 'Enable control';
+      btn.disabled = false;
+    }
+  }
+
+  // AC / room temperature — fetched from ac-keeper through the dashboard proxy (/api/ac)
   async function loadAcStatus() {
     try {
       const res = await fetch('/api/ac');
@@ -2299,7 +2394,9 @@ HEALTH DATA (current):
     } catch(e) {}
   }
   loadAcStatus();
+  loadAcLoopStatus();
   setInterval(loadAcStatus, 60000);
+  setInterval(loadAcLoopStatus, 60000);
 
   const history = [];
 

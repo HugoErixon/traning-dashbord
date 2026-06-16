@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
-import json, time, requests, psycopg2, psycopg2.extras
+import json, time, requests, psycopg2, psycopg2.extras, subprocess
 from datetime import date, datetime, timedelta
 import os
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -29,6 +29,7 @@ GCAL_CREDS    = 'google_credentials.json'
 GCAL_TOKEN    = 'google_token.json'
 GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
 AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
+AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 
 # --- Databas ---
 def db():
@@ -159,6 +160,64 @@ def ac_proxy():
         return jsonify(r.json())
     except Exception as e:
         return jsonify({'available': False, 'error': str(e)})
+
+def _ac_loop_status():
+    try:
+        res = subprocess.run(
+            ['systemctl', 'is-active', AC_LOOP_SERVICE],
+            capture_output=True, text=True, timeout=4
+        )
+        state = (res.stdout or res.stderr or '').strip() or 'unknown'
+        return {
+            'available': True,
+            'service': AC_LOOP_SERVICE,
+            'state': state,
+            'enabled': res.returncode == 0 and state == 'active',
+        }
+    except Exception as e:
+        return {
+            'available': False,
+            'service': AC_LOOP_SERVICE,
+            'state': 'unknown',
+            'enabled': False,
+            'error': str(e),
+        }
+
+@app.get('/api/ac/loop')
+def ac_loop_status():
+    return jsonify(_ac_loop_status())
+
+@app.post('/api/ac/loop')
+def ac_loop_control():
+    data = request.json or {}
+    enabled = bool(data.get('enabled'))
+    action = 'start' if enabled else 'stop'
+    try:
+        subprocess.run(
+            ['sudo', '-n', 'systemctl', action, AC_LOOP_SERVICE],
+            capture_output=True, text=True, timeout=10, check=True
+        )
+        status = _ac_loop_status()
+        status['ok'] = True
+        return jsonify(status)
+    except subprocess.CalledProcessError as e:
+        return jsonify({
+            'ok': False,
+            'available': False,
+            'service': AC_LOOP_SERVICE,
+            'enabled': False,
+            'state': 'unknown',
+            'error': (e.stderr or e.stdout or str(e)).strip(),
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'ok': False,
+            'available': False,
+            'service': AC_LOOP_SERVICE,
+            'enabled': False,
+            'state': 'unknown',
+            'error': str(e),
+        }), 500
 
 @app.get('/api/activities')
 def activities():
