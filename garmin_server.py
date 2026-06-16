@@ -1462,4 +1462,4 @@ def static_files(path):
 if __name__ == '__main__':
     print('Dashboard startar på http://localhost:3000')
     print('Tryck Ctrl+C för att stänga')
-    app.run(port=3000, debug=False)
+    app.run(host='0.0.0.0', port=3000, debug=False)
