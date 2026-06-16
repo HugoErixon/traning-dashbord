@@ -424,11 +424,8 @@ def training_load():
 @app.post('/api/sync')
 def sync():
     try:
-        client = get_garmin()
-        acts = client.get_activities(0, 50)
-        save_activities(acts)
-        clear_cache('health', 'analysis')
-        return jsonify({'ok': True, 'count': len(acts)})
+        n = run_sync()
+        return jsonify({'ok': True, 'count': n})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1163,53 +1160,66 @@ def _iso_week_dow(d):
     iso = d.isocalendar()
     return iso[1], iso[2] - 1  # dow: 0=mån
 
-def match_activities_to_plan():
+def match_activities_to_plan(days_back=7):
     """
-    Jämför Garmin-aktiviteter mot planerade pass.
-    Markerar pass som completed eller missed.
-    Körs varje morgon innan AI-justeraren.
+    Jämför Garmin-aktiviteter mot planerade pass de senaste N dagarna.
+    Markerar pass som completed eller missed. Re-utvärderar även 'missed'
+    (om en aktivitet synkats i efterhand) men rör aldrig skipped/rescheduled.
+    Idag hoppas över (dagen är inte slut). Körs efter varje synk + 07:30.
     """
     today = date.today()
-    yesterday = today - timedelta(days=1)
-    y_week, y_dow = _iso_week_dow(yesterday)
+    run_types  = {'running','track_running','treadmill_running','trail_running'}
+    lift_types = {'strength_training','fitness_equipment'}
 
     with db() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # Hämta gårdagens planerade pass som fortfarande är 'planned'
-            cur.execute('''SELECT * FROM plan_sessions
-                WHERE week = %s AND dow = %s AND status = 'planned' ''',
-                (y_week, y_dow))
-            planned = cur.fetchall()
-            if not planned:
-                return
+        for i in range(1, days_back + 1):
+            day = today - timedelta(days=i)
+            wk, dw = _iso_week_dow(day)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT * FROM plan_sessions
+                    WHERE week = %s AND dow = %s AND status IN ('planned','missed')''',
+                    (wk, dw))
+                planned = cur.fetchall()
+                if not planned:
+                    continue
+                cur.execute('''SELECT raw FROM activities
+                    WHERE date >= %s AND date < %s''',
+                    (day.isoformat(), (day + timedelta(days=1)).isoformat()))
+                acts = [r['raw'] for r in cur.fetchall()]
 
-            # Hämta Garmin-aktiviteter från igår
-            cur.execute('''SELECT raw FROM activities
-                WHERE date >= %s AND date < %s''',
-                (yesterday.isoformat(), today.isoformat()))
-            acts = [r['raw'] for r in cur.fetchall()]
+            did_run  = any(a.get('activityType',{}).get('typeKey','') in run_types for a in acts)
+            did_lift = any(a.get('activityType',{}).get('typeKey','') in lift_types for a in acts)
 
-        run_types = {'running','track_running','treadmill_running','trail_running'}
-        did_run    = any(a.get('activityType',{}).get('typeKey','') in run_types for a in acts)
-        did_lift   = any(a.get('activityType',{}).get('typeKey','') in
-                        {'strength_training','fitness_equipment'} for a in acts)
-
-        with conn.cursor() as cur:
-            for p in planned:
-                if p['type'] in ('run','easy','race'):
-                    completed = did_run
-                elif p['type'] == 'lift':
-                    completed = did_lift
-                elif p['type'] == 'rest':
-                    completed = True  # vilodag räknas alltid som genomförd
-                else:
-                    completed = False
-
-                new_status = 'completed' if completed else 'missed'
-                cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
-                    WHERE id = %s''', (new_status, time.time(), p['id']))
+            with conn.cursor() as cur:
+                for p in planned:
+                    if p['type'] in ('run','easy','race'):
+                        completed = did_run
+                    elif p['type'] == 'lift':
+                        completed = did_lift
+                    elif p['type'] == 'rest':
+                        completed = True  # vilodag räknas alltid som genomförd
+                    else:
+                        completed = False
+                    new_status = 'completed' if completed else 'missed'
+                    if new_status != p['status']:
+                        cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
+                            WHERE id = %s''', (new_status, time.time(), p['id']))
         conn.commit()
-    print(f'Activity matching complete for {yesterday}')
+    print(f'Activity matching complete (last {days_back} days)')
+
+
+def run_sync(count=50):
+    """Hämta senaste aktiviteter, spara, rensa cache och matcha mot planen.
+    Används av både /api/sync och den återkommande autosynken."""
+    client = get_garmin()
+    acts = client.get_activities(0, count)
+    save_activities(acts)
+    clear_cache('health', 'analysis')
+    try:
+        match_activities_to_plan()
+    except Exception as e:
+        print('Matchning efter synk fel:', e)
+    return len(acts)
 
 
 # ─────────────────────────────────────────────
@@ -1513,11 +1523,19 @@ def backup_job():
     print('[10:00] No adjustment done yet today, running now.')
     morning_job()
 
+def auto_sync_job():
+    try:
+        n = run_sync()
+        print(f'[{datetime.now().strftime("%H:%M")}] Auto-sync klar: {n} aktiviteter')
+    except Exception as e:
+        print('Auto-sync fel:', e)
+
 scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
 scheduler.add_job(morning_job, 'cron', hour=7, minute=30)
 scheduler.add_job(backup_job,  'cron', hour=10, minute=0)
+scheduler.add_job(auto_sync_job, 'interval', hours=3)
 scheduler.start()
-print('Scheduler active: AI adjustment at 07:30, backup at 10:00')
+print('Scheduler active: auto-sync var 3:e timme, AI-justering 07:30, backup 10:00')
 
 
 @app.get('/')
