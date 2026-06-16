@@ -1,66 +1,55 @@
 <!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Training Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetGoodins+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg:      #080810;
-      --bg2:     #0e0e1c;
-      --bg3:     #141426;
-      --bg4:     #1a1a30;
-      --border:  rgba(255,255,255,0.05);
-      --border2: rgba(255,255,255,0.10);
-      --border3: rgba(255,255,255,0.16);
-      --text:    #ededf5;
-      --muted:   #4a4864;
-      --muted2:  #7e7c98;
-      --muted3:  #a8a6c0;
-      --green:   #00e5a0;
-      --green-dim:  rgba(0,229,160,0.08);
-      --green-glow: rgba(0,229,160,0.18);
-      --amber:   #f5a623;
-      --amber-dim:  rgba(245,166,35,0.08);
-      --red:     #ff4d6d;
-      --red-dim: rgba(255,77,109,0.07);
-      --blue:    #4d9fff;
-      --blue-dim:rgba(77,159,255,0.08);
-      --purple:  #a78bfa;
-      --purple-dim: rgba(167,139,250,0.09);
-      --orange:  #ff8c42;
-      --orange-dim: rgba(255,140,66,0.09);
+      --bg:      #0b0d10;
+      --bg2:     #111418;
+      --bg3:     #171b21;
+      --bg4:     #20262d;
+      --border:  rgba(226,232,240,0.08);
+      --border2: rgba(226,232,240,0.13);
+      --border3: rgba(226,232,240,0.20);
+      --text:    #e5e7eb;
+      --muted:   #64707f;
+      --muted2:  #94a3b8;
+      --muted3:  #cbd5e1;
+      --green:   #2dd4bf;
+      --green-dim:  rgba(45,212,191,0.10);
+      --green-glow: rgba(45,212,191,0.14);
+      --amber:   #f59e0b;
+      --amber-dim:  rgba(245,158,11,0.10);
+      --red:     #f87171;
+      --red-dim: rgba(248,113,113,0.10);
+      --blue:    #60a5fa;
+      --blue-dim:rgba(96,165,250,0.10);
+      --purple:  #818cf8;
+      --purple-dim: rgba(129,140,248,0.10);
+      --orange:  #fb923c;
+      --orange-dim: rgba(251,146,60,0.10);
       --sidebar-w: 232px;
-      --radius: 14px;
+      --radius: 8px;
     }
 
-    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; letter-spacing:0 !important; }
 
     body {
-      font-family: 'Inter', system-ui, sans-serif;
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
       -webkit-font-smoothing: antialiased;
     }
 
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 0;
-      background:
-        radial-gradient(ellipse 60% 50% at -5% 0%, rgba(100,80,200,0.07) 0%, transparent 70%),
-        radial-gradient(ellipse 50% 40% at 105% 100%, rgba(0,229,160,0.04) 0%, transparent 65%);
-    }
-
     .shell { display:flex; min-height:100vh; position:relative; z-index:1; }
 
-    /* ─── SIDEBAR ─── */
+    /* â”€â”€â”€ SIDEBAR â”€â”€â”€ */
     .sidebar {
       width: var(--sidebar-w);
       flex-shrink: 0;
@@ -84,7 +73,7 @@
     .sidebar-logo p {
       font-size: 11px;
       color: var(--muted2);
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       margin-top: 3px;
     }
     .nav {
@@ -98,9 +87,9 @@
     .nav-item {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 0;
       padding: 9px 12px;
-      border-radius: 10px;
+      border-radius: 8px;
       cursor: pointer;
       font-size: 13px;
       font-weight: 500;
@@ -123,9 +112,9 @@
       left: 0; top: 20%; bottom: 20%;
       width: 2.5px;
       border-radius: 2px;
-      background: var(--purple);
+      background: var(--blue);
     }
-    .nav-icon { font-size: 15px; width: 18px; text-align: center; flex-shrink: 0; }
+    .nav-icon { display:none; }
     .sidebar-bottom {
       padding: 16px 20px 20px;
       border-top: 1px solid var(--border);
@@ -135,13 +124,10 @@
       width:6px; height:6px;
       background: var(--green);
       border-radius: 50%;
-      box-shadow: 0 0 6px var(--green);
-      animation: pulse 2.5s ease-in-out infinite;
     }
-    @keyframes pulse { 0%,100%{opacity:1;box-shadow:0 0 6px var(--green)} 50%{opacity:.5;box-shadow:0 0 2px var(--green)} }
     .live-label {
       font-size: 10.5px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--green);
       letter-spacing: 0.08em;
       font-weight: 500;
@@ -153,7 +139,7 @@
       border-radius: 10px;
       padding: 9px 14px;
       color: var(--muted2);
-      font-family: 'Inter', sans-serif;
+      font-family: 'IBM Plex Sans', sans-serif;
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
@@ -174,17 +160,17 @@
     .ac-loop-status {
       font-size: 12px;
       color: var(--muted2);
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       line-height: 1.5;
     }
     .ac-loop-btn {
       background: var(--bg3);
       border: 1px solid var(--border2);
-      border-radius: 10px;
+      border-radius: 8px;
       color: var(--muted2);
       cursor: pointer;
       flex-shrink: 0;
-      font-family: 'Inter', sans-serif;
+      font-family: 'IBM Plex Sans', sans-serif;
       font-size: 12px;
       font-weight: 700;
       padding: 9px 14px;
@@ -195,7 +181,7 @@
     .ac-loop-btn.is-off { border-color: rgba(248,113,113,0.35); color: var(--red); background: var(--red-dim); }
     .ac-loop-btn:disabled { opacity:0.45; cursor:not-allowed; }
 
-    /* ─── MAIN ─── */
+    /* â”€â”€â”€ MAIN â”€â”€â”€ */
     .main {
       margin-left: var(--sidebar-w);
       flex: 1;
@@ -203,7 +189,7 @@
       max-width: calc(100vw - var(--sidebar-w));
     }
 
-    /* ─── PAGE HEADER ─── */
+    /* â”€â”€â”€ PAGE HEADER â”€â”€â”€ */
     .page-header { margin-bottom: 36px; }
     .page-header h2 {
       font-size: 24px;
@@ -215,18 +201,18 @@
       font-size: 12.5px;
       color: var(--muted2);
       margin-top: 5px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
     }
 
-    /* ─── PAGES ─── */
+    /* â”€â”€â”€ PAGES â”€â”€â”€ */
     .page { display:none; animation: fadeUp 0.28s ease both; }
     .page.active { display:block; }
     @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 
-    /* ─── SECTION LABEL ─── */
+    /* â”€â”€â”€ SECTION LABEL â”€â”€â”€ */
     .sl {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       letter-spacing: 0.14em;
       color: var(--muted);
       text-transform: uppercase;
@@ -234,7 +220,7 @@
       font-weight: 500;
     }
 
-    /* ─── STAT CARDS ─── */
+    /* â”€â”€â”€ STAT CARDS â”€â”€â”€ */
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
@@ -252,7 +238,7 @@
     .card:hover { border-color: var(--border2); transform: translateY(-1px); }
     .card-label {
       font-size: 10.5px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       margin-bottom: 10px;
       letter-spacing: 0.05em;
@@ -269,7 +255,7 @@
       font-size: 11px;
       color: var(--muted2);
       margin-top: 7px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
     }
     .bar {
       height: 3px;
@@ -284,15 +270,15 @@
       transition: width 1s ease;
     }
 
-    /* ─── COLORS ─── */
+    /* â”€â”€â”€ COLORS â”€â”€â”€ */
     .cg { color: var(--green); }
     .ca { color: var(--amber); }
     .cr { color: var(--red); }
     .cb { color: var(--blue); }
-    .cp { color: var(--purple); }
+    .cp { color: var(--blue); }
     .co { color: var(--orange); }
 
-    /* ─── DUAL GOALS ─── */
+    /* â”€â”€â”€ DUAL GOALS â”€â”€â”€ */
     .goals-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -328,7 +314,7 @@
     }
     .goal-card-label {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       letter-spacing: 0.12em;
       font-weight: 500;
@@ -342,7 +328,7 @@
     .goal-card-time {
       font-size: 28px;
       font-weight: 800;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       letter-spacing: -1px;
       font-variant-numeric: tabular-nums;
     }
@@ -357,7 +343,7 @@
     }
     .goal-stat-label {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       margin-bottom: 3px;
       letter-spacing: 0.08em;
@@ -372,7 +358,7 @@
     .goal-card.run  .bigbar-fill { background: linear-gradient(90deg, var(--green), var(--blue)); box-shadow: 0 0 8px rgba(0,229,160,0.35); }
     .goal-card.lift .bigbar-fill { background: linear-gradient(90deg, var(--orange), var(--amber)); box-shadow: 0 0 8px rgba(255,140,66,0.35); }
 
-    /* ─── BIG CARDS ─── */
+    /* â”€â”€â”€ BIG CARDS â”€â”€â”€ */
     .bigcard {
       background: var(--bg2);
       border: 1px solid var(--border);
@@ -394,7 +380,7 @@
     .bigcard h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.3px; }
     .bigcard p  { font-size: 14px; color: var(--muted3); line-height: 1.75; }
 
-    /* ─── TODAY HEADER ─── */
+    /* â”€â”€â”€ TODAY HEADER â”€â”€â”€ */
     .today-header {
       display: flex;
       align-items: flex-start;
@@ -404,7 +390,7 @@
     }
     .today-badge {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       padding: 4px 10px;
       border-radius: 99px;
       letter-spacing: 0.07em;
@@ -416,7 +402,7 @@
     .badge-red    { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
     .badge-orange { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.2); }
 
-    /* ─── TEMPO TABLE ─── */
+    /* â”€â”€â”€ TEMPO TABLE â”€â”€â”€ */
     .tempo-table {
       background: var(--bg3);
       border-radius: 12px;
@@ -426,7 +412,7 @@
     }
     .tempo-label-top {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       letter-spacing: 0.12em;
       margin-bottom: 14px;
@@ -441,9 +427,9 @@
     }
     .tempo-row:last-child { border-bottom:none; padding-bottom:0; }
     .tempo-name { font-size: 13px; color: var(--muted3); }
-    .tempo-val  { font-size: 14px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+    .tempo-val  { font-size: 14px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
 
-    /* ─── INSIGHT BOX ─── */
+    /* â”€â”€â”€ INSIGHT BOX â”€â”€â”€ */
     .insight-box {
       background: var(--bg3);
       border: 1px solid var(--border2);
@@ -453,7 +439,7 @@
     }
     .insight-label {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       letter-spacing: 0.12em;
       margin-bottom: 6px;
@@ -461,7 +447,7 @@
     }
     .insight-text { font-size: 13.5px; color: var(--muted3); line-height: 1.7; }
 
-    /* ─── SESSION LIST ─── */
+    /* â”€â”€â”€ SESSION LIST â”€â”€â”€ */
     .session-list { display:flex; flex-direction:column; gap:10px; }
     .session {
       background: var(--bg2);
@@ -477,7 +463,7 @@
     .session-stripe { width:3px; align-self:stretch; border-radius:99px; flex-shrink:0; }
     .session-week {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       min-width: 52px;
       padding-top: 2px;
@@ -492,7 +478,7 @@
       align-items: center;
       gap: 4px;
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       padding: 2px 8px;
       border-radius: 99px;
       font-weight: 600;
@@ -504,7 +490,7 @@
     .pills { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
     .pill {
       font-size: 10.5px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       padding: 3px 9px;
       border-radius: 99px;
       border: 1px solid var(--border2);
@@ -512,10 +498,10 @@
       font-weight: 500;
     }
 
-    /* ─── HISTORY TABLE ─── */
+    /* â”€â”€â”€ HISTORY TABLE â”€â”€â”€ */
     .history-table-unused {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       letter-spacing: 0.10em;
       text-align: left;
@@ -537,7 +523,7 @@
     }
     .history-table tr:hover td { background: rgba(255,255,255,0.015); }
 
-    /* ─── RECORDS ─── */
+    /* â”€â”€â”€ RECORDS â”€â”€â”€ */
     .records-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -554,16 +540,16 @@
     .record-card:hover { border-color: var(--border2); transform: translateY(-1px); }
     .record-type {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       margin-bottom: 10px;
       letter-spacing: 0.08em;
       font-weight: 500;
     }
     .record-val { font-size: 28px; font-weight: 800; letter-spacing: -0.8px; font-variant-numeric: tabular-nums; }
-    .record-sub { font-size: 11px; color: var(--muted2); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+    .record-sub { font-size: 11px; color: var(--muted2); margin-top: 6px; font-family: 'IBM Plex Mono', monospace; }
 
-    /* ─── HERO ─── */
+    /* â”€â”€â”€ HERO â”€â”€â”€ */
     .hero { text-align: center; padding: 52px 20px 44px; }
     .hero h2 {
       font-size: 44px;
@@ -598,9 +584,9 @@
     .hero-card:hover { border-color: var(--border3); transform: translateY(-2px); background: var(--bg3); }
     .hero-card-icon  { font-size: 22px; margin-bottom: 12px; }
     .hero-card-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.2px; }
-    .hero-card-desc  { font-size: 11.5px; color: var(--muted2); font-family: 'JetBrains Mono', monospace; }
+    .hero-card-desc  { font-size: 11.5px; color: var(--muted2); font-family: 'IBM Plex Mono', monospace; }
 
-    /* ─── CNS-SCORE & HRV TRAFFIC LIGHT ─── */
+    /* â”€â”€â”€ CNS-SCORE & HRV TRAFFIC LIGHT â”€â”€â”€ */
     .cns-card {
       background: var(--bg2);
       border: 1px solid var(--border);
@@ -626,12 +612,12 @@
     .cns-score {
       font-size: 48px;
       font-weight: 800;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       letter-spacing: -2px;
       line-height: 1;
       color: var(--cns-color, var(--green));
     }
-    .cns-label { font-size: 9px; font-family: 'JetBrains Mono', monospace; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+    .cns-label { font-size: 9px; font-family: 'IBM Plex Mono', monospace; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
     .cns-right { flex: 1; }
     .cns-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.2px; }
     .cns-desc  { font-size: 12px; color: var(--muted2); line-height: 1.5; }
@@ -649,18 +635,18 @@
     .hrv-dot.active-green { background: var(--green); box-shadow: 0 0 8px var(--green); }
     .hrv-dot.active-amber { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
     .hrv-dot.active-red   { background: var(--red);   box-shadow: 0 0 8px var(--red);   }
-    .hrv-light-label { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted2); }
+    .hrv-light-label { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--muted2); }
 
     /* CNS delmetriker */
     .cns-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
     .cns-metric {
       background: var(--bg3);
-      border-radius: 10px;
+      border-radius: 8px;
       padding: 10px 12px;
       display: flex; flex-direction: column; gap: 3px;
     }
-    .cns-metric-name  { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
-    .cns-metric-val   { font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .cns-metric-name  { font-size: 10px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+    .cns-metric-val   { font-size: 18px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
     .cns-metric-sub   { font-size: 10px; color: var(--muted2); }
 
     
@@ -668,18 +654,18 @@
       display: flex; align-items: center; justify-content: space-between;
       background: var(--bg3); border-radius: 10px; padding: 10px 14px; margin-top: 10px;
     }
-    .sleep-debt-label { font-size: 11px; color: var(--muted2); font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
-    .sleep-debt-val   { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .sleep-debt-label { font-size: 11px; color: var(--muted2); font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+    .sleep-debt-val   { font-size: 15px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
     .sleep-flag-row   { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
     .sleep-flag {
-      font-size: 10px; font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-family: 'IBM Plex Mono', monospace;
       padding: 3px 9px; border-radius: 99px; font-weight: 600;
     }
     .sleep-flag.ok   { background: rgba(74,222,128,0.12); color: var(--green); }
     .sleep-flag.warn { background: rgba(251,191,36,0.12); color: var(--amber); }
     .sleep-flag.bad  { background: rgba(248,113,113,0.12); color: var(--red); }
 
-    /* ─── STYRKA ─── */
+    /* â”€â”€â”€ STYRKA â”€â”€â”€ */
     .strength-session {
       background: var(--bg2);
       border: 1px solid var(--border);
@@ -699,7 +685,7 @@
     }
     .strength-header-left { display:flex; flex-direction:column; gap:5px; }
     .strength-title { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
-    .strength-meta  { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--muted2); }
+    .strength-meta  { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--muted2); }
     .strength-chevron { font-size: 14px; color: var(--muted); transition: transform 0.2s; }
     .strength-session.open .strength-chevron { transform: rotate(180deg); }
     .strength-body { display:none; padding: 0 22px 20px; }
@@ -715,7 +701,7 @@
     }
     .ex-row:last-child { border-bottom: none; }
     .ex-name   { flex:1; font-weight:600; }
-    .ex-detail { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted2); }
+    .ex-detail { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted2); }
     .ex-del {
       background: none;
       border: none;
@@ -740,7 +726,7 @@
       border-radius: 8px;
       padding: 9px 12px;
       color: var(--text);
-      font-family: 'Inter', sans-serif;
+      font-family: 'IBM Plex Sans', sans-serif;
       font-size: 13px;
       outline: none;
       transition: border-color 0.15s;
@@ -755,16 +741,16 @@
       border-radius: 8px;
       padding: 9px 20px;
       color: var(--orange);
-      font-family: 'Inter', sans-serif;
+      font-family: 'IBM Plex Sans', sans-serif;
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.15s;
     }
     .add-ex-btn:hover { background: rgba(255,140,66,0.15); }
-    .no-sessions { color: var(--muted); font-size: 13px; font-family: 'JetBrains Mono', monospace; padding: 20px 0; }
+    .no-sessions { color: var(--muted); font-size: 13px; font-family: 'IBM Plex Mono', monospace; padding: 20px 0; }
 
-    /* ─── CHAT ─── */
+    /* â”€â”€â”€ CHAT â”€â”€â”€ */
     .chat-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; }
     .chat-top {
       padding: 18px 22px;
@@ -773,13 +759,13 @@
       align-items: center;
       gap: 10px;
     }
-    .chat-dot { width:8px; height:8px; background:var(--purple); border-radius:50%; box-shadow:0 0 8px rgba(167,139,250,0.5); }
+    .chat-dot { width:8px; height:8px; background:var(--blue); border-radius:50%; }
     .chat-title { font-size: 14px; font-weight: 700; letter-spacing: -0.2px; }
-    .chat-sub   { font-size: 10.5px; font-family: 'JetBrains Mono', monospace; color: var(--muted); margin-left: auto; }
+    .chat-sub   { font-size: 10.5px; font-family: 'IBM Plex Mono', monospace; color: var(--muted); margin-left: auto; }
     .qprompts   { display:flex; gap:7px; flex-wrap:wrap; padding:14px 22px 6px; }
     .qp {
       font-size: 11px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       padding: 5px 12px;
       border-radius: 99px;
       border: 1px solid var(--border2);
@@ -789,7 +775,7 @@
       transition: all 0.15s;
       font-weight: 500;
     }
-    .qp:hover { border-color: var(--purple); color: var(--purple); background: var(--purple-dim); }
+    .qp:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-dim); }
     .messages {
       padding: 18px 22px;
       min-height: 200px;
@@ -806,17 +792,17 @@
       align-self: flex-end;
       background: var(--bg4);
       border: 1px solid var(--border2);
-      border-radius: 14px 14px 3px 14px;
+      border-radius: 8px;
       padding: 11px 15px;
     }
     .msg.ai {
       align-self: flex-start;
-      background: var(--purple-dim);
-      border: 1px solid rgba(167,139,250,0.14);
-      border-radius: 14px 14px 14px 3px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
       padding: 11px 15px;
     }
-    .msg-from { font-size:9.5px; font-family:'JetBrains Mono',monospace; color:var(--muted); margin-bottom:5px; letter-spacing:0.08em; font-weight:600; }
+    .msg-from { font-size:9.5px; font-family:'IBM Plex Mono',monospace; color:var(--muted); margin-bottom:5px; font-weight:600; }
     .chat-input { display:flex; gap:10px; padding:16px 22px; border-top:1px solid var(--border); }
     .chat-input input {
       flex:1;
@@ -825,28 +811,28 @@
       border-radius: 10px;
       padding: 11px 16px;
       color: var(--text);
-      font-family: 'Inter', sans-serif;
+      font-family: 'IBM Plex Sans', sans-serif;
       font-size: 14px;
       outline: none;
       transition: border-color 0.2s;
     }
-    .chat-input input:focus { border-color: var(--purple); }
+    .chat-input input:focus { border-color: var(--blue); }
     .chat-input input::placeholder { color: var(--muted); }
     .send-btn {
-      background: var(--purple);
+      background: var(--blue);
       border: none;
-      border-radius: 10px;
+      border-radius: 8px;
       padding: 11px 18px;
-      color: #08080f;
-      font-family: 'Inter', sans-serif;
+      color: #081018;
+      font-family: 'IBM Plex Sans', sans-serif;
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
       transition: opacity 0.2s, transform 0.15s;
     }
-    .send-btn:hover { opacity:0.88; transform:translateY(-1px); }
+    .send-btn:hover { opacity:0.92; }
 
-    /* ─── HÄLSOGRUPPER ─── */
+    /* â”€â”€â”€ HÃ„LSOGRUPPER â”€â”€â”€ */
     .hg-row {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -878,12 +864,12 @@
       height: 1px;
     }
     .hg-card.c-recovery .hg-top::after { background: linear-gradient(90deg, var(--green)  0%, transparent 55%); }
-    .hg-card.c-sleep    .hg-top::after { background: linear-gradient(90deg, var(--purple) 0%, transparent 55%); }
+    .hg-card.c-sleep    .hg-top::after { background: linear-gradient(90deg, var(--blue) 0%, transparent 55%); }
     .hg-card.c-energy   .hg-top::after { background: linear-gradient(90deg, var(--amber)  0%, transparent 55%); }
 
     .hg-cat {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       letter-spacing: 0.14em;
       font-weight: 500;
@@ -906,7 +892,7 @@
     .hg-score-right { display: flex; flex-direction: column; gap: 5px; padding-bottom: 4px; }
     .hg-status {
       font-size: 11px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       padding: 3px 10px;
       border-radius: 99px;
       font-weight: 700;
@@ -916,7 +902,7 @@
     .hs-great  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.2); }
     .hs-ok     { background: var(--amber-dim);  color: var(--amber);  border: 1px solid rgba(245,166,35,0.2); }
     .hs-low    { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
-    .hs-purple { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(167,139,250,0.2); }
+    .hs-purple { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(96,165,250,0.2); }
 
     .hg-summary {
       font-size: 13px;
@@ -936,7 +922,7 @@
       transition: width 1.2s cubic-bezier(.4,0,.2,1);
     }
     .hg-card.c-recovery .hg-bar-fill { background: linear-gradient(90deg, var(--green), var(--blue)); }
-    .hg-card.c-sleep    .hg-bar-fill { background: linear-gradient(90deg, var(--purple), var(--blue)); }
+    .hg-card.c-sleep    .hg-bar-fill { background: linear-gradient(90deg, var(--blue), var(--green)); }
     .hg-card.c-energy   .hg-bar-fill { background: linear-gradient(90deg, var(--amber), var(--green)); }
 
     /* Detaljer */
@@ -947,7 +933,7 @@
       border-top: 1px solid var(--border);
       padding: 10px 24px;
       color: var(--muted2);
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       font-size: 11px;
       font-weight: 500;
       cursor: pointer;
@@ -985,7 +971,7 @@
       color: var(--muted3);
       margin-bottom: 2px;
     }
-    .hg-metric-desc { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+    .hg-metric-desc { font-size: 11px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; }
     .hg-metric-right { text-align: right; }
     .hg-metric-val {
       font-size: 17px;
@@ -995,12 +981,12 @@
     }
     .hg-metric-status {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted2);
       margin-top: 2px;
     }
 
-    /* ─── TOOLTIP ─── */
+    /* â”€â”€â”€ TOOLTIP â”€â”€â”€ */
     .tip-box {
       position: fixed;
       z-index: 999;
@@ -1041,12 +1027,12 @@
       justify-content: space-between;
       align-items: center;
       font-size: 11px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
     }
     .tip-range-label { color: var(--muted2); }
     .tip-range-val   { font-weight: 600; }
 
-    /* ─── COACH LAYOUT ─── */
+    /* â”€â”€â”€ COACH LAYOUT â”€â”€â”€ */
     @media (max-width: 900px) {
       #page-coach > div[style*="grid-template-columns"] {
         display: flex !important;
@@ -1054,7 +1040,7 @@
       }
     }
 
-    /* ─── KALENDER ─── */
+    /* â”€â”€â”€ KALENDER â”€â”€â”€ */
     .cal-week {
       margin-bottom: 10px;
       background: var(--bg2);
@@ -1074,7 +1060,7 @@
     }
     .cal-week-num {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       letter-spacing: 0.1em;
       font-weight: 600;
@@ -1082,7 +1068,7 @@
     }
     .cal-week-range {
       font-size: 12px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted2);
     }
     .cal-week-badges {
@@ -1092,7 +1078,7 @@
     }
     .cal-week-badge {
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       padding: 2px 8px;
       border-radius: 99px;
       font-weight: 600;
@@ -1122,7 +1108,7 @@
     }
     .cal-day-name {
       font-size: 9px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       color: var(--muted);
       letter-spacing: 0.1em;
       font-weight: 500;
@@ -1143,16 +1129,16 @@
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 2px;
-      background: var(--purple);
+      background: var(--blue);
     }
-    .cal-day.today .cal-day-name { color: var(--purple); }
+    .cal-day.today .cal-day-name { color: var(--blue); }
     .cal-day.past .cal-day-num  { color: var(--muted); opacity: 0.5; }
     .cal-day.past .cal-session-pill { opacity: 0.45; }
 
     .cal-session-pill {
       display: block;
       font-size: 10px;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'IBM Plex Mono', monospace;
       font-weight: 600;
       padding: 3px 7px;
       border-radius: 6px;
@@ -1167,7 +1153,7 @@
     .csp-rest { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.18); }
     .csp-modified { outline: 1px dashed rgba(255,200,80,0.5); }
 
-    /* Tooltip hanteras via JS tipBox istället */
+    /* Tooltip hanteras via JS tipBox istÃ¤llet */
 
     @media (max-width: 900px) {
       .cal-days { grid-template-columns: repeat(7, minmax(0,1fr)); }
@@ -1176,7 +1162,7 @@
       .cal-day-num { font-size: 13px; }
     }
 
-    /* ─── MOBILE ─── */
+    /* â”€â”€â”€ MOBILE â”€â”€â”€ */
     @media (max-width: 720px) {
       :root { --sidebar-w: 0px; }
       .sidebar {
@@ -1202,23 +1188,23 @@
   <nav class="sidebar">
     <div class="sidebar-logo">
       <h1>Training</h1>
-      <p>Stronger · Faster · 2026</p>
+      <p>Plan, recovery, climate</p>
     </div>
     <div class="nav">
-      <div class="nav-item active" onclick="goto('home')"><span class="nav-icon">⌂</span><span>Home</span></div>
-      <div class="nav-item" onclick="goto('health')"><span class="nav-icon">◇</span><span>Health</span></div>
-      <div class="nav-item" onclick="goto('sleep')"><span class="nav-icon">☾</span><span>Sleep</span></div>
-      <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Calendar</span></div>
-      <div class="nav-item" onclick="goto('strength')"><span class="nav-icon">◈</span><span>Strength</span></div>
-      <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">◬</span><span>Coach</span></div>
+      <div class="nav-item active" onclick="goto('home')"><span class="nav-icon">âŒ‚</span><span>Home</span></div>
+      <div class="nav-item" onclick="goto('health')"><span class="nav-icon">â—‡</span><span>Health</span></div>
+      <div class="nav-item" onclick="goto('sleep')"><span class="nav-icon">â˜¾</span><span>Sleep</span></div>
+      <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">â—ˆ</span><span>Calendar</span></div>
+      <div class="nav-item" onclick="goto('strength')"><span class="nav-icon">â—ˆ</span><span>Strength</span></div>
+      <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">â—¬</span><span>Notes</span></div>
     </div>
     <div class="sidebar-bottom">
       <div class="live-row">
         <div class="live-dot"></div>
-        <span class="live-label">GARMIN LIVE</span>
+        <span class="live-label">GARMIN</span>
       </div>
-      <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">↻ Refresh data</button>
-      <button class="refresh-btn" id="gcal-sync-btn" onclick="syncGcal()" style="margin-top:6px;color:var(--blue);">↻ Sync calendar</button>
+      <button class="refresh-btn" id="refresh-btn" onclick="refreshData()">Refresh data</button>
+      <button class="refresh-btn" id="gcal-sync-btn" onclick="syncGcal()" style="margin-top:6px;color:var(--blue);">Sync calendar</button>
       <div id="gcal-status-text" style="display:none;"></div>
       <div id="gcal-status-sub" style="display:none;"></div>
     </div>
@@ -1235,11 +1221,11 @@
         <div id="today-session-dot" style="width:10px;height:10px;border-radius:3px;background:var(--green);flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
           <div style="font-size:15px;font-weight:700;margin-bottom:4px;" id="today-session-title">Loading...</div>
-          <div style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="today-session-detail"></div>
+          <div style="font-size:12px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="today-session-detail"></div>
         </div>
         <div style="text-align:right;flex-shrink:0;">
-          <div style="font-size:18px;font-weight:800;font-family:'JetBrains Mono',monospace;" id="today-session-km"></div>
-          <div style="font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:2px;" id="today-session-type"></div>
+          <div style="font-size:18px;font-weight:800;font-family:'IBM Plex Mono',monospace;" id="today-session-km"></div>
+          <div style="font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-top:2px;" id="today-session-type"></div>
         </div>
       </div>
 
@@ -1247,39 +1233,39 @@
       <div class="sl">Today's progress</div>
       <div class="bigcard accent-green" style="margin-bottom:24px;">
         <div class="today-header">
-          <h3 id="review-headline">Checking today's session…</h3>
-          <span class="today-badge badge-amber" id="review-badge">AI</span>
+          <h3 id="review-headline">Checking today's sessionâ€¦</h3>
+          <span class="today-badge badge-amber" id="review-badge">STATUS</span>
         </div>
-        <p id="review-body">Loading…</p>
+        <p id="review-body">Loadingâ€¦</p>
       </div>
 
       <!-- AI RECOMMENDATION -->
-      <div class="sl">Coach recommendation</div>
+      <div class="sl">Recommendation</div>
       <div class="bigcard accent-amber" style="margin-bottom:24px;">
         <div class="today-header">
           <h3 id="today-title">Easy recovery run</h3>
           <span class="today-badge badge-amber" id="today-badge">HRV LOW</span>
         </div>
-        <p id="today-body">Your HRV is low and your body is recovering. Do a light Z2 run 30–40 min — keeps the legs moving without draining the battery.</p>
+        <p id="today-body">Your HRV is low and your body is recovering. Do a light Z2 run 30â€“40 min â€” keeps the legs moving without draining the battery.</p>
       </div>
 
       <div class="sl">Today's snapshot</div>
       <div class="grid">
-        <div class="card"><div class="card-label">readiness</div><div id="snap-readiness-val" class="card-val ca">—</div><div id="snap-readiness-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">sleep</div><div id="snap-sleep-val" class="card-val cg">—</div><div id="snap-sleep-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">body battery</div><div id="snap-bb-val" class="card-val ca">—</div><div id="snap-bb-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">hrv night (ms)</div><div id="snap-hrv-val" class="card-val cr">—</div><div id="snap-hrv-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
-        <div class="card"><div class="card-label">days left</div><div class="card-val cb" id="days-left">—</div><div class="card-sub">Until Oct 10</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
+        <div class="card"><div class="card-label">readiness</div><div id="snap-readiness-val" class="card-val ca">â€”</div><div id="snap-readiness-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">sleep</div><div id="snap-sleep-val" class="card-val cg">â€”</div><div id="snap-sleep-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
+        <div class="card"><div class="card-label">body battery</div><div id="snap-bb-val" class="card-val ca">â€”</div><div id="snap-bb-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
+        <div class="card"><div class="card-label">hrv night (ms)</div><div id="snap-hrv-val" class="card-val cr">â€”</div><div id="snap-hrv-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
+        <div class="card"><div class="card-label">days left</div><div class="card-val cb" id="days-left">â€”</div><div class="card-sub">Until Oct 10</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
       </div>
 
       <!-- ROOM CLIMATE & AC -->
       <div class="sl">Room climate & AC</div>
       <div class="bigcard accent-orange" style="margin-bottom:24px;">
         <div class="today-header">
-          <h3 id="ac-headline">Loading AC…</h3>
+          <h3 id="ac-headline">Loading ACâ€¦</h3>
           <span class="today-badge badge-amber" id="ac-badge">AC</span>
         </div>
-        <p id="ac-body">Reading room temperature…</p>
+        <p id="ac-body">Reading room temperatureâ€¦</p>
         <div class="ac-control-row">
           <div class="ac-loop-status" id="ac-loop-status">Control loop: checking...</div>
           <button class="ac-loop-btn" id="ac-loop-toggle" onclick="toggleAcLoop()" disabled>Loading...</button>
@@ -1288,16 +1274,16 @@
 
     </div>
 
-    <!-- HÄLSA -->
+    <!-- HÃ„LSA -->
     <div class="page" id="page-health">
       <div class="page-header"><h2>Health</h2><p id="h-date-label">Loading...</p></div>
       <div class="hg-row">
 
-        <!-- CNS-SCORE (ersätter Recovery) -->
+        <!-- CNS-SCORE (ersÃ¤tter Recovery) -->
         <div class="cns-card" id="hg-recovery">
           <div class="cns-top">
             <div class="cns-score-wrap">
-              <div class="cns-score" id="cns-score">—</div>
+              <div class="cns-score" id="cns-score">â€”</div>
               <div class="cns-label">CNS-score</div>
             </div>
             <div class="cns-right">
@@ -1317,17 +1303,17 @@
           <div class="cns-metrics">
             <div class="cns-metric">
               <div class="cns-metric-name">HRV vs avg</div>
-              <div class="cns-metric-val" id="cns-hrv-val">—</div>
+              <div class="cns-metric-val" id="cns-hrv-val">â€”</div>
               <div class="cns-metric-sub" id="cns-hrv-sub">Loading...</div>
             </div>
             <div class="cns-metric">
               <div class="cns-metric-name">Garmin readiness</div>
-              <div class="cns-metric-val" id="cns-readiness-val">—</div>
+              <div class="cns-metric-val" id="cns-readiness-val">â€”</div>
               <div class="cns-metric-sub" id="cns-readiness-sub">/ 100</div>
             </div>
             <div class="cns-metric">
               <div class="cns-metric-name">Resting HR</div>
-              <div class="cns-metric-val" id="cns-rhr-val">—</div>
+              <div class="cns-metric-val" id="cns-rhr-val">â€”</div>
               <div class="cns-metric-sub" id="cns-rhr-sub">bpm</div>
             </div>
           </div>
@@ -1338,7 +1324,7 @@
           <div class="hg-top">
             <div class="hg-cat">Sleep</div>
             <div class="hg-score-row">
-              <div class="hg-score cp" id="hg-sleep-score">—</div>
+              <div class="hg-score cp" id="hg-sleep-score">â€”</div>
               <div class="hg-score-right">
                 <span class="hg-status hs-purple" id="hg-sleep-badge">Loading...</span>
                 <span class="hg-summary" id="hg-sleep-summary" style="font-size:11px;"></span>
@@ -1356,27 +1342,27 @@
                 <div class="hg-metric-desc" id="hd-sscore-desc">Good: 80+, excellent: 90+</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-sscore-val">—</div>
+                <div class="hg-metric-val" id="hd-sscore-val">â€”</div>
                 <div class="hg-metric-status" id="hd-sscore-status">/ 100</div>
               </div>
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
                 <div class="hg-metric-name">Deep sleep</div>
-                <div class="hg-metric-desc" id="hd-deep-desc">Goal: 15–25% of total sleep</div>
+                <div class="hg-metric-desc" id="hd-deep-desc">Goal: 15â€“25% of total sleep</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-deep-val">—</div>
+                <div class="hg-metric-val" id="hd-deep-val">â€”</div>
                 <div class="hg-metric-status" id="hd-deep-status">%</div>
               </div>
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
                 <div class="hg-metric-name">REM sleep</div>
-                <div class="hg-metric-desc" id="hd-rem-desc">Goal: 20–25% of total sleep</div>
+                <div class="hg-metric-desc" id="hd-rem-desc">Goal: 20â€“25% of total sleep</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-rem-val">—</div>
+                <div class="hg-metric-val" id="hd-rem-val">â€”</div>
                 <div class="hg-metric-status" id="hd-rem-status">%</div>
               </div>
             </div>
@@ -1386,7 +1372,7 @@
                 <div class="hg-metric-desc">Goal: 7.5 h/night</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stotal-val">—</div>
+                <div class="hg-metric-val" id="hd-stotal-val">â€”</div>
                 <div class="hg-metric-status" id="hd-stotal-status"></div>
               </div>
             </div>
@@ -1395,7 +1381,7 @@
                 <div class="sleep-debt-label">Sleep debt this week</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">Goal 52.5 h/week (7.5 h/night)</div>
               </div>
-              <div class="sleep-debt-val" id="sleep-debt-val">—</div>
+              <div class="sleep-debt-val" id="sleep-debt-val">â€”</div>
             </div>
             <div class="sleep-flag-row" id="sleep-flag-row"></div>
           </div>
@@ -1406,7 +1392,7 @@
           <div class="hg-top">
             <div class="hg-cat">Energy & Stress</div>
             <div class="hg-score-row">
-              <div class="hg-score ca" id="hg-energy-score">—</div>
+              <div class="hg-score ca" id="hg-energy-score">â€”</div>
               <div class="hg-score-right">
                 <span class="hg-status hs-ok" id="hg-energy-badge">Loading...</span>
                 <span class="hg-summary" id="hg-energy-summary" style="font-size:11px;"></span>
@@ -1421,40 +1407,40 @@
             <div class="hg-metric">
 <div class="hg-metric-body">
                 <div class="hg-metric-name">Body Battery</div>
-                <div class="hg-metric-desc" id="hd-bb-desc">75–100: high energy · &lt;25: rest</div>
+                <div class="hg-metric-desc" id="hd-bb-desc">75â€“100: high energy Â· &lt;25: rest</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-bb-val">—</div>
+                <div class="hg-metric-val" id="hd-bb-val">â€”</div>
                 <div class="hg-metric-status" id="hd-bb-status">/ 100</div>
               </div>
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
                 <div class="hg-metric-name">Stress level</div>
-                <div class="hg-metric-desc" id="hd-stress-desc">0–25: rest · 26–50: ok · 75+: high</div>
+                <div class="hg-metric-desc" id="hd-stress-desc">0â€“25: rest Â· 26â€“50: ok Â· 75+: high</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stress-val">—</div>
+                <div class="hg-metric-val" id="hd-stress-val">â€”</div>
                 <div class="hg-metric-status" id="hd-stress-status">/ 100</div>
               </div>
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
                 <div class="hg-metric-name">Blood oxygen (SpO2)</div>
-                <div class="hg-metric-desc" id="hd-spo2-desc">Normal: 95–100%</div>
+                <div class="hg-metric-desc" id="hd-spo2-desc">Normal: 95â€“100%</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-spo2-val">—</div>
+                <div class="hg-metric-val" id="hd-spo2-val">â€”</div>
                 <div class="hg-metric-status" id="hd-spo2-status">%</div>
               </div>
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
                 <div class="hg-metric-name">Breathing rate</div>
-                <div class="hg-metric-desc" id="hd-resp-desc">Normal: 12–20/min at rest</div>
+                <div class="hg-metric-desc" id="hd-resp-desc">Normal: 12â€“20/min at rest</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-resp-val">—</div>
+                <div class="hg-metric-val" id="hd-resp-val">â€”</div>
                 <div class="hg-metric-status" id="hd-resp-status">/min</div>
               </div>
             </div>
@@ -1471,36 +1457,36 @@
       <div class="grid">
         <div class="card">
           <div class="card-label">sleep score</div>
-          <div id="sleep-page-score" class="card-val cp">—</div>
+          <div id="sleep-page-score" class="card-val cp">â€”</div>
           <div id="sleep-page-score-sub" class="card-sub">Loading...</div>
-          <div class="bar"><div id="sleep-page-score-bar" class="bar-fill" style="width:0%;background:var(--purple)"></div></div>
+          <div class="bar"><div id="sleep-page-score-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div>
         </div>
         <div class="card">
           <div class="card-label">total sleep</div>
-          <div id="sleep-page-total" class="card-val cg">—</div>
+          <div id="sleep-page-total" class="card-val cg">â€”</div>
           <div id="sleep-page-total-sub" class="card-sub">Goal 7.5 h</div>
           <div class="bar"><div id="sleep-page-total-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
         </div>
         <div class="card">
           <div class="card-label">deep sleep</div>
-          <div id="sleep-page-deep" class="card-val cb">—</div>
-          <div id="sleep-page-deep-sub" class="card-sub">Goal 15–25%</div>
+          <div id="sleep-page-deep" class="card-val cb">â€”</div>
+          <div id="sleep-page-deep-sub" class="card-sub">Goal 15â€“25%</div>
           <div class="bar"><div id="sleep-page-deep-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div>
         </div>
         <div class="card">
           <div class="card-label">REM sleep</div>
-          <div id="sleep-page-rem" class="card-val ca">—</div>
-          <div id="sleep-page-rem-sub" class="card-sub">Goal 20–25%</div>
+          <div id="sleep-page-rem" class="card-val ca">â€”</div>
+          <div id="sleep-page-rem-sub" class="card-sub">Goal 20â€“25%</div>
           <div class="bar"><div id="sleep-page-rem-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div>
         </div>
       </div>
 
       <div class="bigcard accent-green" style="margin-bottom:24px;">
         <div class="today-header">
-          <h3 id="sleep-page-plan-title">Loading sleep plan…</h3>
+          <h3 id="sleep-page-plan-title">Loading sleep planâ€¦</h3>
           <span class="today-badge badge-green" id="sleep-page-plan-badge">PLAN</span>
         </div>
-        <p id="sleep-page-plan-body">Reading Garmin sleep data…</p>
+        <p id="sleep-page-plan-body">Reading Garmin sleep dataâ€¦</p>
       </div>
 
       <div class="bigcard accent-orange" style="margin-bottom:24px;">
@@ -1524,27 +1510,27 @@
 
     <!-- PLAN -->
     <div class="page" id="page-upcoming">
-      <div class="page-header"><h2>Calendar</h2><p>Running + strength · half marathon sub 1:20 · Oct 10 2026</p></div>
+      <div class="page-header"><h2>Calendar</h2><p>Running + strength Â· half marathon sub 1:20 Â· Oct 10 2026</p></div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;align-items:center;">
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--green);opacity:0.7;"></span>
-          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Running</span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">Running</span>
         </div>
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--orange);opacity:0.7;"></span>
-          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Strength</span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">Strength</span>
         </div>
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--red);opacity:0.7;"></span>
-          <span style="font-size:12px;color:var(--muted2);font-family:'JetBrains Mono',monospace;">Race / Test</span>
+          <span style="font-size:12px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">Race / Test</span>
         </div>
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--purple);"></span>
-          <span style="font-size:12px;color:var(--muted3);font-family:'JetBrains Mono',monospace;">Today</span>
+          <span style="font-size:12px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;">Today</span>
         </div>
       </div>
       <div id="coach-notes-bar" style="display:none;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:14px 18px;margin-bottom:20px;">
-        <div style="font-size:11px;color:var(--muted2);font-family:'JetBrains Mono',monospace;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Coach · <span id="coach-notes-date"></span></div>
+        <div style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Coach Â· <span id="coach-notes-date"></span></div>
         <div id="coach-notes-text" style="font-size:13px;color:var(--text);line-height:1.6;"></div>
       </div>
       <div id="cal-container"></div>
@@ -1553,13 +1539,13 @@
     <!-- REKORD -->
     <!-- STYRKA -->
     <div class="page" id="page-strength">
-      <div class="page-header"><h2>Strength</h2><p>Strength sessions from Garmin · log exercises & progression</p></div>
-      <div id="strength-list"><div style="color:var(--muted);font-size:13px;font-family:'JetBrains Mono',monospace;">Loading sessions...</div></div>
+      <div class="page-header"><h2>Strength</h2><p>Strength sessions from Garmin Â· log exercises & progression</p></div>
+      <div id="strength-list"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Loading sessions...</div></div>
     </div>
 
     <!-- COACH -->
     <div class="page" id="page-coach">
-      <div class="page-header"><h2>AI training coach</h2><p>Powered by Claude · Anthropic</p></div>
+      <div class="page-header"><h2>Training notes</h2><p>Questions, context, and saved notes</p></div>
 
       <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start;">
 
@@ -1567,21 +1553,21 @@
         <div class="chat-wrap">
           <div class="chat-top">
             <div class="chat-dot"></div>
-            <span class="chat-title">Your personal coach</span>
-            <span class="chat-sub">Claude Sonnet</span>
+            <span class="chat-title">Training assistant</span>
+            <span class="chat-sub">Running and strength</span>
           </div>
           <div class="qprompts">
             <button class="qp" onclick="qa('Should I run or lift today?')">Run or lift?</button>
             <button class="qp" onclick="qa('How do I best combine running and strength?')">Combine training</button>
             <button class="qp" onclick="qa('What is my next quality session?')">Next session</button>
-            <button class="qp" onclick="qa('How am I tracking for half marathon sub 1:20?')">Sub 1:20?</button>
+            <button class="qp" onclick="qa('How am I tracking for half marathon sub 1:20?')">Half pace</button>
             <button class="qp" onclick="qa('How should I progress in strength training?')">Strength progress</button>
-            <button class="qp" onclick="qa('Give me a motivation boost!')">Motivate me!</button>
+            <button class="qp" onclick="qa('Help me reset mentally for the next session.')">Mental reset</button>
           </div>
           <div class="messages" id="messages">
             <div class="msg ai">
               <div class="msg-from">COACH</div>
-              <span>Hey! I know your goal — half marathon under 1:20 on October 10, with a focus on building a strong body in all areas. I also read your saved notes automatically. What would you like to know?</span>
+              <span>Your plan, current recovery, and saved notes are loaded here. Ask about training, scheduling, sleep, or how to adjust the next few days.</span>
             </div>
           </div>
           <div class="chat-input">
@@ -1594,29 +1580,29 @@
         <div style="display:flex;flex-direction:column;gap:10px;">
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
             <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
-              <span style="font-size:13px;font-weight:700;">Coach's memory</span>
-              <span id="notes-count" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin-left:auto;">0 notes</span>
+              <span style="font-size:13px;font-weight:700;">Saved notes</span>
+              <span id="notes-count" style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);margin-left:auto;">0 notes</span>
             </div>
             <div style="padding:10px 14px;border-bottom:1px solid var(--border);">
-              <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.1em;margin-bottom:8px;">ADD NOTE</div>
+              <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);margin-bottom:8px;">ADD NOTE</div>
               <div style="display:flex;flex-direction:column;gap:8px;">
-                <select id="note-category" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--muted2);font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;">
+                <select id="note-category" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;font-size:11px;outline:none;">
                   <option value="body"> Body & injuries</option>
                   <option value="nutrition"> Nutrition & recovery</option>
                   <option value="goals"> Goals & focus</option>
                   <option value="gear"> Gear</option>
                   <option value="general"> Other</option>
                 </select>
-                <textarea id="note-input" rows="3" placeholder="E.g. Tightness in right calf since yesterday..." style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;" onfocus="this.style.borderColor='var(--purple)'" onblur="this.style.borderColor='var(--border2)'"></textarea>
-                <button onclick="saveNote()" style="background:var(--purple-dim);border:1px solid rgba(167,139,250,0.25);border-radius:8px;padding:8px;color:var(--purple);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;width:100%;" onmouseover="this.style.background='rgba(167,139,250,0.15)'" onmouseout="this.style.background='var(--purple-dim)'">+ Save to memory</button>
+                <textarea id="note-input" rows="3" placeholder="E.g. Tightness in right calf since yesterday..." style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;" onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border2)'"></textarea>
+                <button onclick="saveNote()" style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.25);border-radius:8px;padding:8px;color:var(--blue);font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;width:100%;" onmouseover="this.style.background='rgba(96,165,250,0.15)'" onmouseout="this.style.background='var(--blue-dim)'">Save note</button>
               </div>
             </div>
             <div id="notes-list" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;">
-              <div style="color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;">Loading...</div>
+              <div style="color:var(--muted);font-size:12px;font-family:'IBM Plex Mono',monospace;">Loading...</div>
             </div>
           </div>
-          <div style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace;padding:0 4px;line-height:1.6;">
-            <span>The coach reads all notes automatically in every reply.</span>
+          <div style="font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;padding:0 4px;line-height:1.6;">
+            <span>Saved notes are included automatically when you ask for guidance.</span>
           </div>
         </div>
 
@@ -1627,7 +1613,7 @@
 </div>
 
 <script>
-  // Login check — hoppa över lösenord om vi kör lokalt
+  // Login check â€” hoppa Ã¶ver lÃ¶senord om vi kÃ¶r lokalt
 const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const sitePassword = localStorage.getItem('sitePassword');
 if (!isLocal && !sitePassword) showLogin();
@@ -1636,12 +1622,12 @@ function showLogin() {
   document.querySelector('.shell').style.display = 'none';
   document.body.insertAdjacentHTML('beforeend', `
     <div id="login-screen" style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;">
-      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:18px;padding:40px;width:320px;text-align:center;">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:40px;width:320px;text-align:center;">
         <div style="font-size:22px;margin-bottom:8px;"></div>
-        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;letter-spacing:-0.3px;">Training Dashboard</h2>
-        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'JetBrains Mono',monospace;">Enter password to continue</p>
-        <input id="login-input" type="password" placeholder="Password..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:11px 14px;color:var(--text);font-family:'Inter',sans-serif;font-size:14px;outline:none;margin-bottom:12px;" />
-        <button onclick="tryLogin()" style="width:100%;background:var(--purple);border:none;border-radius:10px;padding:12px;color:#08080f;font-family:'Inter',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
+        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Training Dashboard</h2>
+        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Enter password to continue</p>
+        <input id="login-input" type="password" placeholder="Password..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:12px;" />
+        <button onclick="tryLogin()" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Log in</button>
         <p id="login-error" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Wrong password</p>
       </div>
     </div>
@@ -1695,7 +1681,7 @@ window.fetch = (url, opts = {}) => {
   document.getElementById('days-bar').style.width = Math.max(0,(1-left/total)*100) + '%';
   setTimeout(() => {
     document.getElementById('goal-bar-run').style.width = '97%';
-    // Styrka-bar baseras på veckor tränade — statisk placeholder
+    // Styrka-bar baseras pÃ¥ veckor trÃ¤nade â€” statisk placeholder
     document.getElementById('goal-bar-lift').style.width = '45%';
   }, 500);
   loadHealth();
@@ -1732,7 +1718,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (s) { s.textContent = statusText || unit || ''; s.style.color = col || ''; }
   }
 
-  // Hälsodata
+  // HÃ¤lsodata
   function renderSleepPage(h) {
     const sleep = h.sleep || {};
     const totalSec = sleep.totalSec || 0;
@@ -1764,7 +1750,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const acStart = new Date(bedtime.getTime() - 120 * 60000);
     const timeFmt = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-    setText('sleep-page-score', score || '—');
+    setText('sleep-page-score', score || 'â€”');
     setText('sleep-page-score-sub', score >= 80 ? 'Good recovery' : score >= 60 ? 'Okay, but can improve' : 'Prioritize sleep tonight');
     setWidth('sleep-page-score-bar', score || 0);
 
@@ -1780,7 +1766,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setText('sleep-page-rem-sub', rem >= 20 ? 'In target range' : 'Below 20-25% target');
     setWidth('sleep-page-rem-bar', rem / 25 * 100);
 
-    setText('sleep-page-plan-title', 'Aim for sleep ' + timeFmt(bedtime) + '–' + timeFmt(wake));
+    setText('sleep-page-plan-title', 'Aim for sleep ' + timeFmt(bedtime) + 'â€“' + timeFmt(wake));
     setText('sleep-page-plan-body', debtSec < 900
       ? 'Last night reached the sleep goal. Keep the normal bedtime and let AC pre-cooling follow the planned sleep start.'
       : 'Last night was ' + fmt(debtSec) + ' short of the goal. Go to bed earlier tonight and let the AC start pre-cooling before the sleep window.');
@@ -1795,9 +1781,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       renderSleepPage(h);
       const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
 
-      // ── CNS-SCORE (ersätter Recovery) ──
-      // Formel: 0.40×HRV% + 0.30×sömnpoäng + 0.20×Garmin-beredskap + 0.10×(100-stress)
-      // Baserat på Flatt & Esco (2016)
+      // â”€â”€ CNS-SCORE (ersÃ¤tter Recovery) â”€â”€
+      // Formel: 0.40Ã—HRV% + 0.30Ã—sÃ¶mnpoÃ¤ng + 0.20Ã—Garmin-beredskap + 0.10Ã—(100-stress)
+      // Baserat pÃ¥ Flatt & Esco (2016)
       const hrvPct      = h.hrv?.pct       ?? 50;
       const sleepScoreR = h.sleep?.score   ?? 50;
       const readiness   = h.readiness?.score ?? 50;
@@ -1813,7 +1799,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       const cnsCol   = cnsScore >= 70 ? 'var(--green)' : cnsScore >= 45 ? 'var(--amber)' : 'var(--red)';
       const cnsTitle = cnsScore >= 70 ? 'Ready for quality session' : cnsScore >= 45 ? 'Normal session ok' : 'Rest or Z2 today';
       const cnsDesc  = cnsScore >= 70
-        ? 'CNS fully recovered. HRV, sleep and readiness are all green — perfect day for intervals or threshold work.'
+        ? 'CNS fully recovered. HRV, sleep and readiness are all green â€” perfect day for intervals or threshold work.'
         : cnsScore >= 45
         ? 'Acceptable CNS status. Normal planned session is fine, but avoid maximal effort.'
         : 'CNS shows clear signs of insufficient recovery. Prioritize rest, easy Z2, or move the quality session forward.';
@@ -1826,16 +1812,16 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       document.getElementById('cns-bar').style.background = cnsCol;
       document.getElementById('hg-recovery').style.setProperty('--cns-color', cnsCol);
 
-      // HRV Traffic Light (Kiviniemi-metoden: ±5% från veckoavg)
+      // HRV Traffic Light (Kiviniemi-metoden: Â±5% frÃ¥n veckoavg)
       const hrvDiff = h.hrv?.lastNightAvg && h.hrv?.weeklyAvg
         ? ((h.hrv.lastNightAvg - h.hrv.weeklyAvg) / h.hrv.weeklyAvg) * 100
         : null;
       let hrvLight = 'amber';
       let hrvLightText = 'HRV data unavailable';
       if (hrvDiff !== null) {
-        if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% — quality session is fine`; }
-        else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% — rest or Z2`; }
-        else                    { hrvLight = 'amber'; hrvLightText = `HRV ±${Math.abs(hrvDiff).toFixed(0)}% — normal session`; }
+        if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% â€” quality session is fine`; }
+        else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% â€” rest or Z2`; }
+        else                    { hrvLight = 'amber'; hrvLightText = `HRV Â±${Math.abs(hrvDiff).toFixed(0)}% â€” normal session`; }
       }
       ['green','amber','red'].forEach(c => document.getElementById('hrv-dot-' + c).className = 'hrv-dot');
       document.getElementById('hrv-dot-' + hrvLight).classList.add('active-' + hrvLight);
@@ -1847,7 +1833,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const pctCol = pct >= 95 ? 'var(--green)' : pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
         document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
         document.getElementById('cns-hrv-val').style.color = pctCol;
-        document.getElementById('cns-hrv-sub').textContent = `${pct}% of avg ${h.hrv.weeklyAvg || '—'} ms`;
+        document.getElementById('cns-hrv-sub').textContent = `${pct}% of avg ${h.hrv.weeklyAvg || 'â€”'} ms`;
       }
       if (h.readiness?.score != null) {
         const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
@@ -1861,10 +1847,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const rc = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
         document.getElementById('cns-rhr-val').textContent = rhr;
         document.getElementById('cns-rhr-val').style.color = rc;
-        document.getElementById('cns-rhr-sub').textContent = `avg ${h.restingHR.sevenDayAvg || '—'} bpm`;
+        document.getElementById('cns-rhr-sub').textContent = `avg ${h.restingHR.sevenDayAvg || 'â€”'} bpm`;
       }
 
-      // ── SÖMN ──
+      // â”€â”€ SÃ–MN â”€â”€
       let sleepScore = 50;
       if (h.sleep?.totalSec) {
         sleepScore = h.sleep.score || 50;
@@ -1875,21 +1861,21 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const sc = h.sleep.score;
         const scCol = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
         const scStatus = sc >= 90 ? 'Excellent' : sc >= 80 ? 'Good' : sc >= 60 ? 'Acceptable' : 'Poor';
-        setMetric('hd-sscore-val', 'hd-sscore-status', sc || '—', '/ 100', scStatus, scCol);
+        setMetric('hd-sscore-val', 'hd-sscore-status', sc || 'â€”', '/ 100', scStatus, scCol);
 
         // Deep sleep
         const deep = h.sleep.deepPct;
         const deepCol = deep >= 15 ? 'var(--green)' : deep >= 10 ? 'var(--amber)' : 'var(--red)';
         const deepStatus = deep >= 20 ? 'Excellent' : deep >= 15 ? 'Normal' : deep >= 10 ? 'Slightly low' : 'Too little';
-        setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus} · target 15-25%`, deepCol);
-        document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + ' · target: 15-25% of sleep';
+        setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus} Â· target 15-25%`, deepCol);
+        document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + ' Â· target: 15-25% of sleep';
 
         // REM
         const rem = h.sleep.remPct;
         const remCol = rem >= 20 ? 'var(--green)' : rem >= 15 ? 'var(--amber)' : 'var(--red)';
         const remStatus = rem >= 20 ? 'Excellent' : rem >= 15 ? 'Normal' : rem >= 10 ? 'Slightly low' : 'Too little';
-        setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus} · target 20-25%`, remCol);
-        document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + ' · target: 20-25% of sleep';
+        setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus} Â· target 20-25%`, remCol);
+        document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + ' Â· target: 20-25% of sleep';
 
         // Total sleep
         const totalCol = totalH >= 7 ? 'var(--green)' : totalH >= 6 ? 'var(--amber)' : 'var(--red)';
@@ -1897,19 +1883,19 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         setMetric('hd-stotal-val', 'hd-stotal-status', `${totalH}h ${totalM}m`, '', totalStatus, totalCol);
 
         const sleepDesc = sleepScore >= 80
-          ? `${totalH}h ${totalM}m sleep — good recovery overnight.`
+          ? `${totalH}h ${totalM}m sleep â€” good recovery overnight.`
           : sleepScore >= 60
-          ? `${totalH}h ${totalM}m sleep — acceptable, but can improve.`
-          : `${totalH}h ${totalM}m sleep — prioritize more sleep tonight.`;
+          ? `${totalH}h ${totalM}m sleep â€” acceptable, but can improve.`
+          : `${totalH}h ${totalM}m sleep â€” prioritize more sleep tonight.`;
         setHG('hg-sleep-score', 'hg-sleep-bar', 'hg-sleep-badge', 'hg-sleep-desc', sleepScore, sleepDesc);
 
-        // Sömnbrist — 7,5 h/natt mål = 52,5 h/vecka
-        // Beräkna baserat på dagensömnstid × dagar hittills i veckan
+        // SÃ¶mnbrist â€” 7,5 h/natt mÃ¥l = 52,5 h/vecka
+        // BerÃ¤kna baserat pÃ¥ dagensÃ¶mnstid Ã— dagar hittills i veckan
         const SLEEP_TARGET_H = 7.5;
-        const todayDowSleep = new Date().getDay() || 7; // 1=mån
+        const todayDowSleep = new Date().getDay() || 7; // 1=mÃ¥n
         const daysIntoWeek = todayDowSleep;
         const targetSoFar = SLEEP_TARGET_H * daysIntoWeek * 3600;
-        const actualSoFar = h.sleep.totalSec; // förenklat: ger i alla fall dagens underskott
+        const actualSoFar = h.sleep.totalSec; // fÃ¶renklat: ger i alla fall dagens underskott
         const dailyDebt = Math.max(0, SLEEP_TARGET_H * 3600 - h.sleep.totalSec);
         const dailyDebtH = Math.floor(dailyDebt / 3600);
         const dailyDebtM = Math.round((dailyDebt % 3600) / 60);
@@ -1918,16 +1904,16 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           debtEl.textContent = 'No deficit';
           debtEl.style.color = 'var(--green)';
         } else {
-          debtEl.textContent = `−${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m today`;
+          debtEl.textContent = `âˆ’${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m today`;
           debtEl.style.color = dailyDebt > 3600 ? 'var(--red)' : 'var(--amber)';
         }
 
-        // Sömnflaggor (djupsömn, REM, CNS-konsekvenser)
+        // SÃ¶mnflaggor (djupsÃ¶mn, REM, CNS-konsekvenser)
         const flags = [];
-        if (deep < 10)  flags.push({ text: ' Low deep sleep — skip strength', cls: 'bad' });
+        if (deep < 10)  flags.push({ text: ' Low deep sleep â€” skip strength', cls: 'bad' });
         else if (deep >= 15) flags.push({ text: ' Deep sleep ok', cls: 'ok' });
         else            flags.push({ text: '~ Deep sleep low', cls: 'warn' });
-        if (rem < 15)   flags.push({ text: ' Low REM — avoid intervals', cls: 'bad' });
+        if (rem < 15)   flags.push({ text: ' Low REM â€” avoid intervals', cls: 'bad' });
         else if (rem >= 20) flags.push({ text: ' REM ok', cls: 'ok' });
         else            flags.push({ text: '~ REM slightly low', cls: 'warn' });
         const flagRow = document.getElementById('sleep-flag-row');
@@ -1938,7 +1924,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         badge.textContent = sleepScore >= 80 ? 'Good' : sleepScore >= 60 ? 'Ok' : 'Poor';
       }
 
-      // ── ENERGI & STRESS ──
+      // â”€â”€ ENERGI & STRESS â”€â”€
       let energyScore = 50;
       if (h.bodyBattery?.current != null || h.stress?.avg != null) {
         const bb = h.bodyBattery?.current ?? 50;
@@ -1949,7 +1935,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const bbCol = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
         const bbStatus = bb >= 75 ? 'High energy' : bb >= 50 ? 'Moderate' : bb >= 25 ? 'Low' : 'Empty - rest';
         setMetric('hd-bb-val', 'hd-bb-status', bb, '/ 100', bbStatus, bbCol);
-        document.getElementById('hd-bb-desc').textContent = `Max today: ${h.bodyBattery?.max || '—'} · Min: ${h.bodyBattery?.drained ? bb : '—'}`;
+        document.getElementById('hd-bb-desc').textContent = `Max today: ${h.bodyBattery?.max || 'â€”'} Â· Min: ${h.bodyBattery?.drained ? bb : 'â€”'}`;
 
         // Stress
         const stressCol = stress <= 25 ? 'var(--green)' : stress <= 50 ? 'var(--amber)' : 'var(--red)';
@@ -1962,7 +1948,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           const spo2Col = spo2 >= 97 ? 'var(--green)' : spo2 >= 95 ? 'var(--green)' : spo2 >= 90 ? 'var(--amber)' : 'var(--red)';
           const spo2Status = spo2 >= 97 ? 'Optimal' : spo2 >= 95 ? 'Normal' : spo2 >= 90 ? 'Slightly low - watch' : 'Critically low!';
           setMetric('hd-spo2-val', 'hd-spo2-status', spo2 + '%', '%', spo2Status, spo2Col);
-          document.getElementById('hd-spo2-desc').textContent = `Lowest: ${h.spo2.min ? h.spo2.min + '%' : '—'} · normalt: 95–100%`;
+          document.getElementById('hd-spo2-desc').textContent = `Lowest: ${h.spo2.min ? h.spo2.min + '%' : 'â€”'} Â· normalt: 95â€“100%`;
         }
 
         // Andning
@@ -1971,21 +1957,21 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           const respCol = resp <= 16 ? 'var(--green)' : resp <= 20 ? 'var(--amber)' : 'var(--red)';
           const respStatus = resp <= 12 ? 'Athlete - excellent' : resp <= 16 ? 'Normal' : resp <= 20 ? 'Slightly elevated' : 'Elevated';
           setMetric('hd-resp-val', 'hd-resp-status', resp, '/min', respStatus, respCol);
-          document.getElementById('hd-resp-desc').textContent = `During sleep: ${h.respiration.sleepAvg || '—'}/min · normal: 12-20/min`;
+          document.getElementById('hd-resp-desc').textContent = `During sleep: ${h.respiration.sleepAvg || 'â€”'}/min Â· normal: 12-20/min`;
         }
 
         const energyDesc = energyScore >= 70
-          ? `Body battery ${bb}/100 — the body has enough energy for a good session.`
+          ? `Body battery ${bb}/100 â€” the body has enough energy for a good session.`
           : energyScore >= 45
-          ? `Body battery ${bb}/100 — moderate energy level; keep training measured.`
-          : `Body battery ${bb}/100 — body is tired. Prioritize rest and recovery.`;
+          ? `Body battery ${bb}/100 â€” moderate energy level; keep training measured.`
+          : `Body battery ${bb}/100 â€” body is tired. Prioritize rest and recovery.`;
         setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
       }
 
       const d = new Date();
-      document.getElementById('h-date-label').textContent = d.toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'}) + ' · Garmin live data';
+      document.getElementById('h-date-label').textContent = d.toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'}) + ' Â· Garmin live data';
 
-      // Snapshot på hemsidan
+      // Snapshot pÃ¥ hemsidan
       const snapSets = [
         { valId:'snap-readiness-val', subId:'snap-readiness-sub', barId:'snap-readiness-bar',
           val: h.readiness?.score, sub: (()=>{ const m={VERY_HIGH:'Very high',HIGH:'High',MODERATE:'Moderate',LOW:'Low',VERY_LOW:'Very low'}; return m[h.readiness?.level]||''; })(),
@@ -1994,10 +1980,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           val: h.sleep?.score, sub: h.sleep?.totalSec ? fmtTime(h.sleep.totalSec) : '',
           col: h.sleep?.score >= 80 ? 'var(--green)' : h.sleep?.score >= 60 ? 'var(--amber)' : 'var(--red)', pct: h.sleep?.score },
         { valId:'snap-bb-val', subId:'snap-bb-sub', barId:'snap-bb-bar',
-          val: h.bodyBattery?.current, sub: 'Max today: ' + (h.bodyBattery?.max || '—'),
+          val: h.bodyBattery?.current, sub: 'Max today: ' + (h.bodyBattery?.max || 'â€”'),
           col: h.bodyBattery?.current >= 60 ? 'var(--green)' : h.bodyBattery?.current >= 30 ? 'var(--amber)' : 'var(--red)', pct: h.bodyBattery?.current },
         { valId:'snap-hrv-val', subId:'snap-hrv-sub', barId:'snap-hrv-bar',
-          val: h.hrv?.lastNightAvg, sub: 'Snitt ' + (h.hrv?.weeklyAvg || '—') + ' ms',
+          val: h.hrv?.lastNightAvg, sub: 'Snitt ' + (h.hrv?.weeklyAvg || 'â€”') + ' ms',
           col: (h.hrv?.pct||0) >= 80 ? 'var(--green)' : (h.hrv?.pct||0) >= 50 ? 'var(--amber)' : 'var(--red)', pct: Math.min(h.hrv?.pct||0, 100) },
       ];
       snapSets.forEach(s => {
@@ -2029,7 +2015,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         document.getElementById('today-body').textContent = data.todayRecommendation;
         const badge = document.getElementById('today-badge');
         badge.className = 'today-badge ' + (badges[data.todayType] || 'badge-amber');
-        badge.textContent = badgeText[data.todayType] || 'AI';
+        badge.textContent = badgeText[data.todayType] || 'TODAY';
       }
       btn.textContent = 'Updated';
       btn.style.color = 'var(--green)';
@@ -2041,20 +2027,20 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     }
   }
 
-  // Noteringar — laddas från DB och används i varje AI-anrop
+  // Noteringar â€” laddas frÃ¥n DB och anvÃ¤nds i varje AI-anrop
   let userNotes = [];
 
   const BASE_CTX = `You are a personal training coach for a runner with a dual focus. Always respond in English.
 
-GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026 · Current best: 1:26:19 (Gothenburg Half Marathon) · Gap: 6:20
-SECONDARY GOAL: Build a strong body in all areas — running strength, upper body, core, mobility
-- VO2max: 59 · Garmin predictions: 5K 17:56, 10K 37:30, half marathon 1:23:30
+GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026 Â· Current best: 1:26:19 (Gothenburg Half Marathon) Â· Gap: 6:20
+SECONDARY GOAL: Build a strong body in all areas â€” running strength, upper body, core, mobility
+- VO2max: 59 Â· Garmin predictions: 5K 17:56, 10K 37:30, half marathon 1:23:30
 - Recent: Gothenburg Half Marathon 1:26:19 (May 23)
-- Training plan: W23–41 · phases: recovery → base building → threshold/tempo → race-specific → taper
+- Training plan: W23â€“41 Â· phases: recovery â†’ base building â†’ threshold/tempo â†’ race-specific â†’ taper
 
-STRENGTH GOAL: Progress every week — 2–3 strength sessions per week
+STRENGTH GOAL: Progress every week â€” 2â€“3 strength sessions per week
 - Main lifts: squat, deadlift, bench press, overhead press
-- Principle: progressive overload — increase weight or reps each week
+- Principle: progressive overload â€” increase weight or reps each week
 - Strength supports running: builds core, reduces injury risk, improves power output
 
 HEALTH DATA (current):
@@ -2064,7 +2050,7 @@ HEALTH DATA (current):
   function buildCTX() {
     let ctx = BASE_CTX;
 
-    // Lägg in arbetsschema för kommande 7 dagar
+    // LÃ¤gg in arbetsschema fÃ¶r kommande 7 dagar
     if (gcalEvents.length > 0) {
       const today = new Date();
       const in7 = new Date(today); in7.setDate(today.getDate() + 7);
@@ -2076,9 +2062,9 @@ HEALTH DATA (current):
         ctx += '\n\nWORK AND ACTIVITY SCHEDULE (next 7 days from Google Calendar):';
         const earlyDays = [];
         upcoming.forEach(ev => {
-          const timeStr = ev.allDay ? 'All day' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
+          const timeStr = ev.allDay ? 'All day' : fmtEventTime(ev.start) + 'â€“' + fmtEventTime(ev.end);
           const dayName = new Date(ev.start).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short' });
-          ctx += `\n- ${dayName}: ${ev.title} (${timeStr})${ev.desc ? ' — ' + ev.desc : ''}`;
+          ctx += `\n- ${dayName}: ${ev.title} (${timeStr})${ev.desc ? ' â€” ' + ev.desc : ''}`;
           if (!ev.allDay) {
             const hour = new Date(ev.start).getHours();
             if (hour < 7) earlyDays.push(dayName);
@@ -2086,12 +2072,12 @@ HEALTH DATA (current):
         });
         ctx += '\nAlways adapt training recommendations to the schedule, for example by moving hard sessions to free days.';
         if (earlyDays.length > 0) {
-          ctx += `\nEARLY WORK WARNING: The following days have events starting before 07:00 — this likely means shortened sleep and reduced recovery: ${earlyDays.join(', ')}. Avoid quality sessions (intervals, threshold, race) on these days and the day after. Prioritize rest or easy sessions (Z1-Z2).`;
+          ctx += `\nEARLY WORK WARNING: The following days have events starting before 07:00 â€” this likely means shortened sleep and reduced recovery: ${earlyDays.join(', ')}. Avoid quality sessions (intervals, threshold, race) on these days and the day after. Prioritize rest or easy sessions (Z1-Z2).`;
         }
       }
     }
 
-    // CNS-score och HRV traffic light — dynamisk hälsostatus
+    // CNS-score och HRV traffic light â€” dynamisk hÃ¤lsostatus
     const cnsEl = document.getElementById('cns-score');
     const cnsVal = cnsEl ? parseInt(cnsEl.textContent) : null;
     if (cnsVal && !isNaN(cnsVal)) {
@@ -2099,12 +2085,12 @@ HEALTH DATA (current):
       const hrvLabel = document.getElementById('hrv-light-label')?.textContent || '';
       const sleepDebt = document.getElementById('sleep-debt-val')?.textContent || '';
       const flags = [...(document.getElementById('sleep-flag-row')?.querySelectorAll('.sleep-flag') || [])]
-        .map(f => f.textContent).join(' · ');
-      ctx += `\n\nCNS SCORE (daily readiness analysis): ${cnsVal}/100 — ${cnsTitle}`;
+        .map(f => f.textContent).join(' Â· ');
+      ctx += `\n\nCNS SCORE (daily readiness analysis): ${cnsVal}/100 â€” ${cnsTitle}`;
       ctx += `\nHRV-SIGNAL: ${hrvLabel}`;
       ctx += `\nSLEEP DEFICIT TODAY: ${sleepDebt}`;
       if (flags) ctx += `\nSLEEP FLAGS: ${flags}`;
-      ctx += `\nSESSION RULE: CNS ≥70 → quality session ok · CNS 45–69 → normal/easy session · CNS <45 → rest or Z2 obligatoriskt`;
+      ctx += `\nSESSION RULE: CNS â‰¥70 â†’ quality session ok Â· CNS 45â€“69 â†’ normal/easy session Â· CNS <45 â†’ rest or Z2 obligatoriskt`;
     }
 
     // Sparade notes
@@ -2116,7 +2102,7 @@ HEALTH DATA (current):
         ctx += `\n- [${cat}] ${n.text}`;
       });
     }
-    // Volymsanalys för innevarande vecka
+    // Volymsanalys fÃ¶r innevarande vecka
     const now = new Date();
     const isoWeek = (() => {
       const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
@@ -2144,18 +2130,18 @@ HEALTH DATA (current):
       .reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
 
     const remainingKm = Math.max(0, plannedKmWeek - completedKmWeek);
-    const weekCap = Math.round(plannedKmWeek * 1.1); // max 10% över plan
+    const weekCap = Math.round(plannedKmWeek * 1.1); // max 10% Ã¶ver plan
 
-    ctx += `\n\nWEEKLY VOLUME W${isoWeek}: Planned ${plannedKmWeek} km · Completed ${completedKmWeek.toFixed(1)} km · Remaining by plan ${remainingKm.toFixed(1)} km · Weekly cap ${weekCap} km. If a missed session is suggested for rescheduling, ensure total weekly distance does not exceed ${weekCap} km - otherwise recommend rest or move the session to next week.`;
+    ctx += `\n\nWEEKLY VOLUME W${isoWeek}: Planned ${plannedKmWeek} km Â· Completed ${completedKmWeek.toFixed(1)} km Â· Remaining by plan ${remainingKm.toFixed(1)} km Â· Weekly cap ${weekCap} km. If a missed session is suggested for rescheduling, ensure total weekly distance does not exceed ${weekCap} km - otherwise recommend rest or move the session to next week.`;
 
-    // Training load (ACWR) — estimera load för planerade kvarvarande pass
+    // Training load (ACWR) â€” estimera load fÃ¶r planerade kvarvarande pass
     if (trainingLoadData && trainingLoadData.acute != null) {
-      // Load/km-schabloner baserade på historiska Garmin-värden
-      // easy (Z2): ~7/km, run (intervall/tröskel): ~22/km, race: ~25/km, lift: 40 fast
+      // Load/km-schabloner baserade pÃ¥ historiska Garmin-vÃ¤rden
+      // easy (Z2): ~7/km, run (intervall/trÃ¶skel): ~22/km, race: ~25/km, lift: 40 fast
       const loadPerKm = { easy: 7, run: 22, race: 25, lift: 0 };
       const loadFlat  = { lift: 40 };
 
-      const todayDow = (now.getDay() + 6) % 7; // 0=mån
+      const todayDow = (now.getDay() + 6) % 7; // 0=mÃ¥n
       const remainingSessions = PLAN_SESSIONS.filter(s =>
         s.week === isoWeek && s.dow > todayDow
       );
@@ -2165,7 +2151,7 @@ HEALTH DATA (current):
         return sum + (s.km || 0) * (loadPerKm[s.type] || 7);
       }, 0);
 
-      // Completed load this week från Garmin
+      // Completed load this week frÃ¥n Garmin
       const completedLoadWeek = recentActivities
         .filter(a => {
           const d = new Date(a.startTimeLocal || a.beginTimestamp);
@@ -2183,7 +2169,7 @@ HEALTH DATA (current):
         IMPROVING: 'Improving', PRODUCTIVE: 'Productive', PEAKING: 'Peaking',
         OVERREACHING: 'Overreaching', UNPRODUCTIVE: 'Unproductive'
       };
-      const statusLabel = statusMap[trainingLoadData.statusPhrase] || trainingLoadData.statusPhrase || '—';
+      const statusLabel = statusMap[trainingLoadData.statusPhrase] || trainingLoadData.statusPhrase || 'â€”';
 
       const feedbackMap = {
         AEROBIC_LOW_SHORTAGE: 'too little low-intensity aerobic training',
@@ -2191,15 +2177,15 @@ HEALTH DATA (current):
         ANAEROBIC_SHORTAGE: 'too little anaerobic training',
         OPTIMAL: 'optimal belastningsbalans'
       };
-      const feedbackLabel = feedbackMap[trainingLoadData.loadBalanceFeedback] || trainingLoadData.loadBalanceFeedback || '—';
+      const feedbackLabel = feedbackMap[trainingLoadData.loadBalanceFeedback] || trainingLoadData.loadBalanceFeedback || 'â€”';
 
       ctx += `\n\nTRAINING LOAD (ACWR model):`;
-      ctx += `\n- Acute load (7 days): ${trainingLoadData.acute} · Chronic load (28 days): ${trainingLoadData.chronic}`;
-      ctx += `\n- Current ACWR ratio: ${trainingLoadData.ratio} (${trainingLoadData.acwrStatus}) · Training status: ${statusLabel}`;
-      ctx += `\n- Completed load this week: ${Math.round(completedLoadWeek)} · Estimated load for remaining planned sessions: ${Math.round(estimatedRemainingLoad)}`;
-      ctx += `\n- Projected ACWR if all sessions are completed: ${projectedRatio} → ${safeToAdd ? ' inside safe zone (≤1.3)' : ' EXCEEDS safe zone (>1.3)'}`;
+      ctx += `\n- Acute load (7 days): ${trainingLoadData.acute} Â· Chronic load (28 days): ${trainingLoadData.chronic}`;
+      ctx += `\n- Current ACWR ratio: ${trainingLoadData.ratio} (${trainingLoadData.acwrStatus}) Â· Training status: ${statusLabel}`;
+      ctx += `\n- Completed load this week: ${Math.round(completedLoadWeek)} Â· Estimated load for remaining planned sessions: ${Math.round(estimatedRemainingLoad)}`;
+      ctx += `\n- Projected ACWR if all sessions are completed: ${projectedRatio} â†’ ${safeToAdd ? ' inside safe zone (â‰¤1.3)' : ' EXCEEDS safe zone (>1.3)'}`;
       ctx += `\n- Load balance: ${feedbackLabel}`;
-      ctx += `\nRULE: Optimal ACWR is 0.8–1.3. If a rescheduled session would push projected ACWR above 1.3 — replace with Z2 jog or rest instead. Estimated load/km: Z2=7, interval/threshold=22, race=25, strength=40 fixed.`;
+      ctx += `\nRULE: Optimal ACWR is 0.8â€“1.3. If a rescheduled session would push projected ACWR above 1.3 â€” replace with Z2 jog or rest instead. Estimated load/km: Z2=7, interval/threshold=22, race=25, strength=40 fixed.`;
     }
 
     ctx += '\n\nAlways answer in English. Be concrete and personal. Always consider BOTH goals in your answer. Max 3-4 sentences.';
@@ -2225,7 +2211,7 @@ HEALTH DATA (current):
     if (!list) return;
     count.textContent = userNotes.length + (userNotes.length === 1 ? ' note' : ' notes');
     if (!userNotes.length) {
-      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:4px 0;">No notes yet. Add anything the coach should know.</div>';
+      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'IBM Plex Mono\',monospace;padding:4px 0;">No notes yet. Add anything the coach should know.</div>';
       return;
     }
     list.innerHTML = userNotes.map(n => {
@@ -2235,9 +2221,9 @@ HEALTH DATA (current):
       const date  = new Date(n.created_at * 1000).toLocaleDateString('en-GB', {day:'numeric', month:'short'});
       return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 12px;position:relative;">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-          <span style="font-size:11px;color:${col};font-family:'JetBrains Mono',monospace;font-weight:600;">${emoji} ${label}</span>
-          <span style="font-size:10px;color:var(--muted);margin-left:auto;font-family:'JetBrains Mono',monospace;">${date}</span>
-          <button onclick="deleteNote(${n.id})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;transition:color 0.15s;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">×</button>
+          <span style="font-size:11px;color:${col};font-family:'IBM Plex Mono',monospace;font-weight:600;">${emoji} ${label}</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto;font-family:'IBM Plex Mono',monospace;">${date}</span>
+          <button onclick="deleteNote(${n.id})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;transition:color 0.15s;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">Ã—</button>
         </div>
         <div style="font-size:13px;color:var(--muted3);line-height:1.5;">${n.text}</div>
       </div>`;
@@ -2266,7 +2252,7 @@ HEALTH DATA (current):
   // Ladda notes direkt vid start
   loadNotes();
 
-  // Garmin-aktiviteter cached globalt för coachens volyms- och loadberäkning
+  // Garmin-aktiviteter cached globalt fÃ¶r coachens volyms- och loadberÃ¤kning
   let recentActivities = [];
   async function loadRecentActivities() {
     try {
@@ -2322,7 +2308,7 @@ HEALTH DATA (current):
     }
 
     acLoopEnabled = !!status.enabled;
-    label.textContent = 'Control loop: ' + (acLoopEnabled ? 'running' : 'stopped') + ' · ' + (status.service || 'ac-keeper-loop');
+    label.textContent = 'Control loop: ' + (acLoopEnabled ? 'running' : 'stopped') + ' Â· ' + (status.service || 'ac-keeper-loop');
     btn.textContent = acLoopEnabled ? 'Disable control' : 'Enable control';
     btn.className = 'ac-loop-btn ' + (acLoopEnabled ? 'is-on' : 'is-off');
     btn.disabled = false;
@@ -2364,7 +2350,7 @@ HEALTH DATA (current):
     }
   }
 
-  // AC / room temperature — fetched from ac-keeper through the dashboard proxy (/api/ac)
+  // AC / room temperature â€” fetched from ac-keeper through the dashboard proxy (/api/ac)
   async function loadAcStatus() {
     try {
       const res = await fetch('/api/ac');
@@ -2381,16 +2367,16 @@ HEALTH DATA (current):
       }
       const ac = d.latest_ac_status || {};
       const measured = ev.measured_c;
-      hl.textContent = 'Room ' + (measured != null ? measured.toFixed(1) : '—') + '°C → target ' + ev.target_c + '°C';
+      hl.textContent = 'Room ' + (measured != null ? measured.toFixed(1) : 'â€”') + 'Â°C â†’ target ' + ev.target_c + 'Â°C';
       const action = ev.action || '';
       const dry = action.indexOf('dry_run_') === 0;
       const base = action.replace('dry_run_', '');
       const map = { cool:['badge-amber','COOLING'], heat:['badge-amber','HEATING'], off:['badge-green','OFF'], hold:['badge-green','OK'], defer:['badge-amber','WAIT'], no_sensor_data:['badge-red','NO DATA'] };
       const m = map[base] || ['badge-amber', base.toUpperCase()];
       badge.className = 'today-badge ' + m[0];
-      badge.textContent = (dry ? 'TEST · ' : '') + m[1];
-      const acState = ac.power ? ('AC on (' + (ac.mode || '—') + ')') : 'AC off';
-      body.textContent = acState + '. ' + (dry ? 'Test mode (dry-run) — not controlling the real AC yet. ' : '') + (ev.reason || '');
+      badge.textContent = (dry ? 'TEST Â· ' : '') + m[1];
+      const acState = ac.power ? ('AC on (' + (ac.mode || 'â€”') + ')') : 'AC off';
+      body.textContent = acState + '. ' + (dry ? 'Test mode (dry-run) â€” not controlling the real AC yet. ' : '') + (ev.reason || '');
     } catch(e) {}
   }
   loadAcStatus();
@@ -2443,7 +2429,7 @@ HEALTH DATA (current):
 
   async function loadStrength() {
     const container = document.getElementById('strength-list');
-    container.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'JetBrains Mono\',monospace;">Loading sessions...</div>';
+    container.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'IBM Plex Mono\',monospace;">Loading sessions...</div>';
     try {
       const res = await fetch('/api/strength');
       const data = await res.json();
@@ -2457,14 +2443,14 @@ HEALTH DATA (current):
           <div class="strength-header" onclick="toggleSession('${s.id}')">
             <div class="strength-header-left">
               <div class="strength-title">${s.name}</div>
-              <div class="strength-meta">${fmtDateStr(s.date)} &nbsp;·&nbsp; ${fmtDur(s.duration)} &nbsp;·&nbsp; ${Math.round(s.calories||0)} kcal${s.avgHR?' &nbsp;·&nbsp;  '+Math.round(s.avgHR)+' bpm':''}</div>
+              <div class="strength-meta">${fmtDateStr(s.date)} &nbsp;Â·&nbsp; ${fmtDur(s.duration)} &nbsp;Â·&nbsp; ${Math.round(s.calories||0)} kcal${s.avgHR?' &nbsp;Â·&nbsp;  '+Math.round(s.avgHR)+' bpm':''}</div>
             </div>
-            <span class="strength-chevron">▾</span>
+            <span class="strength-chevron">â–¾</span>
           </div>
           <div class="strength-body">
-            <div class="ex-list" id="exlist-${s.id}"><div style="color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;">Loading...</div></div>
+            <div class="ex-list" id="exlist-${s.id}"><div style="color:var(--muted);font-size:12px;font-family:'IBM Plex Mono',monospace;">Loading...</div></div>
             <div class="add-ex-form">
-              <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOG EXERCISE</div>
+              <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOG EXERCISE</div>
               <div class="form-row">
                 <input class="ex-input-name" id="ex-name-${s.id}" list="ex-suggestions" placeholder="Exercise, e.g. bench press" autocomplete="off">
                 <input class="ex-input-sm" id="ex-sets-${s.id}" type="number" min="1" placeholder="Set">
@@ -2507,15 +2493,15 @@ HEALTH DATA (current):
   function renderExercises(sessionId, exercises) {
     const list = document.getElementById('exlist-' + sessionId);
     if (!exercises.length) {
-      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:8px 0 12px;">No exercises logged yet.</div>';
+      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'IBM Plex Mono\',monospace;padding:8px 0 12px;">No exercises logged yet.</div>';
       return;
     }
     list.innerHTML = exercises.map(ex => {
-      const detail = [ex.sets ? ex.sets+'×' : '', ex.reps || '', ex.weight ? ex.weight+'kg' : '', ex.note || ''].filter(Boolean).join(' ');
+      const detail = [ex.sets ? ex.sets+'Ã—' : '', ex.reps || '', ex.weight ? ex.weight+'kg' : '', ex.note || ''].filter(Boolean).join(' ');
       return `<div class="ex-row">
         <span class="ex-name">${ex.exercise}</span>
         <span class="ex-detail">${detail}</span>
-        <button class="ex-del" onclick="deleteExercise(${ex.id},'${sessionId}')" title="Ta bort">×</button>
+        <button class="ex-del" onclick="deleteExercise(${ex.id},'${sessionId}')" title="Ta bort">Ã—</button>
       </div>`;
     }).join('');
   }
@@ -2541,25 +2527,25 @@ HEALTH DATA (current):
   }
   document.getElementById('chat-input').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
 
-  // ─── TOOLTIPS ───────────────────────────────────────────────
+  // â”€â”€â”€ TOOLTIPS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const TIPS = {
     readiness: {
       title: 'Training readiness',
       desc: "Garmin's overall estimate of how ready the body is for hard training, based on HRV, sleep, stress, and activity history.",
       ranges: [
-        { label: '75 – 100', val: 'Peaked - quality session ok', col: 'var(--green)' },
-        { label: '50 – 74',  val: 'Ready - normal training',  col: 'var(--amber)' },
-        { label: '25 – 49',  val: 'Recovering',         col: 'var(--amber)' },
-        { label: '0 – 24',   val: 'Low - rest/Z2 max',      col: 'var(--red)'   },
+        { label: '75 â€“ 100', val: 'Peaked - quality session ok', col: 'var(--green)' },
+        { label: '50 â€“ 74',  val: 'Ready - normal training',  col: 'var(--amber)' },
+        { label: '25 â€“ 49',  val: 'Recovering',         col: 'var(--amber)' },
+        { label: '0 â€“ 24',   val: 'Low - rest/Z2 max',      col: 'var(--red)'   },
       ]
     },
     hrv: {
-      title: 'HRV — Heart Rate Variability',
+      title: 'HRV â€” Heart Rate Variability',
       desc: 'The variability between heartbeats during sleep. High HRV means the body is in a parasympathetic state and recovering well. Very individual - always compare against your own average.',
       ranges: [
         { label: '> 100% of avg', val: 'Excellent recovery', col: 'var(--green)' },
-        { label: '80 – 100%',       val: 'Good',                  col: 'var(--green)' },
-        { label: '50 – 79%',        val: 'Acceptable',           col: 'var(--amber)' },
+        { label: '80 â€“ 100%',       val: 'Good',                  col: 'var(--green)' },
+        { label: '50 â€“ 79%',        val: 'Acceptable',           col: 'var(--amber)' },
         { label: '< 50%',           val: 'Low - rest recommended', col: 'var(--red)' },
       ]
     },
@@ -2568,18 +2554,18 @@ HEALTH DATA (current):
       desc: 'Lowest heart rate during rest/sleep. Lower usually means better fitness. Often decreases with aerobic training. A sudden increase can signal illness or overtraining.',
       ranges: [
         { label: '< 45 bpm',  val: 'Elite athlete',    col: 'var(--green)' },
-        { label: '45 – 55',   val: 'Well trained',        col: 'var(--green)' },
-        { label: '56 – 70',   val: 'Average',       col: 'var(--amber)' },
+        { label: '45 â€“ 55',   val: 'Well trained',        col: 'var(--green)' },
+        { label: '56 â€“ 70',   val: 'Average',       col: 'var(--amber)' },
         { label: '> 70 bpm',  val: 'Elevated',          col: 'var(--red)'   },
       ]
     },
     vo2max: {
       title: 'VO2max (ml/kg/min)',
-      desc: 'Maximum oxygen uptake — the most important measure of fitness. Garmin estimates it via running data. Increases gradually with aerobic training.',
+      desc: 'Maximum oxygen uptake â€” the most important measure of fitness. Garmin estimates it via running data. Increases gradually with aerobic training.',
       ranges: [
         { label: '> 60',   val: 'Elite runner',        col: 'var(--green)' },
-        { label: '55 – 60', val: 'Excellent (men 20-35)', col: 'var(--green)' },
-        { label: '46 – 54', val: 'Good - above average', col: 'var(--amber)' },
+        { label: '55 â€“ 60', val: 'Excellent (men 20-35)', col: 'var(--green)' },
+        { label: '46 â€“ 54', val: 'Good - above average', col: 'var(--amber)' },
         { label: '< 46',   val: 'Average/under',  col: 'var(--red)'   },
       ]
     },
@@ -2587,9 +2573,9 @@ HEALTH DATA (current):
       title: 'Sleep score',
       desc: "Garmin's overall estimate of sleep quality based on duration, sleep cycles, HRV, and breathing overnight.",
       ranges: [
-        { label: '90 – 100', val: 'Excellent',  col: 'var(--green)' },
-        { label: '80 – 89',  val: 'Good',      col: 'var(--green)' },
-        { label: '60 – 79',  val: 'Acceptable', col: 'var(--amber)' },
+        { label: '90 â€“ 100', val: 'Excellent',  col: 'var(--green)' },
+        { label: '80 â€“ 89',  val: 'Good',      col: 'var(--green)' },
+        { label: '60 â€“ 79',  val: 'Acceptable', col: 'var(--amber)' },
         { label: '< 60',     val: 'Poor - prioritize sleep', col: 'var(--red)' },
       ]
     },
@@ -2597,9 +2583,9 @@ HEALTH DATA (current):
       title: 'Deep sleep (slow-wave)',
       desc: 'The most physically restorative sleep phase - the body repairs muscles and tissue. Especially important for athletes. Naturally decreases with age.',
       ranges: [
-        { label: '20 – 25%', val: 'Excellent (ca 1,5–2h)', col: 'var(--green)' },
-        { label: '13 – 19%', val: 'Normal',              col: 'var(--green)' },
-        { label: '8 – 12%',  val: 'Slightly low',             col: 'var(--amber)' },
+        { label: '20 â€“ 25%', val: 'Excellent (ca 1,5â€“2h)', col: 'var(--green)' },
+        { label: '13 â€“ 19%', val: 'Normal',              col: 'var(--green)' },
+        { label: '8 â€“ 12%',  val: 'Slightly low',             col: 'var(--amber)' },
         { label: '< 8%',     val: 'Too little',             col: 'var(--red)'   },
       ]
     },
@@ -2607,9 +2593,9 @@ HEALTH DATA (current):
       title: 'REM sleep',
       desc: 'Rapid Eye Movement sleep - the brain consolidates memories and processes impressions. Important for mental recovery, motor learning, and motivation.',
       ranges: [
-        { label: '20 – 25%', val: 'Excellent (ca 1,5–2h)',  col: 'var(--green)'  },
-        { label: '15 – 19%', val: 'Normal',               col: 'var(--green)'  },
-        { label: '10 – 14%', val: 'Slightly low',              col: 'var(--amber)'  },
+        { label: '20 â€“ 25%', val: 'Excellent (ca 1,5â€“2h)',  col: 'var(--green)'  },
+        { label: '15 â€“ 19%', val: 'Normal',               col: 'var(--green)'  },
+        { label: '10 â€“ 14%', val: 'Slightly low',              col: 'var(--amber)'  },
         { label: '< 10%',    val: 'Too little',              col: 'var(--red)'    },
       ]
     },
@@ -2617,8 +2603,8 @@ HEALTH DATA (current):
       title: 'HRV during sleep (ms)',
       desc: 'Average HRV measured throughout the night. More stable than daytime measurements. Usually rises during deep sleep and REM. Absolute values vary a lot between people.',
       ranges: [
-        { label: 'Well trained', val: 'Typically 55–100+ ms',    col: 'var(--green)' },
-        { label: 'Average', val: 'Typically 25–55 ms',      col: 'var(--amber)' },
+        { label: 'Well trained', val: 'Typically 55â€“100+ ms',    col: 'var(--green)' },
+        { label: 'Average', val: 'Typically 25â€“55 ms',      col: 'var(--amber)' },
         { label: 'Trend',      val: 'Compare with your avg', col: 'var(--blue)'  },
         { label: 'Note',       val: 'Sudden drop = rest', col: 'var(--red)' },
       ]
@@ -2627,29 +2613,29 @@ HEALTH DATA (current):
       title: 'Body Battery',
       desc: "Garmin's energy reserve estimate based on HRV, stress, and sleep. Charges during sleep and rest, drains from activity and stress. A good guide for whether you can handle a hard session.",
       ranges: [
-        { label: '75 – 100', val: 'High energy - go hard',   col: 'var(--green)' },
-        { label: '50 – 74',  val: 'Moderate - normal training', col: 'var(--green)' },
-        { label: '25 – 49',  val: 'Low - keep it easy',     col: 'var(--amber)' },
-        { label: '0 – 24',   val: 'Empty - prioritize rest',   col: 'var(--red)'   },
+        { label: '75 â€“ 100', val: 'High energy - go hard',   col: 'var(--green)' },
+        { label: '50 â€“ 74',  val: 'Moderate - normal training', col: 'var(--green)' },
+        { label: '25 â€“ 49',  val: 'Low - keep it easy',     col: 'var(--amber)' },
+        { label: '0 â€“ 24',   val: 'Empty - prioritize rest',   col: 'var(--red)'   },
       ]
     },
     stress: {
       title: 'Stress level',
       desc: 'Garmin estimates stress from HRV variation during the day. High stress activates the sympathetic nervous system and slows recovery. Includes physical and mental stress.',
       ranges: [
-        { label: '0 – 25',  val: 'Rest / relaxed',     col: 'var(--green)' },
-        { label: '26 – 50', val: 'Low stress',            col: 'var(--green)' },
-        { label: '51 – 75', val: 'Moderate stress',        col: 'var(--amber)' },
-        { label: '76 – 100', val: 'High stress - slows recovery', col: 'var(--red)' },
+        { label: '0 â€“ 25',  val: 'Rest / relaxed',     col: 'var(--green)' },
+        { label: '26 â€“ 50', val: 'Low stress',            col: 'var(--green)' },
+        { label: '51 â€“ 75', val: 'Moderate stress',        col: 'var(--amber)' },
+        { label: '76 â€“ 100', val: 'High stress - slows recovery', col: 'var(--red)' },
       ]
     },
     spo2: {
       title: 'SpO2 - Blood oxygen (%)',
-      desc: 'Percentage of hemoglobin in the blood carrying oxygen. Measured with a pulse oximeter. Normally stable in healthy individuals — drops at high altitude or with breathing issues.',
+      desc: 'Percentage of hemoglobin in the blood carrying oxygen. Measured with a pulse oximeter. Normally stable in healthy individuals â€” drops at high altitude or with breathing issues.',
       ranges: [
-        { label: '97 – 100%', val: 'Optimal',           col: 'var(--green)' },
-        { label: '95 – 96%',  val: 'Normal',            col: 'var(--green)' },
-        { label: '90 – 94%',  val: 'Slightly low - watch', col: 'var(--amber)' },
+        { label: '97 â€“ 100%', val: 'Optimal',           col: 'var(--green)' },
+        { label: '95 â€“ 96%',  val: 'Normal',            col: 'var(--green)' },
+        { label: '90 â€“ 94%',  val: 'Slightly low - watch', col: 'var(--amber)' },
         { label: '< 90%',     val: 'Critically low',      col: 'var(--red)'   },
       ]
     },
@@ -2657,9 +2643,9 @@ HEALTH DATA (current):
       title: 'Breathing rate (breaths/min)',
       desc: 'Breaths per minute at rest. Lower rates are common in well-trained athletes. Elevated breathing during sleep can signal illness or poor sleep quality.',
       ranges: [
-        { label: '8 – 12/min',  val: 'Well-trained athlete', col: 'var(--green)' },
-        { label: '12 – 16/min', val: 'Normal adult',       col: 'var(--green)' },
-        { label: '17 – 20/min', val: 'Slightly elevated',        col: 'var(--amber)' },
+        { label: '8 â€“ 12/min',  val: 'Well-trained athlete', col: 'var(--green)' },
+        { label: '12 â€“ 16/min', val: 'Normal adult',       col: 'var(--green)' },
+        { label: '17 â€“ 20/min', val: 'Slightly elevated',        col: 'var(--amber)' },
         { label: '> 20/min',    val: 'Elevated - investigate',  col: 'var(--red)'   },
       ]
     },
@@ -2689,7 +2675,7 @@ HEALTH DATA (current):
       <div class="tip-desc">${data.desc}</div>
       <div class="tip-ranges">${rangesHtml}</div>`;
 
-    // Positionera — försök visa under kortet, annars ovan
+    // Positionera â€” fÃ¶rsÃ¶k visa under kortet, annars ovan
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const W  = 260;
@@ -2745,9 +2731,9 @@ HEALTH DATA (current):
     if (e.target.closest('[data-freetip]')) hideTip();
   });
 
-  // ─── KALENDER ───────────────────────────────────────────────
-  // PLAN_SESSIONS laddas dynamiskt från DB via /api/plan
-  // Fallback till hårdkodad array om API-anropet misslyckas
+  // â”€â”€â”€ KALENDER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // PLAN_SESSIONS laddas dynamiskt frÃ¥n DB via /api/plan
+  // Fallback till hÃ¥rdkodad array om API-anropet misslyckas
   let PLAN_SESSIONS = [];
 
   async function loadPlanStatus() {
@@ -2768,20 +2754,20 @@ HEALTH DATA (current):
 
   const PLAN_TEXT_REPLACEMENTS = [
     ['Recoverysjogg', 'Recovery jog'],
-    ['Söndagsjogg', 'Sunday jog'],
-    ['Lätt avslutning', 'Easy finish'],
-    ['Lätt aktivering', 'Easy activation'],
-    ['Lätt jogg', 'Easy jog'],
-    ['Lätt fartlek', 'Easy fartlek'],
-    ['Lätt styrka', 'Light strength'],
-    ['Lätt Z2', 'Easy Z2'],
-    ['Lätt thresholdpass', 'Easy threshold session'],
-    ['Lätt', 'Easy'],
-    ['Mellanlångt', 'Medium-long'],
+    ['SÃ¶ndagsjogg', 'Sunday jog'],
+    ['LÃ¤tt avslutning', 'Easy finish'],
+    ['LÃ¤tt aktivering', 'Easy activation'],
+    ['LÃ¤tt jogg', 'Easy jog'],
+    ['LÃ¤tt fartlek', 'Easy fartlek'],
+    ['LÃ¤tt styrka', 'Light strength'],
+    ['LÃ¤tt Z2', 'Easy Z2'],
+    ['LÃ¤tt thresholdpass', 'Easy threshold session'],
+    ['LÃ¤tt', 'Easy'],
+    ['MellanlÃ¥ngt', 'Medium-long'],
     ['Medium Z2', 'Medium Z2'],
-    ['Långpass', 'Long run'],
-    ['Tröskelpass', 'Threshold session'],
-    ['tröskel', 'threshold'],
+    ['LÃ¥ngpass', 'Long run'],
+    ['TrÃ¶skelpass', 'Threshold session'],
+    ['trÃ¶skel', 'threshold'],
     ['Intervaller', 'Intervals'],
     ['intervaller', 'intervals'],
     ['Fartlekpass', 'Fartlek session'],
@@ -2789,102 +2775,102 @@ HEALTH DATA (current):
     ['Halvmaratonpace', 'Half marathon pace'],
     ['Kontrolltest', 'Control test'],
     ['KONTROLLTEST', 'CONTROL TEST'],
-    ['Tävlingsfart', 'Race pace'],
-    ['tävlingsfart', 'race pace'],
-    ['TÄVLING', 'RACE'],
+    ['TÃ¤vlingsfart', 'Race pace'],
+    ['tÃ¤vlingsfart', 'race pace'],
+    ['TÃ„VLING', 'RACE'],
     ['Vila', 'Rest'],
     ['vila', 'rest'],
     ['Helkropp', 'Full body'],
-    ['Överkropp', 'Upper body'],
+    ['Ã–verkropp', 'Upper body'],
     ['Underkropp', 'Lower body'],
     ['Styrka', 'Strength'],
     ['styrka', 'strength'],
-    ['underhåll', 'maintenance'],
-    ['Underhåll', 'Maintenance'],
+    ['underhÃ¥ll', 'maintenance'],
+    ['UnderhÃ¥ll', 'Maintenance'],
     ['tung', 'heavy'],
-    ['lätt', 'light'],
+    ['lÃ¤tt', 'light'],
     ['intro', 'intro'],
     ['progressiv', 'progressive'],
-    ['rörlighet', 'mobility'],
+    ['rÃ¶rlighet', 'mobility'],
     ['Bas', 'Base'],
     ['Recovery', 'Recovery'],
     ['Spetsning', 'Sharpening'],
     ['Avtrappning', 'Taper'],
     ['Nedtrapning', 'Taper'],
-    ['Tävlingsvecka', 'Race week'],
-    ['Tävlingsspecifik', 'Race specific'],
-    ['mål', 'goal'],
-    ['Uppvärmning', 'Warm-up'],
-    ['Uppvärm', 'Warm up'],
+    ['TÃ¤vlingsvecka', 'Race week'],
+    ['TÃ¤vlingsspecifik', 'Race specific'],
+    ['mÃ¥l', 'goal'],
+    ['UppvÃ¤rmning', 'Warm-up'],
+    ['UppvÃ¤rm', 'Warm up'],
     ['Nedvarvning', 'cool-down'],
     ['Nedvarv', 'cool down'],
     ['nedvarvning', 'cool-down'],
     ['joggvila', 'jog recovery'],
     ['sek vila', 'sec rest'],
     ['min vila', 'min rest'],
-    ['Lugn och lätt', 'Calm and easy'],
-    ['Lugnt och långsamt', 'Easy and slow'],
-    ['Lugnt och uthålligt', 'Easy and steady'],
+    ['Lugn och lÃ¤tt', 'Calm and easy'],
+    ['Lugnt och lÃ¥ngsamt', 'Easy and slow'],
+    ['Lugnt och uthÃ¥lligt', 'Easy and steady'],
     ['Lugnt och stabilt', 'Easy and steady'],
     ['Lugnt', 'Easy'],
     ['lugnt', 'easy'],
-    ['Aktiv återhämtning', 'Active recovery'],
-    ['återhämtning', 'recovery'],
+    ['Aktiv Ã¥terhÃ¤mtning', 'Active recovery'],
+    ['Ã¥terhÃ¤mtning', 'recovery'],
     ['Aktivering', 'Activation'],
-    ['inför', 'before'],
-    ['Inför', 'Before'],
+    ['infÃ¶r', 'before'],
+    ['InfÃ¶r', 'Before'],
     ['veckans', "the week's"],
     ['Veckans', "Week's"],
     ['kvalitetspass', 'quality session'],
     ['banpasset', 'track session'],
     ['bansprint', 'track sprint'],
-    ['Håll pulsen låg', 'Keep heart rate low'],
-    ['Håll det lugnt', 'Keep it easy'],
-    ['Håll dig frisk', 'Stay healthy'],
-    ['Håll benen igång', 'Keep the legs moving'],
-    ['Håll benen snabba', 'Keep the legs quick'],
+    ['HÃ¥ll pulsen lÃ¥g', 'Keep heart rate low'],
+    ['HÃ¥ll det lugnt', 'Keep it easy'],
+    ['HÃ¥ll dig frisk', 'Stay healthy'],
+    ['HÃ¥ll benen igÃ¥ng', 'Keep the legs moving'],
+    ['HÃ¥ll benen snabba', 'Keep the legs quick'],
     ['Spara benen', 'Save the legs'],
     ['Spara energi', 'Save energy'],
     ['Spola ur benen', 'Flush out the legs'],
-    ['Spola ut mjölksyra', 'Flush out lactate'],
+    ['Spola ut mjÃ¶lksyra', 'Flush out lactate'],
     ['Aerob bas', 'Aerobic base'],
     ['Aerob avslutning', 'Aerobic finish'],
     ['Bygg aerob grund', 'Build aerobic base'],
-    ['Bekvämt tempo hela vägen', 'Comfortable pace all the way'],
-    ['Bekvämt tempo', 'Comfortable pace'],
-    ['Bekvämt', 'Comfortable'],
-    ['Jämnt och lugnt', 'Even and easy'],
-    ['Jämnt tempo', 'Even pace'],
-    ['Kontrollerat och jämnt', 'Controlled and even'],
-    ['Kontrollerad ansträngning', 'Controlled effort'],
+    ['BekvÃ¤mt tempo hela vÃ¤gen', 'Comfortable pace all the way'],
+    ['BekvÃ¤mt tempo', 'Comfortable pace'],
+    ['BekvÃ¤mt', 'Comfortable'],
+    ['JÃ¤mnt och lugnt', 'Even and easy'],
+    ['JÃ¤mnt tempo', 'Even pace'],
+    ['Kontrollerat och jÃ¤mnt', 'Controlled and even'],
+    ['Kontrollerad anstrÃ¤ngning', 'Controlled effort'],
     ['Snabbt och kontrollerat', 'Fast and controlled'],
     ['Snabbt och skarpt', 'Fast and sharp'],
     ['Varierande tempo', 'Varied pace'],
-    ['Ökad intensitet', 'Increased intensity'],
-    ['Längsta tröskeldraget hittills', 'Longest threshold rep so far'],
-    ['Sista långa aeroba passet innan testperioden', 'Last long aerobic run before the test block'],
-    ['Sista längre passet innan testet', 'Last longer session before the test'],
+    ['Ã–kad intensitet', 'Increased intensity'],
+    ['LÃ¤ngsta trÃ¶skeldraget hittills', 'Longest threshold rep so far'],
+    ['Sista lÃ¥nga aeroba passet innan testperioden', 'Last long aerobic run before the test block'],
+    ['Sista lÃ¤ngre passet innan testet', 'Last longer session before the test'],
     ['Sista kvalitetsdagen', 'Last quality day'],
-    ['Sista söndag inför tävlingsveckan', 'Last Sunday before race week'],
-    ['Sista lite längre passet', 'Last slightly longer session'],
-    ['Sista riktiga långpasset', 'Last real long run'],
+    ['Sista sÃ¶ndag infÃ¶r tÃ¤vlingsveckan', 'Last Sunday before race week'],
+    ['Sista lite lÃ¤ngre passet', 'Last slightly longer session'],
+    ['Sista riktiga lÃ¥ngpasset', 'Last real long run'],
     ['Viktigaste aeroba passet i veckan', 'Most important aerobic run this week'],
-    ['Veckans höjdpunkt aerob bas', "Week's aerobic base highlight"],
-    ['Muskler spänstiga', 'Keep muscles springy'],
-    ['Fullständig vila', 'Full rest'],
-    ['Ät bra', 'Eat well'],
-    ['Sov länge', 'sleep long'],
+    ['Veckans hÃ¶jdpunkt aerob bas', "Week's aerobic base highlight"],
+    ['Muskler spÃ¤nstiga', 'Keep muscles springy'],
+    ['FullstÃ¤ndig vila', 'Full rest'],
+    ['Ã„t bra', 'Eat well'],
+    ['Sov lÃ¤nge', 'sleep long'],
     ['Visualisera loppet', 'visualize the race'],
-    ['MÅL', 'GOAL'],
-    ['Mål', 'Goal'],
-    ['målfarten', 'goal pace'],
-    ['målpace', 'goal pace'],
-    ['halvmaratontröskel', 'half-marathon threshold'],
+    ['MÃ…L', 'GOAL'],
+    ['MÃ¥l', 'Goal'],
+    ['mÃ¥lfarten', 'goal pace'],
+    ['mÃ¥lpace', 'goal pace'],
+    ['halvmaratontrÃ¶skel', 'half-marathon threshold'],
     ['halvmaran pace', 'half marathon pace'],
-    ['Bänkpress', 'bench press'],
-    ['bänkpress', 'bench press'],
-    ['Knäböj', 'squat'],
-    ['knäböj', 'squat'],
+    ['BÃ¤nkpress', 'bench press'],
+    ['bÃ¤nkpress', 'bench press'],
+    ['KnÃ¤bÃ¶j', 'squat'],
+    ['knÃ¤bÃ¶j', 'squat'],
     ['marklyft', 'deadlift'],
     ['Marklyft', 'Deadlift'],
     ['axelpress', 'overhead press'],
@@ -2897,13 +2883,13 @@ HEALTH DATA (current):
     ['Plankan', 'Plank'],
     ['utfall', 'lunges'],
     ['bulgarska', 'Bulgarian split squats'],
-    ['höftlyft', 'hip thrust'],
+    ['hÃ¶ftlyft', 'hip thrust'],
     ['vadhopp', 'calf jumps'],
-    ['vadbågar', 'calf raises'],
-    ['överkropp', 'upper body'],
+    ['vadbÃ¥gar', 'calf raises'],
+    ['Ã¶verkropp', 'upper body'],
     ['underkropp', 'lower body'],
-    ['övningar', 'exercises'],
-    ['Övningar', 'Exercises'],
+    ['Ã¶vningar', 'exercises'],
+    ['Ã–vningar', 'Exercises'],
     ['set', 'sets'],
     ['sek', 'sec'],
     ['inkl', 'incl.'],
@@ -2965,7 +2951,7 @@ HEALTH DATA (current):
     detail.textContent     = s.detail || '';
     km.textContent         = s.km > 0 ? s.km + ' km' : '';
     km.style.color         = col;
-    type.textContent       = (typeLabels[s.type] || s.type.toUpperCase()) + (s.status !== 'planned' ? ' · ' + s.status.toUpperCase() : '');
+    type.textContent       = (typeLabels[s.type] || s.type.toUpperCase()) + (s.status !== 'planned' ? ' Â· ' + s.status.toUpperCase() : '');
   }
 
   async function loadPlan() {
@@ -2983,113 +2969,113 @@ HEALTH DATA (current):
   }
   loadPlan();
 
-  // Fallback-data (används om DB är otillgänglig)
+  // Fallback-data (anvÃ¤nds om DB Ã¤r otillgÃ¤nglig)
   const PLAN_SESSIONS_FALLBACK = [
 
-    // ── V.23 · Recovery · mål ~28 km ──────────────────
-    { week:23, dow:1, type:'run',  km:6,  title:'Recoverysjogg',       detail:'Z2 · 6 km · 4:45–5:15/km · Rest efter GöteborgsVarvet' },
-    { week:23, dow:2, type:'easy', km:7,  title:'Lätt Z2 · 7 km',          detail:'Z2 · Lugnt tempo · 5:00–5:20/km · Aktiv återhämtning' },
-    { week:23, dow:3, type:'lift', km:0,  title:'Helkropp – intro',         detail:'Knäböj, marklyft, bänkpress, latsdrag · 3×8 · 60–70% av max' },
-    { week:23, dow:4, type:'easy', km:5,  title:'Lätt Z2 · 5 km',          detail:'Z2 · Kort och lätt · Spola ur benen' },
-    { week:23, dow:6, type:'easy', km:10, title:'Söndagsjogg · 10 km',      detail:'Z2 · 5:00–5:20/km · Veckoavslutet · Lugnt och långsamt' },
+    // â”€â”€ V.23 Â· Recovery Â· mÃ¥l ~28 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:23, dow:1, type:'run',  km:6,  title:'Recoverysjogg',       detail:'Z2 Â· 6 km Â· 4:45â€“5:15/km Â· Rest efter GÃ¶teborgsVarvet' },
+    { week:23, dow:2, type:'easy', km:7,  title:'LÃ¤tt Z2 Â· 7 km',          detail:'Z2 Â· Lugnt tempo Â· 5:00â€“5:20/km Â· Aktiv Ã¥terhÃ¤mtning' },
+    { week:23, dow:3, type:'lift', km:0,  title:'Helkropp â€“ intro',         detail:'KnÃ¤bÃ¶j, marklyft, bÃ¤nkpress, latsdrag Â· 3Ã—8 Â· 60â€“70% av max' },
+    { week:23, dow:4, type:'easy', km:5,  title:'LÃ¤tt Z2 Â· 5 km',          detail:'Z2 Â· Kort och lÃ¤tt Â· Spola ur benen' },
+    { week:23, dow:6, type:'easy', km:10, title:'SÃ¶ndagsjogg Â· 10 km',      detail:'Z2 Â· 5:00â€“5:20/km Â· Veckoavslutet Â· Lugnt och lÃ¥ngsamt' },
 
-    // ── V.24 · Bas · mål ~44 km ────────────────────────────
-    { week:24, dow:0, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Aktivering inför veckans kvalitetspass' },
-    { week:24, dow:1, type:'run',  km:8,  title:'4×1000m intervaller',      detail:'Z3–Z4 · 3:35/km · 3 min vila · ~8 km totalt inkl uppvärmning' },
-    { week:24, dow:2, type:'easy', km:9,  title:'Lätt Z2 · 9 km',          detail:'Z2 · 5:00–5:15/km · Aktivt vilodygn · Håll pulsen låg' },
-    { week:24, dow:3, type:'lift', km:0,  title:'Underkropp + core',        detail:'Knäböj, RDL, benpress, split-squat, plankan · 3–4 set · Progressiv' },
-    { week:24, dow:4, type:'easy', km:7,  title:'Lätt Z2 · 7 km',          detail:'Z2 · Inför lördagets bansprint · Lugnt' },
-    { week:24, dow:5, type:'run',  km:6,  title:'6×400m snabba drag',       detail:'Z5 · 3:10/km · 90 sek vila · Bana · Anaerob stimulans' },
-    { week:24, dow:6, type:'easy', km:10, title:'Söndagsjogg · 10 km',      detail:'Z2 · Aktiv återhämtning efter banpasset' },
+    // â”€â”€ V.24 Â· Bas Â· mÃ¥l ~44 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:24, dow:0, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· Aktivering infÃ¶r veckans kvalitetspass' },
+    { week:24, dow:1, type:'run',  km:8,  title:'4Ã—1000m intervaller',      detail:'Z3â€“Z4 Â· 3:35/km Â· 3 min vila Â· ~8 km totalt inkl uppvÃ¤rmning' },
+    { week:24, dow:2, type:'easy', km:9,  title:'LÃ¤tt Z2 Â· 9 km',          detail:'Z2 Â· 5:00â€“5:15/km Â· Aktivt vilodygn Â· HÃ¥ll pulsen lÃ¥g' },
+    { week:24, dow:3, type:'lift', km:0,  title:'Underkropp + core',        detail:'KnÃ¤bÃ¶j, RDL, benpress, split-squat, plankan Â· 3â€“4 set Â· Progressiv' },
+    { week:24, dow:4, type:'easy', km:7,  title:'LÃ¤tt Z2 Â· 7 km',          detail:'Z2 Â· InfÃ¶r lÃ¶rdagets bansprint Â· Lugnt' },
+    { week:24, dow:5, type:'run',  km:6,  title:'6Ã—400m snabba drag',       detail:'Z5 Â· 3:10/km Â· 90 sek vila Â· Bana Â· Anaerob stimulans' },
+    { week:24, dow:6, type:'easy', km:10, title:'SÃ¶ndagsjogg Â· 10 km',      detail:'Z2 Â· Aktiv Ã¥terhÃ¤mtning efter banpasset' },
 
-    // ── V.25 · Bas · mål ~47 km ────────────────────────────
-    { week:25, dow:0, type:'easy', km:5,  title:'Lätt Z2 · 5 km',          detail:'Z2 · Kort aktivering inför veckans tröskelpass' },
-    { week:25, dow:1, type:'easy', km:9,  title:'Medium Z2 · 9 km',        detail:'Z2 · 5:00/km · Aerob bas · Bekvämt tempo hela vägen' },
-    { week:25, dow:2, type:'run',  km:10, title:'5×1000m tröskel',          detail:'Z3–Z4 · 3:35/km · 2:30 min vila · ~10 km totalt' },
-    { week:25, dow:3, type:'lift', km:0,  title:'Överkropp',                detail:'Bänkpress, axelpress, latsdrag, rodd · 3–4 set · Progressiv' },
-    { week:25, dow:4, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Recovery efter tröskelpasset' },
-    { week:25, dow:5, type:'run',  km:12, title:'Långpass · 12 km',         detail:'Z2 · 5:00–5:20/km · Viktigaste aeroba passet i veckan' },
-    { week:25, dow:6, type:'easy', km:5,  title:'Lätt avslutning · 5 km',  detail:'Z2 · Söndagsjogg · Håll benen igång' },
+    // â”€â”€ V.25 Â· Bas Â· mÃ¥l ~47 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:25, dow:0, type:'easy', km:5,  title:'LÃ¤tt Z2 Â· 5 km',          detail:'Z2 Â· Kort aktivering infÃ¶r veckans trÃ¶skelpass' },
+    { week:25, dow:1, type:'easy', km:9,  title:'Medium Z2 Â· 9 km',        detail:'Z2 Â· 5:00/km Â· Aerob bas Â· BekvÃ¤mt tempo hela vÃ¤gen' },
+    { week:25, dow:2, type:'run',  km:10, title:'5Ã—1000m trÃ¶skel',          detail:'Z3â€“Z4 Â· 3:35/km Â· 2:30 min vila Â· ~10 km totalt' },
+    { week:25, dow:3, type:'lift', km:0,  title:'Ã–verkropp',                detail:'BÃ¤nkpress, axelpress, latsdrag, rodd Â· 3â€“4 set Â· Progressiv' },
+    { week:25, dow:4, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· Recovery efter trÃ¶skelpasset' },
+    { week:25, dow:5, type:'run',  km:12, title:'LÃ¥ngpass Â· 12 km',         detail:'Z2 Â· 5:00â€“5:20/km Â· Viktigaste aeroba passet i veckan' },
+    { week:25, dow:6, type:'easy', km:5,  title:'LÃ¤tt avslutning Â· 5 km',  detail:'Z2 Â· SÃ¶ndagsjogg Â· HÃ¥ll benen igÃ¥ng' },
 
-    // ── V.26 · Tröskel · mål ~48 km ───────────────────────
-    { week:26, dow:0, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Aktivering inför tröskeldagen' },
-    { week:26, dow:1, type:'run',  km:10, title:'3×2000m tröskel',          detail:'Z4 · 3:35/km · 3 min vila · ~10 km inkl uppvärm.' },
-    { week:26, dow:2, type:'easy', km:9,  title:'Medium Z2 · 9 km',        detail:'Z2 · Aerob bas · 5:00–5:10/km · Jämnt och lugnt' },
-    { week:26, dow:3, type:'lift', km:0,  title:'Underkropp – tung',        detail:'Knäböj, marklyft, bulgarska · 4×6–8 · 80% av max' },
-    { week:26, dow:4, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Inför lördagets fartlekpass' },
-    { week:26, dow:5, type:'run',  km:8,  title:'8×400m fartlek',           detail:'Z4–Z5 · 90 sek vila · Varierande tempo · ~8 km' },
-    { week:26, dow:6, type:'easy', km:10, title:'Söndagsjogg · 10 km',      detail:'Z2 · Aerob avslutning på veckan' },
+    // â”€â”€ V.26 Â· TrÃ¶skel Â· mÃ¥l ~48 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:26, dow:0, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· Aktivering infÃ¶r trÃ¶skeldagen' },
+    { week:26, dow:1, type:'run',  km:10, title:'3Ã—2000m trÃ¶skel',          detail:'Z4 Â· 3:35/km Â· 3 min vila Â· ~10 km inkl uppvÃ¤rm.' },
+    { week:26, dow:2, type:'easy', km:9,  title:'Medium Z2 Â· 9 km',        detail:'Z2 Â· Aerob bas Â· 5:00â€“5:10/km Â· JÃ¤mnt och lugnt' },
+    { week:26, dow:3, type:'lift', km:0,  title:'Underkropp â€“ tung',        detail:'KnÃ¤bÃ¶j, marklyft, bulgarska Â· 4Ã—6â€“8 Â· 80% av max' },
+    { week:26, dow:4, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· InfÃ¶r lÃ¶rdagets fartlekpass' },
+    { week:26, dow:5, type:'run',  km:8,  title:'8Ã—400m fartlek',           detail:'Z4â€“Z5 Â· 90 sek vila Â· Varierande tempo Â· ~8 km' },
+    { week:26, dow:6, type:'easy', km:10, title:'SÃ¶ndagsjogg Â· 10 km',      detail:'Z2 Â· Aerob avslutning pÃ¥ veckan' },
 
-    // ── V.27 · Tröskel · mål ~49 km ───────────────────────
-    { week:27, dow:0, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Inför veckans längsta tröskeldag' },
-    { week:27, dow:1, type:'run',  km:10, title:'2×3000m @ 3:35/km',       detail:'Z4 · 4 min vila · Längsta tröskeldraget hittills · ~10 km' },
-    { week:27, dow:2, type:'easy', km:9,  title:'Medium Z2 · 9 km',        detail:'Z2 · Aktiv återhämtning · Håll pulsen under 140' },
-    { week:27, dow:3, type:'lift', km:0,  title:'Överkropp – tung',         detail:'Bänkpress, axelpress, dips, chins · 4×6 · 80% av max' },
-    { week:27, dow:4, type:'easy', km:7,  title:'Lätt Z2 · 7 km',          detail:'Z2 · Lugnt inför lördagets långpass' },
-    { week:27, dow:5, type:'run',  km:12, title:'Långpass · 12 km',         detail:'Z2 · 5:00/km · Veckans höjdpunkt aerob bas' },
-    { week:27, dow:6, type:'easy', km:6,  title:'Lätt avslutning · 6 km',  detail:'Z2 · Söndagsjogg · Inga krav' },
+    // â”€â”€ V.27 Â· TrÃ¶skel Â· mÃ¥l ~49 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:27, dow:0, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· InfÃ¶r veckans lÃ¤ngsta trÃ¶skeldag' },
+    { week:27, dow:1, type:'run',  km:10, title:'2Ã—3000m @ 3:35/km',       detail:'Z4 Â· 4 min vila Â· LÃ¤ngsta trÃ¶skeldraget hittills Â· ~10 km' },
+    { week:27, dow:2, type:'easy', km:9,  title:'Medium Z2 Â· 9 km',        detail:'Z2 Â· Aktiv Ã¥terhÃ¤mtning Â· HÃ¥ll pulsen under 140' },
+    { week:27, dow:3, type:'lift', km:0,  title:'Ã–verkropp â€“ tung',         detail:'BÃ¤nkpress, axelpress, dips, chins Â· 4Ã—6 Â· 80% av max' },
+    { week:27, dow:4, type:'easy', km:7,  title:'LÃ¤tt Z2 Â· 7 km',          detail:'Z2 Â· Lugnt infÃ¶r lÃ¶rdagets lÃ¥ngpass' },
+    { week:27, dow:5, type:'run',  km:12, title:'LÃ¥ngpass Â· 12 km',         detail:'Z2 Â· 5:00/km Â· Veckans hÃ¶jdpunkt aerob bas' },
+    { week:27, dow:6, type:'easy', km:6,  title:'LÃ¤tt avslutning Â· 6 km',  detail:'Z2 Â· SÃ¶ndagsjogg Â· Inga krav' },
 
-    // ── V.28 · Tröskel · mål ~48 km ───────────────────────
-    { week:28, dow:0, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Inför veckans tröskelpass' },
-    { week:28, dow:1, type:'run',  km:10, title:'5×1000m tröskel',          detail:'Z4 · 3:33/km · Ökad intensitet vs V26 · ~10 km' },
-    { week:28, dow:2, type:'easy', km:9,  title:'Medium Z2 · 9 km',        detail:'Z2 · 5:00/km · Aerob bas · Aktiv återhämtning' },
-    { week:28, dow:3, type:'lift', km:0,  title:'Underkropp – tung',        detail:'Knäböj, RDL, benpress · 4×5 · 82% av max' },
-    { week:28, dow:4, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Inför lördagets speedpass' },
-    { week:28, dow:5, type:'run',  km:7,  title:'6×500m sharpening',        detail:'Z5 · 3:12/km · 90 sek vila · ~7 km totalt' },
-    { week:28, dow:6, type:'easy', km:10, title:'Söndagsjogg · 10 km',      detail:'Z2 · Sista långa aeroba passet innan testperioden' },
+    // â”€â”€ V.28 Â· TrÃ¶skel Â· mÃ¥l ~48 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:28, dow:0, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· InfÃ¶r veckans trÃ¶skelpass' },
+    { week:28, dow:1, type:'run',  km:10, title:'5Ã—1000m trÃ¶skel',          detail:'Z4 Â· 3:33/km Â· Ã–kad intensitet vs V26 Â· ~10 km' },
+    { week:28, dow:2, type:'easy', km:9,  title:'Medium Z2 Â· 9 km',        detail:'Z2 Â· 5:00/km Â· Aerob bas Â· Aktiv Ã¥terhÃ¤mtning' },
+    { week:28, dow:3, type:'lift', km:0,  title:'Underkropp â€“ tung',        detail:'KnÃ¤bÃ¶j, RDL, benpress Â· 4Ã—5 Â· 82% av max' },
+    { week:28, dow:4, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· InfÃ¶r lÃ¶rdagets speedpass' },
+    { week:28, dow:5, type:'run',  km:7,  title:'6Ã—500m sharpening',        detail:'Z5 Â· 3:12/km Â· 90 sek vila Â· ~7 km totalt' },
+    { week:28, dow:6, type:'easy', km:10, title:'SÃ¶ndagsjogg Â· 10 km',      detail:'Z2 Â· Sista lÃ¥nga aeroba passet innan testperioden' },
 
-    // ── V.29 · Kontrolltest · mål ~38 km ──────────────────
-    { week:29, dow:0, type:'easy', km:5,  title:'Lätt Z2 · 5 km',          detail:'Z2 · Lätt aktivering · Spara benen inför testet' },
-    { week:29, dow:1, type:'run',  km:8,  title:'Lätt tröskelpass',         detail:'2×2000m · Z4 · 3 min vila · Håll dig frisk · ~8 km' },
-    { week:29, dow:2, type:'easy', km:7,  title:'Medium Z2 · 7 km',        detail:'Z2 · Sista längre passet innan testet' },
-    { week:29, dow:3, type:'lift', km:0,  title:'Lätt styrka',              detail:'3 övningar · 3×6 · 75% · Spara energi inför testet' },
-    { week:29, dow:4, type:'easy', km:5,  title:'Lätt jogg · 5 km',        detail:'Z2 · Aktivering dagen innan test · Lugnt' },
-    { week:29, dow:5, type:'race', km:7,  title:' 3 km KONTROLLTEST',    detail:'Uppvärmning 2 km + 3 km test (mål <10:10) + nedvarvning 2 km' },
-    { week:29, dow:6, type:'easy', km:6,  title:'Recoverysjogg · 6 km',detail:'Z2 · Lätt efter gårdagens test · Spola ut mjölksyra' },
+    // â”€â”€ V.29 Â· Kontrolltest Â· mÃ¥l ~38 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:29, dow:0, type:'easy', km:5,  title:'LÃ¤tt Z2 Â· 5 km',          detail:'Z2 Â· LÃ¤tt aktivering Â· Spara benen infÃ¶r testet' },
+    { week:29, dow:1, type:'run',  km:8,  title:'LÃ¤tt trÃ¶skelpass',         detail:'2Ã—2000m Â· Z4 Â· 3 min vila Â· HÃ¥ll dig frisk Â· ~8 km' },
+    { week:29, dow:2, type:'easy', km:7,  title:'Medium Z2 Â· 7 km',        detail:'Z2 Â· Sista lÃ¤ngre passet innan testet' },
+    { week:29, dow:3, type:'lift', km:0,  title:'LÃ¤tt styrka',              detail:'3 Ã¶vningar Â· 3Ã—6 Â· 75% Â· Spara energi infÃ¶r testet' },
+    { week:29, dow:4, type:'easy', km:5,  title:'LÃ¤tt jogg Â· 5 km',        detail:'Z2 Â· Aktivering dagen innan test Â· Lugnt' },
+    { week:29, dow:5, type:'race', km:7,  title:' 3 km KONTROLLTEST',    detail:'UppvÃ¤rmning 2 km + 3 km test (mÃ¥l <10:10) + nedvarvning 2 km' },
+    { week:29, dow:6, type:'easy', km:6,  title:'Recoverysjogg Â· 6 km',detail:'Z2 Â· LÃ¤tt efter gÃ¥rdagens test Â· Spola ut mjÃ¶lksyra' },
 
-    // ── V.30 · Spetsning · mål ~46 km ─────────────────────
-    { week:30, dow:0, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Inför veckans speedpass' },
-    { week:30, dow:1, type:'run',  km:7,  title:'6×500m sharpening',        detail:'Z5 · 3:10/km · 2 min vila · ~7 km totalt' },
-    { week:30, dow:2, type:'easy', km:9,  title:'Medium Z2 · 9 km',        detail:'Z2 · Aerob bas · 5:00/km · Bekvämt' },
-    { week:30, dow:3, type:'lift', km:0,  title:'Underhållsstyrka',         detail:'3 övningar · 3×5 · 85% av max · Kortare session' },
-    { week:30, dow:4, type:'easy', km:7,  title:'Lätt Z2 · 7 km',          detail:'Z2 · Inför lördagets fartlek' },
-    { week:30, dow:5, type:'run',  km:8,  title:'Lätt fartlek',             detail:'Z2 med 4×1 min snabba drag · ~8 km totalt' },
-    { week:30, dow:6, type:'easy', km:9,  title:'Söndagsjogg · 9 km',       detail:'Z2 · Aerob avslutning · Lugnt och stabilt' },
+    // â”€â”€ V.30 Â· Spetsning Â· mÃ¥l ~46 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:30, dow:0, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· InfÃ¶r veckans speedpass' },
+    { week:30, dow:1, type:'run',  km:7,  title:'6Ã—500m sharpening',        detail:'Z5 Â· 3:10/km Â· 2 min vila Â· ~7 km totalt' },
+    { week:30, dow:2, type:'easy', km:9,  title:'Medium Z2 Â· 9 km',        detail:'Z2 Â· Aerob bas Â· 5:00/km Â· BekvÃ¤mt' },
+    { week:30, dow:3, type:'lift', km:0,  title:'UnderhÃ¥llsstyrka',         detail:'3 Ã¶vningar Â· 3Ã—5 Â· 85% av max Â· Kortare session' },
+    { week:30, dow:4, type:'easy', km:7,  title:'LÃ¤tt Z2 Â· 7 km',          detail:'Z2 Â· InfÃ¶r lÃ¶rdagets fartlek' },
+    { week:30, dow:5, type:'run',  km:8,  title:'LÃ¤tt fartlek',             detail:'Z2 med 4Ã—1 min snabba drag Â· ~8 km totalt' },
+    { week:30, dow:6, type:'easy', km:9,  title:'SÃ¶ndagsjogg Â· 9 km',       detail:'Z2 Â· Aerob avslutning Â· Lugnt och stabilt' },
 
-    // ── V.31 · Spetsning · mål ~43 km ─────────────────────
-    { week:31, dow:0, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Aktivering inför veckans speedpass' },
-    { week:31, dow:1, type:'run',  km:7,  title:'6×500m sharpening',        detail:'Z5 · 3:08/km · Lite snabbare än V30 · ~7 km' },
-    { week:31, dow:2, type:'easy', km:8,  title:'Medium Z2 · 8 km',        detail:'Z2 · 5:00/km · Aerob bas · Bekvämt tempo' },
-    { week:31, dow:3, type:'lift', km:0,  title:'Underhållsstyrka',         detail:'3 övningar · 3×5 · 85% av max' },
-    { week:31, dow:4, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Inför helgens löpning' },
-    { week:31, dow:5, type:'easy', km:8,  title:'Mellanlångt Z2 · 8 km',   detail:'Z2 · 5:00–5:15/km · Sista längre pass i spetsningsfasen' },
-    { week:31, dow:6, type:'easy', km:8,  title:'Söndagsjogg · 8 km',       detail:'Z2 · Lätt avslutning på veckan' },
+    // â”€â”€ V.31 Â· Spetsning Â· mÃ¥l ~43 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:31, dow:0, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· Aktivering infÃ¶r veckans speedpass' },
+    { week:31, dow:1, type:'run',  km:7,  title:'6Ã—500m sharpening',        detail:'Z5 Â· 3:08/km Â· Lite snabbare Ã¤n V30 Â· ~7 km' },
+    { week:31, dow:2, type:'easy', km:8,  title:'Medium Z2 Â· 8 km',        detail:'Z2 Â· 5:00/km Â· Aerob bas Â· BekvÃ¤mt tempo' },
+    { week:31, dow:3, type:'lift', km:0,  title:'UnderhÃ¥llsstyrka',         detail:'3 Ã¶vningar Â· 3Ã—5 Â· 85% av max' },
+    { week:31, dow:4, type:'easy', km:6,  title:'LÃ¤tt Z2 Â· 6 km',          detail:'Z2 Â· InfÃ¶r helgens lÃ¶pning' },
+    { week:31, dow:5, type:'easy', km:8,  title:'MellanlÃ¥ngt Z2 Â· 8 km',   detail:'Z2 Â· 5:00â€“5:15/km Â· Sista lÃ¤ngre pass i spetsningsfasen' },
+    { week:31, dow:6, type:'easy', km:8,  title:'SÃ¶ndagsjogg Â· 8 km',       detail:'Z2 Â· LÃ¤tt avslutning pÃ¥ veckan' },
 
-    // ── V.32 · Avtrappning · mål ~40 km ───────────────────
-    { week:32, dow:0, type:'easy', km:5,  title:'Lätt Z2 · 5 km',          detail:'Z2 · Inför veckans tävlingsfartpass' },
-    { week:32, dow:1, type:'run',  km:8,  title:'4×1000m tävlingsfart',     detail:'Z4–Z5 · 3:19/km · 3 min vila · Känn tävlingstemot · ~8 km' },
-    { week:32, dow:2, type:'easy', km:8,  title:'Medium Z2 · 8 km',        detail:'Z2 · Aktiv återhämtning · Lugnt och stabilt' },
-    { week:32, dow:3, type:'lift', km:0,  title:'Underhållsstyrka',         detail:'3 övningar · 3×5 · 85% av max' },
-    { week:32, dow:4, type:'easy', km:5,  title:'Lätt Z2 · 5 km',          detail:'Z2 · Inför lördagets strides' },
-    { week:32, dow:5, type:'run',  km:6,  title:'Lätt jogg + strides',      detail:'25 min Z2 + 6×80m strides · Håll snabbheten vass' },
-    { week:32, dow:6, type:'easy', km:8,  title:'Söndagsjogg · 8 km',       detail:'Z2 · Sista lite längre passet' },
+    // â”€â”€ V.32 Â· Avtrappning Â· mÃ¥l ~40 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:32, dow:0, type:'easy', km:5,  title:'LÃ¤tt Z2 Â· 5 km',          detail:'Z2 Â· InfÃ¶r veckans tÃ¤vlingsfartpass' },
+    { week:32, dow:1, type:'run',  km:8,  title:'4Ã—1000m tÃ¤vlingsfart',     detail:'Z4â€“Z5 Â· 3:19/km Â· 3 min vila Â· KÃ¤nn tÃ¤vlingstemot Â· ~8 km' },
+    { week:32, dow:2, type:'easy', km:8,  title:'Medium Z2 Â· 8 km',        detail:'Z2 Â· Aktiv Ã¥terhÃ¤mtning Â· Lugnt och stabilt' },
+    { week:32, dow:3, type:'lift', km:0,  title:'UnderhÃ¥llsstyrka',         detail:'3 Ã¶vningar Â· 3Ã—5 Â· 85% av max' },
+    { week:32, dow:4, type:'easy', km:5,  title:'LÃ¤tt Z2 Â· 5 km',          detail:'Z2 Â· InfÃ¶r lÃ¶rdagets strides' },
+    { week:32, dow:5, type:'run',  km:6,  title:'LÃ¤tt jogg + strides',      detail:'25 min Z2 + 6Ã—80m strides Â· HÃ¥ll snabbheten vass' },
+    { week:32, dow:6, type:'easy', km:8,  title:'SÃ¶ndagsjogg Â· 8 km',       detail:'Z2 Â· Sista lite lÃ¤ngre passet' },
 
-    // ── V.33 · Nedtrapning · mål ~30 km ───────────────────
-    { week:33, dow:0, type:'easy', km:5,  title:'Lätt Z2 · 5 km',          detail:'Z2 · Lätt aktivering · Spara benen' },
-    { week:33, dow:1, type:'run',  km:7,  title:'3×1000m tävlingsfart',     detail:'Z5 · 3:15–3:19/km · 4 min vila · Spetsning · ~7 km' },
-    { week:33, dow:2, type:'easy', km:7,  title:'Lätt Z2 · 7 km',          detail:'Z2 · Bekvämt · Spola ut mjölksyran efter tisdagens pass' },
-    { week:33, dow:3, type:'lift', km:0,  title:'Kort underhållsstyrka',    detail:'2 övningar · 2×5 · 80% · Håll kroppen aktiv' },
-    { week:33, dow:4, type:'easy', km:5,  title:'Lätt jogg · 5 km',        detail:'Z2 · 20 min · Sista kvalitetsdagen · Muskler spänstiga' },
-    { week:33, dow:6, type:'easy', km:6,  title:'Söndagsjogg · 6 km',       detail:'Z2 · Lugn avslutning · Sista söndag inför tävlingsveckan' },
+    // â”€â”€ V.33 Â· Nedtrapning Â· mÃ¥l ~30 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:33, dow:0, type:'easy', km:5,  title:'LÃ¤tt Z2 Â· 5 km',          detail:'Z2 Â· LÃ¤tt aktivering Â· Spara benen' },
+    { week:33, dow:1, type:'run',  km:7,  title:'3Ã—1000m tÃ¤vlingsfart',     detail:'Z5 Â· 3:15â€“3:19/km Â· 4 min vila Â· Spetsning Â· ~7 km' },
+    { week:33, dow:2, type:'easy', km:7,  title:'LÃ¤tt Z2 Â· 7 km',          detail:'Z2 Â· BekvÃ¤mt Â· Spola ut mjÃ¶lksyran efter tisdagens pass' },
+    { week:33, dow:3, type:'lift', km:0,  title:'Kort underhÃ¥llsstyrka',    detail:'2 Ã¶vningar Â· 2Ã—5 Â· 80% Â· HÃ¥ll kroppen aktiv' },
+    { week:33, dow:4, type:'easy', km:5,  title:'LÃ¤tt jogg Â· 5 km',        detail:'Z2 Â· 20 min Â· Sista kvalitetsdagen Â· Muskler spÃ¤nstiga' },
+    { week:33, dow:6, type:'easy', km:6,  title:'SÃ¶ndagsjogg Â· 6 km',       detail:'Z2 Â· Lugn avslutning Â· Sista sÃ¶ndag infÃ¶r tÃ¤vlingsveckan' },
 
-    // ── V.34 · Tävlingsvecka · mål ~20 km ─────────────────
-    { week:34, dow:0, type:'easy', km:5,  title:'Lätt aktivering · 5 km',  detail:'Z2 · 15–20 min · Håll benen spänstiga' },
-    { week:34, dow:1, type:'easy', km:5,  title:'Strides · 5 km',          detail:'10 min Z2 + 4×80m strides · Deux dagar kvar' },
-    { week:34, dow:2, type:'rest', km:0,  title:'Rest',                     detail:'Fullständig vila. Ät bra, sov länge, visualisera loppet.' },
-    { week:34, dow:3, type:'race', km:10, title:' 3 KM — SUB 10:00',     detail:'Uppvärm 3 km · UT: 3:22/km · Km 2: 3:20 · Km 3: 3:15 · MÅL: 9:59!' },
+    // â”€â”€ V.34 Â· TÃ¤vlingsvecka Â· mÃ¥l ~20 km â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    { week:34, dow:0, type:'easy', km:5,  title:'LÃ¤tt aktivering Â· 5 km',  detail:'Z2 Â· 15â€“20 min Â· HÃ¥ll benen spÃ¤nstiga' },
+    { week:34, dow:1, type:'easy', km:5,  title:'Strides Â· 5 km',          detail:'10 min Z2 + 4Ã—80m strides Â· Deux dagar kvar' },
+    { week:34, dow:2, type:'rest', km:0,  title:'Rest',                     detail:'FullstÃ¤ndig vila. Ã„t bra, sov lÃ¤nge, visualisera loppet.' },
+    { week:34, dow:3, type:'race', km:10, title:' 3 KM â€” SUB 10:00',     detail:'UppvÃ¤rm 3 km Â· UT: 3:22/km Â· Km 2: 3:20 Â· Km 3: 3:15 Â· MÃ…L: 9:59!' },
   ];
 
-  // Använd fallback om DB-laddningen ännu inte är klar
+  // AnvÃ¤nd fallback om DB-laddningen Ã¤nnu inte Ã¤r klar
   if (PLAN_SESSIONS.length === 0) PLAN_SESSIONS = PLAN_SESSIONS_FALLBACK.map(normalizePlanSession);
 
   function getISOWeek(date) {
@@ -3108,8 +3094,8 @@ HEALTH DATA (current):
     return monday;
   }
 
-  // Lokal datumnyckel "YYYY-MM-DD" — toISOString() räknar om till UTC, vilket
-  // gör att lokal midnatt i svensk tidszon hamnar på föregående dygn.
+  // Lokal datumnyckel "YYYY-MM-DD" â€” toISOString() rÃ¤knar om till UTC, vilket
+  // gÃ¶r att lokal midnatt i svensk tidszon hamnar pÃ¥ fÃ¶regÃ¥ende dygn.
   function localDateKey(d) {
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -3128,9 +3114,9 @@ HEALTH DATA (current):
 
     // Fas-rubriker
     const phases = {
-      23: 'Phase 1 — Aerobic base & recovery',
-      26: 'Phase 2 — Threshold & strength build',
-      30: 'Phase 3 — Sharpening',
+      23: 'Phase 1 â€” Aerobic base & recovery',
+      26: 'Phase 2 â€” Threshold & strength build',
+      30: 'Phase 3 â€” Sharpening',
     };
 
     const START_WEEK = 23;
@@ -3158,20 +3144,20 @@ HEALTH DATA (current):
 
       const monday = getMondayOfISOWeek(w, YEAR);
 
-      // Indexera Google Calendar-events per datum för denna vecka
-      // Flerdagarsevent expanderas så varje dag i spannet får en entry
+      // Indexera Google Calendar-events per datum fÃ¶r denna vecka
+      // Flerdagarsevent expanderas sÃ¥ varje dag i spannet fÃ¥r en entry
       const gcalMap = {}; // 'YYYY-MM-DD' -> [events]
       gcalEvents.forEach(ev => {
         const startKey = gcalDateKey(ev.start);
         const endRaw   = gcalDateKey(ev.end);
-        // För heldagsevent är end exklusivt (Google-format), dra tillbaka ett dygn
+        // FÃ¶r heldagsevent Ã¤r end exklusivt (Google-format), dra tillbaka ett dygn
         let endKey = endRaw;
         if (ev.allDay && endRaw > startKey) {
           const d = new Date(endRaw);
           d.setDate(d.getDate() - 1);
           endKey = d.toISOString().substring(0, 10);
         }
-        // Lägg eventet på varje dag från start t.o.m. end
+        // LÃ¤gg eventet pÃ¥ varje dag frÃ¥n start t.o.m. end
         const cur = new Date(startKey);
         const last = new Date(endKey);
         while (cur <= last) {
@@ -3182,7 +3168,7 @@ HEALTH DATA (current):
         }
       });
 
-      // Räkna pass och km
+      // RÃ¤kna pass och km
       let runCount = 0, liftCount = 0, raceCount = 0, totalKm = 0, workCount = 0;
       for (let d = 0; d < 7; d++) {
         const sessions = sessionMap[w + '-' + d] || [];
@@ -3202,7 +3188,7 @@ HEALTH DATA (current):
       sunday.setDate(monday.getDate() + 6);
       const rangeStr =
         monday.getDate() + ' ' + monthNames[monday.getMonth()] +
-        ' – ' +
+        ' â€“ ' +
         sunday.getDate() + ' ' + monthNames[sunday.getMonth()];
 
       // Veckokort
@@ -3239,14 +3225,14 @@ HEALTH DATA (current):
         const dayEl = document.createElement('div');
         dayEl.className = 'cal-day' + (isToday ? ' today' : '') + (isPast ? ' past' : '');
 
-        // Google Calendar-events för denna dag (visas först)
+        // Google Calendar-events fÃ¶r denna dag (visas fÃ¶rst)
         const dateKey = localDateKey(date);
         const dayGcal = gcalMap[dateKey] || [];
 
         let pillsHtml = '';
         dayGcal.forEach(ev => {
-          const timeStr = ev.allDay ? 'All day' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
-          const tip = `${ev.title} · ${timeStr}${ev.location ? ' · ' + ev.location : ''}`;
+          const timeStr = ev.allDay ? 'All day' : fmtEventTime(ev.start) + 'â€“' + fmtEventTime(ev.end);
+          const tip = `${ev.title} Â· ${timeStr}${ev.location ? ' Â· ' + ev.location : ''}`;
           pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}"> ${ev.title}</span>`;
         });
 
@@ -3255,13 +3241,13 @@ HEALTH DATA (current):
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
           const escaped = (s.detail || '').replace(/"/g, '&quot;');
           const isModified = s.ai_note && s.status === 'planned' && s.modified_at;
-          const statusNote = s.status === 'missed'      ? ' · ⚠ Missed'
-                           : s.status === 'skipped'     ? ' · Skipped'
-                           : s.status === 'completed'   ? ' · ✓ Done'
-                           : s.status === 'rescheduled' ? ' · ↩ Rescheduled'
-                           : isModified                 ? ' · ✏ Adjusted'
+          const statusNote = s.status === 'missed'      ? ' Â· âš  Missed'
+                           : s.status === 'skipped'     ? ' Â· Skipped'
+                           : s.status === 'completed'   ? ' Â· âœ“ Done'
+                           : s.status === 'rescheduled' ? ' Â· â†© Rescheduled'
+                           : isModified                 ? ' Â· âœ Adjusted'
                            : '';
-          const tipText = escaped + (s.ai_note ? ` · AI: ${s.ai_note}` : '') + statusNote;
+          const tipText = escaped + (s.ai_note ? ` Â· AI: ${s.ai_note}` : '') + statusNote;
           const opacity = s.status === 'missed' || s.status === 'skipped' ? 'opacity:0.45;text-decoration:line-through;' : '';
           const modCls  = isModified ? ' csp-modified' : '';
           pillsHtml += `<span class="cal-session-pill ${cls}${modCls}" style="${opacity}" data-freetip="${tipText}">${s.title}${statusNote}</span>`;
@@ -3281,11 +3267,11 @@ HEALTH DATA (current):
     }
   }
 
-  // ─── GOOGLE CALENDAR ────────────────────────────────────────
+  // â”€â”€â”€ GOOGLE CALENDAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let gcalEvents = [];   // { title, start, end, allDay }
 
   function gcalDateKey(isoStr) {
-    // Returnerar "YYYY-MM-DD" oavsett om det är dateTime eller date
+    // Returnerar "YYYY-MM-DD" oavsett om det Ã¤r dateTime eller date
     return isoStr ? isoStr.substring(0, 10) : '';
   }
 
@@ -3307,20 +3293,20 @@ HEALTH DATA (current):
 
   async function syncGcal() {
     const btn = document.getElementById('gcal-sync-btn');
-    if (btn) { btn.textContent = '↻ Loading...'; btn.disabled = true; }
+    if (btn) { btn.textContent = 'â†» Loading...'; btn.disabled = true; }
     try {
       const r = await fetch('/api/calendar');
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || 'Error');
       gcalEvents = d.events || [];
-      if (btn) { btn.textContent = '↻ Sync calendar'; btn.disabled = false; }
+      if (btn) { btn.textContent = 'â†» Sync calendar'; btn.disabled = false; }
       buildCalendar();
     } catch(e) {
-      if (btn) { btn.textContent = '↻ Try again'; btn.disabled = false; }
+      if (btn) { btn.textContent = 'â†» Try again'; btn.disabled = false; }
     }
   }
 
-  // Bygg kalendern direkt + när Plan-fliken öppnas
+  // Bygg kalendern direkt + nÃ¤r Plan-fliken Ã¶ppnas
   buildCalendar();
   if (document.getElementById('page-upcoming').classList.contains('active')) {
     checkGcalStatus();
