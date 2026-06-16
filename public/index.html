@@ -1175,6 +1175,7 @@
     <div class="nav">
       <div class="nav-item active" onclick="goto('home')"><span class="nav-icon">⌂</span><span>Home</span></div>
       <div class="nav-item" onclick="goto('health')"><span class="nav-icon">◇</span><span>Health</span></div>
+      <div class="nav-item" onclick="goto('sleep')"><span class="nav-icon">☾</span><span>Sömn</span></div>
       <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Calendar</span></div>
       <div class="nav-item" onclick="goto('strength')"><span class="nav-icon">◈</span><span>Strength</span></div>
       <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">◬</span><span>Coach</span></div>
@@ -1427,6 +1428,62 @@
       </div>
     </div>
 
+    <!-- SÖMN -->
+    <div class="page" id="page-sleep">
+      <div class="page-header"><h2>Sömn</h2><p>Återhämtning, läggdags och framtida AC-förkylning</p></div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="card-label">sleep score</div>
+          <div id="sleep-page-score" class="card-val cp">—</div>
+          <div id="sleep-page-score-sub" class="card-sub">Loading...</div>
+          <div class="bar"><div id="sleep-page-score-bar" class="bar-fill" style="width:0%;background:var(--purple)"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-label">total sleep</div>
+          <div id="sleep-page-total" class="card-val cg">—</div>
+          <div id="sleep-page-total-sub" class="card-sub">Goal 7.5 h</div>
+          <div class="bar"><div id="sleep-page-total-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-label">deep sleep</div>
+          <div id="sleep-page-deep" class="card-val cb">—</div>
+          <div id="sleep-page-deep-sub" class="card-sub">Goal 15–25%</div>
+          <div class="bar"><div id="sleep-page-deep-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-label">REM sleep</div>
+          <div id="sleep-page-rem" class="card-val ca">—</div>
+          <div id="sleep-page-rem-sub" class="card-sub">Goal 20–25%</div>
+          <div class="bar"><div id="sleep-page-rem-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div>
+        </div>
+      </div>
+
+      <div class="bigcard accent-green" style="margin-bottom:24px;">
+        <div class="today-header">
+          <h3 id="sleep-page-plan-title">Loading sleep plan…</h3>
+          <span class="today-badge badge-green" id="sleep-page-plan-badge">PLAN</span>
+        </div>
+        <p id="sleep-page-plan-body">Reading Garmin sleep data…</p>
+      </div>
+
+      <div class="bigcard accent-orange" style="margin-bottom:24px;">
+        <div class="today-header">
+          <h3 id="sleep-page-ac-title">AC bedtime prep</h3>
+          <span class="today-badge badge-amber" id="sleep-page-ac-badge">NEXT</span>
+        </div>
+        <p id="sleep-page-ac-body">Nästa steg blir att låta den här sömnplanen räkna ut när AC:n ska börja förkyla rummet.</p>
+      </div>
+
+      <div class="bigcard accent-amber">
+        <div class="today-header">
+          <h3>Princip för kommande styrning</h3>
+          <span class="today-badge badge-amber">DRAFT</span>
+        </div>
+        <p id="sleep-page-rule-body">Dashboarden räknar först ut lämplig sömntid. AC-keeper ska sedan få ett förkylningfönster, till exempel start 90–150 minuter före planerad läggdags beroende på rumstemperatur.</p>
+      </div>
+    </div>
+
     <!-- HISTORIK -->
 
     <!-- PLAN -->
@@ -1587,6 +1644,7 @@ window.fetch = (url, opts = {}) => {
     });
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
+    if (id === 'sleep')    loadHealth();
     if (id === 'strength') loadStrength();
     if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
@@ -1639,11 +1697,66 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   }
 
   // Hälsodata
+  function renderSleepPage(h) {
+    const sleep = h.sleep || {};
+    const totalSec = sleep.totalSec || 0;
+    const score = sleep.score || 0;
+    const deep = sleep.deepPct || 0;
+    const rem = sleep.remPct || 0;
+    const fmt = s => {
+      const hours = Math.floor(s / 3600);
+      const minutes = Math.floor((s % 3600) / 60);
+      return hours + 'h ' + minutes + 'm';
+    };
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    const setWidth = (id, value) => { const el = document.getElementById(id); if (el) el.style.width = Math.max(0, Math.min(100, value)) + '%'; };
+
+    if (!totalSec) {
+      setText('sleep-page-score-sub', 'Ingen sömndata ännu');
+      setText('sleep-page-plan-title', 'Väntar på sömndata');
+      setText('sleep-page-plan-body', 'När Garmin har synkat senaste natten kan dashboarden räkna ut lämplig läggtid och AC-förkylning.');
+      return;
+    }
+
+    const targetSleepSec = 7.5 * 3600;
+    const debtSec = Math.max(0, targetSleepSec - totalSec);
+    const bedtime = new Date();
+    bedtime.setHours(22, 30, 0, 0);
+    if (debtSec >= 3600) bedtime.setMinutes(bedtime.getMinutes() - 45);
+    else if (debtSec >= 1800) bedtime.setMinutes(bedtime.getMinutes() - 25);
+    const wake = new Date(bedtime.getTime() + targetSleepSec * 1000);
+    const acStart = new Date(bedtime.getTime() - 120 * 60000);
+    const timeFmt = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+
+    setText('sleep-page-score', score || '—');
+    setText('sleep-page-score-sub', score >= 80 ? 'Bra återhämtning' : score >= 60 ? 'Okej, men kan förbättras' : 'Prioritera sömn i kväll');
+    setWidth('sleep-page-score-bar', score || 0);
+
+    setText('sleep-page-total', fmt(totalSec));
+    setText('sleep-page-total-sub', debtSec < 900 ? 'Målet nått' : 'Saknar ' + fmt(debtSec));
+    setWidth('sleep-page-total-bar', totalSec / targetSleepSec * 100);
+
+    setText('sleep-page-deep', deep + '%');
+    setText('sleep-page-deep-sub', deep >= 15 ? 'Inom målområdet' : 'Under mål 15–25%');
+    setWidth('sleep-page-deep-bar', deep / 25 * 100);
+
+    setText('sleep-page-rem', rem + '%');
+    setText('sleep-page-rem-sub', rem >= 20 ? 'Inom målområdet' : 'Under mål 20–25%');
+    setWidth('sleep-page-rem-bar', rem / 25 * 100);
+
+    setText('sleep-page-plan-title', 'Sikta på sömn ' + timeFmt(bedtime) + '–' + timeFmt(wake));
+    setText('sleep-page-plan-body', debtSec < 900
+      ? 'Senaste natten nådde sömnmålet. Behåll normal läggtid och låt AC-förkylning följa den planerade sovstarten.'
+      : 'Senaste natten var ' + fmt(debtSec) + ' kort mot målet. Lägg dig tidigare i kväll och låt AC:n börja förkyla innan sovfönstret.');
+    setText('sleep-page-ac-body', 'Preliminär AC-start: ' + timeFmt(acStart) + '. När styrningen kopplas in skickar dashboarden detta fönster till ac-keeper istället för att AC:n gissar själv.');
+  }
+
   async function loadHealth() {
     try {
       const res = await fetch('/api/health');
       const h = await res.json();
       if (h.error) return;
+      renderSleepPage(h);
       const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
 
       // ── CNS-SCORE (ersätter Återhämtning) ──
