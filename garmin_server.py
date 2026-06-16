@@ -28,6 +28,7 @@ GCAL_ID       = config.get('GOOGLE_CALENDAR_ID', 'primary')
 GCAL_CREDS    = 'google_credentials.json'
 GCAL_TOKEN    = 'google_token.json'
 GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
+AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
 
 # --- Databas ---
 def db():
@@ -149,6 +150,15 @@ def login():
 @app.get('/api/status')
 def status():
     return jsonify({'status': 'ok'})
+
+@app.get('/api/ac')
+def ac_proxy():
+    """Hämtar aktuell temperatur/AC-status från ac-keeper (på Pi:n via localhost)."""
+    try:
+        r = requests.get(f'{AC_KEEPER_URL}/api/current', timeout=4)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'available': False, 'error': str(e)})
 
 @app.get('/api/activities')
 def activities():

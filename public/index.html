@@ -1239,6 +1239,16 @@
         <div class="card"><div class="card-label">days left</div><div class="card-val cb" id="days-left">—</div><div class="card-sub">Until Oct 10</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
       </div>
 
+      <!-- ROOM CLIMATE & AC -->
+      <div class="sl">Room climate & AC</div>
+      <div class="bigcard accent-orange" style="margin-bottom:24px;">
+        <div class="today-header">
+          <h3 id="ac-headline">Loading AC…</h3>
+          <span class="today-badge badge-amber" id="ac-badge">AC</span>
+        </div>
+        <p id="ac-body">Reading room temperature…</p>
+      </div>
+
     </div>
 
     <!-- HÄLSA -->
@@ -1858,7 +1868,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     btn.disabled = true;
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true)]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadAcStatus()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2145,6 +2155,38 @@ HEALTH DATA (current):
     } catch(e) {}
   }
   loadTrainingReview();
+
+  // AC / rumstemperatur — hämtas från ac-keeper via dashboardens proxy (/api/ac)
+  async function loadAcStatus() {
+    try {
+      const res = await fetch('/api/ac');
+      const d = await res.json();
+      const hl = document.getElementById('ac-headline');
+      const body = document.getElementById('ac-body');
+      const badge = document.getElementById('ac-badge');
+      const ev = d.latest_control_event;
+      if (d.error || !ev) {
+        hl.textContent = 'AC unavailable';
+        body.textContent = 'Could not reach the AC controller on the Pi.';
+        badge.className = 'today-badge badge-red'; badge.textContent = 'OFFLINE';
+        return;
+      }
+      const ac = d.latest_ac_status || {};
+      const measured = ev.measured_c;
+      hl.textContent = 'Room ' + (measured != null ? measured.toFixed(1) : '—') + '°C → target ' + ev.target_c + '°C';
+      const action = ev.action || '';
+      const dry = action.indexOf('dry_run_') === 0;
+      const base = action.replace('dry_run_', '');
+      const map = { cool:['badge-amber','COOLING'], heat:['badge-amber','HEATING'], off:['badge-green','OFF'], hold:['badge-green','OK'], defer:['badge-amber','WAIT'], no_sensor_data:['badge-red','NO DATA'] };
+      const m = map[base] || ['badge-amber', base.toUpperCase()];
+      badge.className = 'today-badge ' + m[0];
+      badge.textContent = (dry ? 'TEST · ' : '') + m[1];
+      const acState = ac.power ? ('AC on (' + (ac.mode || '—') + ')') : 'AC off';
+      body.textContent = acState + '. ' + (dry ? 'Test mode (dry-run) — not controlling the real AC yet. ' : '') + (ev.reason || '');
+    } catch(e) {}
+  }
+  loadAcStatus();
+  setInterval(loadAcStatus, 60000);
 
   const history = [];
 
