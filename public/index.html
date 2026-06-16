@@ -1210,6 +1210,16 @@
         </div>
       </div>
 
+      <!-- AI CHECK OF TODAY'S SESSION -->
+      <div class="sl">Today's progress</div>
+      <div class="bigcard accent-green" style="margin-bottom:24px;">
+        <div class="today-header">
+          <h3 id="review-headline">Checking today's session…</h3>
+          <span class="today-badge badge-amber" id="review-badge">AI</span>
+        </div>
+        <p id="review-body">Loading…</p>
+      </div>
+
       <!-- AI RECOMMENDATION -->
       <div class="sl">Coach recommendation</div>
       <div class="bigcard accent-amber" style="margin-bottom:24px;">
@@ -1848,7 +1858,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     btn.disabled = true;
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true)]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2118,6 +2128,23 @@ HEALTH DATA (current):
     } catch(e) {}
   }
   loadTrainingLoad();
+
+  // AI-analys av senaste passen (planerat vs faktiskt gjort)
+  async function loadTrainingReview(force) {
+    try {
+      const res = await fetch('/api/training-review' + (force ? '?force=1' : ''));
+      const d = await res.json();
+      if (d.error) return;
+      if (d.headline) document.getElementById('review-headline').textContent = d.headline;
+      if (d.body)     document.getElementById('review-body').textContent = d.body;
+      const map = { done:['badge-green','DONE'], pending:['badge-amber','TO DO'], missed:['badge-red','MISSED'], rest:['badge-green','REST'], other:['badge-amber','OTHER'] };
+      const m = map[d.status] || ['badge-amber','TODAY'];
+      const badge = document.getElementById('review-badge');
+      badge.className = 'today-badge ' + m[0];
+      badge.textContent = m[1];
+    } catch(e) {}
+  }
+  loadTrainingReview();
 
   const history = [];
 

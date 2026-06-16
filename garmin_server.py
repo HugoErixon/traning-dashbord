@@ -607,6 +607,104 @@ def refresh():
     set_cache('analysis', analysis)
     return jsonify(analysis)
 
+# ─────────────────────────────────────────────
+# AI-ANALYS AV SENASTE PASSEN (planerat vs faktiskt)
+# ─────────────────────────────────────────────
+def _build_review_prompt():
+    """Prompt för AI-koll på DAGENS pass: planerat vs gjort, med tidsmedvetenhet."""
+    now   = datetime.now()
+    today = now.date()
+    wk, dw = _iso_week_dow(today)
+
+    # Dagens planerade pass + dagens faktiska aktiviteter
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('SELECT * FROM plan_sessions WHERE week=%s AND dow=%s', (wk, dw))
+            planned = cur.fetchall()
+        with conn.cursor() as cur:
+            cur.execute('''SELECT name, type, distance, duration, avg_hr
+                FROM activities WHERE date >= %s ORDER BY date''', (today.isoformat(),))
+            act_rows = cur.fetchall()
+
+    planned_str = '; '.join(f"{p['title']} — {p['detail']}" for p in planned) if planned \
+                  else 'Rest day (no session scheduled)'
+
+    acts = []
+    for name, typ, dist, dur, hr in act_rows:
+        parts = [typ or 'activity']
+        if dist: parts.append(f"{dist/1000:.1f} km")
+        if dur:  parts.append(f"{int(dur/60)} min")
+        if dist and dur and dist > 0:
+            pace = (dur / 60) / (dist / 1000)  # min/km
+            parts.append(f"pace {int(pace)}:{int((pace % 1) * 60):02d}/km")
+        if hr: parts.append(f"avgHR {hr}")
+        acts.append(f"{name or 'Activity'} ({', '.join(parts)})")
+    acts_str = '; '.join(acts) if acts else 'nothing logged yet today'
+
+    # Dagens kalender (jobb/åtaganden) så "har du tid" blir smart
+    cal_row = get_cache('gcal_events')
+    today_events = []
+    if cal_row:
+        for ev in (cal_row[0] or []):
+            s = ev.get('start', '')
+            if s[:10] != today.isoformat():
+                continue
+            t  = s[11:16] if 'T' in s else 'all day'
+            e  = ev.get('end', '')
+            te = e[11:16] if 'T' in e else ''
+            today_events.append(f"{ev.get('title','')} ({t}{'–' + te if te else ''})")
+    events_str = '; '.join(today_events) if today_events else 'nothing on the calendar'
+
+    return f"""You are a personal running coach. Look ONLY at TODAY and tell the athlete how today's planned session is going right now.
+
+GOAL: Half marathon under 1:20 on October 10, 2026.
+Current date & time: {now.strftime('%A %d %b, %H:%M')}
+
+TODAY'S PLANNED SESSION:
+{planned_str}
+
+ACTIVITIES LOGGED TODAY (from Garmin):
+{acts_str}
+
+TODAY'S CALENDAR (work / commitments):
+{events_str}
+
+Decide which single case applies and write accordingly:
+- DONE: an activity matching the planned session was completed today. Praise it and compare performance to the plan's target pace/distance using the actual pace shown (e.g. "right on target" or "a bit slower than planned").
+- PENDING: the session has not been done yet. Use the current time AND the calendar to judge if there is still time today — if so, reassure ("you still have time, fit it in before/after work"); if it's late evening with no window left, gently note the day is nearly over.
+- OTHER: the athlete did something different than planned today — acknowledge it.
+- REST: it's a rest day — confirm that resting is the right call.
+
+Respond ONLY with this JSON (all text in English):
+{{
+  "status": "done | pending | missed | rest | other",
+  "headline": "max 6 words",
+  "body": "1-3 short, friendly sentences specific to today."
+}}"""
+
+@app.get('/api/training-review')
+def training_review():
+    force = request.args.get('force') == '1'
+    row = get_cache('training_review')
+    if row and not force and (time.time() - row[1]) < 30 * 60:
+        return jsonify(row[0])
+    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
+        return jsonify({'status': 'pending', 'headline': 'AI key required',
+                        'body': 'Add an Anthropic API key in .env to enable today\'s session check.'})
+    try:
+        prompt = _build_review_prompt()
+        resp = requests.post('https://api.anthropic.com/v1/messages',
+            json={'model': 'claude-sonnet-4-6', 'max_tokens': 500,
+                  'messages': [{'role': 'user', 'content': prompt}]},
+            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
+                     'content-type': 'application/json'})
+        text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
+        review = json.loads(text)
+        set_cache('training_review', review)
+        return jsonify(review)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.post('/api/chat')
 def chat():
     data = request.json or {}
@@ -631,7 +729,13 @@ def get_gcal_service():
         creds = Credentials.from_authorized_user_file(GCAL_TOKEN, GCAL_SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(GRequest())
+            try:
+                creds.refresh(GRequest())
+            except Exception as ex:
+                # Refresh-token utgången/återkallad (Google "Testing"-appar: 7 dagar).
+                # Kasta inte 500 — kräver ny inloggning via reauth_google.py.
+                print('Google token-refresh misslyckades, ny inloggning krävs:', ex)
+                return None
         else:
             flow = InstalledAppFlow.from_client_secrets_file(GCAL_CREDS, GCAL_SCOPES)
             creds = flow.run_local_server(port=0)
@@ -677,6 +781,8 @@ def fetch_gcal_events(days=14):
 def calendar_events():
     if not os.path.exists(GCAL_CREDS):
         return jsonify({'ok': False, 'error': 'google_credentials.json saknas', 'events': []})
+    if get_gcal_service() is None:
+        return jsonify({'ok': False, 'error': 'Google-token har gått ut eller återkallats. Kör reauth_google.py och logga in igen.', 'events': []})
     events = fetch_gcal_events(days=90)
     # Cacha i DB i 30 min
     set_cache('gcal_events', events)
