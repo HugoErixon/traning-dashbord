@@ -470,7 +470,7 @@ def _build_refresh_prompt(acts):
                 continue
             if today <= ev_date <= today + timedelta(days=14):
                 day_name = ev_dt.strftime('%A') + ' ' + str(ev_dt.day) + ' ' + ev_dt.strftime('%b')
-                time_str = ev_dt.strftime('%H:%M') if 'T' in start_str else 'heldag'
+                time_str = ev_dt.strftime('%H:%M') if 'T' in start_str else 'all day'
                 desc_str = f" — {ev['desc']}" if ev.get('desc') else ''
                 gcal_lines.append(f"- {day_name}: {ev.get('title','')} ({time_str}){desc_str}")
                 if ev_dt.hour < 7:
@@ -597,13 +597,13 @@ def refresh():
         acts = client.get_activities(0, 10)
         save_activities(acts)
     except Exception as e:
-        return jsonify({'error': 'Garmin-fel: ' + str(e)}), 500
+        return jsonify({'error': 'Garmin error: ' + str(e)}), 500
 
     if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
-        return jsonify({'todayRecommendation': 'Lägg till Anthropic API-nyckel i .env.',
+        return jsonify({'todayRecommendation': 'Add an Anthropic API key in .env.',
                         'todayType': 'easy',
-                        'nextSession': {'title': 'Lugnt jogg', 'desc': 'Z2, 30-40 min', 'tempo': '4:45-5:15 /km', 'distance': '~6 km'},
-                        'prediction3k': '10:27', 'insight': 'AI-insikter kräver API-nyckel.'})
+                        'nextSession': {'title': 'Easy jog', 'desc': 'Z2, 30-40 min', 'tempo': '4:45-5:15 /km', 'distance': '~6 km'},
+                        'prediction3k': '10:27', 'insight': 'AI insights require an API key.'})
 
     prompt = _build_refresh_prompt(acts)
     resp = requests.post('https://api.anthropic.com/v1/messages',
@@ -719,7 +719,7 @@ def training_review():
 def chat():
     data = request.json or {}
     if not ANTHROPIC_KEY:
-        return jsonify({'reply': 'API-nyckel saknas.'})
+        return jsonify({'reply': 'API key missing.'})
     resp = requests.post('https://api.anthropic.com/v1/messages',
         json={'model': 'claude-sonnet-4-6', 'max_tokens': 1024,
               'system': data.get('context', 'You are a personal training coach. Always respond in English.'),
@@ -775,7 +775,7 @@ def fetch_gcal_events(days=14):
             end   = e['end'].get('dateTime',   e['end'].get('date', ''))
             events.append({
                 'id':       e.get('id'),
-                'title':    e.get('summary', 'Händelse'),
+                'title':    e.get('summary', 'Event'),
                 'start':    start,
                 'end':      end,
                 'allDay':   'dateTime' not in e['start'],
@@ -790,9 +790,9 @@ def fetch_gcal_events(days=14):
 @app.get('/api/calendar')
 def calendar_events():
     if not os.path.exists(GCAL_CREDS):
-        return jsonify({'ok': False, 'error': 'google_credentials.json saknas', 'events': []})
+        return jsonify({'ok': False, 'error': 'google_credentials.json is missing', 'events': []})
     if get_gcal_service() is None:
-        return jsonify({'ok': False, 'error': 'Google-token har gått ut eller återkallats. Kör reauth_google.py och logga in igen.', 'events': []})
+        return jsonify({'ok': False, 'error': 'Google token has expired or been revoked. Run reauth_google.py and sign in again.', 'events': []})
     events = fetch_gcal_events(days=90)
     # Cacha i DB i 30 min
     set_cache('gcal_events', events)
@@ -819,7 +819,7 @@ def add_note():
     text = data.get('text', '').strip()
     category = data.get('category', 'general')
     if not text:
-        return jsonify({'error': 'Tom notering'}), 400
+        return jsonify({'error': 'Empty note'}), 400
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('INSERT INTO user_notes (text, category, created_at) VALUES (%s, %s, %s) RETURNING id',
@@ -851,7 +851,7 @@ def strength_sessions():
         a = r[0]
         sessions.append({
             'id': str(a.get('activityId')),
-            'name': a.get('activityName', 'Styrkepass'),
+            'name': a.get('activityName', 'Strength session'),
             'date': a.get('startTimeLocal'),
             'duration': a.get('duration'),
             'calories': a.get('calories'),
@@ -1085,7 +1085,7 @@ def update_session(session_id):
     allowed = {'status','week','dow','title','detail','km','ai_note'}
     fields = {k: v for k, v in data.items() if k in allowed}
     if not fields:
-        return jsonify({'error': 'Inga giltiga fält'}), 400
+        return jsonify({'error': 'No valid fields'}), 400
     fields['modified_at'] = time.time()
     set_clause = ', '.join(f'{k} = %s' for k in fields)
     vals = list(fields.values()) + [session_id]
@@ -1150,7 +1150,7 @@ def match_activities_to_plan():
                 cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
                     WHERE id = %s''', (new_status, time.time(), p['id']))
         conn.commit()
-    print(f'Aktivitetsmatchning klar för {yesterday}')
+    print(f'Activity matching complete for {yesterday}')
 
 
 # ─────────────────────────────────────────────
@@ -1162,7 +1162,7 @@ def ai_adjust_plan():
     Körs kl 07:30 varje morgon efter sömndata kommit in.
     """
     if not ANTHROPIC_KEY:
-        print('AI-justering: API-nyckel saknas')
+        print('AI adjustment: API key missing')
         return
 
     today     = date.today()
@@ -1176,7 +1176,7 @@ def ai_adjust_plan():
         # Rensa hälso-cache så färsk sömndata hämtas
         clear_cache('health', 'training_load')
     except Exception as e:
-        print('AI-justering: Garmin-fel', e)
+        print('AI adjustment: Garmin error', e)
 
     # 2. Hämta hälsodata
     try:
@@ -1205,7 +1205,7 @@ def ai_adjust_plan():
         chronic   = acwr_dto.get('dailyTrainingLoadChronic')
         acwr      = acwr_dto.get('dailyAcuteChronicWorkloadRatio')
     except Exception as e:
-        print('AI-justering: hälsodata-fel', e)
+        print('AI adjustment: health data error', e)
         sleep_score = deep_pct = rem_pct = total_h = None
         ready_score = hrv_avg = hrv_weekly = hrv_pct = None
         acute = chronic = acwr = None
@@ -1254,81 +1254,81 @@ def ai_adjust_plan():
 
     # 5. Bygg AI-prompt
     def _sess(s):
-        return {'id': s['id'], 'vecka': s['week'], 'dag': s['dow'], 'typ': s['type'],
-                'km': s['km'], 'titel': s['title'], 'detalj': s['detail']}
-    missed_json   = json.dumps([_sess(s) for s in missed],   ensure_ascii=False, indent=2) if missed else '(inga missade pass)'
+        return {'id': s['id'], 'week': s['week'], 'day': s['dow'], 'type': s['type'],
+                'km': s['km'], 'title': s['title'], 'detail': s['detail']}
+    missed_json   = json.dumps([_sess(s) for s in missed],   ensure_ascii=False, indent=2) if missed else '(no missed sessions)'
     upcoming_json = json.dumps([_sess(s) for s in upcoming], ensure_ascii=False, indent=2)
 
-    prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning. You are working with a runner whose goal is a half marathon under 1:20 (3:47/km) on October 10, 2026. Current best: 1:26:19. Secondary goal: build a strong body in all areas — running strength, upper body, core, mobility. The plan runs W23–41 with phases: recovery → base building → threshold/tempo → race-specific → taper. Always respond in English. All JSON text fields must be in English.
+    prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning. You are working with a runner whose goal is a half marathon under 1:20 (3:47/km) on October 10, 2026. Current best: 1:26:19. Secondary goal: build a strong body in all areas - running strength, upper body, core, mobility. The plan runs W23-41 with phases: recovery -> base building -> threshold/tempo -> race-specific -> taper. Always respond in English. All JSON text fields must be in English.
 
-DAGENS DATUM: {today} (vecka {iso_week}, dag {today.weekday()} där 0=måndag)
+TODAY: {today} (week {iso_week}, day {today.weekday()}, where 0=Monday)
 
-═══ LÖPARENS AKTUELLA STATUS ═══
+=== RUNNER STATUS ===
 
-Sömn idag:
-- Poäng: {sleep_score or 'saknas'}/100
-- Total: {total_h or 'saknas'} h · Djupsömn: {deep_pct or 'saknas'}% · REM: {rem_pct or 'saknas'}%
+Sleep today:
+- Score: {sleep_score or 'missing'}/100
+- Total: {total_h or 'missing'} h · Deep sleep: {deep_pct or 'missing'}% · REM: {rem_pct or 'missing'}%
 
-Återhämtning:
-- Garmin beredskap: {ready_score or 'saknas'}/100
-- HRV natt: {hrv_avg or 'saknas'} ms · Veckosnitt: {hrv_weekly or 'saknas'} ms · Avvikelse: {(str(hrv_pct - 100) + '%') if hrv_pct else 'saknas'}
+Recovery:
+- Garmin readiness: {ready_score or 'missing'}/100
+- Night HRV: {hrv_avg or 'missing'} ms · Weekly average: {hrv_weekly or 'missing'} ms · Difference: {(str(hrv_pct - 100) + '%') if hrv_pct else 'missing'}
 
-Träningslast (ACWR):
-- Akut: {acute or 'saknas'} · Kronisk: {chronic or 'saknas'} · Kvot: {acwr or 'saknas'}
-- (Referens: <0.8 undertränad, 0.8–1.3 optimal, >1.3 skaderisk)
+Training load (ACWR):
+- Acute: {acute or 'missing'} · Chronic: {chronic or 'missing'} · Ratio: {acwr or 'missing'}
+- Reference: <0.8 undertrained, 0.8-1.3 optimal, >1.3 injury risk
 
-Veckostatus V{iso_week}:
-- Genomfört löpning: {completed_km:.1f} km · Veckans planerade tak: {week_cap} km
-- Genomförd total load: {round(completed_load)}
+Week status W{iso_week}:
+- Completed running: {completed_km:.1f} km · Planned weekly cap: {week_cap} km
+- Completed total load: {round(completed_load)}
 
-═══ PASS SOM BEHÖVER BESLUTAS ═══
+=== SESSIONS THAT NEED A DECISION ===
 
-Missade pass:
+Missed sessions:
 {missed_json}
 
-Kommande planerade pass (nästa 14 dagar):
+Upcoming planned sessions, next 14 days:
 {upcoming_json}
 
-Google Calendar — kommande 14 dagar (påverkar återhämtning och timing):
-{gcal_str or '(inga events)'}
+Google Calendar, next 14 days, affecting recovery and timing:
+{gcal_str or '(no events)'}
 
-═══ DIN UPPGIFT ═══
+=== YOUR TASK ===
 
-Analysera situationen som en coach och fatta de bästa besluten för löparens långsiktiga utveckling. Du har full frihet att:
+Analyze the situation as a coach and make the best decisions for the runner's long-term development. You may:
 
-- Flytta pass (reschedule) — ange ny vecka och dag
-- Hoppa över pass (skip) — om det inte tillför värde givet tröttheten
-- Modifiera passinnehåll (modify) — ändra km, tempo, typ eller struktur
-- Kombinera logik — t.ex. flytta OCH ändra innehållet på samma pass
-- Lämna pass oförändrade (keep) — om det är rätt beslut
+- Reschedule sessions: provide the new week and day
+- Skip sessions: when they do not add value given fatigue or context
+- Modify session content: change distance, pace, type, or structure
+- Combine logic: for example reschedule and modify the same session
+- Keep sessions unchanged: when that is the right decision
 
-Tänk som en coach, inte som ett regelblad. Exempel på resonemang du bör göra:
-- Om tre hårda pass ligger på rad → omfördela för att undvika ackumulerad trötthet
-- Om ett pass missats men nästa ändå passar bra strukturmässigt → kanske bättre att göra nästa pass lite längre än att pressa in det missade
-- Om löparen är i bra form (hög HRV, god sömn) → utnyttja det, höj en notch
-- Om löparen är trött → skydda kvalitetsanpassningarna, hellre ett bra pass än tre halvdåliga
-- Beakta Google Calendar — en stressig arbetsdag påverkar återhämtning
-- Undvik att stapla mer än 2 hårda pass i rad (löp-kvalitet eller styrka med hög belastning)
-- Håll pass som 'completed' eller 'skipped' oförändrade
+Think like a coach, not a rule sheet. Reason about examples like:
+- If three hard sessions are stacked in a row, redistribute them to avoid accumulated fatigue
+- If one session was missed but the next one fits the structure well, it may be better to make the next session slightly longer than to cram in the missed one
+- If the runner is in good shape, with high HRV and good sleep, use that readiness carefully
+- If the runner is tired, protect quality adaptations: one good session is better than three mediocre ones
+- Consider Google Calendar: a stressful workday affects recovery
+- Avoid stacking more than two hard sessions in a row, including run quality or high-load strength work
+- Keep sessions with status completed or skipped unchanged
 
-Skriv ditt resonemang kortfattat i "coaching_notes" innan du presenterar besluten.
+Write a concise explanation in coaching_notes before the decisions.
 
-Svara ENDAST med detta JSON (inga kommentarer utanför):
+Return ONLY this JSON, with no comments outside it:
 {{
-  "coaching_notes": "<2–4 meningar om hur du tolkar situationen och varför du väljer som du gör>",
+  "coaching_notes": "<2-4 English sentences explaining how you interpret the situation and why you chose this approach>",
   "changes": [
     {{
       "session_id": <int>,
       "action": "reschedule|skip|keep|modify",
-      "new_week": <int eller null>,
-      "new_dow": <int 0–6 eller null>,
-      "new_km": <float eller null>,
-      "new_title": "<sträng eller null>",
-      "new_detail": "<fullt uppdaterad passbeskrivning med tempo, distans, instruktioner — eller null om oförändrad>",
-      "reason": "<en mening om varför just detta beslut>"
+      "new_week": <int or null>,
+      "new_dow": <int 0-6 or null>,
+      "new_km": <float or null>,
+      "new_title": "<English string or null>",
+      "new_detail": "<fully updated English session description with pace, distance, and instructions, or null if unchanged>",
+      "reason": "<one English sentence explaining this decision>"
     }}
   ],
-  "summary": "<en mening som sammanfattar dagens justeringar>"
+  "summary": "<one English sentence summarizing today's adjustments>"
 }}"""
 
     # 6. Anropa Claude
@@ -1341,7 +1341,7 @@ Svara ENDAST med detta JSON (inga kommentarer utanför):
         text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
         result = json.loads(text)
     except Exception as e:
-        print('AI-justering: Claude-fel', e)
+        print('AI adjustment: Claude error', e)
         return
 
     # 7. Applicera ändringarna på DB
@@ -1396,7 +1396,7 @@ Svara ENDAST med detta JSON (inga kommentarer utanför):
 
     summary        = result.get('summary', '')
     coaching_notes = result.get('coaching_notes', '')
-    print(f'AI-justering klar: {changes_applied} ändringar. {summary}')
+    print(f'AI adjustment complete: {changes_applied} changes. {summary}')
     if coaching_notes:
         print(f'Coach: {coaching_notes}')
     set_cache('last_plan_adjustment', {
@@ -1441,7 +1441,7 @@ def plan_status():
 # SCHEDULER — kör kl 07:30 varje morgon
 # ─────────────────────────────────────────────
 def morning_job():
-    print(f'[{datetime.now().strftime("%H:%M")}] Morgonrutin startar...')
+    print(f'[{datetime.now().strftime("%H:%M")}] Morning routine starting...')
     match_activities_to_plan()
     ai_adjust_plan()
 
@@ -1449,16 +1449,16 @@ def backup_job():
     """Körs 10:00 — bara om justeringen inte redan gjorts idag."""
     row = get_cache('last_plan_adjustment')
     if row and row[0].get('date') == date.today().isoformat():
-        print('[10:00] Justering redan gjord idag, hoppar över.')
+        print('[10:00] Adjustment already done today, skipping.')
         return
-    print('[10:00] Ingen justering gjord ännu idag — kör nu.')
+    print('[10:00] No adjustment done yet today, running now.')
     morning_job()
 
 scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
 scheduler.add_job(morning_job, 'cron', hour=7, minute=30)
 scheduler.add_job(backup_job,  'cron', hour=10, minute=0)
 scheduler.start()
-print('Schemaläggare aktiv — AI-justering kl 07:30, backup kl 10:00')
+print('Scheduler active: AI adjustment at 07:30, backup at 10:00')
 
 
 @app.get('/')

@@ -1175,7 +1175,7 @@
     <div class="nav">
       <div class="nav-item active" onclick="goto('home')"><span class="nav-icon">⌂</span><span>Home</span></div>
       <div class="nav-item" onclick="goto('health')"><span class="nav-icon">◇</span><span>Health</span></div>
-      <div class="nav-item" onclick="goto('sleep')"><span class="nav-icon">☾</span><span>Sömn</span></div>
+      <div class="nav-item" onclick="goto('sleep')"><span class="nav-icon">☾</span><span>Sleep</span></div>
       <div class="nav-item" onclick="goto('upcoming')"><span class="nav-icon">◈</span><span>Calendar</span></div>
       <div class="nav-item" onclick="goto('strength')"><span class="nav-icon">◈</span><span>Strength</span></div>
       <div class="nav-item" onclick="goto('coach')"><span class="nav-icon">◬</span><span>Coach</span></div>
@@ -1257,7 +1257,7 @@
       <div class="page-header"><h2>Health</h2><p id="h-date-label">Loading...</p></div>
       <div class="hg-row">
 
-        <!-- CNS-SCORE (ersätter Återhämtning) -->
+        <!-- CNS-SCORE (ersätter Recovery) -->
         <div class="cns-card" id="hg-recovery">
           <div class="cns-top">
             <div class="cns-score-wrap">
@@ -1297,7 +1297,7 @@
           </div>
         </div>
 
-        <!-- SÖMN -->
+        <!-- SLEEP -->
         <div class="hg-card c-sleep" id="hg-sleep">
           <div class="hg-top">
             <div class="hg-cat">Sleep</div>
@@ -1428,9 +1428,9 @@
       </div>
     </div>
 
-    <!-- SÖMN -->
+    <!-- SLEEP -->
     <div class="page" id="page-sleep">
-      <div class="page-header"><h2>Sömn</h2><p>Återhämtning, läggdags och framtida AC-förkylning</p></div>
+      <div class="page-header"><h2>Sleep</h2><p>Recovery, bedtime, and future AC pre-cooling</p></div>
 
       <div class="grid">
         <div class="card">
@@ -1472,15 +1472,15 @@
           <h3 id="sleep-page-ac-title">AC bedtime prep</h3>
           <span class="today-badge badge-amber" id="sleep-page-ac-badge">NEXT</span>
         </div>
-        <p id="sleep-page-ac-body">Nästa steg blir att låta den här sömnplanen räkna ut när AC:n ska börja förkyla rummet.</p>
+        <p id="sleep-page-ac-body">Next step: let this sleep plan calculate when the AC should start pre-cooling the room.</p>
       </div>
 
       <div class="bigcard accent-amber">
         <div class="today-header">
-          <h3>Princip för kommande styrning</h3>
+          <h3>Control Logic Draft</h3>
           <span class="today-badge badge-amber">DRAFT</span>
         </div>
-        <p id="sleep-page-rule-body">Dashboarden räknar först ut lämplig sömntid. AC-keeper ska sedan få ett förkylningfönster, till exempel start 90–150 minuter före planerad läggdags beroende på rumstemperatur.</p>
+        <p id="sleep-page-rule-body">The dashboard first calculates an appropriate sleep window. AC Keeper will then receive a pre-cooling window, for example starting 90-150 minutes before planned bedtime depending on room temperature.</p>
       </div>
     </div>
 
@@ -1565,10 +1565,10 @@
               <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.1em;margin-bottom:8px;">ADD NOTE</div>
               <div style="display:flex;flex-direction:column;gap:8px;">
                 <select id="note-category" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--muted2);font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;">
-                  <option value="kropp"> Body & injuries</option>
-                  <option value="kost"> Nutrition & recovery</option>
-                  <option value="mål"> Goals & focus</option>
-                  <option value="utrustning"> Gear</option>
+                  <option value="body"> Body & injuries</option>
+                  <option value="nutrition"> Nutrition & recovery</option>
+                  <option value="goals"> Goals & focus</option>
+                  <option value="gear"> Gear</option>
                   <option value="general"> Other</option>
                 </select>
                 <textarea id="note-input" rows="3" placeholder="E.g. Tightness in right calf since yesterday..." style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'Inter',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;" onfocus="this.style.borderColor='var(--purple)'" onblur="this.style.borderColor='var(--border2)'"></textarea>
@@ -1712,9 +1712,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const setWidth = (id, value) => { const el = document.getElementById(id); if (el) el.style.width = Math.max(0, Math.min(100, value)) + '%'; };
 
     if (!totalSec) {
-      setText('sleep-page-score-sub', 'Ingen sömndata ännu');
-      setText('sleep-page-plan-title', 'Väntar på sömndata');
-      setText('sleep-page-plan-body', 'När Garmin har synkat senaste natten kan dashboarden räkna ut lämplig läggtid och AC-förkylning.');
+      setText('sleep-page-score-sub', 'No sleep data yet');
+      setText('sleep-page-plan-title', 'Waiting for sleep data');
+      setText('sleep-page-plan-body', 'Once Garmin has synced last night, the dashboard can calculate a good bedtime and AC pre-cooling plan.');
       return;
     }
 
@@ -1726,29 +1726,29 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     else if (debtSec >= 1800) bedtime.setMinutes(bedtime.getMinutes() - 25);
     const wake = new Date(bedtime.getTime() + targetSleepSec * 1000);
     const acStart = new Date(bedtime.getTime() - 120 * 60000);
-    const timeFmt = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+    const timeFmt = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
     setText('sleep-page-score', score || '—');
-    setText('sleep-page-score-sub', score >= 80 ? 'Bra återhämtning' : score >= 60 ? 'Okej, men kan förbättras' : 'Prioritera sömn i kväll');
+    setText('sleep-page-score-sub', score >= 80 ? 'Good recovery' : score >= 60 ? 'Okay, but can improve' : 'Prioritize sleep tonight');
     setWidth('sleep-page-score-bar', score || 0);
 
     setText('sleep-page-total', fmt(totalSec));
-    setText('sleep-page-total-sub', debtSec < 900 ? 'Målet nått' : 'Saknar ' + fmt(debtSec));
+    setText('sleep-page-total-sub', debtSec < 900 ? 'Goal reached' : 'Missing ' + fmt(debtSec));
     setWidth('sleep-page-total-bar', totalSec / targetSleepSec * 100);
 
     setText('sleep-page-deep', deep + '%');
-    setText('sleep-page-deep-sub', deep >= 15 ? 'Inom målområdet' : 'Under mål 15–25%');
+    setText('sleep-page-deep-sub', deep >= 15 ? 'In target range' : 'Below 15-25% target');
     setWidth('sleep-page-deep-bar', deep / 25 * 100);
 
     setText('sleep-page-rem', rem + '%');
-    setText('sleep-page-rem-sub', rem >= 20 ? 'Inom målområdet' : 'Under mål 20–25%');
+    setText('sleep-page-rem-sub', rem >= 20 ? 'In target range' : 'Below 20-25% target');
     setWidth('sleep-page-rem-bar', rem / 25 * 100);
 
-    setText('sleep-page-plan-title', 'Sikta på sömn ' + timeFmt(bedtime) + '–' + timeFmt(wake));
+    setText('sleep-page-plan-title', 'Aim for sleep ' + timeFmt(bedtime) + '–' + timeFmt(wake));
     setText('sleep-page-plan-body', debtSec < 900
-      ? 'Senaste natten nådde sömnmålet. Behåll normal läggtid och låt AC-förkylning följa den planerade sovstarten.'
-      : 'Senaste natten var ' + fmt(debtSec) + ' kort mot målet. Lägg dig tidigare i kväll och låt AC:n börja förkyla innan sovfönstret.');
-    setText('sleep-page-ac-body', 'Preliminär AC-start: ' + timeFmt(acStart) + '. När styrningen kopplas in skickar dashboarden detta fönster till ac-keeper istället för att AC:n gissar själv.');
+      ? 'Last night reached the sleep goal. Keep the normal bedtime and let AC pre-cooling follow the planned sleep start.'
+      : 'Last night was ' + fmt(debtSec) + ' short of the goal. Go to bed earlier tonight and let the AC start pre-cooling before the sleep window.');
+    setText('sleep-page-ac-body', 'Preliminary AC start: ' + timeFmt(acStart) + '. Once control is connected, the dashboard will send this window to AC Keeper instead of letting the AC guess.');
   }
 
   async function loadHealth() {
@@ -1759,7 +1759,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       renderSleepPage(h);
       const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
 
-      // ── CNS-SCORE (ersätter Återhämtning) ──
+      // ── CNS-SCORE (ersätter Recovery) ──
       // Formel: 0.40×HRV% + 0.30×sömnpoäng + 0.20×Garmin-beredskap + 0.10×(100-stress)
       // Baserat på Flatt & Esco (2016)
       const hrvPct      = h.hrv?.pct       ?? 50;
@@ -1780,7 +1780,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         ? 'CNS fully recovered. HRV, sleep and readiness are all green — perfect day for intervals or threshold work.'
         : cnsScore >= 45
         ? 'Acceptable CNS status. Normal planned session is fine, but avoid maximal effort.'
-        : 'CNS visar tydliga tecken på otillräcklig återhämtning. Prioritera vila, lätt Z2 eller skjut kvalitetspasset framåt.';
+        : 'CNS shows clear signs of insufficient recovery. Prioritize rest, easy Z2, or move the quality session forward.';
 
       document.getElementById('cns-score').textContent = cnsScore;
       document.getElementById('cns-score').style.color = cnsCol;
@@ -1795,11 +1795,11 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         ? ((h.hrv.lastNightAvg - h.hrv.weeklyAvg) / h.hrv.weeklyAvg) * 100
         : null;
       let hrvLight = 'amber';
-      let hrvLightText = 'HRV-data saknas';
+      let hrvLightText = 'HRV data unavailable';
       if (hrvDiff !== null) {
-        if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% — kör hårt pass`; }
-        else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% — vila eller Z2`; }
-        else                    { hrvLight = 'amber'; hrvLightText = `HRV ±${Math.abs(hrvDiff).toFixed(0)}% — normalt pass`; }
+        if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% — quality session is fine`; }
+        else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% — rest or Z2`; }
+        else                    { hrvLight = 'amber'; hrvLightText = `HRV ±${Math.abs(hrvDiff).toFixed(0)}% — normal session`; }
       }
       ['green','amber','red'].forEach(c => document.getElementById('hrv-dot-' + c).className = 'hrv-dot');
       document.getElementById('hrv-dot-' + hrvLight).classList.add('active-' + hrvLight);
@@ -1811,13 +1811,13 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const pctCol = pct >= 95 ? 'var(--green)' : pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
         document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
         document.getElementById('cns-hrv-val').style.color = pctCol;
-        document.getElementById('cns-hrv-sub').textContent = `${pct}% av avg ${h.hrv.weeklyAvg || '—'} ms`;
+        document.getElementById('cns-hrv-sub').textContent = `${pct}% of avg ${h.hrv.weeklyAvg || '—'} ms`;
       }
       if (h.readiness?.score != null) {
         const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
         document.getElementById('cns-readiness-val').textContent = h.readiness.score;
         document.getElementById('cns-readiness-val').style.color = rc;
-        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'High', MODERATE:'Måttlig', LOW:'Low', VERY_LOW:'Mycket låg' };
+        const lblMap = { VERY_HIGH:'Very high', HIGH:'High', MODERATE:'Moderate', LOW:'Low', VERY_LOW:'Very low' };
         document.getElementById('cns-readiness-sub').textContent = lblMap[h.readiness.level] || '/ 100';
       }
       if (h.restingHR?.value != null) {
@@ -1838,32 +1838,32 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         // Sleep score
         const sc = h.sleep.score;
         const scCol = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
-        const scStatus = sc >= 90 ? 'Excellent' : sc >= 80 ? 'Good' : sc >= 60 ? 'Acceptabel' : 'Dålig';
+        const scStatus = sc >= 90 ? 'Excellent' : sc >= 80 ? 'Good' : sc >= 60 ? 'Acceptable' : 'Poor';
         setMetric('hd-sscore-val', 'hd-sscore-status', sc || '—', '/ 100', scStatus, scCol);
 
         // Deep sleep
         const deep = h.sleep.deepPct;
         const deepCol = deep >= 15 ? 'var(--green)' : deep >= 10 ? 'var(--amber)' : 'var(--red)';
-        const deepStatus = deep >= 20 ? 'Excellent' : deep >= 15 ? 'Normal' : deep >= 10 ? 'Slightly low' : 'För lite';
-        setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus} · mål 15–25%`, deepCol);
-        document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + ' · mål: 15–25% av sömnen';
+        const deepStatus = deep >= 20 ? 'Excellent' : deep >= 15 ? 'Normal' : deep >= 10 ? 'Slightly low' : 'Too little';
+        setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus} · target 15-25%`, deepCol);
+        document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + ' · target: 15-25% of sleep';
 
         // REM
         const rem = h.sleep.remPct;
         const remCol = rem >= 20 ? 'var(--green)' : rem >= 15 ? 'var(--amber)' : 'var(--red)';
-        const remStatus = rem >= 20 ? 'Excellent' : rem >= 15 ? 'Normal' : rem >= 10 ? 'Slightly low' : 'För lite';
-        setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus} · mål 20–25%`, remCol);
-        document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + ' · mål: 20–25% av sömnen';
+        const remStatus = rem >= 20 ? 'Excellent' : rem >= 15 ? 'Normal' : rem >= 10 ? 'Slightly low' : 'Too little';
+        setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus} · target 20-25%`, remCol);
+        document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + ' · target: 20-25% of sleep';
 
         // Total sleep
         const totalCol = totalH >= 7 ? 'var(--green)' : totalH >= 6 ? 'var(--amber)' : 'var(--red)';
-        const totalStatus = totalH >= 8 ? 'Excellent' : totalH >= 7 ? 'Good' : totalH >= 6 ? 'Lite kort' : 'För lite';
+        const totalStatus = totalH >= 8 ? 'Excellent' : totalH >= 7 ? 'Good' : totalH >= 6 ? 'A bit short' : 'Too little';
         setMetric('hd-stotal-val', 'hd-stotal-status', `${totalH}h ${totalM}m`, '', totalStatus, totalCol);
 
         const sleepDesc = sleepScore >= 80
-          ? `${totalH}h ${totalM}m sleep — bra återhämtning för natten.`
+          ? `${totalH}h ${totalM}m sleep — good recovery overnight.`
           : sleepScore >= 60
-          ? `${totalH}h ${totalM}m sleep — acceptabelt men kan förbättras.`
+          ? `${totalH}h ${totalM}m sleep — acceptable, but can improve.`
           : `${totalH}h ${totalM}m sleep — prioritize more sleep tonight.`;
         setHG('hg-sleep-score', 'hg-sleep-bar', 'hg-sleep-badge', 'hg-sleep-desc', sleepScore, sleepDesc);
 
@@ -1879,10 +1879,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const dailyDebtM = Math.round((dailyDebt % 3600) / 60);
         const debtEl = document.getElementById('sleep-debt-val');
         if (dailyDebt < 900) {
-          debtEl.textContent = 'Ingen brist ';
+          debtEl.textContent = 'No deficit';
           debtEl.style.color = 'var(--green)';
         } else {
-          debtEl.textContent = `−${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m idag`;
+          debtEl.textContent = `−${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m today`;
           debtEl.style.color = dailyDebt > 3600 ? 'var(--red)' : 'var(--amber)';
         }
 
@@ -1911,48 +1911,48 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
         // Body Battery
         const bbCol = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
-        const bbStatus = bb >= 75 ? 'High energi' : bb >= 50 ? 'Moderat' : bb >= 25 ? 'Low' : 'Empty — rest';
+        const bbStatus = bb >= 75 ? 'High energy' : bb >= 50 ? 'Moderate' : bb >= 25 ? 'Low' : 'Empty - rest';
         setMetric('hd-bb-val', 'hd-bb-status', bb, '/ 100', bbStatus, bbCol);
         document.getElementById('hd-bb-desc').textContent = `Max today: ${h.bodyBattery?.max || '—'} · Min: ${h.bodyBattery?.drained ? bb : '—'}`;
 
         // Stress
         const stressCol = stress <= 25 ? 'var(--green)' : stress <= 50 ? 'var(--amber)' : 'var(--red)';
-        const stressStatus = stress <= 25 ? 'Avslappnad' : stress <= 50 ? 'Low stress' : stress <= 75 ? 'Måttlig' : 'High stress';
+        const stressStatus = stress <= 25 ? 'Relaxed' : stress <= 50 ? 'Low stress' : stress <= 75 ? 'Moderate' : 'High stress';
         setMetric('hd-stress-val', 'hd-stress-status', stress, '/ 100', stressStatus, stressCol);
 
         // SpO2
         if (h.spo2?.avg != null) {
           const spo2 = h.spo2.avg;
           const spo2Col = spo2 >= 97 ? 'var(--green)' : spo2 >= 95 ? 'var(--green)' : spo2 >= 90 ? 'var(--amber)' : 'var(--red)';
-          const spo2Status = spo2 >= 97 ? 'Optimal' : spo2 >= 95 ? 'Normal' : spo2 >= 90 ? 'Sänkt — obs!' : 'Kritiskt lågt!';
+          const spo2Status = spo2 >= 97 ? 'Optimal' : spo2 >= 95 ? 'Normal' : spo2 >= 90 ? 'Slightly low - watch' : 'Critically low!';
           setMetric('hd-spo2-val', 'hd-spo2-status', spo2 + '%', '%', spo2Status, spo2Col);
-          document.getElementById('hd-spo2-desc').textContent = `Lägst: ${h.spo2.min ? h.spo2.min + '%' : '—'} · normalt: 95–100%`;
+          document.getElementById('hd-spo2-desc').textContent = `Lowest: ${h.spo2.min ? h.spo2.min + '%' : '—'} · normalt: 95–100%`;
         }
 
         // Andning
         if (h.respiration?.avg != null) {
           const resp = h.respiration.avg;
           const respCol = resp <= 16 ? 'var(--green)' : resp <= 20 ? 'var(--amber)' : 'var(--red)';
-          const respStatus = resp <= 12 ? 'Idrottare — utmärkt' : resp <= 16 ? 'Normal' : resp <= 20 ? 'Lite förhöjd' : 'Förhöjd';
+          const respStatus = resp <= 12 ? 'Athlete - excellent' : resp <= 16 ? 'Normal' : resp <= 20 ? 'Slightly elevated' : 'Elevated';
           setMetric('hd-resp-val', 'hd-resp-status', resp, '/min', respStatus, respCol);
-          document.getElementById('hd-resp-desc').textContent = `Under sömn: ${h.respiration.sleepAvg || '—'}/min · normalt: 12–20/min`;
+          document.getElementById('hd-resp-desc').textContent = `During sleep: ${h.respiration.sleepAvg || '—'}/min · normal: 12-20/min`;
         }
 
         const energyDesc = energyScore >= 70
-          ? `Body battery ${bb}/100 — kroppen har energi för ett bra pass.`
+          ? `Body battery ${bb}/100 — the body has enough energy for a good session.`
           : energyScore >= 45
-          ? `Body battery ${bb}/100 — moderat energinivå, håll träningen lagom.`
+          ? `Body battery ${bb}/100 — moderate energy level; keep training measured.`
           : `Body battery ${bb}/100 — body is tired. Prioritize rest and recovery.`;
         setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
       }
 
       const d = new Date();
-      document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric',month:'long',year:'numeric'}) + ' · Garmin live data';
+      document.getElementById('h-date-label').textContent = d.toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'}) + ' · Garmin live data';
 
       // Snapshot på hemsidan
       const snapSets = [
         { valId:'snap-readiness-val', subId:'snap-readiness-sub', barId:'snap-readiness-bar',
-          val: h.readiness?.score, sub: (()=>{ const m={VERY_HIGH:'Mycket hög',HIGH:'High',MODERATE:'Måttlig',LOW:'Low',VERY_LOW:'Mycket låg'}; return m[h.readiness?.level]||''; })(),
+          val: h.readiness?.score, sub: (()=>{ const m={VERY_HIGH:'Very high',HIGH:'High',MODERATE:'Moderate',LOW:'Low',VERY_LOW:'Very low'}; return m[h.readiness?.level]||''; })(),
           col: h.readiness?.score >= 70 ? 'var(--green)' : h.readiness?.score >= 40 ? 'var(--amber)' : 'var(--red)', pct: h.readiness?.score },
         { valId:'snap-sleep-val', subId:'snap-sleep-sub', barId:'snap-sleep-bar',
           val: h.sleep?.score, sub: h.sleep?.totalSec ? fmtTime(h.sleep.totalSec) : '',
@@ -1976,7 +1976,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
   async function refreshData() {
     const btn = document.getElementById('refresh-btn');
-    btn.textContent = '↻ Loading...';
+    btn.textContent = 'Refresh data: loading...';
     btn.style.color = 'var(--amber)';
     btn.disabled = true;
     try {
@@ -1986,22 +1986,22 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       if (data.todayRecommendation) {
-        const titles = { easy:'Lugnt pass idag', quality:'Kvalitetspass idag', rest:'Vilodag idag' };
+        const titles = { easy:'Easy session today', quality:'Quality session today', rest:'Rest day today' };
         const badges = { easy:'badge-green', quality:'badge-amber', rest:'badge-red' };
-        const badgeText = { easy:'LUGNT', quality:'KVALITET', rest:'VILA' };
-        document.getElementById('today-title').textContent = titles[data.todayType] || 'Rekommendation';
+        const badgeText = { easy:'EASY', quality:'QUALITY', rest:'REST' };
+        document.getElementById('today-title').textContent = titles[data.todayType] || 'Recommendation';
         document.getElementById('today-body').textContent = data.todayRecommendation;
         const badge = document.getElementById('today-badge');
         badge.className = 'today-badge ' + (badges[data.todayType] || 'badge-amber');
         badge.textContent = badgeText[data.todayType] || 'AI';
       }
-      btn.textContent = ' Uppdaterad';
+      btn.textContent = 'Updated';
       btn.style.color = 'var(--green)';
-      setTimeout(() => { btn.textContent = '↻ Refresh data'; btn.style.color = ''; btn.disabled = false; }, 3000);
+      setTimeout(() => { btn.textContent = 'Refresh data'; btn.style.color = ''; btn.disabled = false; }, 3000);
     } catch(e) {
       btn.textContent = ' ' + e.message;
       btn.style.color = 'var(--red)';
-      setTimeout(() => { btn.textContent = '↻ Refresh data'; btn.style.color = ''; btn.disabled = false; }, 4000);
+      setTimeout(() => { btn.textContent = 'Refresh data'; btn.style.color = ''; btn.disabled = false; }, 4000);
     }
   }
 
@@ -2010,10 +2010,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
   const BASE_CTX = `You are a personal training coach for a runner with a dual focus. Always respond in English.
 
-GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026 · Current best: 1:26:19 (GöteborgsVarvet) · Gap: 6:20
+GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026 · Current best: 1:26:19 (Gothenburg Half Marathon) · Gap: 6:20
 SECONDARY GOAL: Build a strong body in all areas — running strength, upper body, core, mobility
 - VO2max: 59 · Garmin predictions: 5K 17:56, 10K 37:30, half marathon 1:23:30
-- Recent: GöteborgsVarvet half marathon 1:26:19 (May 23)
+- Recent: Gothenburg Half Marathon 1:26:19 (May 23)
 - Training plan: W23–41 · phases: recovery → base building → threshold/tempo → race-specific → taper
 
 STRENGTH GOAL: Progress every week — 2–3 strength sessions per week
@@ -2037,18 +2037,18 @@ HEALTH DATA (current):
         return d >= today && d <= in7;
       });
       if (upcoming.length > 0) {
-        ctx += '\n\nARBETS- OCH AKTIVITETSSCHEMA (kommande 7 dagar från Google Kalender):';
+        ctx += '\n\nWORK AND ACTIVITY SCHEDULE (next 7 days from Google Calendar):';
         const earlyDays = [];
         upcoming.forEach(ev => {
-          const timeStr = ev.allDay ? 'heldag' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
-          const dayName = new Date(ev.start).toLocaleDateString('sv-SE', { weekday:'long', day:'numeric', month:'short' });
+          const timeStr = ev.allDay ? 'All day' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
+          const dayName = new Date(ev.start).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short' });
           ctx += `\n- ${dayName}: ${ev.title} (${timeStr})${ev.desc ? ' — ' + ev.desc : ''}`;
           if (!ev.allDay) {
             const hour = new Date(ev.start).getHours();
             if (hour < 7) earlyDays.push(dayName);
           }
         });
-        ctx += '\nAnpassa alltid träningsrekommendationer efter schemat — t.ex. flytta hårda pass till lediga dagar.';
+        ctx += '\nAlways adapt training recommendations to the schedule, for example by moving hard sessions to free days.';
         if (earlyDays.length > 0) {
           ctx += `\nEARLY WORK WARNING: The following days have events starting before 07:00 — this likely means shortened sleep and reduced recovery: ${earlyDays.join(', ')}. Avoid quality sessions (intervals, threshold, race) on these days and the day after. Prioritize rest or easy sessions (Z1-Z2).`;
         }
@@ -2064,17 +2064,17 @@ HEALTH DATA (current):
       const sleepDebt = document.getElementById('sleep-debt-val')?.textContent || '';
       const flags = [...(document.getElementById('sleep-flag-row')?.querySelectorAll('.sleep-flag') || [])]
         .map(f => f.textContent).join(' · ');
-      ctx += `\n\nCNS-SCORE (daglig beredskapsanalys): ${cnsVal}/100 — ${cnsTitle}`;
+      ctx += `\n\nCNS SCORE (daily readiness analysis): ${cnsVal}/100 — ${cnsTitle}`;
       ctx += `\nHRV-SIGNAL: ${hrvLabel}`;
-      ctx += `\nSÖMNBRIST IDAG: ${sleepDebt}`;
-      if (flags) ctx += `\nSÖMNFLAGGOR: ${flags}`;
-      ctx += `\nPASSREGEL: CNS ≥70 → kvalitetspass ok · CNS 45–69 → normalt/lätt pass · CNS <45 → vila eller Z2 obligatoriskt`;
+      ctx += `\nSLEEP DEFICIT TODAY: ${sleepDebt}`;
+      if (flags) ctx += `\nSLEEP FLAGS: ${flags}`;
+      ctx += `\nSESSION RULE: CNS ≥70 → quality session ok · CNS 45–69 → normal/easy session · CNS <45 → rest or Z2 obligatoriskt`;
     }
 
     // Sparade notes
     if (userNotes.length > 0) {
-      const catLabels = { kropp:'Kropp & skador', kost:'Kost & återhämtning', mål:'Mål & fokus', utrustning:'Utrustning', general:'Övrigt' };
-      ctx += '\n\nSPARADE NOTERINGAR FRÅN ANVÄNDAREN (ta alltid hänsyn till dessa):';
+  const catLabels = { body:'Body & injuries', nutrition:'Nutrition & recovery', goals:'Goals & focus', gear:'Gear', kropp:'Body & injuries', kost:'Nutrition & recovery', ['m\u00e5l']:'Goals & focus', utrustning:'Gear', general:'Other' };
+      ctx += '\n\nSAVED USER NOTES (always take these into account):';
       userNotes.forEach(n => {
         const cat = catLabels[n.category] || n.category;
         ctx += `\n- [${cat}] ${n.text}`;
@@ -2110,7 +2110,7 @@ HEALTH DATA (current):
     const remainingKm = Math.max(0, plannedKmWeek - completedKmWeek);
     const weekCap = Math.round(plannedKmWeek * 1.1); // max 10% över plan
 
-    ctx += `\n\nVECKOVOLYM V.${isoWeek}: Planerat ${plannedKmWeek} km · Genomfört ${completedKmWeek.toFixed(1)} km · Kvar enligt plan ${remainingKm.toFixed(1)} km · Veckans tak ${weekCap} km. Om ett missat pass föreslås ombokas, kontrollera att total veckodistans inte överstiger ${weekCap} km — i så fall rekommendera vila eller skjut passet till nästa vecka istället.`;
+    ctx += `\n\nWEEKLY VOLUME W${isoWeek}: Planned ${plannedKmWeek} km · Completed ${completedKmWeek.toFixed(1)} km · Remaining by plan ${remainingKm.toFixed(1)} km · Weekly cap ${weekCap} km. If a missed session is suggested for rescheduling, ensure total weekly distance does not exceed ${weekCap} km - otherwise recommend rest or move the session to next week.`;
 
     // Training load (ACWR) — estimera load för planerade kvarvarande pass
     if (trainingLoadData && trainingLoadData.acute != null) {
@@ -2129,7 +2129,7 @@ HEALTH DATA (current):
         return sum + (s.km || 0) * (loadPerKm[s.type] || 7);
       }, 0);
 
-      // Genomförd load denna vecka från Garmin
+      // Completed load this week från Garmin
       const completedLoadWeek = recentActivities
         .filter(a => {
           const d = new Date(a.startTimeLocal || a.beginTimestamp);
@@ -2143,30 +2143,30 @@ HEALTH DATA (current):
       const safeToAdd       = projectedRatio <= 1.3;
 
       const statusMap = {
-        RECOVERY_2: 'Återhämtning', MAINTAINING: 'Underhåll',
-        IMPROVING: 'Förbättring', PRODUCTIVE: 'Produktiv', PEAKING: 'Peaking',
-        OVERREACHING: 'Överbelastning', UNPRODUCTIVE: 'Oproduktiv'
+        RECOVERY_2: 'Recovery', MAINTAINING: 'Maintaining',
+        IMPROVING: 'Improving', PRODUCTIVE: 'Productive', PEAKING: 'Peaking',
+        OVERREACHING: 'Overreaching', UNPRODUCTIVE: 'Unproductive'
       };
       const statusLabel = statusMap[trainingLoadData.statusPhrase] || trainingLoadData.statusPhrase || '—';
 
       const feedbackMap = {
-        AEROBIC_LOW_SHORTAGE: 'för lite lågintensiv aerob träning',
-        AEROBIC_HIGH_SHORTAGE: 'för lite högintensiv aerob träning',
-        ANAEROBIC_SHORTAGE: 'för lite anaerob träning',
+        AEROBIC_LOW_SHORTAGE: 'too little low-intensity aerobic training',
+        AEROBIC_HIGH_SHORTAGE: 'too little high-intensity aerobic training',
+        ANAEROBIC_SHORTAGE: 'too little anaerobic training',
         OPTIMAL: 'optimal belastningsbalans'
       };
       const feedbackLabel = feedbackMap[trainingLoadData.loadBalanceFeedback] || trainingLoadData.loadBalanceFeedback || '—';
 
-      ctx += `\n\nTRÄNINGSLAST (ACWR-modell):`;
-      ctx += `\n- Akut last (7 dagar): ${trainingLoadData.acute} · Kronisk last (28 dagar): ${trainingLoadData.chronic}`;
-      ctx += `\n- Aktuell ACWR-kvot: ${trainingLoadData.ratio} (${trainingLoadData.acwrStatus}) · Träningsstatus: ${statusLabel}`;
-      ctx += `\n- Genomförd load denna vecka: ${Math.round(completedLoadWeek)} · Estimerad last för kvarvarande planerade pass: ${Math.round(estimatedRemainingLoad)}`;
-      ctx += `\n- Projicerad ACWR om alla pass genomförs: ${projectedRatio} → ${safeToAdd ? ' inom säker zon (≤1.3)' : ' ÖVERSTIGER säker zon (>1.3)'}`;
-      ctx += `\n- Belastningsbalans: ${feedbackLabel}`;
+      ctx += `\n\nTRAINING LOAD (ACWR model):`;
+      ctx += `\n- Acute load (7 days): ${trainingLoadData.acute} · Chronic load (28 days): ${trainingLoadData.chronic}`;
+      ctx += `\n- Current ACWR ratio: ${trainingLoadData.ratio} (${trainingLoadData.acwrStatus}) · Training status: ${statusLabel}`;
+      ctx += `\n- Completed load this week: ${Math.round(completedLoadWeek)} · Estimated load for remaining planned sessions: ${Math.round(estimatedRemainingLoad)}`;
+      ctx += `\n- Projected ACWR if all sessions are completed: ${projectedRatio} → ${safeToAdd ? ' inside safe zone (≤1.3)' : ' EXCEEDS safe zone (>1.3)'}`;
+      ctx += `\n- Load balance: ${feedbackLabel}`;
       ctx += `\nRULE: Optimal ACWR is 0.8–1.3. If a rescheduled session would push projected ACWR above 1.3 — replace with Z2 jog or rest instead. Estimated load/km: Z2=7, interval/threshold=22, race=25, strength=40 fixed.`;
     }
 
-    ctx += '\n\nSvara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen i ditt svar. Max 3–4 meningar.';
+    ctx += '\n\nAlways answer in English. Be concrete and personal. Always consider BOTH goals in your answer. Max 3-4 sentences.';
     return ctx;
   }
 
@@ -2179,24 +2179,24 @@ HEALTH DATA (current):
     } catch(e) { console.error('Notes error:', e); }
   }
 
-  const catEmoji = { kropp:'', kost:'', mål:'', utrustning:'', general:'' };
-  const catLabel = { kropp:'Kropp & skador', kost:'Kost & återhämtning', mål:'Mål & fokus', utrustning:'Utrustning', general:'Övrigt' };
-  const catColor = { kropp:'var(--red)', kost:'var(--green)', mål:'var(--blue)', utrustning:'var(--amber)', general:'var(--muted2)' };
+  const catEmoji = { body:'', nutrition:'', goals:'', gear:'', kropp:'', kost:'', ['m\u00e5l']:'', utrustning:'', general:'' };
+  const catLabel = { body:'Body & injuries', nutrition:'Nutrition & recovery', goals:'Goals & focus', gear:'Gear', kropp:'Body & injuries', kost:'Nutrition & recovery', ['m\u00e5l']:'Goals & focus', utrustning:'Gear', general:'Other' };
+  const catColor = { body:'var(--red)', nutrition:'var(--green)', goals:'var(--blue)', gear:'var(--amber)', kropp:'var(--red)', kost:'var(--green)', ['m\u00e5l']:'var(--blue)', utrustning:'var(--amber)', general:'var(--muted2)' };
 
   function renderNotes() {
     const list = document.getElementById('notes-list');
     const count = document.getElementById('notes-count');
     if (!list) return;
-    count.textContent = userNotes.length + (userNotes.length === 1 ? ' notering' : ' notes');
+    count.textContent = userNotes.length + (userNotes.length === 1 ? ' note' : ' notes');
     if (!userNotes.length) {
-      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:4px 0;">Inga notes ännu. Lägg till saker coachen bör veta.</div>';
+      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:4px 0;">No notes yet. Add anything the coach should know.</div>';
       return;
     }
     list.innerHTML = userNotes.map(n => {
       const emoji = catEmoji[n.category] || '';
       const col   = catColor[n.category]  || 'var(--muted2)';
       const label = catLabel[n.category]  || n.category;
-      const date  = new Date(n.created_at * 1000).toLocaleDateString('sv-SE', {day:'numeric', month:'short'});
+      const date  = new Date(n.created_at * 1000).toLocaleDateString('en-GB', {day:'numeric', month:'short'});
       return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 12px;position:relative;">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
           <span style="font-size:11px;color:${col};font-family:'JetBrains Mono',monospace;font-weight:600;">${emoji} ${label}</span>
@@ -2315,7 +2315,7 @@ HEALTH DATA (current):
     box.appendChild(uDiv);
     const aDiv = document.createElement('div');
     aDiv.className = 'msg ai';
-    aDiv.innerHTML = '<div class="msg-from">COACH</div><span style="color:var(--muted)">Tänker...</span>';
+    aDiv.innerHTML = '<div class="msg-from">COACH</div><span style="color:var(--muted)">Thinking...</span>';
     box.appendChild(aDiv);
     box.scrollTop = box.scrollHeight;
     history.push({ role:'user', content:msg });
@@ -2331,7 +2331,7 @@ HEALTH DATA (current):
       aDiv.innerHTML = '<div class="msg-from">COACH</div>' + reply;
       history.push({ role:'assistant', content:reply });
     } catch(e) {
-      aDiv.innerHTML = '<div class="msg-from">COACH</div>Kunde inte nå servern.';
+      aDiv.innerHTML = '<div class="msg-from">COACH</div>Could not reach the server.';
     }
     box.scrollTop = box.scrollHeight;
   }
@@ -2339,10 +2339,10 @@ HEALTH DATA (current):
   function qa(t) { goto('coach'); setTimeout(() => send(t), 100); }
 
   // --- Styrka ---
-  const SUGGESTIONS = ['Bänkpress','Marklyft','Knäböj','Axelpress','Latsdrag','Rodd','Dips','Chins','Bicepscurl','Tricepspress','Benpress','Vadpress','Plankan','Sit-ups','Rumänsk marklyft','Frontböj','Bulgarska split-squat','Bröströdd','Hantelflyes','Tricepsnedpress','Hammarcurl','Facepull','Mage','Ryggextension'];
+  const SUGGESTIONS = ['Bench press','Deadlift','Squat','Overhead press','Lat pulldown','Row','Dips','Chin-ups','Biceps curl','Triceps press','Leg press','Calf press','Plank','Sit-ups','Romanian deadlift','Front squat','Bulgarian split squat','Chest-supported row','Dumbbell flyes','Triceps pushdown','Hammer curl','Face pull','Core','Back extension'];
 
   const fmtDur = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h>0?h+'h '+m+'m':m+' min'; };
-  const fmtDateStr = s => new Date(s).toLocaleDateString('sv-SE',{weekday:'short',day:'numeric',month:'short'});
+  const fmtDateStr = s => new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 
   async function loadStrength() {
     const container = document.getElementById('strength-list');
@@ -2352,7 +2352,7 @@ HEALTH DATA (current):
       const data = await res.json();
       const sessions = data.sessions || [];
       if (!sessions.length) {
-        container.innerHTML = '<div class="no-sessions">No strength sessions hittades i Garmin. Synka data för att uppdatera.</div>';
+        container.innerHTML = '<div class="no-sessions">No strength sessions found in Garmin. Sync data to update.</div>';
         return;
       }
       container.innerHTML = sessions.map(s => `
@@ -2367,15 +2367,15 @@ HEALTH DATA (current):
           <div class="strength-body">
             <div class="ex-list" id="exlist-${s.id}"><div style="color:var(--muted);font-size:12px;font-family:'JetBrains Mono',monospace;">Loading...</div></div>
             <div class="add-ex-form">
-              <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOGGA ÖVNING</div>
+              <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOG EXERCISE</div>
               <div class="form-row">
-                <input class="ex-input-name" id="ex-name-${s.id}" list="ex-suggestions" placeholder="Övning (t.ex. Bänkpress)" autocomplete="off">
+                <input class="ex-input-name" id="ex-name-${s.id}" list="ex-suggestions" placeholder="Exercise, e.g. bench press" autocomplete="off">
                 <input class="ex-input-sm" id="ex-sets-${s.id}" type="number" min="1" placeholder="Set">
                 <input class="ex-input-sm" id="ex-reps-${s.id}" placeholder="Reps">
                 <input class="ex-input-sm" id="ex-weight-${s.id}" type="number" step="0.5" placeholder="kg">
-                <input class="ex-input-note" id="ex-note-${s.id}" placeholder="Notering (valfritt)">
+                <input class="ex-input-note" id="ex-note-${s.id}" placeholder="Note (optional)">
               </div>
-              <button class="add-ex-btn" onclick="addExercise('${s.id}')">+ Lägg till</button>
+              <button class="add-ex-btn" onclick="addExercise('${s.id}')">+ Add</button>
             </div>
           </div>
         </div>`).join('');
@@ -2387,7 +2387,7 @@ HEALTH DATA (current):
         document.body.appendChild(dl);
       }
     } catch(e) {
-      container.innerHTML = '<div class="no-sessions">Fel: ' + e.message + '</div>';
+      container.innerHTML = '<div class="no-sessions">Error: ' + e.message + '</div>';
     }
   }
 
@@ -2404,13 +2404,13 @@ HEALTH DATA (current):
       const res = await fetch('/api/strength/' + sessionId + '/exercises');
       const data = await res.json();
       renderExercises(sessionId, data.exercises || []);
-    } catch(e) { list.innerHTML = '<div style="color:var(--red);font-size:12px;">Kunde inte ladda övningar</div>'; }
+    } catch(e) { list.innerHTML = '<div style="color:var(--red);font-size:12px;">Could not load exercises</div>'; }
   }
 
   function renderExercises(sessionId, exercises) {
     const list = document.getElementById('exlist-' + sessionId);
     if (!exercises.length) {
-      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:8px 0 12px;">Inga övningar loggade ännu.</div>';
+      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'JetBrains Mono\',monospace;padding:8px 0 12px;">No exercises logged yet.</div>';
       return;
     }
     list.innerHTML = exercises.map(ex => {
@@ -2447,33 +2447,33 @@ HEALTH DATA (current):
   // ─── TOOLTIPS ───────────────────────────────────────────────
   const TIPS = {
     readiness: {
-      title: 'Träningsberedskap',
-      desc: 'Garmins samlade bedömning av hur redo kroppen är att träna hårt, baserat på HRV, sömn, stress och aktivitetshistorik.',
+      title: 'Training readiness',
+      desc: "Garmin's overall estimate of how ready the body is for hard training, based on HRV, sleep, stress, and activity history.",
       ranges: [
-        { label: '75 – 100', val: 'Peakad — kör kvalitet', col: 'var(--green)' },
-        { label: '50 – 74',  val: 'Klar — normal träning',  col: 'var(--amber)' },
-        { label: '25 – 49',  val: 'Återhämtar sig',         col: 'var(--amber)' },
-        { label: '0 – 24',   val: 'Low — vila/Z2 max',      col: 'var(--red)'   },
+        { label: '75 – 100', val: 'Peaked - quality session ok', col: 'var(--green)' },
+        { label: '50 – 74',  val: 'Ready - normal training',  col: 'var(--amber)' },
+        { label: '25 – 49',  val: 'Recovering',         col: 'var(--amber)' },
+        { label: '0 – 24',   val: 'Low - rest/Z2 max',      col: 'var(--red)'   },
       ]
     },
     hrv: {
       title: 'HRV — Heart Rate Variability',
-      desc: 'Variabiliteten mellan hjärtslagen under sömn. Hight HRV = kroppen i parasympatiskt läge = bra återhämtning. Mycket individuellt — jämför alltid mot ditt eget avg.',
+      desc: 'The variability between heartbeats during sleep. High HRV means the body is in a parasympathetic state and recovering well. Very individual - always compare against your own average.',
       ranges: [
-        { label: '> 100% av avg', val: 'Excellent återhämtning', col: 'var(--green)' },
+        { label: '> 100% of avg', val: 'Excellent recovery', col: 'var(--green)' },
         { label: '80 – 100%',       val: 'Good',                  col: 'var(--green)' },
-        { label: '50 – 79%',        val: 'Acceptabel',           col: 'var(--amber)' },
-        { label: '< 50%',           val: 'Low — vila rekommenderas', col: 'var(--red)' },
+        { label: '50 – 79%',        val: 'Acceptable',           col: 'var(--amber)' },
+        { label: '< 50%',           val: 'Low - rest recommended', col: 'var(--red)' },
       ]
     },
     rhr: {
       title: 'Resting HR (bpm)',
-      desc: 'Lägsta puls under vila/sömn. Lägre = bättre kondition. Minskar ofta med ökad aerob träning. Plötslig ökning kan signalera sjukdom eller överträning.',
+      desc: 'Lowest heart rate during rest/sleep. Lower usually means better fitness. Often decreases with aerobic training. A sudden increase can signal illness or overtraining.',
       ranges: [
-        { label: '< 45 bpm',  val: 'Elitidrottare',    col: 'var(--green)' },
-        { label: '45 – 55',   val: 'Vältränad',        col: 'var(--green)' },
-        { label: '56 – 70',   val: 'Genomavg',       col: 'var(--amber)' },
-        { label: '> 70 bpm',  val: 'Förhöjd',          col: 'var(--red)'   },
+        { label: '< 45 bpm',  val: 'Elite athlete',    col: 'var(--green)' },
+        { label: '45 – 55',   val: 'Well trained',        col: 'var(--green)' },
+        { label: '56 – 70',   val: 'Average',       col: 'var(--amber)' },
+        { label: '> 70 bpm',  val: 'Elevated',          col: 'var(--red)'   },
       ]
     },
     vo2max: {
@@ -2481,89 +2481,89 @@ HEALTH DATA (current):
       desc: 'Maximum oxygen uptake — the most important measure of fitness. Garmin estimates it via running data. Increases gradually with aerobic training.',
       ranges: [
         { label: '> 60',   val: 'Elite runner',        col: 'var(--green)' },
-        { label: '55 – 60', val: 'Excellent (män 20–35)', col: 'var(--green)' },
-        { label: '46 – 54', val: 'Good – över genomavg', col: 'var(--amber)' },
-        { label: '< 46',   val: 'Genomavg/under',  col: 'var(--red)'   },
+        { label: '55 – 60', val: 'Excellent (men 20-35)', col: 'var(--green)' },
+        { label: '46 – 54', val: 'Good - above average', col: 'var(--amber)' },
+        { label: '< 46',   val: 'Average/under',  col: 'var(--red)'   },
       ]
     },
     'sleep-score': {
       title: 'Sleep score',
-      desc: 'Garmins samlade bedömning av sömnkvaliteten baserat på duration, sömncykler, HRV och andning under natten.',
+      desc: "Garmin's overall estimate of sleep quality based on duration, sleep cycles, HRV, and breathing overnight.",
       ranges: [
         { label: '90 – 100', val: 'Excellent',  col: 'var(--green)' },
         { label: '80 – 89',  val: 'Good',      col: 'var(--green)' },
-        { label: '60 – 79',  val: 'Acceptabel', col: 'var(--amber)' },
-        { label: '< 60',     val: 'Dålig — prioritera sömn', col: 'var(--red)' },
+        { label: '60 – 79',  val: 'Acceptable', col: 'var(--amber)' },
+        { label: '< 60',     val: 'Poor - prioritize sleep', col: 'var(--red)' },
       ]
     },
     deep: {
       title: 'Deep sleep (slow-wave)',
-      desc: 'Den mest fysiskt återhämtande sömnfasen — kroppen reparerar muskler och vävnad. Viktigast för idrottare. Minskar naturligt med åldern.',
+      desc: 'The most physically restorative sleep phase - the body repairs muscles and tissue. Especially important for athletes. Naturally decreases with age.',
       ranges: [
         { label: '20 – 25%', val: 'Excellent (ca 1,5–2h)', col: 'var(--green)' },
         { label: '13 – 19%', val: 'Normal',              col: 'var(--green)' },
-        { label: '8 – 12%',  val: 'Lite låg',             col: 'var(--amber)' },
-        { label: '< 8%',     val: 'För lite',             col: 'var(--red)'   },
+        { label: '8 – 12%',  val: 'Slightly low',             col: 'var(--amber)' },
+        { label: '< 8%',     val: 'Too little',             col: 'var(--red)'   },
       ]
     },
     rem: {
       title: 'REM sleep',
-      desc: 'Rapid Eye Movement-sleep — hjärnan konsoliderar minnen och bearbetar intryck. Viktig för mental återhämtning, motorinlärning och motivation.',
+      desc: 'Rapid Eye Movement sleep - the brain consolidates memories and processes impressions. Important for mental recovery, motor learning, and motivation.',
       ranges: [
         { label: '20 – 25%', val: 'Excellent (ca 1,5–2h)',  col: 'var(--green)'  },
         { label: '15 – 19%', val: 'Normal',               col: 'var(--green)'  },
-        { label: '10 – 14%', val: 'Lite låg',              col: 'var(--amber)'  },
-        { label: '< 10%',    val: 'För lite',              col: 'var(--red)'    },
+        { label: '10 – 14%', val: 'Slightly low',              col: 'var(--amber)'  },
+        { label: '< 10%',    val: 'Too little',              col: 'var(--red)'    },
       ]
     },
     'hrv-sleep': {
-      title: 'HRV under sömn (ms)',
-      desc: 'Genomavglig HRV mätt under hela natten. Mer stabilt mått än dagsmätning. Stiger normalt under djupsömn och REM. Absoluta värden varierar mycket mellan individer.',
+      title: 'HRV during sleep (ms)',
+      desc: 'Average HRV measured throughout the night. More stable than daytime measurements. Usually rises during deep sleep and REM. Absolute values vary a lot between people.',
       ranges: [
-        { label: 'Vältränade', val: 'Typiskt 55–100+ ms',    col: 'var(--green)' },
-        { label: 'Genomavg', val: 'Typiskt 25–55 ms',      col: 'var(--amber)' },
-        { label: 'Trend',      val: 'Jämför mot ditt avg', col: 'var(--blue)'  },
-        { label: 'Obs!',       val: 'Plötslig sänkning = vila', col: 'var(--red)' },
+        { label: 'Well trained', val: 'Typically 55–100+ ms',    col: 'var(--green)' },
+        { label: 'Average', val: 'Typically 25–55 ms',      col: 'var(--amber)' },
+        { label: 'Trend',      val: 'Compare with your avg', col: 'var(--blue)'  },
+        { label: 'Note',       val: 'Sudden drop = rest', col: 'var(--red)' },
       ]
     },
     bb: {
       title: 'Body Battery',
-      desc: 'Garmins energireserv-mätare baserad på HRV, stress och sömn. Laddas under sömn och vila, töms av aktivitet och stress. Good guide för om du klarar ett hårt pass.',
+      desc: "Garmin's energy reserve estimate based on HRV, stress, and sleep. Charges during sleep and rest, drains from activity and stress. A good guide for whether you can handle a hard session.",
       ranges: [
-        { label: '75 – 100', val: 'High energi — kör hårt',   col: 'var(--green)' },
-        { label: '50 – 74',  val: 'Moderat — normal träning', col: 'var(--green)' },
-        { label: '25 – 49',  val: 'Low — håll det lugnt',     col: 'var(--amber)' },
-        { label: '0 – 24',   val: 'Empty — rest prioriterat',   col: 'var(--red)'   },
+        { label: '75 – 100', val: 'High energy - go hard',   col: 'var(--green)' },
+        { label: '50 – 74',  val: 'Moderate - normal training', col: 'var(--green)' },
+        { label: '25 – 49',  val: 'Low - keep it easy',     col: 'var(--amber)' },
+        { label: '0 – 24',   val: 'Empty - prioritize rest',   col: 'var(--red)'   },
       ]
     },
     stress: {
       title: 'Stress level',
-      desc: 'Garmin beräknar stress utifrån HRV-variationer under dagen. High stress aktiverar det sympatiska nervsystemet och bromsar återhämtning. Inkluderar fysisk och mental stress.',
+      desc: 'Garmin estimates stress from HRV variation during the day. High stress activates the sympathetic nervous system and slows recovery. Includes physical and mental stress.',
       ranges: [
-        { label: '0 – 25',  val: 'Rest / avslappnad',     col: 'var(--green)' },
+        { label: '0 – 25',  val: 'Rest / relaxed',     col: 'var(--green)' },
         { label: '26 – 50', val: 'Low stress',            col: 'var(--green)' },
-        { label: '51 – 75', val: 'Måttlig stress',        col: 'var(--amber)' },
-        { label: '76 – 100', val: 'High stress — bromsar återhämtning', col: 'var(--red)' },
+        { label: '51 – 75', val: 'Moderate stress',        col: 'var(--amber)' },
+        { label: '76 – 100', val: 'High stress - slows recovery', col: 'var(--red)' },
       ]
     },
     spo2: {
-      title: 'SpO2 — Syremättnad (%)',
+      title: 'SpO2 - Blood oxygen (%)',
       desc: 'Percentage of hemoglobin in the blood carrying oxygen. Measured with a pulse oximeter. Normally stable in healthy individuals — drops at high altitude or with breathing issues.',
       ranges: [
         { label: '97 – 100%', val: 'Optimal',           col: 'var(--green)' },
         { label: '95 – 96%',  val: 'Normal',            col: 'var(--green)' },
-        { label: '90 – 94%',  val: 'Lätt sänkt — obs!', col: 'var(--amber)' },
-        { label: '< 90%',     val: 'Kritiskt lågt',      col: 'var(--red)'   },
+        { label: '90 – 94%',  val: 'Slightly low - watch', col: 'var(--amber)' },
+        { label: '< 90%',     val: 'Critically low',      col: 'var(--red)'   },
       ]
     },
     resp: {
-      title: 'Breathing rate (andetag/min)',
-      desc: 'Antal andetag per minut i vila. Lägre frekvens hos vältränade (djupare andetag). Förhöjd frekvens under sömn kan signalera sjukdom eller dålig sömnkvalitet.',
+      title: 'Breathing rate (breaths/min)',
+      desc: 'Breaths per minute at rest. Lower rates are common in well-trained athletes. Elevated breathing during sleep can signal illness or poor sleep quality.',
       ranges: [
-        { label: '8 – 12/min',  val: 'Vältränad idrottare', col: 'var(--green)' },
-        { label: '12 – 16/min', val: 'Normal vuxen',       col: 'var(--green)' },
-        { label: '17 – 20/min', val: 'Lite förhöjd',        col: 'var(--amber)' },
-        { label: '> 20/min',    val: 'Förhöjd — undersök',  col: 'var(--red)'   },
+        { label: '8 – 12/min',  val: 'Well-trained athlete', col: 'var(--green)' },
+        { label: '12 – 16/min', val: 'Normal adult',       col: 'var(--green)' },
+        { label: '17 – 20/min', val: 'Slightly elevated',        col: 'var(--amber)' },
+        { label: '> 20/min',    val: 'Elevated - investigate',  col: 'var(--red)'   },
       ]
     },
   };
@@ -2669,6 +2669,165 @@ HEALTH DATA (current):
   }
   loadPlanStatus();
 
+  const PLAN_TEXT_REPLACEMENTS = [
+    ['Recoverysjogg', 'Recovery jog'],
+    ['Söndagsjogg', 'Sunday jog'],
+    ['Lätt avslutning', 'Easy finish'],
+    ['Lätt aktivering', 'Easy activation'],
+    ['Lätt jogg', 'Easy jog'],
+    ['Lätt fartlek', 'Easy fartlek'],
+    ['Lätt styrka', 'Light strength'],
+    ['Lätt Z2', 'Easy Z2'],
+    ['Lätt thresholdpass', 'Easy threshold session'],
+    ['Lätt', 'Easy'],
+    ['Mellanlångt', 'Medium-long'],
+    ['Medium Z2', 'Medium Z2'],
+    ['Långpass', 'Long run'],
+    ['Tröskelpass', 'Threshold session'],
+    ['tröskel', 'threshold'],
+    ['Intervaller', 'Intervals'],
+    ['intervaller', 'intervals'],
+    ['Fartlekpass', 'Fartlek session'],
+    ['Progressionsjogg', 'Progression run'],
+    ['Halvmaratonpace', 'Half marathon pace'],
+    ['Kontrolltest', 'Control test'],
+    ['KONTROLLTEST', 'CONTROL TEST'],
+    ['Tävlingsfart', 'Race pace'],
+    ['tävlingsfart', 'race pace'],
+    ['TÄVLING', 'RACE'],
+    ['Vila', 'Rest'],
+    ['vila', 'rest'],
+    ['Helkropp', 'Full body'],
+    ['Överkropp', 'Upper body'],
+    ['Underkropp', 'Lower body'],
+    ['Styrka', 'Strength'],
+    ['styrka', 'strength'],
+    ['underhåll', 'maintenance'],
+    ['Underhåll', 'Maintenance'],
+    ['tung', 'heavy'],
+    ['lätt', 'light'],
+    ['intro', 'intro'],
+    ['progressiv', 'progressive'],
+    ['rörlighet', 'mobility'],
+    ['Bas', 'Base'],
+    ['Recovery', 'Recovery'],
+    ['Spetsning', 'Sharpening'],
+    ['Avtrappning', 'Taper'],
+    ['Nedtrapning', 'Taper'],
+    ['Tävlingsvecka', 'Race week'],
+    ['Tävlingsspecifik', 'Race specific'],
+    ['mål', 'goal'],
+    ['Uppvärmning', 'Warm-up'],
+    ['Uppvärm', 'Warm up'],
+    ['Nedvarvning', 'cool-down'],
+    ['Nedvarv', 'cool down'],
+    ['nedvarvning', 'cool-down'],
+    ['joggvila', 'jog recovery'],
+    ['sek vila', 'sec rest'],
+    ['min vila', 'min rest'],
+    ['Lugn och lätt', 'Calm and easy'],
+    ['Lugnt och långsamt', 'Easy and slow'],
+    ['Lugnt och uthålligt', 'Easy and steady'],
+    ['Lugnt och stabilt', 'Easy and steady'],
+    ['Lugnt', 'Easy'],
+    ['lugnt', 'easy'],
+    ['Aktiv återhämtning', 'Active recovery'],
+    ['återhämtning', 'recovery'],
+    ['Aktivering', 'Activation'],
+    ['inför', 'before'],
+    ['Inför', 'Before'],
+    ['veckans', "the week's"],
+    ['Veckans', "Week's"],
+    ['kvalitetspass', 'quality session'],
+    ['banpasset', 'track session'],
+    ['bansprint', 'track sprint'],
+    ['Håll pulsen låg', 'Keep heart rate low'],
+    ['Håll det lugnt', 'Keep it easy'],
+    ['Håll dig frisk', 'Stay healthy'],
+    ['Håll benen igång', 'Keep the legs moving'],
+    ['Håll benen snabba', 'Keep the legs quick'],
+    ['Spara benen', 'Save the legs'],
+    ['Spara energi', 'Save energy'],
+    ['Spola ur benen', 'Flush out the legs'],
+    ['Spola ut mjölksyra', 'Flush out lactate'],
+    ['Aerob bas', 'Aerobic base'],
+    ['Aerob avslutning', 'Aerobic finish'],
+    ['Bygg aerob grund', 'Build aerobic base'],
+    ['Bekvämt tempo hela vägen', 'Comfortable pace all the way'],
+    ['Bekvämt tempo', 'Comfortable pace'],
+    ['Bekvämt', 'Comfortable'],
+    ['Jämnt och lugnt', 'Even and easy'],
+    ['Jämnt tempo', 'Even pace'],
+    ['Kontrollerat och jämnt', 'Controlled and even'],
+    ['Kontrollerad ansträngning', 'Controlled effort'],
+    ['Snabbt och kontrollerat', 'Fast and controlled'],
+    ['Snabbt och skarpt', 'Fast and sharp'],
+    ['Varierande tempo', 'Varied pace'],
+    ['Ökad intensitet', 'Increased intensity'],
+    ['Längsta tröskeldraget hittills', 'Longest threshold rep so far'],
+    ['Sista långa aeroba passet innan testperioden', 'Last long aerobic run before the test block'],
+    ['Sista längre passet innan testet', 'Last longer session before the test'],
+    ['Sista kvalitetsdagen', 'Last quality day'],
+    ['Sista söndag inför tävlingsveckan', 'Last Sunday before race week'],
+    ['Sista lite längre passet', 'Last slightly longer session'],
+    ['Sista riktiga långpasset', 'Last real long run'],
+    ['Viktigaste aeroba passet i veckan', 'Most important aerobic run this week'],
+    ['Veckans höjdpunkt aerob bas', "Week's aerobic base highlight"],
+    ['Muskler spänstiga', 'Keep muscles springy'],
+    ['Fullständig vila', 'Full rest'],
+    ['Ät bra', 'Eat well'],
+    ['Sov länge', 'sleep long'],
+    ['Visualisera loppet', 'visualize the race'],
+    ['MÅL', 'GOAL'],
+    ['Mål', 'Goal'],
+    ['målfarten', 'goal pace'],
+    ['målpace', 'goal pace'],
+    ['halvmaratontröskel', 'half-marathon threshold'],
+    ['halvmaran pace', 'half marathon pace'],
+    ['Bänkpress', 'bench press'],
+    ['bänkpress', 'bench press'],
+    ['Knäböj', 'squat'],
+    ['knäböj', 'squat'],
+    ['marklyft', 'deadlift'],
+    ['Marklyft', 'Deadlift'],
+    ['axelpress', 'overhead press'],
+    ['Axelpress', 'Overhead press'],
+    ['latsdrag', 'lat pulldown'],
+    ['Latsdrag', 'Lat pulldown'],
+    ['rodd', 'row'],
+    ['Rodd', 'Row'],
+    ['plankan', 'plank'],
+    ['Plankan', 'Plank'],
+    ['utfall', 'lunges'],
+    ['bulgarska', 'Bulgarian split squats'],
+    ['höftlyft', 'hip thrust'],
+    ['vadhopp', 'calf jumps'],
+    ['vadbågar', 'calf raises'],
+    ['överkropp', 'upper body'],
+    ['underkropp', 'lower body'],
+    ['övningar', 'exercises'],
+    ['Övningar', 'Exercises'],
+    ['set', 'sets'],
+    ['sek', 'sec'],
+    ['inkl', 'incl.'],
+    ['totalt', 'total'],
+  ];
+
+  function translatePlanText(value) {
+    let out = value || '';
+    PLAN_TEXT_REPLACEMENTS.forEach(([from, to]) => { out = out.split(from).join(to); });
+    return out;
+  }
+
+  function normalizePlanSession(session) {
+    return {
+      ...session,
+      title: translatePlanText(session.title),
+      detail: translatePlanText(session.detail),
+      ai_note: translatePlanText(session.ai_note),
+    };
+  }
+
   function renderTodaySession() {
     const now = new Date();
     // ISO week + weekday (0=Mon)
@@ -2717,7 +2876,7 @@ HEALTH DATA (current):
       const r = await fetch('/api/plan');
       const d = await r.json();
       if (d.sessions && d.sessions.length > 0) {
-        PLAN_SESSIONS = d.sessions;
+        PLAN_SESSIONS = d.sessions.map(normalizePlanSession);
         buildCalendar();
         renderTodaySession();
       }
@@ -2730,8 +2889,8 @@ HEALTH DATA (current):
   // Fallback-data (används om DB är otillgänglig)
   const PLAN_SESSIONS_FALLBACK = [
 
-    // ── V.23 · Återhämtning · mål ~28 km ──────────────────
-    { week:23, dow:1, type:'run',  km:6,  title:'Återhämtningsjogg',       detail:'Z2 · 6 km · 4:45–5:15/km · Rest efter GöteborgsVarvet' },
+    // ── V.23 · Recovery · mål ~28 km ──────────────────
+    { week:23, dow:1, type:'run',  km:6,  title:'Recoverysjogg',       detail:'Z2 · 6 km · 4:45–5:15/km · Rest efter GöteborgsVarvet' },
     { week:23, dow:2, type:'easy', km:7,  title:'Lätt Z2 · 7 km',          detail:'Z2 · Lugnt tempo · 5:00–5:20/km · Aktiv återhämtning' },
     { week:23, dow:3, type:'lift', km:0,  title:'Helkropp – intro',         detail:'Knäböj, marklyft, bänkpress, latsdrag · 3×8 · 60–70% av max' },
     { week:23, dow:4, type:'easy', km:5,  title:'Lätt Z2 · 5 km',          detail:'Z2 · Kort och lätt · Spola ur benen' },
@@ -2751,7 +2910,7 @@ HEALTH DATA (current):
     { week:25, dow:1, type:'easy', km:9,  title:'Medium Z2 · 9 km',        detail:'Z2 · 5:00/km · Aerob bas · Bekvämt tempo hela vägen' },
     { week:25, dow:2, type:'run',  km:10, title:'5×1000m tröskel',          detail:'Z3–Z4 · 3:35/km · 2:30 min vila · ~10 km totalt' },
     { week:25, dow:3, type:'lift', km:0,  title:'Överkropp',                detail:'Bänkpress, axelpress, latsdrag, rodd · 3–4 set · Progressiv' },
-    { week:25, dow:4, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Återhämtning efter tröskelpasset' },
+    { week:25, dow:4, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Recovery efter tröskelpasset' },
     { week:25, dow:5, type:'run',  km:12, title:'Långpass · 12 km',         detail:'Z2 · 5:00–5:20/km · Viktigaste aeroba passet i veckan' },
     { week:25, dow:6, type:'easy', km:5,  title:'Lätt avslutning · 5 km',  detail:'Z2 · Söndagsjogg · Håll benen igång' },
 
@@ -2789,7 +2948,7 @@ HEALTH DATA (current):
     { week:29, dow:3, type:'lift', km:0,  title:'Lätt styrka',              detail:'3 övningar · 3×6 · 75% · Spara energi inför testet' },
     { week:29, dow:4, type:'easy', km:5,  title:'Lätt jogg · 5 km',        detail:'Z2 · Aktivering dagen innan test · Lugnt' },
     { week:29, dow:5, type:'race', km:7,  title:' 3 km KONTROLLTEST',    detail:'Uppvärmning 2 km + 3 km test (mål <10:10) + nedvarvning 2 km' },
-    { week:29, dow:6, type:'easy', km:6,  title:'Återhämtningsjogg · 6 km',detail:'Z2 · Lätt efter gårdagens test · Spola ut mjölksyra' },
+    { week:29, dow:6, type:'easy', km:6,  title:'Recoverysjogg · 6 km',detail:'Z2 · Lätt efter gårdagens test · Spola ut mjölksyra' },
 
     // ── V.30 · Spetsning · mål ~46 km ─────────────────────
     { week:30, dow:0, type:'easy', km:6,  title:'Lätt Z2 · 6 km',          detail:'Z2 · Inför veckans speedpass' },
@@ -2834,7 +2993,7 @@ HEALTH DATA (current):
   ];
 
   // Använd fallback om DB-laddningen ännu inte är klar
-  if (PLAN_SESSIONS.length === 0) PLAN_SESSIONS = PLAN_SESSIONS_FALLBACK;
+  if (PLAN_SESSIONS.length === 0) PLAN_SESSIONS = PLAN_SESSIONS_FALLBACK.map(normalizePlanSession);
 
   function getISOWeek(date) {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -2872,9 +3031,9 @@ HEALTH DATA (current):
 
     // Fas-rubriker
     const phases = {
-      23: 'Fas 1 — Aerob bas & återhämtning',
-      26: 'Fas 2 — Tröskel & styrkeuppbyggnad',
-      30: 'Fas 3 — Spetsning',
+      23: 'Phase 1 — Aerobic base & recovery',
+      26: 'Phase 2 — Threshold & strength build',
+      30: 'Phase 3 — Sharpening',
     };
 
     const START_WEEK = 23;
@@ -2989,7 +3148,7 @@ HEALTH DATA (current):
 
         let pillsHtml = '';
         dayGcal.forEach(ev => {
-          const timeStr = ev.allDay ? 'Heldag' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
+          const timeStr = ev.allDay ? 'All day' : fmtEventTime(ev.start) + '–' + fmtEventTime(ev.end);
           const tip = `${ev.title} · ${timeStr}${ev.location ? ' · ' + ev.location : ''}`;
           pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}"> ${ev.title}</span>`;
         });
@@ -3034,10 +3193,10 @@ HEALTH DATA (current):
   }
 
   function fmtEventTime(isoStr) {
-    if (!isoStr || isoStr.length === 10) return 'Heldag';
+    if (!isoStr || isoStr.length === 10) return 'All day';
     try {
       const d = new Date(isoStr);
-      return d.toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
+      return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
     } catch { return ''; }
   }
 
@@ -3055,12 +3214,12 @@ HEALTH DATA (current):
     try {
       const r = await fetch('/api/calendar');
       const d = await r.json();
-      if (!d.ok) throw new Error(d.error || 'Fel');
+      if (!d.ok) throw new Error(d.error || 'Error');
       gcalEvents = d.events || [];
       if (btn) { btn.textContent = '↻ Sync calendar'; btn.disabled = false; }
       buildCalendar();
     } catch(e) {
-      if (btn) { btn.textContent = '↻ Försök igen'; btn.disabled = false; }
+      if (btn) { btn.textContent = '↻ Try again'; btn.disabled = false; }
     }
   }
 
