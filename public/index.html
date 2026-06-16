@@ -1151,6 +1151,8 @@
     .csp-lift { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.18); }
     .csp-race { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
     .csp-rest { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.18); }
+    .csp-done { background: var(--green-dim);  color: var(--green);  border: 1px solid var(--green); font-weight: 700; }
+    .cal-day.past .cal-session-pill.csp-done { opacity: 1; }
     .csp-modified { outline: 1px dashed rgba(255,200,80,0.5); }
 
     /* Tooltip hanteras via JS tipBox istÃ¤llet */
@@ -3250,7 +3252,8 @@ HEALTH DATA (current):
           const tipText = escaped + (s.ai_note ? ' - AI: ' + s.ai_note : '') + statusNote;
           const opacity = s.status === 'missed' || s.status === 'skipped' ? 'opacity:0.45;text-decoration:line-through;' : '';
           const modCls  = isModified ? ' csp-modified' : '';
-          pillsHtml += `<span class="cal-session-pill ${cls}${modCls}" style="${opacity}" data-freetip="${tipText}">${s.title}${statusNote}</span>`;
+          const doneCls = s.status === 'completed' ? ' csp-done' : '';
+          pillsHtml += `<span class="cal-session-pill ${cls}${modCls}${doneCls}" style="${opacity}" data-freetip="${tipText}">${s.title}${statusNote}</span>`;
         });
 
         dayEl.innerHTML = `
