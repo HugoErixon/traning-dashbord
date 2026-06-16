@@ -812,12 +812,12 @@ def get_gcal_service():
             f.write(creds.to_json())
     return gbuild('calendar', 'v3', credentials=creds)
 
-def fetch_gcal_events(days=14):
+def fetch_gcal_events(days=14, past_days=30):
     svc = get_gcal_service()
     if not svc:
         return []
     now = datetime.utcnow()
-    time_min = now.isoformat() + 'Z'
+    time_min = (now - timedelta(days=past_days)).isoformat() + 'Z'
     time_max = (now + timedelta(days=days)).isoformat() + 'Z'
     try:
         result = svc.events().list(
@@ -852,7 +852,7 @@ def calendar_events():
         return jsonify({'ok': False, 'error': 'google_credentials.json is missing', 'events': []})
     if get_gcal_service() is None:
         return jsonify({'ok': False, 'error': 'Google token has expired or been revoked. Run reauth_google.py and sign in again.', 'events': []})
-    events = fetch_gcal_events(days=90)
+    events = fetch_gcal_events(days=90, past_days=30)
     # Cacha i DB i 30 min
     set_cache('gcal_events', events)
     return jsonify({'ok': True, 'events': events})
