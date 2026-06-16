@@ -31,7 +31,7 @@ GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
 
 # --- Databas ---
 def db():
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+    conn = psycopg2.connect(DATABASE_URL, sslmode='prefer')
     conn.autocommit = False
     return conn
 
