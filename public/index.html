@@ -2682,17 +2682,40 @@ HEALTH DATA (current):
       const Y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * innerH;
       const fmt = ms => new Date(ms).toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
       const P = raw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; });
-      const path = P.map((p,i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+      // Bryt linjen där det finns ett glapp i datan (annars ritas en falsk "trendlinje" över hål)
+      const dts = []; for (let i = 1; i < P.length; i++) dts.push(P[i].ms - P[i-1].ms);
+      const sortedDt = dts.slice().sort((a,b) => a - b);
+      const medDt = sortedDt.length ? sortedDt[Math.floor(sortedDt.length/2)] : 0;
+      const gapMs = Math.max(medDt * 3.5, 20*60*1000); // glapp = >3.5x normal takt, minst 20 min
+      const path = P.map((p,i) => {
+        const gap = i > 0 && (p.ms - P[i-1].ms) > gapMs;
+        return (i === 0 || gap ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
+      }).join(' ');
       const cur = temps[temps.length-1];
-      // AC-lägesändringar (markörer)
-      const mcolor = k => k === 'on' ? 'var(--green)' : k === 'off' ? 'var(--red)' : 'var(--amber)';
-      const yAt = ms => { let b = P[0], bd = Infinity; for (const p of P) { const dd = Math.abs(p.ms - ms); if (dd < bd) { bd = dd; b = p; } } return b.y; };
-      const MK = (d.markers || []).map(m => { const ms = new Date(m.t).getTime(); return { ms, x: X(ms), y: yAt(ms), kind: m.kind, label: m.label }; });
-      const mhtml = MK.map(m => {
-        const guide = m.kind === 'setpoint' ? '' : `<line x1="${m.x.toFixed(1)}" y1="${padT}" x2="${m.x.toFixed(1)}" y2="${H-padB}" stroke="${mcolor(m.kind)}" stroke-width="0.75" opacity="0.3"/>`;
-        const r = m.kind === 'setpoint' ? 2.5 : 3.5;
-        return guide + `<circle cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="${r}" fill="${mcolor(m.kind)}" stroke="var(--bg2)" stroke-width="1"/>`;
+      // AC-kylperioder som mjuka band i bakgrunden (istället för en massa streck per på/av)
+      const trans = (d.markers || []).filter(m => m.kind === 'on' || m.kind === 'off')
+        .map(m => ({ ms: new Date(m.t).getTime(), kind: m.kind })).sort((a,b) => a.ms - b.ms);
+      const bands = []; let openTs = null;
+      if (trans.length && trans[0].kind === 'off') openTs = t0; // var på redan vid start
+      for (const tr of trans) {
+        if (tr.kind === 'on' && openTs === null) openTs = tr.ms;
+        else if (tr.kind === 'off' && openTs !== null) { bands.push([openTs, tr.ms]); openTs = null; }
+      }
+      if (openTs !== null) bands.push([openTs, t1]);
+      const bandHtml = bands.map(([a,b]) => {
+        const x1 = X(Math.max(a, t0)), x2 = X(Math.min(b, t1));
+        const w = Math.max(0, x2 - x1);
+        return `<rect x="${x1.toFixed(1)}" y="${padT}" width="${w.toFixed(1)}" height="${innerH}" fill="var(--blue)" opacity="0.10"/>`;
       }).join('');
+      const inBand = ms => bands.some(([a,b]) => ms >= a && ms <= b);
+      // Bara setpoint-ändringar markeras som små prickar (på/av syns redan via banden)
+      const mcolor = () => 'var(--amber)';
+      const yAt = ms => { let b = P[0], bd = Infinity; for (const p of P) { const dd = Math.abs(p.ms - ms); if (dd < bd) { bd = dd; b = p; } } return b.y; };
+      const MK = (d.markers || []).filter(m => m.kind === 'setpoint')
+        .map(m => { const ms = new Date(m.t).getTime(); return { ms, x: X(ms), y: yAt(ms), kind: m.kind, label: m.label }; });
+      const mhtml = MK.map(m =>
+        `<circle cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="2.5" fill="var(--amber)" stroke="var(--bg2)" stroke-width="1"/>`
+      ).join('');
       let tline = '';
       if (d.target != null) {
         const ty = Y(d.target).toFixed(1);
@@ -2709,10 +2732,14 @@ HEALTH DATA (current):
       el.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
           <span style="font-size:22px;font-weight:800;">${cur.toFixed(1)}°C</span>
-          <span style="font-size:11px;color:var(--muted);">range ${Math.min(...temps).toFixed(1)}–${Math.max(...temps).toFixed(1)}°C</span>
+          <span style="font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center;">
+            ${bands.length ? '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--blue);opacity:0.25;display:inline-block;"></span>cooling</span>' : ''}
+            <span>range ${Math.min(...temps).toFixed(1)}–${Math.max(...temps).toFixed(1)}°C</span>
+          </span>
         </div>
         <div style="position:relative;">
           <svg id="ac-svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block;touch-action:none;cursor:crosshair;">
+            ${bandHtml}
             ${xaxis}
             <text x="${padL-5}" y="${Y(hi).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${hi.toFixed(1)}</text>
             <text x="${padL-5}" y="${Y(lo).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${lo.toFixed(1)}</text>
@@ -2738,7 +2765,8 @@ HEALTH DATA (current):
         tip.style.opacity = '1';
         let mk = null, md = Infinity;
         for (const m of MK) { const dd = Math.abs(m.x - vbX); if (dd < md) { md = dd; mk = m; } }
-        const mkLabel = (mk && md < 7) ? `<br><span style="color:${mcolor(mk.kind)};">${mk.label}</span>` : '';
+        const mkLabel = (mk && md < 7) ? `<br><span style="color:var(--amber);">${mk.label}</span>`
+          : (inBand(best.ms) ? '<br><span style="color:var(--blue);">cooling</span>' : '');
         tip.innerHTML = `<strong>${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${mkLabel}`;
       };
       const hide = () => { cross.setAttribute('opacity','0'); dot.setAttribute('opacity','0'); tip.style.opacity='0'; };
