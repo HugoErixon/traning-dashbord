@@ -173,8 +173,27 @@ def ac_history():
     if len(pts) > 180:
         step = len(pts) // 180 + 1
         pts = pts[::step]
+    # AC-lägesändringar (på/av + setpoint) från den fulla event-listan
+    markers = []
+    prev_cool = None
+    prev_sp = None
+    for e in events:
+        act = (e.get('action') or '').replace('dry_run_', '')
+        cool = (act == 'cool')
+        sp = e.get('requested_setpoint_c')
+        if prev_cool is not None:
+            if cool != prev_cool:
+                if cool:
+                    lab = 'AC on' + (f', setpoint {sp:.0f}°' if sp is not None else '')
+                    markers.append({'t': e['ts'], 'kind': 'on', 'label': lab})
+                else:
+                    markers.append({'t': e['ts'], 'kind': 'off', 'label': 'AC off'})
+            elif cool and sp is not None and prev_sp is not None and sp != prev_sp:
+                markers.append({'t': e['ts'], 'kind': 'setpoint', 'label': f'Setpoint → {sp:.0f}°'})
+        prev_cool = cool
+        prev_sp = sp
     target = events[-1].get('target_c') if events else None
-    return jsonify({'available': True, 'points': pts, 'target': target})
+    return jsonify({'available': True, 'points': pts, 'target': target, 'markers': markers})
 
 def _ac_loop_status():
     try:

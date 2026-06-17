@@ -2416,6 +2416,15 @@ HEALTH DATA (current):
       const P = raw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; });
       const path = P.map((p,i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
       const cur = temps[temps.length-1];
+      // AC-lägesändringar (markörer)
+      const mcolor = k => k === 'on' ? 'var(--green)' : k === 'off' ? 'var(--red)' : 'var(--amber)';
+      const yAt = ms => { let b = P[0], bd = Infinity; for (const p of P) { const dd = Math.abs(p.ms - ms); if (dd < bd) { bd = dd; b = p; } } return b.y; };
+      const MK = (d.markers || []).map(m => { const ms = new Date(m.t).getTime(); return { ms, x: X(ms), y: yAt(ms), kind: m.kind, label: m.label }; });
+      const mhtml = MK.map(m => {
+        const guide = m.kind === 'setpoint' ? '' : `<line x1="${m.x.toFixed(1)}" y1="${padT}" x2="${m.x.toFixed(1)}" y2="${H-padB}" stroke="${mcolor(m.kind)}" stroke-width="0.75" opacity="0.3"/>`;
+        const r = m.kind === 'setpoint' ? 2.5 : 3.5;
+        return guide + `<circle cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="${r}" fill="${mcolor(m.kind)}" stroke="var(--bg2)" stroke-width="1"/>`;
+      }).join('');
       let tline = '';
       if (d.target != null) {
         const ty = Y(d.target).toFixed(1);
@@ -2441,6 +2450,7 @@ HEALTH DATA (current):
             <text x="${padL-5}" y="${Y(lo).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${lo.toFixed(1)}</text>
             ${tline}
             <path d="${path}" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            ${mhtml}
             <line id="ac-cross" y1="${padT}" y2="${H-padB}" stroke="var(--muted2)" stroke-width="1" opacity="0"/>
             <circle id="ac-dot" r="3.5" fill="var(--green)" stroke="var(--bg2)" stroke-width="1.5" opacity="0"/>
           </svg>
@@ -2458,7 +2468,10 @@ HEALTH DATA (current):
         tip.style.left = (best.x / W * rect.width) + 'px';
         tip.style.top = (best.y / H * rect.height) + 'px';
         tip.style.opacity = '1';
-        tip.innerHTML = `<strong>${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}`;
+        let mk = null, md = Infinity;
+        for (const m of MK) { const dd = Math.abs(m.x - vbX); if (dd < md) { md = dd; mk = m; } }
+        const mkLabel = (mk && md < 7) ? `<br><span style="color:${mcolor(mk.kind)};">${mk.label}</span>` : '';
+        tip.innerHTML = `<strong>${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${mkLabel}`;
       };
       const hide = () => { cross.setAttribute('opacity','0'); dot.setAttribute('opacity','0'); tip.style.opacity='0'; };
       svg.addEventListener('pointermove', e => at(e.clientX));
