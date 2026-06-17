@@ -2309,7 +2309,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
   function computeCnsScore(h) {
     if (!h) return null;
-    const hrvPct = h.hrv?.pct ?? 50;
+    const hrvPct = h.hrv?.component ?? h.hrv?.pct ?? 50;
     const sleepScore = h.sleep?.score ?? 50;
     const readiness = h.readiness?.score ?? 50;
     const stressVal = h.stress?.avg ?? 50;
@@ -2319,6 +2319,42 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       0.20 * readiness +
       0.10 * (100 - Math.min(stressVal, 100))
     );
+  }
+
+  function getHrvBaselineText(hrv) {
+    if (!hrv) return 'No baseline';
+    if (hrv.balancedLow != null && hrv.balancedUpper != null) {
+      return `baseline ${hrv.balancedLow}-${hrv.balancedUpper} ms`;
+    }
+    if (hrv.weeklyAvg != null) return `avg ${hrv.weeklyAvg} ms`;
+    return 'No baseline';
+  }
+
+  function getHrvStatusText(hrv) {
+    if (!hrv) return 'HRV unavailable';
+    const status = hrv.status && hrv.status !== 'NONE'
+      ? String(hrv.status).replace('_', ' ')
+      : null;
+    if (status) return `HRV ${status}`;
+    if (hrv.pct != null) return `HRV ${hrv.pct}%`;
+    return 'HRV unavailable';
+  }
+
+  function getHrvClass(hrv) {
+    if (hrv?.light === 'green') return 'good';
+    if (hrv?.light === 'red') return 'bad';
+    if (hrv?.light === 'amber') return 'warn';
+    const pct = hrv?.component ?? hrv?.pct;
+    if (pct == null) return 'warn';
+    return pct >= 85 ? 'good' : pct >= 70 ? 'warn' : 'bad';
+  }
+
+  function getHrvColor(hrv) {
+    if (hrv?.light === 'green') return 'var(--green)';
+    if (hrv?.light === 'red') return 'var(--red)';
+    if (hrv?.light === 'amber') return 'var(--amber)';
+    const pct = hrv?.component ?? hrv?.pct ?? 0;
+    return pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
   }
 
   function getSessionDate(session, year) {
@@ -2419,7 +2455,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       stats.plannedKm ? `W${stats.week}: ${stats.plannedKm} km planned` : `W${stats.week}: plan pending`;
 
     const limiters = [];
-    if (h?.hrv?.pct != null) limiters.push({ text: `HRV ${h.hrv.pct}%`, cls: h.hrv.pct >= 85 ? 'good' : h.hrv.pct >= 70 ? 'warn' : 'bad' });
+    if (h?.hrv) limiters.push({ text: getHrvStatusText(h.hrv), cls: getHrvClass(h.hrv) });
     if (h?.sleep?.score != null) limiters.push({ text: `Sleep ${h.sleep.score}`, cls: h.sleep.score >= 80 ? 'good' : h.sleep.score >= 60 ? 'warn' : 'bad' });
     if (h?.bodyBattery?.current != null) limiters.push({ text: `Battery ${h.bodyBattery.current}`, cls: h.bodyBattery.current >= 60 ? 'good' : h.bodyBattery.current >= 30 ? 'warn' : 'bad' });
     if (h?.stress?.avg != null) limiters.push({ text: `Stress ${h.stress.avg}`, cls: h.stress.avg <= 35 ? 'good' : h.stress.avg <= 60 ? 'warn' : 'bad' });
@@ -2470,7 +2506,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       // â”€â”€ CNS-SCORE (ersÃ¤tter Recovery) â”€â”€
       // Formel: 0.40Ã—HRV% + 0.30Ã—sÃ¶mnpoÃ¤ng + 0.20Ã—Garmin-beredskap + 0.10Ã—(100-stress)
       // Baserat pÃ¥ Flatt & Esco (2016)
-      const hrvPct = h.hrv?.pct ?? 50;
+      const hrvPct = h.hrv?.component ?? h.hrv?.pct ?? 50;
       const sleepScoreR = h.sleep?.score ?? 50;
       const readiness = h.readiness?.score ?? 50;
       const stressVal = h.stress?.avg ?? 50;
@@ -2502,9 +2538,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       const hrvDiff = h.hrv?.lastNightAvg && h.hrv?.weeklyAvg
         ? ((h.hrv.lastNightAvg - h.hrv.weeklyAvg) / h.hrv.weeklyAvg) * 100
         : null;
-      let hrvLight = 'amber';
-      let hrvLightText = 'HRV data unavailable';
-      if (hrvDiff !== null) {
+      let hrvLight = h.hrv?.light || 'amber';
+      let hrvLightText = h.hrv?.verdict || 'HRV data unavailable';
+      if (!h.hrv?.light && hrvDiff !== null) {
         if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% - quality session is fine`; }
         else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% - rest or Z2`; }
         else                    { hrvLight = 'amber'; hrvLightText = `HRV +/-${Math.abs(hrvDiff).toFixed(0)}% - normal session`; }
@@ -2515,11 +2551,12 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
       // CNS delmetriker
       if (h.hrv?.lastNightAvg != null) {
-        const pct = h.hrv.pct || 0;
-        const pctCol = pct >= 95 ? 'var(--green)' : pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
+        const pct = h.hrv.component ?? h.hrv.pct ?? 0;
+        const pctCol = getHrvColor(h.hrv);
         document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
         document.getElementById('cns-hrv-val').style.color = pctCol;
-        document.getElementById('cns-hrv-sub').textContent = `${pct}% of avg ${h.hrv.weeklyAvg || '-'} ms`;
+        const statusText = h.hrv.status && h.hrv.status !== 'NONE' ? `${h.hrv.status} - ` : '';
+        document.getElementById('cns-hrv-sub').textContent = `${statusText}${getHrvBaselineText(h.hrv)}`;
       }
       if (h.readiness?.score != null) {
         const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
@@ -2669,8 +2706,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           val: h.bodyBattery?.current, sub: 'Max today: ' + (h.bodyBattery?.max || '-'),
           col: h.bodyBattery?.current >= 60 ? 'var(--green)' : h.bodyBattery?.current >= 30 ? 'var(--amber)' : 'var(--red)', pct: h.bodyBattery?.current },
         { valId:'snap-hrv-val', subId:'snap-hrv-sub', barId:'snap-hrv-bar',
-          val: h.hrv?.lastNightAvg, sub: 'Snitt ' + (h.hrv?.weeklyAvg || '-') + ' ms',
-          col: (h.hrv?.pct||0) >= 80 ? 'var(--green)' : (h.hrv?.pct||0) >= 50 ? 'var(--amber)' : 'var(--red)', pct: Math.min(h.hrv?.pct||0, 100) },
+          val: h.hrv?.lastNightAvg, sub: h.hrv?.status && h.hrv.status !== 'NONE' ? `${h.hrv.status} - ${getHrvBaselineText(h.hrv)}` : getHrvBaselineText(h.hrv),
+          col: getHrvColor(h.hrv), pct: Math.min(h.hrv?.component ?? h.hrv?.pct ?? 0, 100) },
       ];
       snapSets.forEach(s => {
         if (s.val == null) return;
