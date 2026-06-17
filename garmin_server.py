@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
-import json, time, requests, psycopg2, psycopg2.extras, subprocess
+import json, time, requests, psycopg2, psycopg2.extras, subprocess, threading
 from datetime import date, datetime, timedelta
 import os
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -74,6 +74,10 @@ def setup_db():
                 original_dow INTEGER,
                 ai_note TEXT,
                 modified_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS health_history (
+                date TEXT PRIMARY KEY,
+                sleep_score INTEGER, sleep_hours REAL, deep_pct INTEGER, rem_pct INTEGER,
+                hrv_avg INTEGER, resting_hr INTEGER, readiness INTEGER, created_at REAL)''')
         conn.commit()
     print('Databas: klar')
 
@@ -401,6 +405,66 @@ def health_data():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def _fetch_day_health(client, day_str):
+    sleep = client.get_sleep_data(day_str) or {}
+    s = sleep.get('dailySleepDTO', {}) or {}
+    total = s.get('sleepTimeSeconds') or 0
+    deep  = s.get('deepSleepSeconds') or 0
+    rem   = s.get('remSleepSeconds') or 0
+    scores = s.get('sleepScores') or {}
+    sleep_score = (scores.get('overall', {}) or {}).get('value') if isinstance(scores, dict) else None
+    hrv = client.get_hrv_data(day_str) or {}
+    hrv_avg = (hrv.get('hrvSummary') or {}).get('lastNightAvg')
+    rhr = None
+    try:
+        rhr = (client.get_heart_rates(day_str) or {}).get('restingHeartRate')
+    except Exception:
+        pass
+    return {'date': day_str, 'sleep_score': sleep_score,
+            'sleep_hours': round(total / 3600, 2) if total else None,
+            'deep_pct': round(deep / total * 100) if total else None,
+            'rem_pct':  round(rem / total * 100)  if total else None,
+            'hrv_avg': hrv_avg, 'resting_hr': rhr}
+
+
+def collect_health_history(days=14):
+    """Backfillar saknade dagar i health_history från Garmin (idempotent)."""
+    try:
+        client = get_garmin()
+    except Exception as e:
+        print('health-history: garmin-fel', e)
+        return
+    today = date.today()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT date FROM health_history')
+            have = {r[0] for r in cur.fetchall()}
+    added = 0
+    for i in range(1, days + 1):
+        d = (today - timedelta(days=i)).isoformat()
+        if d in have:
+            continue
+        try:
+            rec = _fetch_day_health(client, d)
+        except Exception as e:
+            print(f'health-history {d} fel:', e)
+            continue
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''INSERT INTO health_history
+                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, created_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (date) DO UPDATE SET sleep_score=EXCLUDED.sleep_score,
+                        sleep_hours=EXCLUDED.sleep_hours, deep_pct=EXCLUDED.deep_pct,
+                        rem_pct=EXCLUDED.rem_pct, hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr''',
+                    (rec['date'], rec['sleep_score'], rec['sleep_hours'], rec['deep_pct'],
+                     rec['rem_pct'], rec['hrv_avg'], rec['resting_hr'], time.time()))
+            conn.commit()
+        added += 1
+    print(f'health-history: {added} nya dagar tillagda')
+
 
 @app.get('/api/training-load')
 def training_load():
@@ -795,6 +859,113 @@ def training_review():
         review = json.loads(text)
         set_cache('training_review', review)
         return jsonify(review)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def _build_insights_prompt():
+    today = date.today()
+    start = (today - timedelta(days=21)).isoformat()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr
+                FROM health_history WHERE date >= %s ORDER BY date''', (start,))
+            hh = cur.fetchall()
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, type, distance FROM activities WHERE date >= %s ORDER BY date''', (start,))
+            acts = cur.fetchall()
+        with conn.cursor() as cur:
+            cur.execute('SELECT text, category FROM user_notes ORDER BY created_at DESC LIMIT 25')
+            notes = cur.fetchall()
+
+    acts_by_day = {}
+    for d, typ, dist in acts:
+        key = (d or '')[:10]
+        label = (typ or 'activity') + (f" {dist/1000:.1f}km" if dist else '')
+        acts_by_day.setdefault(key, []).append(label)
+
+    cal_row = get_cache('gcal_events')
+    work_days = {}
+    if cal_row:
+        for ev in (cal_row[0] or []):
+            s = ev.get('start', '')
+            key = s[:10]
+            if not key:
+                continue
+            early = ('T' in s and s[11:13].isdigit() and int(s[11:13]) < 7)
+            work_days[key] = 'work-early' if (early or work_days.get(key) == 'work-early') else 'work'
+
+    lines = []
+    for d, ss, sh, dp, rp, hv, rhr in hh:
+        key = d[:10]
+        tr = ', '.join(acts_by_day.get(key, [])) or 'rest/none'
+        lines.append(f"{key}: sleep {ss if ss is not None else '-'} ({sh if sh is not None else '-'}h, "
+                     f"deep {dp if dp is not None else '-'}%, REM {rp if rp is not None else '-'}%), "
+                     f"HRV {hv if hv is not None else '-'}, RHR {rhr if rhr is not None else '-'} | "
+                     f"training: {tr} | {work_days.get(key, '-')}")
+    log = '\n'.join(lines) if lines else 'No history collected yet.'
+    notes_txt = '\n'.join(f"- [{c}] {t}" for t, c in notes) if notes else 'None'
+
+    temp_note = ''
+    try:
+        r = requests.get(f'{AC_KEEPER_URL}/api/control-events', params={'hours': 24}, timeout=4)
+        tps = [e['measured_c'] for e in r.json() if e.get('measured_c') is not None]
+        if tps:
+            temp_note = (f"\nBEDROOM TEMP (last 24h): avg {sum(tps)/len(tps):.1f}°C, "
+                         f"range {min(tps):.1f}-{max(tps):.1f}°C (longer history builds over time).")
+    except Exception:
+        pass
+
+    return f"""You are a sharp performance & health analyst (think WHOOP). Analyze the athlete's last 3 weeks and surface SPECIFIC, ACTIONABLE insights — patterns and correlations, not generic advice.
+
+GOAL: Half marathon under 1:20 on October 10, 2026.
+
+DAILY LOG (sleep score, hours, deep%, REM%, HRV, resting HR, training, work shifts):
+{log}
+{temp_note}
+
+ATHLETE NOTES:
+{notes_txt}
+
+Find correlations across sleep, HRV, resting HR, training and work shifts (e.g. "HRV drops the day after early work shifts", "sleep score higher on rest days", "resting HR trending up = accumulating fatigue"). Reference actual numbers. Only claim patterns the data supports; if data is thin, say what to watch.
+
+Respond ONLY with this JSON (all text in English):
+{{
+  "headline": "one-line overall status (max 8 words)",
+  "status": "good | watch | caution",
+  "insights": [
+    {{"title": "short title", "detail": "1-2 specific sentences referencing the data", "action": "concrete next step"}}
+  ]
+}}
+Give 3-5 insights, most important first."""
+
+
+@app.get('/api/insights')
+def insights():
+    force = request.args.get('force') == '1'
+    row = get_cache('insights')
+    if row and not force and (time.time() - row[1]) < 12 * 3600:
+        return jsonify(row[0])
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM health_history')
+            n = cur.fetchone()[0]
+    if n < 3:
+        return jsonify({'status': 'watch', 'headline': 'Gathering your data…',
+                        'insights': [{'title': 'Building history',
+                                      'detail': f'Collected {n} day(s) so far. Insights sharpen as more sleep/HRV/training history accumulates.',
+                                      'action': 'Check back soon — history backfills automatically.'}]})
+    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
+        return jsonify({'status': 'watch', 'headline': 'AI key required', 'insights': []})
+    try:
+        prompt = _build_insights_prompt()
+        resp = requests.post('https://api.anthropic.com/v1/messages',
+            json={'model': 'claude-sonnet-4-6', 'max_tokens': 900,
+                  'messages': [{'role': 'user', 'content': prompt}]},
+            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
+        text = resp.json()['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
+        data = json.loads(text)
+        set_cache('insights', data)
+        return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1539,6 +1710,8 @@ def plan_status():
 def morning_job():
     print(f'[{datetime.now().strftime("%H:%M")}] Morning routine starting...')
     match_activities_to_plan()
+    collect_health_history()
+    clear_cache('insights')
     ai_adjust_plan()
 
 def backup_job():
@@ -1563,6 +1736,9 @@ scheduler.add_job(backup_job,  'cron', hour=10, minute=0)
 scheduler.add_job(auto_sync_job, 'interval', hours=3)
 scheduler.start()
 print('Scheduler active: auto-sync var 3:e timme, AI-justering 07:30, backup 10:00')
+
+# Bootstrappa hälsohistorik i bakgrunden (blockerar inte serverstarten)
+threading.Thread(target=lambda: collect_health_history(14), daemon=True).start()
 
 
 @app.get('/')
