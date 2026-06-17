@@ -49,6 +49,7 @@
     }
 
     .shell { display:flex; min-height:100vh; position:relative; z-index:1; }
+    .mobile-actions { display:none; }
 
     /* â”€â”€â”€ SIDEBAR â”€â”€â”€ */
     .sidebar {
@@ -149,6 +150,7 @@
     }
     .refresh-btn:hover { border-color: var(--green); color: var(--green); background: var(--green-dim); }
     .refresh-btn:disabled { opacity:0.45; cursor:not-allowed; }
+    .mobile-actions .refresh-btn { margin: 0; }
     .ac-control-row {
       display: flex;
       align-items: center;
@@ -1156,6 +1158,9 @@
       line-height: 1.4;
       cursor: default;
     }
+    .cal-session-list {
+      min-width: 0;
+    }
     .csp-run  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.18); }
     .csp-easy { background: rgba(0,229,160,0.04); color: var(--muted2); border: 1px solid rgba(0,229,160,0.1); }
     .csp-lift { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,140,66,0.18); }
@@ -1225,6 +1230,18 @@
       .nav-icon { font-size:18px; width:auto; }
       .sidebar-bottom { display:none; }
       .main { margin-left:0; padding:20px 14px 20px; max-width:100vw; width:100%; }
+      .mobile-actions {
+        display:grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin: 0 0 18px;
+      }
+      .mobile-actions .refresh-btn {
+        min-height: 42px;
+        padding: 10px 8px;
+        font-size: 11px;
+        border-radius: 8px;
+      }
       .page-header { margin-bottom: 22px; }
       .page-header h2 { font-size: 22px; }
       .page-header p { white-space: normal; line-height: 1.45; }
@@ -1369,18 +1386,28 @@
       }
       .cal-day {
         display:grid;
-        grid-template-columns: 54px minmax(0, 1fr);
-        gap: 8px;
+        grid-template-columns: 46px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
         min-height: 0;
-        padding: 10px 14px;
+        padding: 12px 14px;
         border-right: none;
         border-bottom: 1px solid var(--border);
       }
       .cal-day:last-child { border-bottom:none; }
       .cal-day-header { margin-bottom:0; }
+      .cal-session-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
       .cal-session-pill {
-        font-size: 10px;
-        padding: 5px 8px;
+        margin-bottom: 0;
+        padding: 7px 9px;
+        font-size: 10.5px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+        white-space: normal;
       }
     }
 
@@ -1424,6 +1451,10 @@
   </nav>
 
   <main class="main">
+    <div class="mobile-actions" aria-label="Dashboard actions">
+      <button class="refresh-btn" id="mobile-refresh-btn" onclick="refreshData()">Refresh data</button>
+      <button class="refresh-btn" id="mobile-gcal-sync-btn" onclick="syncGcal()">Sync calendar</button>
+    </div>
 
     <!-- HEM -->
     <div class="page active" id="page-home">
@@ -2235,11 +2266,19 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     } catch(e) { console.error('Health error:', e); }
   }
 
+  function setButtons(ids, text, color, disabled) {
+    ids.forEach(id => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.textContent = text;
+      btn.style.color = color || '';
+      btn.disabled = disabled;
+    });
+  }
+
   async function refreshData() {
-    const btn = document.getElementById('refresh-btn');
-    btn.textContent = 'Refresh data: loading...';
-    btn.style.color = 'var(--amber)';
-    btn.disabled = true;
+    const refreshIds = ['refresh-btn', 'mobile-refresh-btn'];
+    setButtons(refreshIds, 'Refreshing...', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
       await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadAcStatus(), loadAcHistory(), loadInsights()]);
@@ -2256,13 +2295,11 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         badge.className = 'today-badge ' + (badges[data.todayType] || 'badge-amber');
         badge.textContent = badgeText[data.todayType] || 'TODAY';
       }
-      btn.textContent = 'Updated';
-      btn.style.color = 'var(--green)';
-      setTimeout(() => { btn.textContent = 'Refresh data'; btn.style.color = ''; btn.disabled = false; }, 3000);
+      setButtons(refreshIds, 'Updated', 'var(--green)', true);
+      setTimeout(() => setButtons(refreshIds, 'Refresh data', '', false), 3000);
     } catch(e) {
-      btn.textContent = ' ' + e.message;
-      btn.style.color = 'var(--red)';
-      setTimeout(() => { btn.textContent = 'Refresh data'; btn.style.color = ''; btn.disabled = false; }, 4000);
+      setButtons(refreshIds, e.message || 'Refresh failed', 'var(--red)', true);
+      setTimeout(() => setButtons(refreshIds, 'Refresh data', '', false), 4000);
     }
   }
 
@@ -3614,7 +3651,7 @@ HEALTH DATA (current):
             <span class="cal-day-name">${dayNames[d]}</span>
             <span class="cal-day-num">${date.getDate()}</span>
           </div>
-          ${pillsHtml}`;
+          <div class="cal-session-list">${pillsHtml}</div>`;
         daysEl.appendChild(dayEl);
       }
 
@@ -3648,17 +3685,18 @@ HEALTH DATA (current):
   }
 
   async function syncGcal() {
-    const btn = document.getElementById('gcal-sync-btn');
-    if (btn) { btn.textContent = 'Refreshing...'; btn.disabled = true; }
+    const syncIds = ['gcal-sync-btn', 'mobile-gcal-sync-btn'];
+    setButtons(syncIds, 'Syncing...', 'var(--blue)', true);
     try {
       const r = await fetch('/api/calendar');
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || 'Error');
       gcalEvents = d.events || [];
-      if (btn) { btn.textContent = 'Sync calendar'; btn.disabled = false; }
+      setButtons(syncIds, 'Synced', 'var(--green)', true);
+      setTimeout(() => setButtons(syncIds, 'Sync calendar', '', false), 2500);
       buildCalendar();
     } catch(e) {
-      if (btn) { btn.textContent = 'Try again'; btn.disabled = false; }
+      setButtons(syncIds, 'Try again', 'var(--red)', false);
     }
   }
 
