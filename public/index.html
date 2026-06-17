@@ -2374,7 +2374,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const projectedRatio = trainingLoadData?.chronic
       ? (Number(trainingLoadData.acute || 0) + stats.remainingLoad) / Number(trainingLoadData.chronic)
       : null;
-
     let color = 'var(--amber)';
     let title = 'Build, but stay measured';
     let copy = 'Keep the planned session unless sleep, HRV or load risk says otherwise.';
@@ -2382,22 +2381,22 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (cns == null) {
       title = 'Waiting for recovery data';
       copy = 'Sync Garmin to unlock the daily decision, load risk and plan adjustment advice.';
-    } else if (cns >= 70 && (!projectedRatio || projectedRatio <= 1.3)) {
+    } else if (cns >= 70 && (ratio == null || ratio <= 1.3)) {
       color = 'var(--green)';
       title = 'Green light for quality';
       copy = nextKey && ['run','race'].includes(nextKey.type)
         ? 'Recovery and load look good. Keep the key session, but protect easy days around it.'
         : 'Recovery is good. You can train normally and add quality only if the plan calls for it.';
       tagClass = 'good';
-    } else if (cns < 45 || (projectedRatio && projectedRatio > 1.45)) {
+    } else if (cns < 45 || (ratio && ratio > 1.5)) {
       color = 'var(--red)';
       title = 'Downshift today';
-      copy = 'Recovery or load risk is high. Replace intensity with rest, mobility or very easy Z2.';
+      copy = 'Recovery or current load risk is high. Replace intensity with rest, mobility or very easy Z2.';
       tagClass = 'bad';
-    } else if (projectedRatio && projectedRatio > 1.3) {
+    } else if (ratio && ratio > 1.3) {
       color = 'var(--amber)';
       title = 'Keep volume controlled';
-      copy = 'The remaining plan may push load high. Do the important session, but trim extra easy volume.';
+      copy = 'Current ACWR is above the normal range. Keep easy work easy and avoid adding extra volume.';
       tagClass = 'warn';
     }
 
@@ -2408,7 +2407,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     document.getElementById('cockpit-week-volume').textContent =
       stats.plannedKm ? `${stats.completedKm.toFixed(1)} / ${stats.plannedKm} km` : `${stats.completedKm.toFixed(1)} km`;
     document.getElementById('cockpit-load-risk').textContent =
-      projectedRatio ? `ACWR ${projectedRatio.toFixed(2)}` : ratio ? `ACWR ${ratio.toFixed(2)}` : 'No load';
+      ratio != null ? `ACWR ${ratio.toFixed(2)}` : 'No load';
     document.getElementById('cockpit-key-session').textContent = nextKey ? nextKey.title : 'No session';
 
     const compliance = document.getElementById('cockpit-compliance');
@@ -2424,7 +2423,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (h?.sleep?.score != null) limiters.push({ text: `Sleep ${h.sleep.score}`, cls: h.sleep.score >= 80 ? 'good' : h.sleep.score >= 60 ? 'warn' : 'bad' });
     if (h?.bodyBattery?.current != null) limiters.push({ text: `Battery ${h.bodyBattery.current}`, cls: h.bodyBattery.current >= 60 ? 'good' : h.bodyBattery.current >= 30 ? 'warn' : 'bad' });
     if (h?.stress?.avg != null) limiters.push({ text: `Stress ${h.stress.avg}`, cls: h.stress.avg <= 35 ? 'good' : h.stress.avg <= 60 ? 'warn' : 'bad' });
-    if (projectedRatio) limiters.push({ text: `Projected load ${projectedRatio.toFixed(2)}`, cls: projectedRatio <= 1.3 ? 'good' : projectedRatio <= 1.45 ? 'warn' : 'bad' });
+    if (ratio != null) limiters.push({ text: `Current load ${ratio.toFixed(2)}`, cls: ratio <= 1.3 ? 'good' : ratio <= 1.5 ? 'warn' : 'bad' });
+    if (projectedRatio && projectedRatio > ratio + 0.15) limiters.push({ text: `Week projection ${projectedRatio.toFixed(2)}`, cls: 'warn' });
     if (!limiters.length) limiters.push({ text: 'Sync Garmin for limiters', cls: 'warn' });
     document.getElementById('cockpit-limiters').innerHTML = limiters
       .map(l => `<span class="cockpit-limiter ${l.cls}">${escapeHtml(l.text)}</span>`)
@@ -2859,7 +2859,7 @@ HEALTH DATA (current):
       const projectedAcute  = trainingLoadData.acute + estimatedRemainingLoad;
       const chronic         = trainingLoadData.chronic || 1;
       const projectedRatio  = (projectedAcute / chronic).toFixed(2);
-      const safeToAdd       = projectedRatio <= 1.3;
+      const projectedSafe   = projectedRatio <= 1.3;
 
       const statusMap = {
         RECOVERY_2: 'Recovery', MAINTAINING: 'Maintaining',
@@ -2880,9 +2880,9 @@ HEALTH DATA (current):
       ctx += `\n- Acute load (7 days): ${trainingLoadData.acute}  -  Chronic load (28 days): ${trainingLoadData.chronic}`;
       ctx += `\n- Current ACWR ratio: ${trainingLoadData.ratio} (${trainingLoadData.acwrStatus})  -  Training status: ${statusLabel}`;
       ctx += `\n- Completed load this week: ${Math.round(completedLoadWeek)}  -  Estimated load for remaining planned sessions: ${Math.round(estimatedRemainingLoad)}`;
-      ctx += `\n- Projected ACWR if all sessions are completed: ${projectedRatio} -> ${safeToAdd ? ' inside safe zone (<=1.3)' : ' EXCEEDS safe zone (>1.3)'}`;
+      ctx += `\n- Projected ACWR if all remaining planned sessions are completed: ${projectedRatio} -> ${projectedSafe ? 'inside safe zone (<=1.3)' : 'could exceed safe zone (>1.3)'}`;
       ctx += `\n- Load balance: ${feedbackLabel}`;
-      ctx += `\nRULE: Optimal ACWR is 0.8-1.3. If a rescheduled session would push projected ACWR above 1.3 - replace with Z2 jog or rest instead. Estimated load/km: Z2=7, interval/threshold=22, race=25, strength=40 fixed.`;
+      ctx += `\nRULE: Base today's risk on CURRENT ACWR, not the projection. Optimal current ACWR is 0.8-1.3; if current ACWR >1.3, avoid adding extra volume. Use projected ACWR only to suggest trimming later optional sessions if the full remaining plan would push load high. Estimated load/km: Z2=7, interval/threshold=22, race=25, strength=40 fixed.`;
     }
 
     ctx += '\n\nAlways answer in English. Be concrete and personal. Always consider BOTH goals in your answer. Max 3-4 sentences.';
