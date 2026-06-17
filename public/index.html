@@ -1667,16 +1667,6 @@
         <p id="review-body">Loading...</p>
       </div>
 
-      <!-- AI RECOMMENDATION -->
-      <div class="sl">Recommendation</div>
-      <div class="bigcard accent-amber" style="margin-bottom:24px;">
-        <div class="today-header">
-          <h3 id="today-title">Easy recovery run</h3>
-          <span class="today-badge badge-amber" id="today-badge">HRV LOW</span>
-        </div>
-        <p id="today-body">Your HRV is low and your body is recovering. Do a light Z2 run 30-40 min - keeps the legs moving without draining the battery.</p>
-      </div>
-
       <div class="sl">Today's snapshot</div>
       <div class="grid">
         <div class="card"><div class="card-label">readiness</div><div id="snap-readiness-val" class="card-val ca">-</div><div id="snap-readiness-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
@@ -2716,11 +2706,15 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const titles = { easy:'Easy session today', quality:'Quality session today', rest:'Rest day today' };
         const badges = { easy:'badge-green', quality:'badge-amber', rest:'badge-red' };
         const badgeText = { easy:'EASY', quality:'QUALITY', rest:'REST' };
-        document.getElementById('today-title').textContent = titles[data.todayType] || 'Recommendation';
-        document.getElementById('today-body').textContent = data.todayRecommendation;
+        const todayTitle = document.getElementById('today-title');
+        const todayBody = document.getElementById('today-body');
         const badge = document.getElementById('today-badge');
-        badge.className = 'today-badge ' + (badges[data.todayType] || 'badge-amber');
-        badge.textContent = badgeText[data.todayType] || 'TODAY';
+        if (todayTitle) todayTitle.textContent = titles[data.todayType] || 'Recommendation';
+        if (todayBody) todayBody.textContent = data.todayRecommendation;
+        if (badge) {
+          badge.className = 'today-badge ' + (badges[data.todayType] || 'badge-amber');
+          badge.textContent = badgeText[data.todayType] || 'TODAY';
+        }
       }
       setButtons(refreshIds, 'Updated', 'var(--green)', true);
       setTimeout(() => setButtons(refreshIds, 'Refresh data', '', false), 3000);
