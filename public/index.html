@@ -1619,7 +1619,7 @@
       <div class="nav-item" onclick="goto('health')"><span>Health</span></div>
       <div class="nav-item" onclick="goto('sleep')"><span>Sleep</span></div>
       <div class="nav-item" onclick="goto('upcoming')"><span>Calendar</span></div>
-      <div class="nav-item" onclick="goto('strength')"><span>Strength</span></div>
+      <div class="nav-item" onclick="goto('analysis')"><span>Analysis</span></div>
       <div class="nav-item" onclick="goto('coach')"><span>Notes</span></div>
     </div>
     <div class="sidebar-bottom">
@@ -2021,9 +2021,10 @@
 
     <!-- REKORD -->
     <!-- STYRKA -->
-    <div class="page" id="page-strength">
-      <div class="page-header"><h2>Strength</h2><p>Strength sessions from Garmin  -  log exercises & progression</p></div>
-      <div id="strength-list"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Loading sessions...</div></div>
+    <div class="page" id="page-analysis">
+      <div class="page-header"><h2>Analysis</h2><p>Fitness trends &amp; their rate of change — HRV status, endurance, lactate threshold and more</p></div>
+      <div id="analysis-summary" style="margin-bottom:18px;"></div>
+      <div id="analysis-grid"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Loading trends...</div></div>
     </div>
 
     <!-- COACH -->
@@ -2158,7 +2159,7 @@ window.fetch = (url, opts = {}) => {
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
     if (id === 'sleep')    loadHealth();
-    if (id === 'strength') loadStrength();
+    if (id === 'analysis') loadAnalysis();
     if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
   }
@@ -3306,6 +3307,100 @@ HEALTH DATA (current):
 
   const fmtDur = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h>0?h+'h '+m+'m':m+' min'; };
   const fmtDateStr = s => new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+
+  // ANALYSIS — fitness-trender + förändringstakt (derivata)
+  function fmtMetric(v, fmt) {
+    if (v == null) return '–';
+    if (fmt === 'pace') { const m = Math.floor(v/60), s = Math.round(v%60); return m + ':' + String(s).padStart(2,'0'); }
+    if (fmt === 1) return v.toFixed(1);
+    return Math.round(v).toString();
+  }
+  function sparkline(series, fmt, good) {
+    if (!series || series.length < 2) return '';
+    const W = 200, H = 46, p = 4;
+    const vs = series.map(d => d.v);
+    let lo = Math.min(...vs), hi = Math.max(...vs);
+    if (hi === lo) { hi += 1; lo -= 1; }
+    const t0 = new Date(series[0].t).getTime(), t1 = new Date(series[series.length-1].t).getTime();
+    const tspan = Math.max(1, t1 - t0);
+    const X = ms => p + ((ms - t0) / tspan) * (W - 2*p);
+    const Y = v => p + (1 - (v - lo) / (hi - lo)) * (H - 2*p);
+    const pts = series.map(d => ({ x: X(new Date(d.t).getTime()), y: Y(d.v), ms: new Date(d.t).getTime() }));
+    let path = '';
+    for (let i = 0; i < pts.length; i++) {
+      const gap = i > 0 && (pts[i].ms - pts[i-1].ms) > 5*86400000; // bryt vid >5 dagars glapp
+      path += (i === 0 || gap ? 'M' : 'L') + pts[i].x.toFixed(1) + ' ' + pts[i].y.toFixed(1) + ' ';
+    }
+    const last = pts[pts.length-1];
+    const col = 'var(--muted2)';
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" style="display:block;">
+      <path d="${path}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.8"/>
+      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="2.5" fill="var(--text)"/>
+    </svg>`;
+  }
+  async function loadAnalysis() {
+    const grid = document.getElementById('analysis-grid');
+    const summary = document.getElementById('analysis-summary');
+    grid.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'IBM Plex Mono\',monospace;">Loading trends...</div>';
+    try {
+      const res = await fetch('/api/analysis');
+      const d = await res.json();
+      const statusMap = {
+        BALANCED:   ['badge-green','Balanced'],
+        UNBALANCED: ['badge-amber','Unbalanced'],
+        LOW:        ['badge-red','Low'],
+        POOR:       ['badge-red','Poor'],
+      };
+      const st = (d.hrv_status || '').toUpperCase();
+      const sm = statusMap[st];
+      summary.innerHTML = `
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);">
+          <span>Trends over the last ${d.window_days} days. Arrows show the direction of change (the derivative), not just today's value.</span>
+          ${sm ? `<span class="today-badge ${sm[0]}">HRV status: ${sm[1]}</span>` : ''}
+        </div>`;
+      const dirMeta = {
+        improving: ['↗', 'var(--green)', 'Improving'],
+        declining: ['↘', 'var(--red)',   'Declining'],
+        stable:    ['→', 'var(--muted2)','Stable'],
+        unknown:   ['·', 'var(--muted)', 'Collecting…'],
+      };
+      grid.innerHTML = d.metrics.map(m => {
+        const dm = dirMeta[m.direction] || dirMeta.unknown;
+        const has = m.series && m.series.length >= 2;
+        let rate = '';
+        if (has && m.slopePerWeek != null) {
+          const sign = m.slopePerWeek > 0 ? '+' : '';
+          const rateVal = m.fmt === 'pace'
+            ? (m.slopePerWeek > 0 ? '+' : '−') + fmtMetric(Math.abs(m.slopePerWeek), 'pace')
+            : sign + (Math.abs(m.slopePerWeek) < 1 ? m.slopePerWeek.toFixed(2) : m.slopePerWeek.toFixed(1));
+          rate = `${rateVal} ${m.unit === 'pace' ? '/km' : m.unit}/wk`;
+        }
+        const pct = (has && m.pctChange != null) ? `${m.pctChange > 0 ? '+' : ''}${m.pctChange}% over window` : '';
+        const valStr = m.latest != null ? fmtMetric(m.latest, m.fmt) : '–';
+        const unitStr = m.unit && m.unit !== 'pace' ? ` <span style="font-size:13px;color:var(--muted);font-weight:500;">${m.unit}</span>` : (m.unit === 'pace' && m.latest != null ? ' <span style="font-size:13px;color:var(--muted);font-weight:500;">/km</span>' : '');
+        return `
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <span style="font-size:12px;font-weight:600;letter-spacing:0.02em;color:var(--muted3);">${m.label}</span>
+              <span style="font-size:11px;font-weight:700;color:${dm[1]};white-space:nowrap;">${dm[0]} ${dm[2]}</span>
+            </div>
+            <div style="font-size:26px;font-weight:800;letter-spacing:-0.5px;font-variant-numeric:tabular-nums;">${valStr}${unitStr}</div>
+            ${has ? sparkline(m.series, m.fmt, m.good) : `<div style="height:46px;display:flex;align-items:center;color:var(--muted);font-size:11px;font-family:'IBM Plex Mono',monospace;">Collecting data…</div>`}
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;">
+              <span style="color:${dm[1]};">${rate}</span>
+              <span>${pct}</span>
+            </div>
+          </div>`;
+      }).join('');
+      if (!grid.style.display) {
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(220px, 1fr))';
+        grid.style.gap = '14px';
+      }
+    } catch(e) {
+      grid.innerHTML = '<div style="color:var(--red);font-size:13px;">Could not load analysis: ' + e.message + '</div>';
+    }
+  }
 
   async function loadStrength() {
     const container = document.getElementById('strength-list');

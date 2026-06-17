@@ -78,6 +78,11 @@ def setup_db():
                 date TEXT PRIMARY KEY,
                 sleep_score INTEGER, sleep_hours REAL, deep_pct INTEGER, rem_pct INTEGER,
                 hrv_avg INTEGER, resting_hr INTEGER, readiness INTEGER, created_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS metric_history (
+                date TEXT PRIMARY KEY,
+                vo2max REAL, endurance_score INTEGER,
+                lactate_hr INTEGER, lactate_pace REAL,
+                hrv_status TEXT, created_at REAL)''')
         conn.commit()
     print('Databas: klar')
 
@@ -464,6 +469,177 @@ def collect_health_history(days=14):
             conn.commit()
         added += 1
     print(f'health-history: {added} nya dagar tillagda')
+
+
+# --- Fitness-mätare (VO2max, uthållighet, mjölksyratröskel, HRV-status) historik ---
+def _find_num(obj, keys, depth=0):
+    """Sök rekursivt efter första numeriska värdet under någon av nyckelnamnen (case-insensitive substr)."""
+    if depth > 6 or obj is None:
+        return None
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            kl = str(k).lower()
+            if any(kk in kl for kk in keys) and isinstance(v, (int, float)) and not isinstance(v, bool):
+                return v
+        for v in obj.values():
+            r = _find_num(v, keys, depth + 1)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = _find_num(v, keys, depth + 1)
+            if r is not None:
+                return r
+    return None
+
+
+def _fetch_day_metrics(client, day_str):
+    """Hämtar fitness-mätare för en dag. Varje mätare är skyddad — saknas metoden
+    (t.ex. get_lactate_threshold på garminconnect 0.3.2) hoppas den bara över."""
+    vo2max = endurance = lt_hr = lt_pace = hrv_status = None
+    try:
+        mm = client.get_max_metrics(day_str)
+        vo2max = _find_num(mm, ['vo2maxprecise', 'vo2maxvalue', 'vo2max'])
+    except Exception:
+        pass
+    try:
+        es = client.get_endurance_score(day_str, day_str)
+        endurance = _find_num(es, ['overallscore', 'enduranceScore'.lower(), 'avg', 'gauge'])
+    except Exception:
+        pass
+    try:
+        if hasattr(client, 'get_lactate_threshold'):
+            lt = client.get_lactate_threshold(start_date=day_str, end_date=day_str, latest=True)
+            lt_hr = _find_num(lt, ['heartrate', 'lactatethresholdheartrate'])
+            speed = _find_num(lt, ['speed', 'lactatethresholdspeed'])  # m/s
+            if speed and speed > 0:
+                lt_pace = round(1000.0 / speed, 1)  # sek/km
+    except Exception:
+        pass
+    try:
+        hrv = client.get_hrv_data(day_str) or {}
+        hrv_status = (hrv.get('hrvSummary') or {}).get('status')
+    except Exception:
+        pass
+    return {'date': day_str, 'vo2max': vo2max, 'endurance_score': int(endurance) if endurance is not None else None,
+            'lactate_hr': int(lt_hr) if lt_hr is not None else None, 'lactate_pace': lt_pace,
+            'hrv_status': hrv_status}
+
+
+def collect_metric_history(days=45):
+    """Backfillar fitness-mätare i metric_history (idempotent). Tål saknade metoder."""
+    try:
+        client = get_garmin()
+    except Exception as e:
+        print('metric-history: garmin-fel', e)
+        return
+    today = date.today()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT date FROM metric_history')
+            have = {r[0] for r in cur.fetchall()}
+    added = 0
+    for i in range(0, days + 1):
+        d = (today - timedelta(days=i)).isoformat()
+        if d in have:
+            continue
+        try:
+            rec = _fetch_day_metrics(client, d)
+        except Exception as e:
+            print(f'metric-history {d} fel:', e)
+            continue
+        # Hoppa över helt tomma dagar (ingen mätare alls) så vi inte fyller tabellen med null-rader
+        if not any(rec[k] is not None for k in ('vo2max', 'endurance_score', 'lactate_hr', 'lactate_pace', 'hrv_status')):
+            continue
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''INSERT INTO metric_history
+                    (date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status, created_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (date) DO UPDATE SET vo2max=EXCLUDED.vo2max,
+                        endurance_score=EXCLUDED.endurance_score, lactate_hr=EXCLUDED.lactate_hr,
+                        lactate_pace=EXCLUDED.lactate_pace, hrv_status=EXCLUDED.hrv_status''',
+                    (rec['date'], rec['vo2max'], rec['endurance_score'], rec['lactate_hr'],
+                     rec['lactate_pace'], rec['hrv_status'], time.time()))
+            conn.commit()
+        added += 1
+    print(f'metric-history: {added} nya dagar tillagda')
+
+
+def _linreg_per_week(series):
+    """series = lista av (dagindex_float, värde). Returnerar lutning per VECKA via minsta kvadrat."""
+    n = len(series)
+    if n < 2:
+        return None
+    sx = sum(p[0] for p in series); sy = sum(p[1] for p in series)
+    sxx = sum(p[0] * p[0] for p in series); sxy = sum(p[0] * p[1] for p in series)
+    denom = n * sxx - sx * sx
+    if denom == 0:
+        return None
+    slope_per_day = (n * sxy - sx * sy) / denom
+    return slope_per_day * 7.0
+
+
+@app.get('/api/analysis')
+def analysis():
+    """Trender + förändringstakt (derivata) för fitness-mätare över ett fönster."""
+    window = int(request.args.get('days', 60))
+    start = (date.today() - timedelta(days=window)).isoformat()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, hrv_avg, resting_hr, sleep_score
+                FROM health_history WHERE date >= %s ORDER BY date''', (start,))
+            hh = cur.fetchall()
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status
+                FROM metric_history WHERE date >= %s ORDER BY date''', (start,))
+            mh = cur.fetchall()
+
+    # Bygg per-mätare tidsserier (dag-index relativt fönstrets start, för lutningsberäkning)
+    def to_day_index(dstr):
+        return (date.fromisoformat(dstr[:10]) - date.fromisoformat(start)).days
+
+    cols = {
+        'hrv':       {'label': 'HRV',                'unit': 'ms',     'good': 'up',   'rows': hh, 'idx': 1, 'fmt': 0},
+        'rhr':       {'label': 'Resting HR',         'unit': 'bpm',    'good': 'down', 'rows': hh, 'idx': 2, 'fmt': 0},
+        'sleep':     {'label': 'Sleep score',        'unit': '',       'good': 'up',   'rows': hh, 'idx': 3, 'fmt': 0},
+        'vo2max':    {'label': 'VO₂max',             'unit': '',       'good': 'up',   'rows': mh, 'idx': 1, 'fmt': 1},
+        'endurance': {'label': 'Endurance score',    'unit': '',       'good': 'up',   'rows': mh, 'idx': 2, 'fmt': 0},
+        'lt_pace':   {'label': 'Lactate threshold',  'unit': 'pace',   'good': 'down', 'rows': mh, 'idx': 4, 'fmt': 'pace'},
+        'lt_hr':     {'label': 'LT heart rate',      'unit': 'bpm',    'good': 'up',   'rows': mh, 'idx': 3, 'fmt': 0},
+    }
+
+    metrics = []
+    for key, c in cols.items():
+        series = []
+        for r in c['rows']:
+            v = r[c['idx']]
+            if v is None:
+                continue
+            series.append({'t': r[0][:10], 'v': float(v)})
+        out = {'key': key, 'label': c['label'], 'unit': c['unit'], 'good': c['good'], 'fmt': c['fmt'],
+               'series': series, 'latest': None, 'first': None, 'slopePerWeek': None,
+               'pctChange': None, 'direction': 'unknown'}
+        if series:
+            out['latest'] = series[-1]['v']
+            out['first'] = series[0]['v']
+            reg = [(to_day_index(p['t']), p['v']) for p in series]
+            slope = _linreg_per_week(reg)
+            out['slopePerWeek'] = round(slope, 3) if slope is not None else None
+            if series[0]['v']:
+                out['pctChange'] = round((series[-1]['v'] - series[0]['v']) / abs(series[0]['v']) * 100, 1)
+            # riktning: stabil om lutning < ~0.3% av medelvärdet per vecka
+            mean = sum(p['v'] for p in series) / len(series)
+            if slope is None or mean == 0 or abs(slope) < abs(mean) * 0.003:
+                out['direction'] = 'stable'
+            else:
+                rising = slope > 0
+                good = (rising and c['good'] == 'up') or (not rising and c['good'] == 'down')
+                out['direction'] = 'improving' if good else 'declining'
+        metrics.append(out)
+
+    latest_status = mh[-1][5] if mh else None
+    return jsonify({'window_days': window, 'hrv_status': latest_status, 'metrics': metrics})
 
 
 @app.get('/api/training-load')
@@ -1733,6 +1909,7 @@ def maybe_run_daily_routine():
         return
     print('Daglig rutin: dagens data finns → matchning + historik + AI-justering')
     collect_health_history()
+    collect_metric_history()
     clear_cache('insights')
     ai_adjust_plan()
 
@@ -1748,8 +1925,11 @@ scheduler.add_job(auto_sync_job, 'interval', hours=3)
 scheduler.start()
 print('Scheduler active: data-driven daglig rutin via autosynk var 3:e timme')
 
-# Bootstrappa hälsohistorik i bakgrunden (blockerar inte serverstarten)
-threading.Thread(target=lambda: collect_health_history(14), daemon=True).start()
+# Bootstrappa hälsohistorik + fitness-mätare i bakgrunden (blockerar inte serverstarten)
+def _bootstrap_history():
+    collect_health_history(14)
+    collect_metric_history(45)
+threading.Thread(target=_bootstrap_history, daemon=True).start()
 
 
 @app.get('/')
