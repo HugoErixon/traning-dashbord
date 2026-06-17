@@ -1274,6 +1274,12 @@
         </div>
       </div>
 
+      <!-- ROOM TEMP 24H GRAPH -->
+      <div class="sl">Room temperature - last 24h</div>
+      <div class="bigcard" style="margin-bottom:24px;">
+        <div id="ac-graph">Loading temperature history...</div>
+      </div>
+
     </div>
 
     <!-- HÃ„LSA -->
@@ -2005,7 +2011,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     btn.disabled = true;
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadAcStatus()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadAcStatus(), loadAcHistory()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2385,6 +2391,52 @@ HEALTH DATA (current):
   loadAcLoopStatus();
   setInterval(loadAcStatus, 60000);
   setInterval(loadAcLoopStatus, 60000);
+
+  // 24h rumstemperatur-graf (inline SVG, ingen extern lib)
+  async function loadAcHistory() {
+    const el = document.getElementById('ac-graph');
+    if (!el) return;
+    try {
+      const res = await fetch('/api/ac/history');
+      const d = await res.json();
+      const pts = (d.points || []).filter(p => p.temp != null);
+      if (!pts.length) { el.textContent = d.error ? 'Temperature history unavailable.' : 'Collecting temperature data...'; return; }
+      const temps = pts.map(p => p.temp);
+      let lo = Math.min(...temps), hi = Math.max(...temps);
+      if (d.target != null) { lo = Math.min(lo, d.target); hi = Math.max(hi, d.target); }
+      const pad = Math.max(0.5, (hi - lo) * 0.15);
+      const yLo = lo - pad, yHi = hi + pad;
+      const W = 600, H = 180, padL = 34, padR = 12, padT = 10, padB = 20;
+      const innerW = W - padL - padR, innerH = H - padT - padB;
+      const t0 = new Date(pts[0].t).getTime(), t1 = new Date(pts[pts.length-1].t).getTime();
+      const tspan = Math.max(1, t1 - t0);
+      const X = t => padL + ((new Date(t).getTime() - t0) / tspan) * innerW;
+      const Y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * innerH;
+      const path = pts.map((p,i) => (i ? 'L' : 'M') + X(p.t).toFixed(1) + ' ' + Y(p.temp).toFixed(1)).join(' ');
+      const cur = temps[temps.length-1];
+      const hoursSpan = Math.max(1, Math.round((t1 - t0) / 3600000));
+      let tline = '';
+      if (d.target != null) {
+        const ty = Y(d.target).toFixed(1);
+        tline = `<line x1="${padL}" y1="${ty}" x2="${W-padR}" y2="${ty}" stroke="var(--blue)" stroke-width="1" stroke-dasharray="4 3" opacity="0.65"/><text x="${W-padR}" y="${(+ty)-3}" text-anchor="end" font-size="9" fill="var(--blue)">target ${d.target}°</text>`;
+      }
+      el.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+          <span style="font-size:22px;font-weight:800;">${cur.toFixed(1)}°C</span>
+          <span style="font-size:11px;color:var(--muted);">range ${Math.min(...temps).toFixed(1)}–${Math.max(...temps).toFixed(1)}°C</span>
+        </div>
+        <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;">
+          <text x="${padL-5}" y="${Y(hi).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${hi.toFixed(1)}</text>
+          <text x="${padL-5}" y="${Y(lo).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${lo.toFixed(1)}</text>
+          ${tline}
+          <path d="${path}" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          <text x="${padL}" y="${H-5}" font-size="9" fill="var(--muted)">${hoursSpan}h ago</text>
+          <text x="${W-padR}" y="${H-5}" text-anchor="end" font-size="9" fill="var(--muted)">now</text>
+        </svg>`;
+    } catch(e) { el.textContent = 'Temperature history unavailable.'; }
+  }
+  loadAcHistory();
+  setInterval(loadAcHistory, 300000);
 
   const history = [];
 

@@ -161,6 +161,21 @@ def ac_proxy():
     except Exception as e:
         return jsonify({'available': False, 'error': str(e)})
 
+@app.get('/api/ac/history')
+def ac_history():
+    """Rumstemperatur (aggregerat) + mål senaste 24h, nedsamplat, från ac-keeper."""
+    try:
+        r = requests.get(f'{AC_KEEPER_URL}/api/control-events', params={'hours': 24}, timeout=6)
+        events = r.json()
+    except Exception as e:
+        return jsonify({'available': False, 'error': str(e), 'points': []})
+    pts = [{'t': e['ts'], 'temp': e['measured_c']} for e in events if e.get('measured_c') is not None]
+    if len(pts) > 180:
+        step = len(pts) // 180 + 1
+        pts = pts[::step]
+    target = events[-1].get('target_c') if events else None
+    return jsonify({'available': True, 'points': pts, 'target': target})
+
 def _ac_loop_status():
     try:
         res = subprocess.run(
