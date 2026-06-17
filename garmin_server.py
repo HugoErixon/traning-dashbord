@@ -1417,6 +1417,10 @@ def run_sync(count=50):
         match_activities_to_plan()
     except Exception as e:
         print('Matchning efter synk fel:', e)
+    try:
+        maybe_run_daily_routine()
+    except Exception as e:
+        print('Daglig rutin fel:', e)
     return len(acts)
 
 
@@ -1707,21 +1711,30 @@ def plan_status():
 # ─────────────────────────────────────────────
 # SCHEDULER — kör kl 07:30 varje morgon
 # ─────────────────────────────────────────────
-def morning_job():
-    print(f'[{datetime.now().strftime("%H:%M")}] Morning routine starting...')
-    match_activities_to_plan()
+def maybe_run_daily_routine():
+    """Den dagliga rutinen körs EN gång per dag — men först när dagens hälsodata
+    faktiskt har synkat. Ingen gissad klockslag, inget 'recovery unavailable'.
+    Drivs av autosynken (var 3:e timme) + varje manuell synk."""
+    row = get_cache('last_plan_adjustment')
+    if row and row[0].get('date') == date.today().isoformat():
+        return  # redan kört idag
+    today = date.today().isoformat()
+    try:
+        client = get_garmin()
+        readiness = client.get_training_readiness(today)
+        sleep = client.get_sleep_data(today)
+    except Exception as e:
+        print('Daglig rutin: kunde inte kolla hälsodata', e)
+        return
+    sleep_ok = bool((sleep.get('dailySleepDTO', {}) or {}).get('sleepTimeSeconds'))
+    ready_ok = bool(readiness and (readiness[0] or {}).get('score'))
+    if not (sleep_ok or ready_ok):
+        print('Daglig rutin: dagens hälsodata inte synkad än — väntar till nästa synk')
+        return
+    print('Daglig rutin: dagens data finns → matchning + historik + AI-justering')
     collect_health_history()
     clear_cache('insights')
     ai_adjust_plan()
-
-def backup_job():
-    """Körs 10:00 — bara om justeringen inte redan gjorts idag."""
-    row = get_cache('last_plan_adjustment')
-    if row and row[0].get('date') == date.today().isoformat():
-        print('[10:00] Adjustment already done today, skipping.')
-        return
-    print('[10:00] No adjustment done yet today, running now.')
-    morning_job()
 
 def auto_sync_job():
     try:
@@ -1731,11 +1744,9 @@ def auto_sync_job():
         print('Auto-sync fel:', e)
 
 scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
-scheduler.add_job(morning_job, 'cron', hour=7, minute=30)
-scheduler.add_job(backup_job,  'cron', hour=10, minute=0)
 scheduler.add_job(auto_sync_job, 'interval', hours=3)
 scheduler.start()
-print('Scheduler active: auto-sync var 3:e timme, AI-justering 07:30, backup 10:00')
+print('Scheduler active: data-driven daglig rutin via autosynk var 3:e timme')
 
 # Bootstrappa hälsohistorik i bakgrunden (blockerar inte serverstarten)
 threading.Thread(target=lambda: collect_health_history(14), daemon=True).start()
