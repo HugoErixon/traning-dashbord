@@ -503,15 +503,24 @@ def _fetch_day_metrics(client, day_str):
     except Exception:
         pass
     try:
-        es = client.get_endurance_score(day_str, day_str)
+        # Single-day call gives precise daily values. Passing enddate switches Garmin
+        # to weekly aggregation, which can hide points in the Analysis tab.
+        es = client.get_endurance_score(day_str)
         endurance = _find_num(es, ['overallscore', 'enduranceScore'.lower(), 'avg', 'gauge'])
     except Exception:
         pass
     try:
         if hasattr(client, 'get_lactate_threshold'):
-            lt = client.get_lactate_threshold(start_date=day_str, end_date=day_str, latest=True)
-            lt_hr = _find_num(lt, ['heartrate', 'lactatethresholdheartrate'])
-            speed = _find_num(lt, ['speed', 'lactatethresholdspeed'])  # m/s
+            lt = client.get_lactate_threshold(
+                latest=False,
+                start_date=day_str,
+                end_date=day_str,
+                aggregation='daily',
+            )
+            lt_hr = _find_num(lt.get('heart_rate') if isinstance(lt, dict) else lt,
+                              ['heartrate', 'heart_rate', 'lactatethresholdheartrate', 'value'])
+            speed = _find_num(lt.get('speed') if isinstance(lt, dict) else lt,
+                              ['speed', 'lactatethresholdspeed', 'value'])  # m/s
             if speed and speed > 0:
                 lt_pace = round(1000.0 / speed, 1)  # sek/km
     except Exception:
@@ -536,12 +545,20 @@ def collect_metric_history(days=45):
     today = date.today()
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT date FROM metric_history')
-            have = {r[0] for r in cur.fetchall()}
+            cur.execute('''SELECT date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status, created_at
+                FROM metric_history''')
+            have = {r[0]: r[1:] for r in cur.fetchall()}
     added = 0
     for i in range(0, days + 1):
         d = (today - timedelta(days=i)).isoformat()
-        if d in have:
+        existing = have.get(d)
+        # Revisit sparse rows created by older collectors. HRV status alone is not
+        # enough for the Analysis tab's fitness trend cards.
+        checked_at = existing[5] if existing else None
+        recently_checked = checked_at and (time.time() - checked_at) < 20 * 3600
+        if existing and any(v is not None for v in existing[:4]) and recently_checked:
+            continue
+        if existing and all(v is not None for v in existing[:4]):
             continue
         try:
             rec = _fetch_day_metrics(client, d)
@@ -619,7 +636,7 @@ def analysis():
             series.append({'t': r[0][:10], 'v': float(v)})
         out = {'key': key, 'label': c['label'], 'unit': c['unit'], 'good': c['good'], 'fmt': c['fmt'],
                'series': series, 'latest': None, 'first': None, 'slopePerWeek': None,
-               'pctChange': None, 'direction': 'unknown'}
+               'pctChange': None, 'direction': 'unknown', 'samples': len(series)}
         if series:
             out['latest'] = series[-1]['v']
             out['first'] = series[0]['v']
@@ -638,8 +655,14 @@ def analysis():
                 out['direction'] = 'improving' if good else 'declining'
         metrics.append(out)
 
-    latest_status = mh[-1][5] if mh else None
-    return jsonify({'window_days': window, 'hrv_status': latest_status, 'metrics': metrics})
+    latest_status = next((r[5] for r in reversed(mh) if r[5]), None)
+    return jsonify({
+        'window_days': window,
+        'hrv_status': latest_status,
+        'health_rows': len(hh),
+        'metric_rows': len(mh),
+        'metrics': metrics,
+    })
 
 
 @app.get('/api/training-load')

@@ -3356,6 +3356,8 @@ HEALTH DATA (current):
       summary.innerHTML = `
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);">
           <span>Trends over the last ${d.window_days} days. Arrows show the direction of change (the derivative), not just today's value.</span>
+          <span class="today-badge badge-amber">Health rows: ${d.health_rows ?? 0}</span>
+          <span class="today-badge badge-amber">Metric rows: ${d.metric_rows ?? 0}</span>
           ${sm ? `<span class="today-badge ${sm[0]}">HRV status: ${sm[1]}</span>` : ''}
         </div>`;
       const dirMeta = {
@@ -3366,16 +3368,18 @@ HEALTH DATA (current):
       };
       grid.innerHTML = d.metrics.map(m => {
         const dm = dirMeta[m.direction] || dirMeta.unknown;
-        const has = m.series && m.series.length >= 2;
+        const samples = m.samples ?? (m.series ? m.series.length : 0);
+        const hasValue = samples >= 1;
+        const hasTrend = samples >= 2;
         let rate = '';
-        if (has && m.slopePerWeek != null) {
+        if (hasTrend && m.slopePerWeek != null) {
           const sign = m.slopePerWeek > 0 ? '+' : '';
           const rateVal = m.fmt === 'pace'
             ? (m.slopePerWeek > 0 ? '+' : '−') + fmtMetric(Math.abs(m.slopePerWeek), 'pace')
             : sign + (Math.abs(m.slopePerWeek) < 1 ? m.slopePerWeek.toFixed(2) : m.slopePerWeek.toFixed(1));
           rate = `${rateVal} ${m.unit === 'pace' ? '/km' : m.unit}/wk`;
         }
-        const pct = (has && m.pctChange != null) ? `${m.pctChange > 0 ? '+' : ''}${m.pctChange}% over window` : '';
+        const pct = (hasTrend && m.pctChange != null) ? `${m.pctChange > 0 ? '+' : ''}${m.pctChange}% over window` : (hasValue ? `${samples} sample${samples === 1 ? '' : 's'}` : 'No Garmin data');
         const valStr = m.latest != null ? fmtMetric(m.latest, m.fmt) : '–';
         const unitStr = m.unit && m.unit !== 'pace' ? ` <span style="font-size:13px;color:var(--muted);font-weight:500;">${m.unit}</span>` : (m.unit === 'pace' && m.latest != null ? ' <span style="font-size:13px;color:var(--muted);font-weight:500;">/km</span>' : '');
         return `
@@ -3385,7 +3389,7 @@ HEALTH DATA (current):
               <span style="font-size:11px;font-weight:700;color:${dm[1]};white-space:nowrap;">${dm[0]} ${dm[2]}</span>
             </div>
             <div style="font-size:26px;font-weight:800;letter-spacing:-0.5px;font-variant-numeric:tabular-nums;">${valStr}${unitStr}</div>
-            ${has ? sparkline(m.series, m.fmt, m.good) : `<div style="height:46px;display:flex;align-items:center;color:var(--muted);font-size:11px;font-family:'IBM Plex Mono',monospace;">Collecting data…</div>`}
+            ${hasTrend ? sparkline(m.series, m.fmt, m.good) : `<div style="height:46px;display:flex;align-items:center;color:var(--muted);font-size:11px;font-family:'IBM Plex Mono',monospace;">${hasValue ? 'Need more history for trend' : 'Waiting for Garmin metric'}</div>`}
             <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;">
               <span style="color:${dm[1]};">${rate}</span>
               <span>${pct}</span>
