@@ -384,6 +384,159 @@
     .bigcard h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.3px; }
     .bigcard p  { font-size: 14px; color: var(--muted3); line-height: 1.75; }
 
+    /* TRAINING COCKPIT */
+    .cockpit {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+    .cockpit-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px;
+      min-width: 0;
+    }
+    .cockpit-card.primary {
+      border-color: var(--border2);
+      position: relative;
+      overflow: hidden;
+    }
+    .cockpit-card.primary::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: var(--cockpit-color, var(--amber));
+    }
+    .cockpit-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .cockpit-kicker {
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .cockpit-title {
+      font-size: 22px;
+      font-weight: 800;
+      line-height: 1.1;
+      margin-top: 6px;
+    }
+    .cockpit-score {
+      color: var(--cockpit-color, var(--amber));
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 34px;
+      font-weight: 800;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .cockpit-copy {
+      color: var(--muted3);
+      font-size: 14px;
+      line-height: 1.65;
+      margin-bottom: 16px;
+    }
+    .cockpit-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .cockpit-metric {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      min-width: 0;
+    }
+    .cockpit-metric-label {
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9.5px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    .cockpit-metric-value {
+      font-size: 17px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+    .cockpit-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .cockpit-row {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .cockpit-row:last-child { border-bottom: none; }
+    .cockpit-row-day {
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .cockpit-row-title {
+      color: var(--muted3);
+      font-size: 13px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cockpit-row-sub {
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cockpit-tag {
+      border: 1px solid var(--border2);
+      border-radius: 99px;
+      color: var(--muted2);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      white-space: nowrap;
+    }
+    .cockpit-tag.good { background: var(--green-dim); border-color: rgba(45,212,191,0.25); color: var(--green); }
+    .cockpit-tag.warn { background: var(--amber-dim); border-color: rgba(245,158,11,0.25); color: var(--amber); }
+    .cockpit-tag.bad  { background: var(--red-dim); border-color: rgba(248,113,113,0.25); color: var(--red); }
+    .cockpit-limiter-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 16px;
+    }
+    .cockpit-limiter {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      color: var(--muted2);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      padding: 5px 9px;
+    }
+    .cockpit-limiter.good { color: var(--green); border-color: rgba(45,212,191,0.22); background: var(--green-dim); }
+    .cockpit-limiter.warn { color: var(--amber); border-color: rgba(245,158,11,0.22); background: var(--amber-dim); }
+    .cockpit-limiter.bad  { color: var(--red); border-color: rgba(248,113,113,0.22); background: var(--red-dim); }
+
     /* â”€â”€â”€ TODAY HEADER â”€â”€â”€ */
     .today-header {
       display: flex;
@@ -1251,6 +1404,37 @@
       .hero-nav {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .cockpit {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .cockpit-card {
+        padding: 18px 16px;
+      }
+      .cockpit-top {
+        align-items: flex-start;
+      }
+      .cockpit-title {
+        font-size: 20px;
+      }
+      .cockpit-score {
+        font-size: 30px;
+      }
+      .cockpit-metrics {
+        grid-template-columns: 1fr;
+      }
+      .cockpit-row {
+        grid-template-columns: 42px minmax(0, 1fr);
+      }
+      .cockpit-row .cockpit-tag {
+        grid-column: 2;
+        justify-self: start;
+      }
+      .cockpit-row-title,
+      .cockpit-row-sub {
+        white-space: normal;
+      }
       .card,
       .record-card {
         padding: 16px 14px 14px;
@@ -1500,6 +1684,55 @@
         <div class="card"><div class="card-label">body battery</div><div id="snap-bb-val" class="card-val ca">-</div><div id="snap-bb-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
         <div class="card"><div class="card-label">hrv night (ms)</div><div id="snap-hrv-val" class="card-val cr">-</div><div id="snap-hrv-sub" class="card-sub">Loading...</div><div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
         <div class="card"><div class="card-label">days left</div><div class="card-val cb" id="days-left">-</div><div class="card-sub">Until Oct 10</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
+      </div>
+
+      <div class="sl">Training cockpit</div>
+      <div class="cockpit">
+        <div class="cockpit-card primary" id="cockpit-primary">
+          <div class="cockpit-top">
+            <div>
+              <div class="cockpit-kicker">Decision engine</div>
+              <div class="cockpit-title" id="cockpit-decision-title">Waiting for live data</div>
+            </div>
+            <div class="cockpit-score" id="cockpit-score">--</div>
+          </div>
+          <div class="cockpit-copy" id="cockpit-decision-copy">The dashboard will combine recovery, training load, planned sessions and recent work to recommend how hard you should train today.</div>
+          <div class="cockpit-metrics">
+            <div class="cockpit-metric">
+              <div class="cockpit-metric-label">Week volume</div>
+              <div class="cockpit-metric-value" id="cockpit-week-volume">--</div>
+            </div>
+            <div class="cockpit-metric">
+              <div class="cockpit-metric-label">Load risk</div>
+              <div class="cockpit-metric-value" id="cockpit-load-risk">--</div>
+            </div>
+            <div class="cockpit-metric">
+              <div class="cockpit-metric-label">Next key session</div>
+              <div class="cockpit-metric-value" id="cockpit-key-session">--</div>
+            </div>
+          </div>
+          <div class="cockpit-limiter-row" id="cockpit-limiters"></div>
+        </div>
+
+        <div class="cockpit-card">
+          <div class="cockpit-top">
+            <div>
+              <div class="cockpit-kicker">Next 7 days</div>
+              <div class="cockpit-title" style="font-size:18px;" id="cockpit-week-title">Plan focus</div>
+            </div>
+            <span class="cockpit-tag" id="cockpit-compliance">--</span>
+          </div>
+          <div class="cockpit-list" id="cockpit-next-list">
+            <div class="cockpit-row">
+              <div class="cockpit-row-day">--</div>
+              <div>
+                <div class="cockpit-row-title">Loading plan...</div>
+                <div class="cockpit-row-sub">Upcoming sessions will appear here.</div>
+              </div>
+              <span class="cockpit-tag">PLAN</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- AI INSIGHTS -->
@@ -2043,11 +2276,204 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setText('sleep-page-ac-body', 'Preliminary AC start: ' + timeFmt(acStart) + '. Once control is connected, the dashboard will send this window to AC Keeper instead of letting the AC guess.');
   }
 
+  let currentHealthData = null;
+
+  function clamp(n, lo, hi) {
+    return Math.max(lo, Math.min(hi, n));
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function getISOWeekInfo(date = new Date()) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return { week, dow: (date.getDay() + 6) % 7, year: d.getUTCFullYear() };
+  }
+
+  function getWeekBounds(date = new Date()) {
+    const start = new Date(date);
+    start.setDate(date.getDate() - ((date.getDay() || 7) - 1));
+    start.setHours(0,0,0,0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 7);
+    return { start, end };
+  }
+
+  function isRunActivity(a) {
+    return ['running','track_running','treadmill_running','trail_running'].includes(a.activityType?.typeKey);
+  }
+
+  function sessionLoadEstimate(s) {
+    if (!s) return 0;
+    if (s.type === 'lift') return 40;
+    const perKm = { easy: 7, run: 22, race: 25, rest: 0 };
+    return (s.km || 0) * (perKm[s.type] ?? 9);
+  }
+
+  function computeCnsScore(h) {
+    if (!h) return null;
+    const hrvPct = h.hrv?.pct ?? 50;
+    const sleepScore = h.sleep?.score ?? 50;
+    const readiness = h.readiness?.score ?? 50;
+    const stressVal = h.stress?.avg ?? 50;
+    return Math.round(
+      0.40 * Math.min(hrvPct, 100) +
+      0.30 * sleepScore +
+      0.20 * readiness +
+      0.10 * (100 - Math.min(stressVal, 100))
+    );
+  }
+
+  function getSessionDate(session, year) {
+    const monday = getMondayOfISOWeek(session.week, year);
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + (session.dow || 0));
+    return d;
+  }
+
+  function getNextSessions(limit = 5) {
+    const now = new Date();
+    now.setHours(0,0,0,0);
+    const year = now.getFullYear();
+    return PLAN_SESSIONS
+      .map(s => ({ ...s, date: getSessionDate(s, year) }))
+      .filter(s => s.date >= now && s.status !== 'completed' && s.status !== 'skipped')
+      .sort((a,b) => a.date - b.date)
+      .slice(0, limit);
+  }
+
+  function getWeekTrainingStats() {
+    const { week } = getISOWeekInfo();
+    const { start, end } = getWeekBounds();
+    const planned = PLAN_SESSIONS.filter(s => s.week === week);
+    const plannedKm = planned.reduce((sum, s) => sum + (s.km || 0), 0);
+    const completedRuns = recentActivities.filter(a => {
+      const d = new Date(a.startTimeLocal || a.beginTimestamp);
+      return d >= start && d < end && isRunActivity(a);
+    });
+    const completedKm = completedRuns.reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
+    const completedLoad = recentActivities
+      .filter(a => {
+        const d = new Date(a.startTimeLocal || a.beginTimestamp);
+        return d >= start && d < end;
+      })
+      .reduce((sum, a) => sum + (a.activityTrainingLoad || 0), 0);
+    const todayDow = (new Date().getDay() + 6) % 7;
+    const remaining = planned.filter(s => s.dow >= todayDow && s.status !== 'completed' && s.status !== 'skipped');
+    const remainingLoad = remaining.reduce((sum, s) => sum + sessionLoadEstimate(s), 0);
+    return { week, planned, plannedKm, completedKm, completedLoad, remaining, remainingLoad };
+  }
+
+  function renderTrainingCockpit() {
+    const primary = document.getElementById('cockpit-primary');
+    if (!primary) return;
+
+    const h = currentHealthData;
+    const cns = computeCnsScore(h);
+    const stats = getWeekTrainingStats();
+    const next = getNextSessions(5);
+    const nextKey = next.find(s => ['run','race'].includes(s.type)) || next[0];
+    const ratio = trainingLoadData?.ratio != null ? Number(trainingLoadData.ratio) : null;
+    const projectedRatio = trainingLoadData?.chronic
+      ? (Number(trainingLoadData.acute || 0) + stats.remainingLoad) / Number(trainingLoadData.chronic)
+      : null;
+
+    let color = 'var(--amber)';
+    let title = 'Build, but stay measured';
+    let copy = 'Keep the planned session unless sleep, HRV or load risk says otherwise.';
+    let tagClass = 'warn';
+    if (cns == null) {
+      title = 'Waiting for recovery data';
+      copy = 'Sync Garmin to unlock the daily decision, load risk and plan adjustment advice.';
+    } else if (cns >= 70 && (!projectedRatio || projectedRatio <= 1.3)) {
+      color = 'var(--green)';
+      title = 'Green light for quality';
+      copy = nextKey && ['run','race'].includes(nextKey.type)
+        ? 'Recovery and load look good. Keep the key session, but protect easy days around it.'
+        : 'Recovery is good. You can train normally and add quality only if the plan calls for it.';
+      tagClass = 'good';
+    } else if (cns < 45 || (projectedRatio && projectedRatio > 1.45)) {
+      color = 'var(--red)';
+      title = 'Downshift today';
+      copy = 'Recovery or load risk is high. Replace intensity with rest, mobility or very easy Z2.';
+      tagClass = 'bad';
+    } else if (projectedRatio && projectedRatio > 1.3) {
+      color = 'var(--amber)';
+      title = 'Keep volume controlled';
+      copy = 'The remaining plan may push load high. Do the important session, but trim extra easy volume.';
+      tagClass = 'warn';
+    }
+
+    primary.style.setProperty('--cockpit-color', color);
+    document.getElementById('cockpit-score').textContent = cns == null ? '--' : cns;
+    document.getElementById('cockpit-decision-title').textContent = title;
+    document.getElementById('cockpit-decision-copy').textContent = copy;
+    document.getElementById('cockpit-week-volume').textContent =
+      stats.plannedKm ? `${stats.completedKm.toFixed(1)} / ${stats.plannedKm} km` : `${stats.completedKm.toFixed(1)} km`;
+    document.getElementById('cockpit-load-risk').textContent =
+      projectedRatio ? `ACWR ${projectedRatio.toFixed(2)}` : ratio ? `ACWR ${ratio.toFixed(2)}` : 'No load';
+    document.getElementById('cockpit-key-session').textContent = nextKey ? nextKey.title : 'No session';
+
+    const compliance = document.getElementById('cockpit-compliance');
+    const progress = stats.plannedKm ? stats.completedKm / stats.plannedKm : 0;
+    compliance.textContent = stats.plannedKm ? `${Math.round(clamp(progress, 0, 1.2) * 100)}% week` : 'No plan';
+    compliance.className = 'cockpit-tag ' + (progress > 1.1 ? 'warn' : progress >= 0.6 ? 'good' : 'warn');
+
+    document.getElementById('cockpit-week-title').textContent =
+      stats.plannedKm ? `W${stats.week}: ${stats.plannedKm} km planned` : `W${stats.week}: plan pending`;
+
+    const limiters = [];
+    if (h?.hrv?.pct != null) limiters.push({ text: `HRV ${h.hrv.pct}%`, cls: h.hrv.pct >= 85 ? 'good' : h.hrv.pct >= 70 ? 'warn' : 'bad' });
+    if (h?.sleep?.score != null) limiters.push({ text: `Sleep ${h.sleep.score}`, cls: h.sleep.score >= 80 ? 'good' : h.sleep.score >= 60 ? 'warn' : 'bad' });
+    if (h?.bodyBattery?.current != null) limiters.push({ text: `Battery ${h.bodyBattery.current}`, cls: h.bodyBattery.current >= 60 ? 'good' : h.bodyBattery.current >= 30 ? 'warn' : 'bad' });
+    if (h?.stress?.avg != null) limiters.push({ text: `Stress ${h.stress.avg}`, cls: h.stress.avg <= 35 ? 'good' : h.stress.avg <= 60 ? 'warn' : 'bad' });
+    if (projectedRatio) limiters.push({ text: `Projected load ${projectedRatio.toFixed(2)}`, cls: projectedRatio <= 1.3 ? 'good' : projectedRatio <= 1.45 ? 'warn' : 'bad' });
+    if (!limiters.length) limiters.push({ text: 'Sync Garmin for limiters', cls: 'warn' });
+    document.getElementById('cockpit-limiters').innerHTML = limiters
+      .map(l => `<span class="cockpit-limiter ${l.cls}">${escapeHtml(l.text)}</span>`)
+      .join('');
+
+    const typeClass = s => s.type === 'race' ? 'bad' : s.type === 'run' ? 'warn' : s.type === 'lift' ? 'warn' : 'good';
+    const typeLabel = s => ({ run:'QUALITY', easy:'EASY', lift:'LIFT', race:'RACE', rest:'REST' }[s.type] || String(s.type || 'PLAN').toUpperCase());
+    const dayFmt = d => d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric' });
+    document.getElementById('cockpit-next-list').innerHTML = (next.length ? next : [{ date:new Date(), title:'No upcoming session', detail:'Add or sync your plan.', type:'rest', km:0 }])
+      .map(s => `
+        <div class="cockpit-row">
+          <div class="cockpit-row-day">${escapeHtml(dayFmt(s.date))}</div>
+          <div>
+            <div class="cockpit-row-title">${escapeHtml(s.title)}</div>
+            <div class="cockpit-row-sub">${escapeHtml(s.detail || (s.km ? `${s.km} km` : ''))}</div>
+          </div>
+          <span class="cockpit-tag ${typeClass(s)}">${escapeHtml(typeLabel(s))}</span>
+        </div>
+      `).join('');
+  }
+
+  function safeRenderTrainingCockpit() {
+    try {
+      renderTrainingCockpit();
+    } catch(e) {
+      const titleEl = document.getElementById('cockpit-decision-title');
+      const copyEl = document.getElementById('cockpit-decision-copy');
+      if (titleEl) titleEl.textContent = 'Cockpit needs attention';
+      if (copyEl) copyEl.textContent = e.message || 'Could not render training cockpit.';
+      console.error('Cockpit render error:', e);
+    }
+  }
+
   async function loadHealth() {
     try {
       const res = await fetch('/api/health');
       const h = await res.json();
       if (h.error) return;
+      currentHealthData = h;
       renderSleepPage(h);
       const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
 
@@ -2262,6 +2688,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const b = document.getElementById(s.subId); if (b) b.textContent = s.sub;
         const r = document.getElementById(s.barId);  if (r) { r.style.width = (s.pct||0) + '%'; r.style.background = s.col; }
       });
+      safeRenderTrainingCockpit();
 
     } catch(e) { console.error('Health error:', e); }
   }
@@ -2535,6 +2962,7 @@ HEALTH DATA (current):
       const res = await fetch('/api/activities?days=14');
       const data = await res.json();
       recentActivities = data.activities || [];
+      safeRenderTrainingCockpit();
     } catch(e) {}
   }
   loadRecentActivities();
@@ -2546,6 +2974,7 @@ HEALTH DATA (current):
       const res = await fetch('/api/training-load');
       const data = await res.json();
       if (!data.error) trainingLoadData = data;
+      safeRenderTrainingCockpit();
     } catch(e) {}
   }
   loadTrainingLoad();
@@ -3350,6 +3779,7 @@ HEALTH DATA (current):
     const detail= document.getElementById('today-session-detail');
     const km    = document.getElementById('today-session-km');
     const type  = document.getElementById('today-session-type');
+    if (!card || !dot || !title || !detail || !km || !type) return;
 
     if (!s) {
       title.textContent  = 'Rest day';
@@ -3371,7 +3801,8 @@ HEALTH DATA (current):
     detail.textContent     = s.detail || '';
     km.textContent         = s.km > 0 ? s.km + ' km' : '';
     km.style.color         = col;
-    type.textContent       = (typeLabels[s.type] || s.type.toUpperCase()) + (s.status !== 'planned' ? '  -  ' + s.status.toUpperCase() : '');
+    const statusSuffix = s.status && s.status !== 'planned' ? '  -  ' + s.status.toUpperCase() : '';
+    type.textContent       = (typeLabels[s.type] || String(s.type || 'PLAN').toUpperCase()) + statusSuffix;
   }
 
   async function loadPlan() {
@@ -3382,6 +3813,7 @@ HEALTH DATA (current):
         PLAN_SESSIONS = d.sessions.map(normalizePlanSession);
         buildCalendar();
         renderTodaySession();
+        safeRenderTrainingCockpit();
       }
     } catch(e) {
       console.warn('Plan fetch failed, using fallback', e);
@@ -3730,6 +4162,8 @@ HEALTH DATA (current):
 
   // Bygg kalendern direkt + nÃ¤r Plan-fliken Ã¶ppnas
   buildCalendar();
+  renderTodaySession();
+  safeRenderTrainingCockpit();
   if (document.getElementById('page-upcoming').classList.contains('active')) {
     checkGcalStatus();
   }
