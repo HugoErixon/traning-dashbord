@@ -30,6 +30,7 @@ GCAL_TOKEN    = 'google_token.json'
 GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
 AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
 AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
+AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
 
 # --- Databas ---
 def db():
@@ -195,27 +196,31 @@ def ac_history():
     target = events[-1].get('target_c') if events else None
     return jsonify({'available': True, 'points': pts, 'target': target, 'markers': markers})
 
+def _read_control_flag():
+    """Är AC-STYRNINGEN aktiverad? (flagg-fil; saknas → på). Loopen loggar alltid."""
+    try:
+        with open(AC_CONTROL_FLAG) as f:
+            return f.read().strip().lower() not in ('0', 'false', 'off', 'no', '')
+    except FileNotFoundError:
+        return True
+    except Exception:
+        return True
+
 def _ac_loop_status():
     try:
         res = subprocess.run(
             ['systemctl', 'is-active', AC_LOOP_SERVICE],
             capture_output=True, text=True, timeout=4
         )
-        state = (res.stdout or res.stderr or '').strip() or 'unknown'
-        return {
-            'available': True,
-            'service': AC_LOOP_SERVICE,
-            'state': state,
-            'enabled': res.returncode == 0 and state == 'active',
-        }
-    except Exception as e:
-        return {
-            'available': False,
-            'service': AC_LOOP_SERVICE,
-            'state': 'unknown',
-            'enabled': False,
-            'error': str(e),
-        }
+        running = (res.stdout or '').strip() == 'active'
+    except Exception:
+        running = False
+    return {
+        'available': True,
+        'service': AC_LOOP_SERVICE,
+        'enabled': _read_control_flag(),   # styr om AC:n kommenderas
+        'running': running,                # loggar-loopen igång?
+    }
 
 @app.get('/api/ac/loop')
 def ac_loop_status():
@@ -225,31 +230,19 @@ def ac_loop_status():
 def ac_loop_control():
     data = request.json or {}
     enabled = bool(data.get('enabled'))
-    action = 'start' if enabled else 'stop'
     try:
-        subprocess.run(
-            ['sudo', '-n', 'systemctl', action, AC_LOOP_SERVICE],
-            capture_output=True, text=True, timeout=10, check=True
-        )
+        os.makedirs(os.path.dirname(AC_CONTROL_FLAG), exist_ok=True)
+        with open(AC_CONTROL_FLAG, 'w') as f:
+            f.write('1' if enabled else '0')
         status = _ac_loop_status()
         status['ok'] = True
         return jsonify(status)
-    except subprocess.CalledProcessError as e:
-        return jsonify({
-            'ok': False,
-            'available': False,
-            'service': AC_LOOP_SERVICE,
-            'enabled': False,
-            'state': 'unknown',
-            'error': (e.stderr or e.stdout or str(e)).strip(),
-        }), 500
     except Exception as e:
         return jsonify({
             'ok': False,
             'available': False,
             'service': AC_LOOP_SERVICE,
-            'enabled': False,
-            'state': 'unknown',
+            'enabled': _read_control_flag(),
             'error': str(e),
         }), 500
 

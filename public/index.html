@@ -2316,7 +2316,7 @@ HEALTH DATA (current):
     }
 
     acLoopEnabled = !!status.enabled;
-    label.textContent = 'Control loop: ' + (acLoopEnabled ? 'running' : 'stopped') + ' - ' + (status.service || 'ac-keeper-loop');
+    label.textContent = 'AC control: ' + (acLoopEnabled ? 'enabled' : 'disabled (temperature still logged)') + (status.running === false ? ' - logging loop DOWN' : '');
     btn.textContent = acLoopEnabled ? 'Disable control' : 'Enable control';
     btn.className = 'ac-loop-btn ' + (acLoopEnabled ? 'is-on' : 'is-off');
     btn.disabled = false;
