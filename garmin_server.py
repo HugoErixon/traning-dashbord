@@ -1604,12 +1604,59 @@ def match_activities_to_plan(days_back=7):
     print(f'Activity matching complete (last {days_back} days)')
 
 
+def link_manual_exercises_to_activities():
+    """Koppla manuellt loggade övningar (sparade under datum-nyckel 'YYYY-MM-DD' i
+    Today's workout) till Garmin-styrkepasset som laddats upp samma dag, så de hamnar
+    på rätt aktivitet i historiken. Vid flera pass samma dag väljs det som ligger
+    närmast övningarnas loggtid. Idempotent — när raderna fått aktivitets-id rörs de ej."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(r"SELECT DISTINCT session_id FROM strength_exercises WHERE session_id ~ '^\d{4}-\d{2}-\d{2}$'")
+            date_keys = [r[0] for r in cur.fetchall()]
+            if not date_keys:
+                return
+            cur.execute("SELECT id, raw FROM activities WHERE type = ANY(%s)", (list(STRENGTH_TYPES),))
+            strength = cur.fetchall()
+    if not strength:
+        return
+    by_date = {}
+    for aid, raw in strength:
+        local = (raw.get('startTimeLocal') or '')[:10]
+        if not local:
+            continue
+        begin = raw.get('beginTimestamp')  # ms (GMT)
+        by_date.setdefault(local, []).append((str(aid), (begin / 1000.0) if begin else None))
+
+    linked = 0
+    with db() as conn:
+        with conn.cursor() as cur:
+            for dk in date_keys:
+                cands = by_date.get(dk)
+                if not cands:
+                    continue  # inget Garmin-pass den dagen än → vänta
+                cur.execute("SELECT avg(created_at) FROM strength_exercises WHERE session_id=%s", (dk,))
+                avg_created = cur.fetchone()[0]
+                if any(c[1] for c in cands) and avg_created is not None:
+                    best = min(cands, key=lambda c: abs((c[1] or 0) - float(avg_created)) if c[1] else float('inf'))
+                else:
+                    best = cands[0]
+                cur.execute("UPDATE strength_exercises SET session_id=%s WHERE session_id=%s", (best[0], dk))
+                linked += cur.rowcount
+        conn.commit()
+    if linked:
+        print(f'Strength: länkade {linked} manuella övningar till Garmin-pass')
+
+
 def run_sync(count=50):
     """Hämta senaste aktiviteter, spara, rensa cache och matcha mot planen.
     Används av både /api/sync och den återkommande autosynken."""
     client = get_garmin()
     acts = client.get_activities(0, count)
     save_activities(acts)
+    try:
+        link_manual_exercises_to_activities()
+    except Exception as e:
+        print('Strength-länkning fel:', e)
     clear_cache('health', 'analysis')
     try:
         match_activities_to_plan()
