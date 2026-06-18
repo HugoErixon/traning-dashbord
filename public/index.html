@@ -183,6 +183,50 @@
     .ac-loop-btn.is-on { border-color: rgba(74,222,128,0.35); color: var(--green); background: var(--green-dim); }
     .ac-loop-btn.is-off { border-color: rgba(248,113,113,0.35); color: var(--red); background: var(--red-dim); }
     .ac-loop-btn:disabled { opacity:0.45; cursor:not-allowed; }
+    .ac-setpoint-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .ac-setpoint-label {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      letter-spacing: 0.05em;
+    }
+    .ac-setpoint-input {
+      width: 68px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--fg);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      padding: 4px 8px;
+      text-align: center;
+    }
+    .ac-setpoint-input:focus { outline: none; border-color: var(--blue); }
+    .ac-setpoint-btn {
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--muted3);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      padding: 4px 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .ac-setpoint-btn:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,0.08); }
+    .ac-setpoint-btn:disabled { opacity:0.45; cursor:not-allowed; }
+    .ac-setpoint-status {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+    }
 
     /* â”€â”€â”€ MAIN â”€â”€â”€ */
     .main {
@@ -1776,6 +1820,12 @@
           <div class="ac-loop-status" id="ac-loop-status">Control loop: checking...</div>
           <button class="ac-loop-btn" id="ac-loop-toggle" onclick="toggleAcLoop()" disabled>Loading...</button>
         </div>
+        <div class="ac-setpoint-row">
+          <span class="ac-setpoint-label">Måltemperatur:</span>
+          <input class="ac-setpoint-input" type="number" id="ac-setpoint-input" min="10" max="35" step="0.5" placeholder="–" oninput="this.dataset.dirty='1'" onblur="delete this.dataset.dirty">
+          <button class="ac-setpoint-btn" id="ac-setpoint-btn" onclick="setAcSetpoint()">Sätt</button>
+          <span class="ac-setpoint-status" id="ac-setpoint-status"></span>
+        </div>
       </div>
 
       <!-- ROOM TEMP 24H GRAPH -->
@@ -3172,6 +3222,45 @@ HEALTH DATA (current):
     }
   }
 
+  async function setAcSetpoint() {
+    const inp = document.getElementById('ac-setpoint-input');
+    const btn = document.getElementById('ac-setpoint-btn');
+    const status = document.getElementById('ac-setpoint-status');
+    if (!inp || !btn) return;
+    const val = parseFloat(inp.value);
+    if (isNaN(val) || val < 10 || val > 35) {
+      status.textContent = 'Ange 10–35 °C';
+      status.style.color = 'var(--red)';
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Uppdaterar...';
+    status.style.color = 'var(--muted)';
+    inp.dataset.dirty = '1';
+    try {
+      const res = await fetch('/api/ac/setpoint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_c: val })
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Misslyckades');
+      inp.value = d.target_c;
+      status.textContent = '✓ Satt till ' + d.target_c + ' °C';
+      status.style.color = 'var(--green)';
+      delete inp.dataset.dirty;
+      setTimeout(() => { status.textContent = ''; }, 4000);
+      loadAcStatus();
+      setTimeout(loadAcHistory, 5000);
+    } catch(e) {
+      status.textContent = e.message;
+      status.style.color = 'var(--red)';
+      delete inp.dataset.dirty;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // AC / room temperature - fetched from ac-keeper through the dashboard proxy (/api/ac)
   async function loadAcStatus() {
     try {
@@ -3190,6 +3279,8 @@ HEALTH DATA (current):
       const ac = d.latest_ac_status || {};
       const measured = ev.measured_c;
       hl.textContent = 'Room ' + (measured != null ? measured.toFixed(1) : '-') + '\u00B0C -> target ' + ev.target_c + '\u00B0C';
+      const inp = document.getElementById('ac-setpoint-input');
+      if (inp && !inp.dataset.dirty) inp.value = ev.target_c;
       const action = ev.action || '';
       const dry = action.indexOf('dry_run_') === 0;
       const base = action.replace('dry_run_', '');

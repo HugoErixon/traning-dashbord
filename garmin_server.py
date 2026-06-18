@@ -5,6 +5,7 @@ from dotenv import dotenv_values
 import json, time, requests, psycopg2, psycopg2.extras, subprocess, threading
 from datetime import date, datetime, timedelta, timezone
 import os
+import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # Google Calendar (valfritt — kräver google_credentials.json)
@@ -31,6 +32,7 @@ GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
 AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
 AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
+AC_KEEPER_CONFIG = config.get('AC_KEEPER_CONFIG', '/home/hugoerixon/tuya-ac-keeper/config.yaml')
 
 # --- Databas ---
 def db():
@@ -254,6 +256,27 @@ def ac_loop_control():
             'enabled': _read_control_flag(),
             'error': str(e),
         }), 500
+
+@app.post('/api/ac/setpoint')
+def ac_setpoint():
+    """Uppdaterar target_c i ac-keepers config.yaml och startar om loopen."""
+    data = request.json or {}
+    try:
+        target = float(data['target_c'])
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'target_c saknas eller ogiltigt'}), 400
+    if not (10.0 <= target <= 35.0):
+        return jsonify({'ok': False, 'error': 'Temperatur måste vara 10–35 °C'}), 400
+    try:
+        with open(AC_KEEPER_CONFIG, 'r') as f:
+            cfg = yaml.safe_load(f)
+        cfg['target_c'] = round(target * 2) / 2  # avrunda till närmaste 0.5
+        with open(AC_KEEPER_CONFIG, 'w') as f:
+            yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+        subprocess.run(['systemctl', 'restart', AC_LOOP_SERVICE], timeout=10)
+        return jsonify({'ok': True, 'target_c': cfg['target_c']})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 @app.get('/api/activities')
 def activities():
