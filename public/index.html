@@ -4103,6 +4103,17 @@ HEALTH DATA (current):
     };
   }
 
+  function compactCalendarText(value, maxLen = 120) {
+    let text = (value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    const firstUseful = text.split(/\s+[–—-]\s+/).find(part => part.trim().length >= 8);
+    text = firstUseful || text;
+    const sentence = text.match(/^(.+?[.!?])\s/);
+    if (sentence && sentence[1].length <= maxLen) text = sentence[1];
+    if (text.length <= maxLen) return text;
+    return text.slice(0, maxLen - 1).trimEnd().replace(/[,\-–—;:]+$/, '') + '…';
+  }
+
   function renderTodaySession() {
     const now = new Date();
     // ISO week + weekday (0=Mon)
@@ -4434,7 +4445,8 @@ HEALTH DATA (current):
         const sessions = sessionMap[w + '-' + d] || [];
         sessions.forEach(s => {
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
-          const escaped = (s.detail || '').replace(/"/g, '&quot;');
+          const compactDetail = compactCalendarText(s.detail);
+          const escaped = compactDetail.replace(/"/g, '&quot;');
           const isModified = s.ai_note && s.status === 'planned' && s.modified_at;
           const statusNote = s.status === 'missed'      ? ' - Missed'
                            : s.status === 'skipped'     ? ' - Skipped'
@@ -4442,7 +4454,7 @@ HEALTH DATA (current):
                            : s.status === 'rescheduled' ? ' - Rescheduled'
                            : isModified                 ? ' - Adjusted'
                            : '';
-          const tipText = escaped + (s.ai_note ? ' - AI: ' + s.ai_note : '') + statusNote;
+          const tipText = [s.title, escaped, statusNote.trim()].filter(Boolean).join(' - ');
           const opacity = s.status === 'missed' || s.status === 'skipped' ? 'opacity:0.45;text-decoration:line-through;' : '';
           const modCls  = isModified ? ' csp-modified' : '';
           const doneCls = s.status === 'completed' ? ' csp-done' : '';

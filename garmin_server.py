@@ -1923,7 +1923,7 @@ Return ONLY this JSON, with no comments outside it:
       "type": "run|easy|race|lift|rest|null",
       "new_km": <float or null>,
       "new_title": "<English string or null>",
-      "new_detail": "<fully updated English session description with pace, distance, and instructions, or null if unchanged>",
+      "new_detail": "<concise workout instructions only, max 140 characters; put reasoning in coaching_notes/reason, or null if unchanged>",
       "reason": "<one English sentence explaining this decision>"
     }}
   ],
