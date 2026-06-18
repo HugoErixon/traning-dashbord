@@ -511,16 +511,15 @@ def _fetch_day_metrics(client, day_str):
         pass
     try:
         if hasattr(client, 'get_lactate_threshold'):
-            lt = client.get_lactate_threshold(
-                latest=False,
-                start_date=day_str,
-                end_date=day_str,
-                aggregation='daily',
-            )
-            lt_hr = _find_num(lt.get('heart_rate') if isinstance(lt, dict) else lt,
-                              ['heartrate', 'heart_rate', 'lactatethresholdheartrate', 'value'])
-            speed = _find_num(lt.get('speed') if isinstance(lt, dict) else lt,
-                              ['speed', 'lactatethresholdspeed', 'value'])  # m/s
+            # latest=True ger den aktuella tröskeln. Daglig aggregering returnerar tomma
+            # listor ({"speed": [], "heart_rate": []}) eftersom LT bara uppdateras då och då.
+            lt = client.get_lactate_threshold(latest=True, start_date=day_str, end_date=day_str)
+            lt_hr = _find_num(lt, ['heartrate', 'lactatethresholdheartrate'])
+            speed = _find_num(lt, ['speed', 'lactatethresholdspeed'])  # m/s
+            # Garmin ger löp-LT-farten 10x för liten (0.42 m/s istället för 4.22). En riktig
+            # löptröskelfart ligger aldrig under ~1.5 m/s, så skala upp i så fall.
+            if speed and 0 < speed < 1.5:
+                speed *= 10
             if speed and speed > 0:
                 lt_pace = round(1000.0 / speed, 1)  # sek/km
     except Exception:
