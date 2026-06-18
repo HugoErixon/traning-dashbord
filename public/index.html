@@ -3589,8 +3589,10 @@ HEALTH DATA (current):
         container.innerHTML = '<div class="no-sessions">No strength sessions found in Garmin. Sync data to update.</div>';
         return;
       }
+      const today = new Date().toLocaleDateString('sv-SE');
+      const initialSession = sessions.find(s => (s.date || '').slice(0, 10) === today) || sessions[0];
       container.innerHTML = sessions.map(s => `
-        <div class="strength-session" id="sess-${s.id}">
+        <div class="strength-session ${initialSession && s.id === initialSession.id ? 'open' : ''}" id="sess-${s.id}">
           <div class="strength-header" onclick="toggleSession('${s.id}')">
             <div class="strength-header-left">
               <div class="strength-title">${s.name}</div>
@@ -3620,6 +3622,7 @@ HEALTH DATA (current):
         dl.innerHTML = SUGGESTIONS.map(s => `<option value="${s}">`).join('');
         document.body.appendChild(dl);
       }
+      if (initialSession) await loadExercises(initialSession.id);
     } catch(e) {
       container.innerHTML = '<div class="no-sessions">Error: ' + e.message + '</div>';
     }

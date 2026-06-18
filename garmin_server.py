@@ -1318,6 +1318,10 @@ def strength_sessions():
 
 @app.get('/api/strength/<session_id>/exercises')
 def get_exercises(session_id):
+    try:
+        link_manual_exercises_to_activity(session_id)
+    except Exception as e:
+        print('Strength-passlänkning fel:', e)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('SELECT id, exercise, sets, reps, weight, note FROM strength_exercises WHERE session_id=%s ORDER BY id',
@@ -1646,6 +1650,25 @@ def _activity_start_epoch(raw):
         _parse_garmin_epoch(raw.get('beginTimestamp'), assume_utc=True) or
         _parse_garmin_epoch(raw.get('startTimeGMT'), assume_utc=True)
     )
+
+
+def link_manual_exercises_to_activity(session_id):
+    """Attach date-keyed exercises to one concrete Garmin strength activity."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT raw FROM activities WHERE id=%s AND type = ANY(%s)", (session_id, list(STRENGTH_TYPES)))
+            row = cur.fetchone()
+            if not row:
+                return 0
+            local = _activity_local_date(row[0])
+            if not local:
+                return 0
+            cur.execute("UPDATE strength_exercises SET session_id=%s WHERE session_id=%s", (str(session_id), local))
+            linked = cur.rowcount
+        conn.commit()
+    if linked:
+        print(f'Strength: länkade {linked} manuella övningar till Garmin-pass {session_id}')
+    return linked
 
 
 def link_manual_exercises_to_activities():
