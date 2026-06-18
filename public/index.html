@@ -3549,20 +3549,21 @@ HEALTH DATA (current):
       </div>`;
     }
 
+    const contextId = 'today-' + sessionId;
     el.innerHTML = ctx + `
       <div class="add-ex-form">
         <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOG EXERCISE</div>
         <div class="form-row">
-          <input class="ex-input-name" id="ex-name-${sessionId}" list="ex-suggestions" placeholder="Exercise, e.g. bench press" autocomplete="off">
-          <input class="ex-input-sm" id="ex-sets-${sessionId}" type="number" min="1" placeholder="Set">
-          <input class="ex-input-sm" id="ex-reps-${sessionId}" placeholder="Reps">
-          <input class="ex-input-sm" id="ex-weight-${sessionId}" type="number" step="0.5" placeholder="kg">
-          <input class="ex-input-note" id="ex-note-${sessionId}" placeholder="Note (optional)">
+          <input class="ex-input-name" id="ex-name-${contextId}" list="ex-suggestions" placeholder="Exercise, e.g. bench press" autocomplete="off">
+          <input class="ex-input-sm" id="ex-sets-${contextId}" type="number" min="1" placeholder="Set">
+          <input class="ex-input-sm" id="ex-reps-${contextId}" placeholder="Reps">
+          <input class="ex-input-sm" id="ex-weight-${contextId}" type="number" step="0.5" placeholder="kg">
+          <input class="ex-input-note" id="ex-note-${contextId}" placeholder="Note (optional)">
         </div>
-        <button class="add-ex-btn" onclick="addExercise('${sessionId}')">+ Add</button>
+        <button class="add-ex-btn" onclick="addExercise('${sessionId}','${contextId}')">+ Add</button>
       </div>
       <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin:18px 0 10px;font-weight:500;">TODAY'S LOG</div>
-      <div class="ex-list" id="exlist-${sessionId}"></div>`;
+      <div class="ex-list" id="exlist-${contextId}"></div>`;
 
     if (!document.getElementById('ex-suggestions')) {
       const dl = document.createElement('datalist');
@@ -3572,10 +3573,10 @@ HEALTH DATA (current):
     }
     // Enter i valfritt fält = lägg till snabbt under passet
     ['ex-name-','ex-reps-','ex-weight-','ex-note-'].forEach(p => {
-      const inp = document.getElementById(p + sessionId);
-      if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addExercise(sessionId); });
+      const inp = document.getElementById(p + contextId);
+      if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addExercise(sessionId, contextId); });
     });
-    loadExercises(sessionId);
+    loadExercises(sessionId, contextId);
   }
 
   async function loadStrength() {
@@ -3635,17 +3636,19 @@ HEALTH DATA (current):
     if (!wasOpen) await loadExercises(id);
   }
 
-  async function loadExercises(sessionId) {
-    const list = document.getElementById('exlist-' + sessionId);
+  async function loadExercises(sessionId, contextId = sessionId) {
+    const list = document.getElementById('exlist-' + contextId);
+    if (!list) return;
     try {
       const res = await fetch('/api/strength/' + sessionId + '/exercises');
       const data = await res.json();
-      renderExercises(sessionId, data.exercises || []);
+      renderExercises(sessionId, data.exercises || [], contextId);
     } catch(e) { list.innerHTML = '<div style="color:var(--red);font-size:12px;">Could not load exercises</div>'; }
   }
 
-  function renderExercises(sessionId, exercises) {
-    const list = document.getElementById('exlist-' + sessionId);
+  function renderExercises(sessionId, exercises, contextId = sessionId) {
+    const list = document.getElementById('exlist-' + contextId);
+    if (!list) return;
     if (!exercises.length) {
       list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'IBM Plex Mono\',monospace;padding:8px 0 12px;">No exercises logged yet.</div>';
       return;
@@ -3655,30 +3658,31 @@ HEALTH DATA (current):
       return `<div class="ex-row">
         <span class="ex-name">${ex.exercise}</span>
         <span class="ex-detail">${detail}</span>
-        <button class="ex-del" onclick="deleteExercise(${ex.id},'${sessionId}')" title="Ta bort">x</button>
+        <button class="ex-del" onclick="deleteExercise(${ex.id},'${sessionId}','${contextId}')" title="Ta bort">x</button>
       </div>`;
     }).join('');
   }
 
-  async function addExercise(sessionId) {
-    const name   = document.getElementById('ex-name-'   + sessionId).value.trim();
-    const sets   = document.getElementById('ex-sets-'   + sessionId).value;
-    const reps   = document.getElementById('ex-reps-'   + sessionId).value.trim();
-    const weight = document.getElementById('ex-weight-' + sessionId).value;
-    const note   = document.getElementById('ex-note-'   + sessionId).value.trim();
-    if (!name) { document.getElementById('ex-name-' + sessionId).focus(); return; }
+  async function addExercise(sessionId, contextId = sessionId) {
+    const nameEl = document.getElementById('ex-name-' + contextId);
+    const name   = nameEl.value.trim();
+    const sets   = document.getElementById('ex-sets-'   + contextId).value;
+    const reps   = document.getElementById('ex-reps-'   + contextId).value.trim();
+    const weight = document.getElementById('ex-weight-' + contextId).value;
+    const note   = document.getElementById('ex-note-'   + contextId).value.trim();
+    if (!name) { nameEl.focus(); return; }
     await fetch('/api/strength/' + sessionId + '/exercises', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ exercise: name, sets: sets ? parseInt(sets) : null, reps, weight: weight ? parseFloat(weight) : null, note })
     });
-    ['ex-name-','ex-sets-','ex-reps-','ex-weight-','ex-note-'].forEach(p => document.getElementById(p + sessionId).value = '');
-    await loadExercises(sessionId);
-    document.getElementById('ex-name-' + sessionId)?.focus();
+    ['ex-name-','ex-sets-','ex-reps-','ex-weight-','ex-note-'].forEach(p => document.getElementById(p + contextId).value = '');
+    await loadExercises(sessionId, contextId);
+    nameEl.focus();
   }
 
-  async function deleteExercise(exId, sessionId) {
+  async function deleteExercise(exId, sessionId, contextId = sessionId) {
     await fetch('/api/strength/exercises/' + exId, { method: 'DELETE' });
-    await loadExercises(sessionId);
+    await loadExercises(sessionId, contextId);
   }
   document.getElementById('chat-input').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
 
