@@ -1657,6 +1657,20 @@
         </div>
       </div>
 
+      <!-- ASK THE COACH — free-text plan adjustment -->
+      <div class="sl">Ask your coach</div>
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:16px 18px;margin-bottom:24px;">
+        <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+          <input id="coach-request-input" type="text" maxlength="500"
+            placeholder="e.g. I want to do strength today instead of running"
+            style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:11px 14px;color:var(--text);font-size:13px;font-family:inherit;outline:none;"
+            onkeydown="if(event.key==='Enter')sendCoachRequest()">
+          <button id="coach-request-btn" class="refresh-btn" style="margin:0;color:var(--green);" onclick="sendCoachRequest()">Adjust plan</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;">The coach rebuilds your upcoming schedule around the request — keeping recovery and your goal intact.</div>
+        <div id="coach-request-result" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);"></div>
+      </div>
+
       <!-- AI CHECK OF TODAY'S SESSION -->
       <div class="sl">Today's progress</div>
       <div class="bigcard accent-green" style="margin-bottom:24px;">
@@ -3772,6 +3786,40 @@ HEALTH DATA (current):
     } catch(e) {}
   }
   loadPlanStatus();
+
+  async function sendCoachRequest() {
+    const input = document.getElementById('coach-request-input');
+    const btn = document.getElementById('coach-request-btn');
+    const out = document.getElementById('coach-request-result');
+    const text = (input.value || '').trim();
+    if (!text) { input.focus(); return; }
+    btn.disabled = true; btn.textContent = 'Thinking...';
+    out.style.display = 'block';
+    out.innerHTML = '<span style="font-size:12px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;">The coach is rebuilding your schedule…</span>';
+    try {
+      const res = await fetch('/api/plan/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const d = await res.json();
+      if (!res.ok || d.error) throw new Error(d.error || 'Could not adjust the plan');
+      const r = d.result || {};
+      const notes = r.coaching_notes || r.summary || 'Plan updated.';
+      const n = r.changes || 0;
+      out.innerHTML = `
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.04em;color:var(--green);margin-bottom:6px;">COACH · ${n} change${n === 1 ? '' : 's'} applied</div>
+        <div style="font-size:13px;line-height:1.5;color:var(--text);">${notes}</div>
+        ${r.summary && r.summary !== notes ? `<div style="font-size:12px;color:var(--muted2);margin-top:6px;">${r.summary}</div>` : ''}`;
+      input.value = '';
+      // Uppdatera schemat överallt (kalender, dagens pass, cockpit, coach-notisen)
+      loadPlan();
+      loadPlanStatus();
+    } catch(e) {
+      out.innerHTML = `<span style="font-size:12px;color:var(--red);">${e.message}</span>`;
+    } finally {
+      btn.disabled = false; btn.textContent = 'Adjust plan';
+    }
+  }
 
   const PLAN_TEXT_REPLACEMENTS = [
     ['Recoverysjogg', 'Recovery jog'],

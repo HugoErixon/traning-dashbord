@@ -1626,10 +1626,12 @@ def run_sync(count=50):
 # ─────────────────────────────────────────────
 # AI-JUSTERARE
 # ─────────────────────────────────────────────
-def ai_adjust_plan():
+def ai_adjust_plan(user_request=None):
     """
     Kärnan i den automatiska planjusteringen.
     Körs kl 07:30 varje morgon efter sömndata kommit in.
+    user_request: valfri fritext från användaren (t.ex. "jag vill gymma idag
+    istället för att springa") som prioriteras högt i coachens beslut.
     """
     if not ANTHROPIC_KEY:
         print('AI adjustment: API key missing')
@@ -1729,10 +1731,19 @@ def ai_adjust_plan():
     missed_json   = json.dumps([_sess(s) for s in missed],   ensure_ascii=False, indent=2) if missed else '(no missed sessions)'
     upcoming_json = json.dumps([_sess(s) for s in upcoming], ensure_ascii=False, indent=2)
 
+    request_block = ''
+    if user_request:
+        request_block = f"""
+
+=== RUNNER'S EXPLICIT REQUEST FOR TODAY (HIGH PRIORITY) ===
+The runner has personally asked for this change. Honor it as far as it is sensible and safe, and adjust the surrounding plan so the training logic stays intact (e.g. if they want strength instead of a run today, move today's run to a suitable nearby day or fold it into another run, and place/keep a strength session today). Only push back if the request would clearly harm recovery or the goal — and then explain why in coaching_notes.
+Request: "{user_request.strip()}"
+"""
+
     prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning. You are working with a runner whose goal is a half marathon under 1:20 (3:47/km) on October 10, 2026. Current best: 1:26:19. Secondary goal: build a strong body in all areas - running strength, upper body, core, mobility. The plan runs W23-41 with phases: recovery -> base building -> threshold/tempo -> race-specific -> taper. Always respond in English. All JSON text fields must be in English.
 
 TODAY: {today} (week {iso_week}, day {today.weekday()}, where 0=Monday)
-
+{request_block}
 === RUNNER STATUS ===
 
 Sleep today:
@@ -1873,7 +1884,8 @@ Return ONLY this JSON, with no comments outside it:
         'date': today.isoformat(),
         'changes': changes_applied,
         'summary': summary,
-        'coaching_notes': coaching_notes
+        'coaching_notes': coaching_notes,
+        'user_request': user_request or None
     })
 
 
@@ -1895,6 +1907,25 @@ def manual_adjust():
     try:
         match_activities_to_plan()
         ai_adjust_plan()
+        row = get_cache('last_plan_adjustment')
+        return jsonify({'ok': True, 'result': row[0] if row else {}})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.post('/api/plan/request')
+def plan_request():
+    """Fritext-önskemål från användaren → AI:n bygger om schemat efter det."""
+    data = request.get_json(silent=True) or {}
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'Skriv vad du vill ändra först.'}), 400
+    if len(text) > 500:
+        return jsonify({'error': 'Keep the request under 500 characters.'}), 400
+    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
+        return jsonify({'error': 'AI key required'}), 503
+    try:
+        match_activities_to_plan()
+        ai_adjust_plan(user_request=text)
         row = get_cache('last_plan_adjustment')
         return jsonify({'ok': True, 'result': row[0] if row else {}})
     except Exception as e:
