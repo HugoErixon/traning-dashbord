@@ -1893,6 +1893,7 @@ Google Calendar, next 14 days, affecting recovery and timing:
 
 Analyze the situation as a coach and make the best decisions for the runner's long-term development. You may:
 
+- Add a new session: use this for explicit requests to add training on an empty day or to create an extra optional session
 - Reschedule sessions: provide the new week and day
 - Skip sessions: when they do not add value given fatigue or context
 - Modify session content: change distance, pace, type, or structure
@@ -1915,10 +1916,11 @@ Return ONLY this JSON, with no comments outside it:
   "coaching_notes": "<2-4 English sentences explaining how you interpret the situation and why you chose this approach>",
   "changes": [
     {{
-      "session_id": <int>,
-      "action": "reschedule|skip|keep|modify",
+      "session_id": <int or null for add>,
+      "action": "add|reschedule|skip|keep|modify",
       "new_week": <int or null>,
       "new_dow": <int 0-6 or null>,
+      "type": "run|easy|race|lift|rest|null",
       "new_km": <float or null>,
       "new_title": "<English string or null>",
       "new_detail": "<fully updated English session description with pace, distance, and instructions, or null if unchanged>",
@@ -1948,7 +1950,24 @@ Return ONLY this JSON, with no comments outside it:
             for change in result.get('changes', []):
                 sid    = change.get('session_id')
                 action = change.get('action')
-                if not sid or action == 'keep':
+                if action == 'keep':
+                    continue
+                if action == 'add':
+                    new_week = change.get('new_week')
+                    new_dow  = change.get('new_dow')
+                    title    = change.get('new_title')
+                    detail   = change.get('new_detail')
+                    typ      = change.get('type') or 'easy'
+                    km       = change.get('new_km') if change.get('new_km') is not None else 0
+                    if new_week and new_dow is not None and title and detail:
+                        cur.execute('''INSERT INTO plan_sessions
+                            (week, dow, type, km, title, detail, status, original_week, original_dow, ai_note, modified_at)
+                            VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s,%s,%s)''',
+                            (new_week, new_dow, typ, km, title, detail, new_week, new_dow,
+                             change.get('reason',''), time.time()))
+                        changes_applied += 1
+                    continue
+                if not sid:
                     continue
                 if action == 'skip':
                     cur.execute('''UPDATE plan_sessions
