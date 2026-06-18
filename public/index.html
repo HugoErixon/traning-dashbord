@@ -3804,12 +3804,11 @@ HEALTH DATA (current):
       const d = await res.json();
       if (!res.ok || d.error) throw new Error(d.error || 'Could not adjust the plan');
       const r = d.result || {};
-      const notes = r.coaching_notes || r.summary || 'Plan updated.';
       const n = r.changes || 0;
+      const msg = r.summary || (n ? 'Plan adjusted.' : 'No changes needed.');
       out.innerHTML = `
-        <div style="font-size:11px;font-weight:700;letter-spacing:0.04em;color:var(--green);margin-bottom:6px;">COACH · ${n} change${n === 1 ? '' : 's'} applied</div>
-        <div style="font-size:13px;line-height:1.5;color:var(--text);">${notes}</div>
-        ${r.summary && r.summary !== notes ? `<div style="font-size:12px;color:var(--muted2);margin-top:6px;">${r.summary}</div>` : ''}`;
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.04em;color:var(--green);margin-bottom:6px;">Plan adjusted · ${n} change${n === 1 ? '' : 's'}</div>
+        <div style="font-size:13px;line-height:1.5;color:var(--text);">${msg}</div>`;
       input.value = '';
       // Uppdatera schemat överallt (kalender, dagens pass, cockpit, coach-notisen)
       loadPlan();
