@@ -644,9 +644,12 @@ def analysis():
             out['slopePerWeek'] = round(slope, 3) if slope is not None else None
             if series[0]['v']:
                 out['pctChange'] = round((series[-1]['v'] - series[0]['v']) / abs(series[0]['v']) * 100, 1)
-            # riktning: stabil om lutning < ~0.3% av medelvärdet per vecka
+            # riktning: bara stabil om <0.05% förändring per vecka (mycket snäv marginal).
+            # Declines markeras alltid som declining om vi vill ha upp, och vice versa.
             mean = sum(p['v'] for p in series) / len(series)
-            if slope is None or mean == 0 or abs(slope) < abs(mean) * 0.003:
+            if slope is None or mean == 0:
+                out['direction'] = 'stable'
+            elif abs(slope) < abs(mean) * 0.0005:  # <0.05% per vecka = stabil
                 out['direction'] = 'stable'
             else:
                 rising = slope > 0
