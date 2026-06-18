@@ -2228,9 +2228,14 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const setWidth = (id, value) => { const el = document.getElementById(id); if (el) el.style.width = Math.max(0, Math.min(100, value)) + '%'; };
 
     if (!totalSec) {
-      setText('sleep-page-score-sub', 'No sleep data yet');
+      ['sleep-page-score', 'sleep-page-total', 'sleep-page-deep', 'sleep-page-rem'].forEach(id => setText(id, '–'));
+      setText('sleep-page-score-sub', 'No sleep recorded last night');
+      setText('sleep-page-total-sub', 'No data');
+      setText('sleep-page-deep-sub', 'No data');
+      setText('sleep-page-rem-sub', 'No data');
+      ['sleep-page-score-bar', 'sleep-page-total-bar', 'sleep-page-deep-bar', 'sleep-page-rem-bar'].forEach(id => setWidth(id, 0));
       setText('sleep-page-plan-title', 'Waiting for sleep data');
-      setText('sleep-page-plan-body', 'Once Garmin has synced last night, the dashboard can calculate a good bedtime and AC pre-cooling plan.');
+      setText('sleep-page-plan-body', "The watch didn't sync a night (off or out of battery). Once Garmin records another night, the dashboard can calculate a good bedtime and AC pre-cooling plan.");
       return;
     }
 
@@ -2527,13 +2532,23 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         ? 'Acceptable CNS status. Normal planned session is fine, but avoid maximal effort.'
         : 'CNS shows clear signs of insufficient recovery. Prioritize rest, easy Z2, or move the quality session forward.';
 
-      document.getElementById('cns-score').textContent = cnsScore;
-      document.getElementById('cns-score').style.color = cnsCol;
-      document.getElementById('cns-title').textContent = cnsTitle;
-      document.getElementById('cns-desc').textContent  = cnsDesc;
-      document.getElementById('cns-bar').style.width   = cnsScore + '%';
-      document.getElementById('cns-bar').style.background = cnsCol;
-      document.getElementById('hg-recovery').style.setProperty('--cns-color', cnsCol);
+      const sleepMissing = !(h.sleep && h.sleep.totalSec);
+      if (sleepMissing) {
+        const cs = document.getElementById('cns-score');
+        cs.textContent = '–'; cs.style.color = 'var(--muted2)';
+        document.getElementById('cns-title').textContent = 'No sleep data';
+        document.getElementById('cns-desc').textContent  = "Last night wasn't recorded (watch off or out of battery), so the CNS score can't be calculated. It returns automatically after the next synced night.";
+        document.getElementById('cns-bar').style.width   = '0%';
+        document.getElementById('hg-recovery').style.setProperty('--cns-color', 'var(--muted2)');
+      } else {
+        document.getElementById('cns-score').textContent = cnsScore;
+        document.getElementById('cns-score').style.color = cnsCol;
+        document.getElementById('cns-title').textContent = cnsTitle;
+        document.getElementById('cns-desc').textContent  = cnsDesc;
+        document.getElementById('cns-bar').style.width   = cnsScore + '%';
+        document.getElementById('cns-bar').style.background = cnsCol;
+        document.getElementById('hg-recovery').style.setProperty('--cns-color', cnsCol);
+      }
 
       // HRV Traffic Light (Kiviniemi-metoden: Â±5% frÃ¥n veckoavg)
       const hrvDiff = h.hrv?.lastNightAvg && h.hrv?.weeklyAvg
@@ -2558,6 +2573,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         document.getElementById('cns-hrv-val').style.color = pctCol;
         const statusText = h.hrv.status && h.hrv.status !== 'NONE' ? `${h.hrv.status} - ` : '';
         document.getElementById('cns-hrv-sub').textContent = `${statusText}${getHrvBaselineText(h.hrv)}`;
+      } else {
+        document.getElementById('cns-hrv-val').textContent = '–';
+        document.getElementById('cns-hrv-val').style.color = 'var(--muted2)';
+        document.getElementById('cns-hrv-sub').textContent = 'No data last night';
       }
       if (h.readiness?.score != null) {
         const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
@@ -2565,6 +2584,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         document.getElementById('cns-readiness-val').style.color = rc;
         const lblMap = { VERY_HIGH:'Very high', HIGH:'High', MODERATE:'Moderate', LOW:'Low', VERY_LOW:'Very low' };
         document.getElementById('cns-readiness-sub').textContent = lblMap[h.readiness.level] || '/ 100';
+      } else {
+        document.getElementById('cns-readiness-val').textContent = '–';
+        document.getElementById('cns-readiness-val').style.color = 'var(--muted2)';
+        document.getElementById('cns-readiness-sub').textContent = 'No data';
       }
       if (h.restingHR?.value != null) {
         const rhr = h.restingHR.value;
@@ -2572,6 +2595,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         document.getElementById('cns-rhr-val').textContent = rhr;
         document.getElementById('cns-rhr-val').style.color = rc;
         document.getElementById('cns-rhr-sub').textContent = `avg ${h.restingHR.sevenDayAvg || '-'} bpm`;
+      } else {
+        document.getElementById('cns-rhr-val').textContent = '–';
+        document.getElementById('cns-rhr-val').style.color = 'var(--muted2)';
+        document.getElementById('cns-rhr-sub').textContent = 'No data';
       }
 
       // â”€â”€ SÃ–MN â”€â”€
@@ -2646,6 +2673,21 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const badge = document.getElementById('hg-sleep-badge');
         badge.className = sleepScore >= 80 ? 'hg-status hs-purple' : sleepScore >= 60 ? 'hg-status hs-ok' : 'hg-status hs-low';
         badge.textContent = sleepScore >= 80 ? 'Good' : sleepScore >= 60 ? 'Ok' : 'Poor';
+      } else {
+        // Ingen sömndata (klockan synkade ingen natt) — skriv ut det istället för att låta korten ladda
+        const muted = 'var(--muted2)';
+        const sEl = document.getElementById('hg-sleep-score');
+        sEl.textContent = '–'; sEl.style.color = muted;
+        document.getElementById('hg-sleep-bar').style.width = '0%';
+        const badge = document.getElementById('hg-sleep-badge');
+        badge.className = 'hg-status'; badge.style.color = muted; badge.textContent = 'No data';
+        document.getElementById('hg-sleep-summary').textContent = '';
+        document.getElementById('hg-sleep-desc').textContent =
+          "No sleep recorded last night — the watch didn't sync a night (off or out of battery). Sleep metrics return automatically after the next recorded night.";
+        ['hd-sscore', 'hd-deep', 'hd-rem', 'hd-stotal'].forEach(id => setMetric(id + '-val', id + '-status', '–', '', '', muted));
+        const debtEl = document.getElementById('sleep-debt-val');
+        debtEl.textContent = '–'; debtEl.style.color = muted;
+        document.getElementById('sleep-flag-row').innerHTML = '<span class="sleep-flag warn">No sleep data for last night</span>';
       }
 
       // â”€â”€ ENERGI & STRESS â”€â”€
