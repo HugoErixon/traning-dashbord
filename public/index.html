@@ -828,6 +828,20 @@
     .sleep-flag.bad  { background: rgba(248,113,113,0.12); color: var(--red); }
 
     /* â”€â”€â”€ STYRKA â”€â”€â”€ */
+    .strength-tabs { display:flex; gap:8px; margin-bottom: 20px; }
+    .strength-tab {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      color: var(--muted2);
+      border-radius: 10px;
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .strength-tab:hover { color: var(--muted3); border-color: var(--border2); }
+    .strength-tab.active { background: var(--green-dim); color: var(--green); border-color: rgba(45,212,191,0.3); }
     .strength-session {
       background: var(--bg2);
       border: 1px solid var(--border);
@@ -1620,6 +1634,7 @@
       <div class="nav-item" onclick="goto('sleep')"><span>Sleep</span></div>
       <div class="nav-item" onclick="goto('upcoming')"><span>Calendar</span></div>
       <div class="nav-item" onclick="goto('analysis')"><span>Analysis</span></div>
+      <div class="nav-item" onclick="goto('strength')"><span>Strength</span></div>
       <div class="nav-item" onclick="goto('coach')"><span>Notes</span></div>
     </div>
     <div class="sidebar-bottom">
@@ -2041,6 +2056,19 @@
       <div id="analysis-grid"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Loading trends...</div></div>
     </div>
 
+    <!-- STRENGTH -->
+    <div class="page" id="page-strength">
+      <div class="page-header"><h2>Strength</h2><p>Log today's gym session live, or review past sessions from Garmin</p></div>
+      <div class="strength-tabs">
+        <button class="strength-tab active" id="stab-today" onclick="strengthTab('today')">Today's workout</button>
+        <button class="strength-tab" id="stab-history" onclick="strengthTab('history')">History</button>
+      </div>
+      <div id="strength-today"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Loading today's session...</div></div>
+      <div id="strength-history" style="display:none;">
+        <div id="strength-list"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Loading sessions...</div></div>
+      </div>
+    </div>
+
     <!-- COACH -->
     <div class="page" id="page-coach">
       <div class="page-header"><h2>Training notes</h2><p>Questions, context, and saved notes</p></div>
@@ -2174,6 +2202,7 @@ window.fetch = (url, opts = {}) => {
     if (id === 'health')   loadHealth();
     if (id === 'sleep')    loadHealth();
     if (id === 'analysis') loadAnalysis();
+    if (id === 'strength') loadStrengthPage();
     if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
   }
@@ -3462,6 +3491,79 @@ HEALTH DATA (current):
     }
   }
 
+  // ─── STRENGTH: sub-tabs (today's live workout vs history) ───
+  let strengthCurrentTab = 'today';
+  function loadStrengthPage() { strengthTab(strengthCurrentTab); }
+  function strengthTab(which) {
+    strengthCurrentTab = which;
+    document.getElementById('stab-today').classList.toggle('active', which === 'today');
+    document.getElementById('stab-history').classList.toggle('active', which === 'history');
+    document.getElementById('strength-today').style.display   = which === 'today'   ? 'block' : 'none';
+    document.getElementById('strength-history').style.display = which === 'history' ? 'block' : 'none';
+    if (which === 'today') loadTodayWorkout(); else loadStrength();
+  }
+
+  async function loadTodayWorkout() {
+    const el = document.getElementById('strength-today');
+    if (!el) return;
+    const today = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, used as session id
+    // Hitta dagens lift-pass i planen (samma vecko-/dagberäkning som renderTodaySession)
+    const now = new Date();
+    const jan4 = new Date(now.getFullYear(), 0, 4);
+    const startDay = jan4.getDay() || 7;
+    const monday = new Date(jan4); monday.setDate(jan4.getDate() - startDay + 1);
+    const isoWeek = Math.ceil(((now - monday) / 86400000 + 1) / 7);
+    const dow = (now.getDay() + 6) % 7;
+    const todays = (PLAN_SESSIONS || []).filter(p => p.week === isoWeek && p.dow === dow);
+    const lift = todays.find(p => p.type === 'lift');
+    const dateLabel = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+
+    let ctx;
+    if (lift) {
+      ctx = `<div style="background:var(--bg2);border:1px solid rgba(245,158,11,0.25);border-left:3px solid var(--amber);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:var(--amber);margin-bottom:6px;">TODAY'S GYM SESSION · ${dateLabel}</div>
+        <div style="font-size:16px;font-weight:700;margin-bottom:4px;">${lift.title || 'Strength'}</div>
+        ${lift.detail ? `<div style="font-size:13px;color:var(--muted2);line-height:1.5;">${lift.detail}</div>` : ''}
+        ${lift.ai_note ? `<div style="font-size:12px;color:var(--blue);margin-top:6px;">Coach: ${lift.ai_note}</div>` : ''}
+      </div>`;
+    } else {
+      const other = todays.find(p => p.type !== 'rest');
+      ctx = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
+        <div style="font-size:13px;color:var(--text);">No gym session planned today (${dateLabel}).</div>
+        ${other ? `<div style="font-size:12px;color:var(--muted2);margin-top:4px;">Today's plan: ${other.title}.</div>` : ''}
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;">Log any strength work below — it's saved under today's date.</div>
+      </div>`;
+    }
+
+    el.innerHTML = ctx + `
+      <div class="add-ex-form">
+        <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOG EXERCISE</div>
+        <div class="form-row">
+          <input class="ex-input-name" id="ex-name-${today}" list="ex-suggestions" placeholder="Exercise, e.g. bench press" autocomplete="off">
+          <input class="ex-input-sm" id="ex-sets-${today}" type="number" min="1" placeholder="Set">
+          <input class="ex-input-sm" id="ex-reps-${today}" placeholder="Reps">
+          <input class="ex-input-sm" id="ex-weight-${today}" type="number" step="0.5" placeholder="kg">
+          <input class="ex-input-note" id="ex-note-${today}" placeholder="Note (optional)">
+        </div>
+        <button class="add-ex-btn" onclick="addExercise('${today}')">+ Add</button>
+      </div>
+      <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin:18px 0 10px;font-weight:500;">TODAY'S LOG</div>
+      <div class="ex-list" id="exlist-${today}"></div>`;
+
+    if (!document.getElementById('ex-suggestions')) {
+      const dl = document.createElement('datalist');
+      dl.id = 'ex-suggestions';
+      dl.innerHTML = SUGGESTIONS.map(s => `<option value="${s}">`).join('');
+      document.body.appendChild(dl);
+    }
+    // Enter i valfritt fält = lägg till snabbt under passet
+    ['ex-name-','ex-reps-','ex-weight-','ex-note-'].forEach(p => {
+      const inp = document.getElementById(p + today);
+      if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addExercise(today); });
+    });
+    loadExercises(today);
+  }
+
   async function loadStrength() {
     const container = document.getElementById('strength-list');
     container.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'IBM Plex Mono\',monospace;">Loading sessions...</div>';
@@ -3554,6 +3656,7 @@ HEALTH DATA (current):
     });
     ['ex-name-','ex-sets-','ex-reps-','ex-weight-','ex-note-'].forEach(p => document.getElementById(p + sessionId).value = '');
     await loadExercises(sessionId);
+    document.getElementById('ex-name-' + sessionId)?.focus();
   }
 
   async function deleteExercise(exId, sessionId) {
