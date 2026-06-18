@@ -3,7 +3,7 @@ from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
 import json, time, requests, psycopg2, psycopg2.extras, subprocess, threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import os
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -1293,6 +1293,10 @@ STRENGTH_TYPES = ('strength_training', 'fitness_equipment', 'gym', 'indoor_cardi
 
 @app.get('/api/strength')
 def strength_sessions():
+    try:
+        link_manual_exercises_to_activities()
+    except Exception as e:
+        print('Strength-länkning fel:', e)
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT raw FROM activities WHERE type = ANY(%s) ORDER BY date DESC LIMIT 30",
@@ -1604,6 +1608,46 @@ def match_activities_to_plan(days_back=7):
     print(f'Activity matching complete (last {days_back} days)')
 
 
+def _parse_garmin_epoch(value, assume_utc=False):
+    """Return epoch seconds for Garmin timestamps in numeric or string form."""
+    if value in (None, ''):
+        return None
+    if isinstance(value, (int, float)):
+        # Garmin payloads can use either seconds or milliseconds.
+        return float(value) / 1000.0 if value > 100000000000 else float(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.replace('.', '', 1).isdigit():
+            return _parse_garmin_epoch(float(text), assume_utc=assume_utc)
+        try:
+            normalized = text.replace('Z', '+00:00')
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None and assume_utc:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def _activity_local_date(raw):
+    for key in ('startTimeLocal', 'startTimeGMT', 'calendarDate'):
+        val = raw.get(key)
+        if val:
+            return str(val)[:10]
+    return None
+
+
+def _activity_start_epoch(raw):
+    return (
+        _parse_garmin_epoch(raw.get('startTimeLocal')) or
+        _parse_garmin_epoch(raw.get('beginTimestamp'), assume_utc=True) or
+        _parse_garmin_epoch(raw.get('startTimeGMT'), assume_utc=True)
+    )
+
+
 def link_manual_exercises_to_activities():
     """Koppla manuellt loggade övningar (sparade under datum-nyckel 'YYYY-MM-DD' i
     Today's workout) till Garmin-styrkepasset som laddats upp samma dag, så de hamnar
@@ -1611,8 +1655,14 @@ def link_manual_exercises_to_activities():
     närmast övningarnas loggtid. Idempotent — när raderna fått aktivitets-id rörs de ej."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute(r"SELECT DISTINCT session_id FROM strength_exercises WHERE session_id ~ '^\d{4}-\d{2}-\d{2}$'")
-            date_keys = [r[0] for r in cur.fetchall()]
+            cur.execute(r"""
+                SELECT session_id, avg(created_at)
+                FROM strength_exercises
+                WHERE session_id ~ '^\d{4}-\d{2}-\d{2}$'
+                GROUP BY session_id
+            """)
+            date_rows = cur.fetchall()
+            date_keys = [r[0] for r in date_rows]
             if not date_keys:
                 return
             cur.execute("SELECT id, raw FROM activities WHERE type = ANY(%s)", (list(STRENGTH_TYPES),))
@@ -1621,22 +1671,19 @@ def link_manual_exercises_to_activities():
         return
     by_date = {}
     for aid, raw in strength:
-        local = (raw.get('startTimeLocal') or '')[:10]
+        local = _activity_local_date(raw)
         if not local:
             continue
-        begin = raw.get('beginTimestamp')  # ms (GMT)
-        by_date.setdefault(local, []).append((str(aid), (begin / 1000.0) if begin else None))
+        by_date.setdefault(local, []).append((str(aid), _activity_start_epoch(raw)))
 
     linked = 0
     with db() as conn:
         with conn.cursor() as cur:
-            for dk in date_keys:
+            for dk, avg_created in date_rows:
                 cands = by_date.get(dk)
                 if not cands:
                     continue  # inget Garmin-pass den dagen än → vänta
-                cur.execute("SELECT avg(created_at) FROM strength_exercises WHERE session_id=%s", (dk,))
-                avg_created = cur.fetchone()[0]
-                if any(c[1] for c in cands) and avg_created is not None:
+                if any(c[1] is not None for c in cands) and avg_created is not None:
                     best = min(cands, key=lambda c: abs((c[1] or 0) - float(avg_created)) if c[1] else float('inf'))
                 else:
                     best = cands[0]
