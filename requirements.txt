@@ -7,3 +7,4 @@ APScheduler==3.11.2
 google-auth==2.53.0
 google-auth-oauthlib==1.4.0
 google-api-python-client==2.197.0
+PyYAML==6.0.2
