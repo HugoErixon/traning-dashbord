@@ -2197,10 +2197,11 @@
   applyDeviceMode();
   phoneMedia.addEventListener?.('change', applyDeviceMode);
 
-  // Login check - hoppa Ã¶ver lÃ¶senord om vi kÃ¶r lokalt
+  // Login check - hoppa över lösenord om vi kör lokalt
 const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const sitePassword = localStorage.getItem('sitePassword');
-if (!isLocal && !sitePassword) showLogin();
+const siteUser = localStorage.getItem('site_user');
+if (!isLocal && (!sitePassword || !siteUser)) showLogin();
 
 function showLogin() {
   document.querySelector('.shell').style.display = 'none';
@@ -2209,22 +2210,26 @@ function showLogin() {
       <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:40px;width:320px;text-align:center;">
         <div style="font-size:22px;margin-bottom:8px;"></div>
         <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Training Dashboard</h2>
-        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Enter password to continue</p>
-        <input id="login-input" type="password" placeholder="Password..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:12px;" />
+        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Sign in to continue</p>
+        <input id="login-user" type="text" placeholder="Username..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;" />
+        <input id="login-input" type="password" placeholder="Password..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
         <button onclick="tryLogin()" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Log in</button>
-        <p id="login-error" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Wrong password</p>
+        <p id="login-error" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Wrong username or password</p>
       </div>
     </div>
   `);
   document.getElementById('login-input').addEventListener('keypress', e => { if (e.key === 'Enter') tryLogin(); });
+  document.getElementById('login-user').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('login-input').focus(); });
 }
 
 async function tryLogin() {
+  const username = document.getElementById('login-user').value.trim();
   const pw = document.getElementById('login-input').value;
-  const res = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ password: pw }) });
+  const res = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ username, password: pw }) });
   const data = await res.json();
   if (data.ok) {
     localStorage.setItem('sitePassword', pw);
+    localStorage.setItem('site_user', data.username || username);
     document.getElementById('login-screen').remove();
     document.querySelector('.shell').style.display = 'flex';
   } else {
@@ -2235,7 +2240,10 @@ async function tryLogin() {
 const originalFetch = window.fetch;
 window.fetch = (url, opts = {}) => {
   if (url.startsWith('/api/')) {
-    opts.headers = { ...opts.headers, 'x-site-password': localStorage.getItem('sitePassword') || '' };
+    opts.headers = { ...opts.headers,
+      'x-site-password': localStorage.getItem('sitePassword') || '',
+      'x-site-user': localStorage.getItem('site_user') || '',
+    };
   }
   return originalFetch(url, opts);
 };

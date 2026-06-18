@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, g as flask_g
 from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
@@ -21,14 +21,30 @@ except ImportError:
 app = Flask(__name__, static_folder='public')
 
 config = dotenv_values('.env')
-PASSWORD    = config.get('SITE_PASSWORD', 'hugo123')
+_raw_users = config.get('USERS', 'hugo:hugo123')
+USERS = {}
+for i, entry in enumerate(_raw_users.split(','), start=1):
+    parts = entry.strip().split(':', 1)
+    if len(parts) == 2:
+        USERS[parts[0].strip()] = {'id': i, 'password': parts[1].strip()}
+# Backward-compat alias: first user's password (or legacy SITE_PASSWORD)
+PASSWORD = config.get('SITE_PASSWORD') or (list(USERS.values())[0]['password'] if USERS else 'hugo123')
 ANTHROPIC_KEY = config.get('ANTHROPIC_API_KEY', '')
 TOKEN_DIR     = str(Path.home() / '.garminconnect')
 DATABASE_URL  = config.get('DATABASE_URL', '')
 GCAL_ID       = config.get('GOOGLE_CALENDAR_ID', 'primary')
 GCAL_CREDS    = 'google_credentials.json'
-GCAL_TOKEN    = 'google_token.json'
 GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
+
+def uid():
+    return getattr(flask_g, 'uid', 1)
+
+def uname():
+    return getattr(flask_g, 'uname', list(USERS.keys())[0] if USERS else 'hugo')
+
+def gcal_token():
+    return f'google_token_{uname()}.json'
+
 AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
 AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
@@ -88,57 +104,94 @@ def setup_db():
         conn.commit()
     print('Databas: klar')
 
+def migrate_db():
+    with db() as conn:
+        with conn.cursor() as cur:
+            for tbl in ('activities', 'user_notes', 'plan_sessions', 'strength_exercises',
+                        'health_history', 'metric_history'):
+                try:
+                    cur.execute(f'ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS user_id INTEGER DEFAULT 1')
+                except Exception as e:
+                    print(f'migrate_db {tbl} user_id:', e)
+            for tbl in ('health_history', 'metric_history'):
+                try:
+                    cur.execute(f'ALTER TABLE {tbl} DROP CONSTRAINT IF EXISTS {tbl}_pkey')
+                    cur.execute(f'ALTER TABLE {tbl} ADD PRIMARY KEY (date, user_id)')
+                except Exception as e:
+                    print(f'migrate_db {tbl} pk:', e)
+        conn.commit()
+    print('Databas: migrering klar')
+
 try:
     setup_db()
+    migrate_db()
 except Exception as e:
     print('Databas fel:', e)
 
 # --- Garmin ---
-_garmin = None
+# Token migration note for Pi: if Hugo's existing tokens are at ~/.garminconnect/,
+# run: mv ~/.garminconnect ~/.garminconnect_bak && mkdir ~/.garminconnect && mv ~/.garminconnect_bak ~/.garminconnect/hugo
+_garmin_clients = {}
 
-def get_garmin():
-    global _garmin
-    if _garmin:
-        return _garmin
+def get_garmin(username=None):
+    global _garmin_clients
+    if username is None:
+        username = uname()
+    if username in _garmin_clients:
+        return _garmin_clients[username]
+    token_dir = str(Path.home() / '.garminconnect' / username)
+    Path(token_dir).mkdir(parents=True, exist_ok=True)
     g = Garmin()
-    g.login(tokenstore=TOKEN_DIR)
-    _garmin = g
+    try:
+        g.login(tokenstore=token_dir)
+    except Exception:
+        # Fallback to legacy path for the first user (backward compat)
+        first_user = list(USERS.keys())[0] if USERS else 'hugo'
+        if username == first_user:
+            g = Garmin()
+            g.login(tokenstore=TOKEN_DIR)
+        else:
+            raise
+    _garmin_clients[username] = g
     return g
 
-def save_activities(activities):
+def save_activities(activities, user_id=1):
     with db() as conn:
         with conn.cursor() as cur:
             for a in activities:
                 try:
-                    cur.execute('''INSERT INTO activities (id,name,date,type,distance,duration,avg_hr,raw,created_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    cur.execute('''INSERT INTO activities (id,name,date,type,distance,duration,avg_hr,raw,created_at,user_id)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (id) DO UPDATE SET raw=EXCLUDED.raw, name=EXCLUDED.name''',
                         (a.get('activityId'), a.get('activityName'), a.get('startTimeLocal'),
                          a.get('activityType', {}).get('typeKey'),
                          a.get('distance'), a.get('duration'), a.get('averageHR'),
-                         json.dumps(a), time.time()))
+                         json.dumps(a), time.time(), user_id))
                 except Exception as e:
                     print('Spara aktivitet fel:', e)
         conn.commit()
 
-def get_cache(key):
+def get_cache(key, user_id=1):
+    prefixed = f'{user_id}:{key}'
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT value, updated_at FROM cache WHERE key=%s", (key,))
+            cur.execute("SELECT value, updated_at FROM cache WHERE key=%s", (prefixed,))
             return cur.fetchone()
 
-def set_cache(key, value):
+def set_cache(key, value, user_id=1):
+    prefixed = f'{user_id}:{key}'
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('''INSERT INTO cache (key, value, updated_at) VALUES (%s, %s, %s)
                 ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at''',
-                (key, json.dumps(value), time.time()))
+                (prefixed, json.dumps(value), time.time()))
         conn.commit()
 
-def clear_cache(*keys):
+def clear_cache(*keys, user_id=1):
+    prefixed = [f'{user_id}:{k}' for k in keys]
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM cache WHERE key = ANY(%s)", (list(keys),))
+            cur.execute("DELETE FROM cache WHERE key = ANY(%s)", (prefixed,))
         conn.commit()
 
 # --- Auth ---
@@ -149,15 +202,40 @@ def check_auth():
     if request.path == '/api/login':
         return
     if request.host.startswith('localhost') or request.host.startswith('127.0.0.1'):
+        first = list(USERS.keys())[0] if USERS else 'hugo'
+        flask_g.uid = USERS.get(first, {}).get('id', 1)
+        flask_g.uname = first
         return
-    if request.headers.get('x-site-password') != PASSWORD:
-        return jsonify({'error': 'Unauthorized'}), 401
+    username = request.headers.get('x-site-user', '')
+    password = request.headers.get('x-site-password', '')
+    if username and username in USERS:
+        if USERS[username]['password'] == password:
+            flask_g.uid = USERS[username]['id']
+            flask_g.uname = username
+            return
+    else:
+        # Backward compat: no username header → check against first user
+        first = list(USERS.keys())[0] if USERS else 'hugo'
+        if password == USERS.get(first, {}).get('password', PASSWORD):
+            flask_g.uid = USERS.get(first, {}).get('id', 1)
+            flask_g.uname = first
+            return
+    return jsonify({'error': 'Unauthorized'}), 401
 
 # --- Endpoints ---
 @app.post('/api/login')
 def login():
-    if (request.json or {}).get('password') == PASSWORD:
-        return jsonify({'ok': True})
+    data = request.json or {}
+    username = data.get('username', '')
+    password = data.get('password', '')
+    if username and username in USERS:
+        if USERS[username]['password'] == password:
+            return jsonify({'ok': True, 'username': username, 'user_id': USERS[username]['id']})
+    else:
+        # Backward compat: no username → check first user
+        first = list(USERS.keys())[0] if USERS else 'hugo'
+        if password == USERS.get(first, {}).get('password', PASSWORD):
+            return jsonify({'ok': True, 'username': first, 'user_id': USERS.get(first, {}).get('id', 1)})
     return jsonify({'ok': False}), 401
 
 @app.get('/api/status')
@@ -167,6 +245,8 @@ def status():
 @app.get('/api/ac')
 def ac_proxy():
     """Hämtar aktuell temperatur/AC-status från ac-keeper (på Pi:n via localhost)."""
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
     try:
         r = requests.get(f'{AC_KEEPER_URL}/api/current', timeout=4)
         return jsonify(r.json())
@@ -176,6 +256,8 @@ def ac_proxy():
 @app.get('/api/ac/history')
 def ac_history():
     """Rumstemperatur (aggregerat) + mål senaste 24h, nedsamplat, från ac-keeper."""
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
     try:
         r = requests.get(f'{AC_KEEPER_URL}/api/control-events', params={'hours': 24}, timeout=6)
         events = r.json()
@@ -235,10 +317,14 @@ def _ac_loop_status():
 
 @app.get('/api/ac/loop')
 def ac_loop_status():
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
     return jsonify(_ac_loop_status())
 
 @app.post('/api/ac/loop')
 def ac_loop_control():
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
     data = request.json or {}
     enabled = bool(data.get('enabled'))
     try:
@@ -260,6 +346,8 @@ def ac_loop_control():
 @app.post('/api/ac/setpoint')
 def ac_setpoint():
     """Uppdaterar target_c i ac-keepers config.yaml och startar om loopen."""
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
     data = request.json or {}
     try:
         target = float(data['target_c'])
@@ -282,14 +370,14 @@ def ac_setpoint():
 def activities():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT raw FROM activities ORDER BY date DESC LIMIT 50')
+            cur.execute('SELECT raw FROM activities WHERE user_id=%s ORDER BY date DESC LIMIT 50', (uid(),))
             rows = cur.fetchall()
     if rows:
         return jsonify({'activities': [r[0] for r in rows], 'source': 'database'})
     try:
-        client = get_garmin()
+        client = get_garmin(uname())
         acts = client.get_activities(0, 50)
-        save_activities(acts)
+        save_activities(acts, uid())
         return jsonify({'activities': acts, 'source': 'garmin'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -371,12 +459,12 @@ def hrv_signal(status, last_night, weekly):
 @app.get('/api/health')
 def health_data():
     today = date.today().isoformat()
-    row = get_cache('health')
+    row = get_cache('health', uid())
     if row and (time.time() - row[1]) < 30 * 60:
         return jsonify(row[0])
 
     try:
-        client = get_garmin()
+        client = get_garmin(uname())
         sleep     = client.get_sleep_data(today)
         hrv       = client.get_hrv_data(today)
         bb        = client.get_body_battery(today, today)
@@ -429,7 +517,7 @@ def health_data():
             'respiration': {'avg': round(avg_resp) if avg_resp else None, 'sleepAvg': round(sleep_resp) if sleep_resp else None},
             'spo2':        {'avg': avg_spo2, 'min': spo2.get('lowestSpO2')},
         }
-        set_cache('health', result)
+        set_cache('health', result, uid())
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -457,17 +545,20 @@ def _fetch_day_health(client, day_str):
             'hrv_avg': hrv_avg, 'resting_hr': rhr}
 
 
-def collect_health_history(days=14):
+def collect_health_history(days=14, username=None):
     """Backfillar saknade dagar i health_history från Garmin (idempotent)."""
+    if username is None:
+        username = list(USERS.keys())[0] if USERS else 'hugo'
+    user_id = USERS.get(username, {}).get('id', 1)
     try:
-        client = get_garmin()
+        client = get_garmin(username)
     except Exception as e:
         print('health-history: garmin-fel', e)
         return
     today = date.today()
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT date FROM health_history')
+            cur.execute('SELECT date FROM health_history WHERE user_id=%s', (user_id,))
             have = {r[0] for r in cur.fetchall()}
     added = 0
     for i in range(1, days + 1):
@@ -482,13 +573,13 @@ def collect_health_history(days=14):
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute('''INSERT INTO health_history
-                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, created_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (date) DO UPDATE SET sleep_score=EXCLUDED.sleep_score,
+                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, created_at, user_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (date, user_id) DO UPDATE SET sleep_score=EXCLUDED.sleep_score,
                         sleep_hours=EXCLUDED.sleep_hours, deep_pct=EXCLUDED.deep_pct,
                         rem_pct=EXCLUDED.rem_pct, hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr''',
                     (rec['date'], rec['sleep_score'], rec['sleep_hours'], rec['deep_pct'],
-                     rec['rem_pct'], rec['hrv_avg'], rec['resting_hr'], time.time()))
+                     rec['rem_pct'], rec['hrv_avg'], rec['resting_hr'], time.time(), user_id))
             conn.commit()
         added += 1
     print(f'health-history: {added} nya dagar tillagda')
@@ -557,10 +648,13 @@ def _fetch_day_metrics(client, day_str):
             'hrv_status': hrv_status}
 
 
-def collect_metric_history(days=45):
+def collect_metric_history(days=45, username=None):
     """Backfillar fitness-mätare i metric_history (idempotent). Tål saknade metoder."""
+    if username is None:
+        username = list(USERS.keys())[0] if USERS else 'hugo'
+    user_id = USERS.get(username, {}).get('id', 1)
     try:
-        client = get_garmin()
+        client = get_garmin(username)
     except Exception as e:
         print('metric-history: garmin-fel', e)
         return
@@ -568,7 +662,7 @@ def collect_metric_history(days=45):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('''SELECT date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status, created_at
-                FROM metric_history''')
+                FROM metric_history WHERE user_id=%s''', (user_id,))
             have = {r[0]: r[1:] for r in cur.fetchall()}
     added = 0
     for i in range(0, days + 1):
@@ -593,13 +687,13 @@ def collect_metric_history(days=45):
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute('''INSERT INTO metric_history
-                    (date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status, created_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (date) DO UPDATE SET vo2max=EXCLUDED.vo2max,
+                    (date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status, created_at, user_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (date, user_id) DO UPDATE SET vo2max=EXCLUDED.vo2max,
                         endurance_score=EXCLUDED.endurance_score, lactate_hr=EXCLUDED.lactate_hr,
                         lactate_pace=EXCLUDED.lactate_pace, hrv_status=EXCLUDED.hrv_status''',
                     (rec['date'], rec['vo2max'], rec['endurance_score'], rec['lactate_hr'],
-                     rec['lactate_pace'], rec['hrv_status'], time.time()))
+                     rec['lactate_pace'], rec['hrv_status'], time.time(), user_id))
             conn.commit()
         added += 1
     print(f'metric-history: {added} nya dagar tillagda')
@@ -627,11 +721,11 @@ def analysis():
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('''SELECT date, hrv_avg, resting_hr, sleep_score
-                FROM health_history WHERE date >= %s ORDER BY date''', (start,))
+                FROM health_history WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
             hh = cur.fetchall()
         with conn.cursor() as cur:
             cur.execute('''SELECT date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status
-                FROM metric_history WHERE date >= %s ORDER BY date''', (start,))
+                FROM metric_history WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
             mh = cur.fetchall()
 
     # Bygg per-mätare tidsserier (dag-index relativt fönstrets start, för lutningsberäkning)
@@ -692,11 +786,11 @@ def analysis():
 
 @app.get('/api/training-load')
 def training_load():
-    row = get_cache('training_load')
+    row = get_cache('training_load', uid())
     if row and (time.time() - row[1]) < 30 * 60:
         return jsonify(row[0])
     try:
-        client = get_garmin()
+        client = get_garmin(uname())
         today  = date.today().isoformat()
         status = client.get_training_status(today)
 
@@ -731,7 +825,7 @@ def training_load():
             'anaerobicMax':   lb.get('monthlyLoadAnaerobicTargetMax'),
             'loadBalanceFeedback': lb.get('trainingBalanceFeedbackPhrase'),
         }
-        set_cache('training_load', result)
+        set_cache('training_load', result, uid())
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -739,7 +833,7 @@ def training_load():
 @app.post('/api/sync')
 def sync():
     try:
-        n = run_sync()
+        n = run_sync(username=uname(), user_id=uid())
         return jsonify({'ok': True, 'count': n})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -803,7 +897,7 @@ def _build_refresh_prompt(acts):
     remaining_km = max(0, planned_km - completed_km)
 
     # Training load (ACWR) från cache
-    tl_row = get_cache('training_load')
+    tl_row = get_cache('training_load', uid())
     tl     = tl_row[0] if tl_row else {}
     acute   = tl.get('acute')
     chronic = tl.get('chronic')
@@ -812,7 +906,7 @@ def _build_refresh_prompt(acts):
     load_feedback = tl.get('loadBalanceFeedback', '')
 
     # Hälsodata från cache
-    h_row = get_cache('health')
+    h_row = get_cache('health', uid())
     h     = h_row[0] if h_row else {}
     readiness    = (h.get('readiness') or {}).get('score')
     hrv_obj      = h.get('hrv') or {}
@@ -826,7 +920,7 @@ def _build_refresh_prompt(acts):
     sleep_score  = (h.get('sleep') or {}).get('score')
 
     # Google Calendar — kommande 7 dagar
-    cal_row = get_cache('gcal_events')
+    cal_row = get_cache('gcal_events', uid())
     gcal_lines = []
     early_days  = []
     if cal_row:
@@ -854,12 +948,12 @@ def _build_refresh_prompt(acts):
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""SELECT * FROM plan_sessions
-                WHERE week=%s AND dow=%s AND status='planned'
-                LIMIT 1""", (iso_week, weekday))
+                WHERE week=%s AND dow=%s AND status='planned' AND user_id=%s
+                LIMIT 1""", (iso_week, weekday, uid()))
             today_session = cur.fetchone()
             cur.execute("""SELECT * FROM plan_sessions
-                WHERE status='planned' AND (week > %s OR (week = %s AND dow > %s))
-                ORDER BY week, dow LIMIT 1""", (iso_week, iso_week, weekday))
+                WHERE status='planned' AND (week > %s OR (week = %s AND dow > %s)) AND user_id=%s
+                ORDER BY week, dow LIMIT 1""", (iso_week, iso_week, weekday, uid()))
             next_session = cur.fetchone()
 
     today_session_str = f"{today_session['title']} — {today_session['detail']}" if today_session else "Rest day (no session scheduled)"
@@ -959,14 +1053,14 @@ Respond ONLY with this JSON (no explanation outside JSON):
 
 @app.post('/api/refresh')
 def refresh():
-    row = get_cache('analysis')
+    row = get_cache('analysis', uid())
     if row and (time.time() - row[1]) < 5 * 60:
         return jsonify(row[0])
 
     try:
-        client = get_garmin()
+        client = get_garmin(uname())
         acts = client.get_activities(0, 10)
-        save_activities(acts)
+        save_activities(acts, uid())
     except Exception as e:
         return jsonify({'error': 'Garmin error: ' + str(e)}), 500
 
@@ -985,7 +1079,7 @@ def refresh():
 
     text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
     analysis = json.loads(text)
-    set_cache('analysis', analysis)
+    set_cache('analysis', analysis, uid())
     return jsonify(analysis)
 
 # ─────────────────────────────────────────────
@@ -1000,11 +1094,11 @@ def _build_review_prompt():
     # Dagens planerade pass + dagens faktiska aktiviteter
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute('SELECT * FROM plan_sessions WHERE week=%s AND dow=%s', (wk, dw))
+            cur.execute('SELECT * FROM plan_sessions WHERE week=%s AND dow=%s AND user_id=%s', (wk, dw, uid()))
             planned = cur.fetchall()
         with conn.cursor() as cur:
             cur.execute('''SELECT name, type, distance, duration, avg_hr
-                FROM activities WHERE date >= %s ORDER BY date''', (today.isoformat(),))
+                FROM activities WHERE date >= %s AND user_id=%s ORDER BY date''', (today.isoformat(), uid()))
             act_rows = cur.fetchall()
 
     planned_str = '; '.join(f"{p['title']} — {p['detail']}" for p in planned) if planned \
@@ -1023,7 +1117,7 @@ def _build_review_prompt():
     acts_str = '; '.join(acts) if acts else 'nothing logged yet today'
 
     # Dagens kalender (jobb/åtaganden) så "har du tid" blir smart
-    cal_row = get_cache('gcal_events')
+    cal_row = get_cache('gcal_events', uid())
     today_events = []
     if cal_row:
         for ev in (cal_row[0] or []):
@@ -1066,7 +1160,7 @@ Respond ONLY with this JSON (all text in English):
 @app.get('/api/training-review')
 def training_review():
     force = request.args.get('force') == '1'
-    row = get_cache('training_review')
+    row = get_cache('training_review', uid())
     if row and not force and (time.time() - row[1]) < 30 * 60:
         return jsonify(row[0])
     if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
@@ -1081,7 +1175,7 @@ def training_review():
                      'content-type': 'application/json'})
         text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
         review = json.loads(text)
-        set_cache('training_review', review)
+        set_cache('training_review', review, uid())
         return jsonify(review)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1092,13 +1186,13 @@ def _build_insights_prompt():
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('''SELECT date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr
-                FROM health_history WHERE date >= %s ORDER BY date''', (start,))
+                FROM health_history WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
             hh = cur.fetchall()
         with conn.cursor() as cur:
-            cur.execute('''SELECT date, type, distance FROM activities WHERE date >= %s ORDER BY date''', (start,))
+            cur.execute('''SELECT date, type, distance FROM activities WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
             acts = cur.fetchall()
         with conn.cursor() as cur:
-            cur.execute('SELECT text, category FROM user_notes ORDER BY created_at DESC LIMIT 25')
+            cur.execute('SELECT text, category FROM user_notes WHERE user_id=%s ORDER BY created_at DESC LIMIT 25', (uid(),))
             notes = cur.fetchall()
 
     acts_by_day = {}
@@ -1107,7 +1201,7 @@ def _build_insights_prompt():
         label = (typ or 'activity') + (f" {dist/1000:.1f}km" if dist else '')
         acts_by_day.setdefault(key, []).append(label)
 
-    cal_row = get_cache('gcal_events')
+    cal_row = get_cache('gcal_events', uid())
     work_days = {}
     if cal_row:
         for ev in (cal_row[0] or []):
@@ -1166,12 +1260,12 @@ Give 3-5 insights, most important first."""
 @app.get('/api/insights')
 def insights():
     force = request.args.get('force') == '1'
-    row = get_cache('insights')
+    row = get_cache('insights', uid())
     if row and not force and (time.time() - row[1]) < 12 * 3600:
         return jsonify(row[0])
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT COUNT(*) FROM health_history')
+            cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
             n = cur.fetchone()[0]
     if n < 3:
         return jsonify({'status': 'watch', 'headline': 'Gathering your data…',
@@ -1188,7 +1282,7 @@ def insights():
             headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
         text = resp.json()['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
-        set_cache('insights', data)
+        set_cache('insights', data, uid())
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1212,9 +1306,10 @@ def get_gcal_service():
         return None
     if not os.path.exists(GCAL_CREDS):
         return None
+    token_path = gcal_token()
     creds = None
-    if os.path.exists(GCAL_TOKEN):
-        creds = Credentials.from_authorized_user_file(GCAL_TOKEN, GCAL_SCOPES)
+    if os.path.exists(token_path):
+        creds = Credentials.from_authorized_user_file(token_path, GCAL_SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             try:
@@ -1227,7 +1322,7 @@ def get_gcal_service():
         else:
             flow = InstalledAppFlow.from_client_secrets_file(GCAL_CREDS, GCAL_SCOPES)
             creds = flow.run_local_server(port=0)
-        with open(GCAL_TOKEN, 'w') as f:
+        with open(token_path, 'w') as f:
             f.write(creds.to_json())
     return gbuild('calendar', 'v3', credentials=creds)
 
@@ -1273,13 +1368,13 @@ def calendar_events():
         return jsonify({'ok': False, 'error': 'Google token has expired or been revoked. Run reauth_google.py and sign in again.', 'events': []})
     events = fetch_gcal_events(days=90, past_days=30)
     # Cacha i DB i 30 min
-    set_cache('gcal_events', events)
+    set_cache('gcal_events', events, uid())
     return jsonify({'ok': True, 'events': events})
 
 @app.get('/api/calendar/status')
 def calendar_status():
     has_creds = os.path.exists(GCAL_CREDS)
-    has_token = os.path.exists(GCAL_TOKEN)
+    has_token = os.path.exists(gcal_token())
     return jsonify({'hasCreds': has_creds, 'hasToken': has_token, 'available': GCAL_AVAILABLE})
 
 # --- Minne / Noteringar ---
@@ -1287,7 +1382,7 @@ def calendar_status():
 def get_notes():
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT id, text, category, created_at FROM user_notes ORDER BY created_at DESC')
+            cur.execute('SELECT id, text, category, created_at FROM user_notes WHERE user_id=%s ORDER BY created_at DESC', (uid(),))
             rows = cur.fetchall()
     return jsonify({'notes': [{'id': r[0], 'text': r[1], 'category': r[2], 'created_at': r[3]} for r in rows]})
 
@@ -1300,8 +1395,8 @@ def add_note():
         return jsonify({'error': 'Empty note'}), 400
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('INSERT INTO user_notes (text, category, created_at) VALUES (%s, %s, %s) RETURNING id',
-                        (text, category, time.time()))
+            cur.execute('INSERT INTO user_notes (text, category, created_at, user_id) VALUES (%s, %s, %s, %s) RETURNING id',
+                        (text, category, time.time(), uid()))
             new_id = cur.fetchone()[0]
         conn.commit()
     return jsonify({'ok': True, 'id': new_id})
@@ -1310,7 +1405,7 @@ def add_note():
 def delete_note(note_id):
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('DELETE FROM user_notes WHERE id=%s', (note_id,))
+            cur.execute('DELETE FROM user_notes WHERE id=%s AND user_id=%s', (note_id, uid()))
         conn.commit()
     return jsonify({'ok': True})
 
@@ -1325,8 +1420,8 @@ def strength_sessions():
         print('Strength-länkning fel:', e)
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT raw FROM activities WHERE type = ANY(%s) ORDER BY date DESC LIMIT 30",
-                        (list(STRENGTH_TYPES),))
+            cur.execute("SELECT raw FROM activities WHERE type = ANY(%s) AND user_id=%s ORDER BY date DESC LIMIT 30",
+                        (list(STRENGTH_TYPES), uid()))
             rows = cur.fetchall()
     sessions = []
     for r in rows:
@@ -1350,8 +1445,8 @@ def get_exercises(session_id):
         print('Strength-passlänkning fel:', e)
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT id, exercise, sets, reps, weight, note FROM strength_exercises WHERE session_id=%s ORDER BY id',
-                        (session_id,))
+            cur.execute('SELECT id, exercise, sets, reps, weight, note FROM strength_exercises WHERE session_id=%s AND user_id=%s ORDER BY id',
+                        (session_id, uid()))
             rows = cur.fetchall()
     return jsonify({'exercises': [{'id': r[0], 'exercise': r[1], 'sets': r[2], 'reps': r[3], 'weight': r[4], 'note': r[5]} for r in rows]})
 
@@ -1360,9 +1455,9 @@ def add_exercise(session_id):
     data = request.get_json(force=True, silent=True) or {}
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('INSERT INTO strength_exercises (session_id,exercise,sets,reps,weight,note,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+            cur.execute('INSERT INTO strength_exercises (session_id,exercise,sets,reps,weight,note,created_at,user_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
                         (session_id, data.get('exercise',''), data.get('sets'), data.get('reps',''),
-                         data.get('weight'), data.get('note',''), time.time()))
+                         data.get('weight'), data.get('note',''), time.time(), uid()))
             new_id = cur.fetchone()[0]
         conn.commit()
     return jsonify({'ok': True, 'id': new_id})
@@ -1371,7 +1466,7 @@ def add_exercise(session_id):
 def delete_exercise(ex_id):
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('DELETE FROM strength_exercises WHERE id=%s', (ex_id,))
+            cur.execute('DELETE FROM strength_exercises WHERE id=%s AND user_id=%s', (ex_id, uid()))
         conn.commit()
     return jsonify({'ok': True})
 
@@ -1519,18 +1614,18 @@ PLAN_SEED = [
 ]
 
 def seed_plan():
-    """Fyll plan_sessions från PLAN_SEED om tabellen är tom."""
+    """Fyll plan_sessions från PLAN_SEED om tabellen är tom (för user_id=1)."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT COUNT(*) FROM plan_sessions')
+            cur.execute('SELECT COUNT(*) FROM plan_sessions WHERE user_id=1')
             if cur.fetchone()[0] > 0:
                 return  # redan seedat
             for s in PLAN_SEED:
                 cur.execute('''INSERT INTO plan_sessions
-                    (week, dow, type, km, title, detail, status, original_week, original_dow)
-                    VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s)''',
+                    (week, dow, type, km, title, detail, status, original_week, original_dow, user_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s,%s)''',
                     (s['week'], s['dow'], s['type'], s['km'],
-                     s['title'], s['detail'], s['week'], s['dow']))
+                     s['title'], s['detail'], s['week'], s['dow'], 1))
         conn.commit()
     print(f'Plan seedat: {len(PLAN_SEED)} pass')
 
@@ -1538,13 +1633,13 @@ def reseed_plan():
     """Ersätt alla planerade pass med ny PLAN_SEED. Behåller completed/missed/skipped som historik."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM plan_sessions WHERE status = 'planned'")
+            cur.execute("DELETE FROM plan_sessions WHERE status = 'planned' AND user_id=1")
             for s in PLAN_SEED:
                 cur.execute('''INSERT INTO plan_sessions
-                    (week, dow, type, km, title, detail, status, original_week, original_dow)
-                    VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s)''',
+                    (week, dow, type, km, title, detail, status, original_week, original_dow, user_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s,%s)''',
                     (s['week'], s['dow'], s['type'], s['km'],
-                     s['title'], s['detail'], s['week'], s['dow']))
+                     s['title'], s['detail'], s['week'], s['dow'], 1))
         conn.commit()
     print(f'Plan omseedad: {len(PLAN_SEED)} nya pass')
 
@@ -1561,7 +1656,7 @@ except Exception as e:
 def get_plan():
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute('SELECT * FROM plan_sessions ORDER BY week, dow')
+            cur.execute('SELECT * FROM plan_sessions WHERE user_id=%s ORDER BY week, dow', (uid(),))
             rows = cur.fetchall()
     return jsonify({'sessions': [dict(r) for r in rows]})
 
@@ -1574,10 +1669,10 @@ def update_session(session_id):
         return jsonify({'error': 'No valid fields'}), 400
     fields['modified_at'] = time.time()
     set_clause = ', '.join(f'{k} = %s' for k in fields)
-    vals = list(fields.values()) + [session_id]
+    vals = list(fields.values()) + [session_id, uid()]
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute(f'UPDATE plan_sessions SET {set_clause} WHERE id = %s', vals)
+            cur.execute(f'UPDATE plan_sessions SET {set_clause} WHERE id = %s AND user_id = %s', vals)
         conn.commit()
     return jsonify({'ok': True})
 
@@ -1590,7 +1685,7 @@ def _iso_week_dow(d):
     iso = d.isocalendar()
     return iso[1], iso[2] - 1  # dow: 0=mån
 
-def match_activities_to_plan(days_back=7):
+def match_activities_to_plan(days_back=7, user_id=1):
     """
     Jämför Garmin-aktiviteter mot planerade pass de senaste N dagarna.
     Markerar pass som completed eller missed. Re-utvärderar även 'missed'
@@ -1607,14 +1702,14 @@ def match_activities_to_plan(days_back=7):
             wk, dw = _iso_week_dow(day)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute('''SELECT * FROM plan_sessions
-                    WHERE week = %s AND dow = %s AND status IN ('planned','missed')''',
-                    (wk, dw))
+                    WHERE week = %s AND dow = %s AND status IN ('planned','missed') AND user_id = %s''',
+                    (wk, dw, user_id))
                 planned = cur.fetchall()
                 if not planned:
                     continue
                 cur.execute('''SELECT raw FROM activities
-                    WHERE date >= %s AND date < %s''',
-                    (day.isoformat(), (day + timedelta(days=1)).isoformat()))
+                    WHERE date >= %s AND date < %s AND user_id = %s''',
+                    (day.isoformat(), (day + timedelta(days=1)).isoformat(), user_id))
                 acts = [r['raw'] for r in cur.fetchall()]
 
             did_run  = any(a.get('activityType',{}).get('typeKey','') in run_types for a in acts)
@@ -1633,7 +1728,7 @@ def match_activities_to_plan(days_back=7):
                     new_status = 'completed' if completed else 'missed'
                     if new_status != p['status']:
                         cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
-                            WHERE id = %s''', (new_status, time.time(), p['id']))
+                            WHERE id = %s AND user_id = %s''', (new_status, time.time(), p['id'], user_id))
         conn.commit()
     print(f'Activity matching complete (last {days_back} days)')
 
@@ -1743,19 +1838,21 @@ def link_manual_exercises_to_activities():
         print(f'Strength: länkade {linked} manuella övningar till Garmin-pass')
 
 
-def run_sync(count=50):
+def run_sync(count=50, username=None, user_id=1):
     """Hämta senaste aktiviteter, spara, rensa cache och matcha mot planen.
     Används av både /api/sync och den återkommande autosynken."""
-    client = get_garmin()
+    if username is None:
+        username = list(USERS.keys())[0] if USERS else 'hugo'
+    client = get_garmin(username)
     acts = client.get_activities(0, count)
-    save_activities(acts)
+    save_activities(acts, user_id)
     try:
         link_manual_exercises_to_activities()
     except Exception as e:
         print('Strength-länkning fel:', e)
-    clear_cache('health', 'analysis')
+    clear_cache('health', 'analysis', user_id=user_id)
     try:
-        match_activities_to_plan()
+        match_activities_to_plan(user_id=user_id)
     except Exception as e:
         print('Matchning efter synk fel:', e)
     try:
@@ -1782,19 +1879,22 @@ def ai_adjust_plan(user_request=None):
     today     = date.today()
     iso_week  = today.isocalendar()[1]
 
+    first_user = list(USERS.keys())[0] if USERS else 'hugo'
+    first_uid  = USERS.get(first_user, {}).get('id', 1)
+
     # 1. Synka Garmin och hälsodata
     try:
-        client = get_garmin()
+        client = get_garmin(first_user)
         acts = client.get_activities(0, 20)
-        save_activities(acts)
+        save_activities(acts, first_uid)
         # Rensa hälso-cache så färsk sömndata hämtas
-        clear_cache('health', 'training_load')
+        clear_cache('health', 'training_load', user_id=first_uid)
     except Exception as e:
         print('AI adjustment: Garmin error', e)
 
     # 2. Hämta hälsodata
     try:
-        client = get_garmin()
+        client = get_garmin(first_user)
         today_str = today.isoformat()
         sleep     = client.get_sleep_data(today_str)
         readiness = client.get_training_readiness(today_str)
@@ -1828,18 +1928,18 @@ def ai_adjust_plan(user_request=None):
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute('''SELECT * FROM plan_sessions
-                WHERE status = 'missed' AND week >= %s
-                ORDER BY week, dow''', (iso_week - 1,))
+                WHERE status = 'missed' AND week >= %s AND user_id = %s
+                ORDER BY week, dow''', (iso_week - 1, first_uid))
             missed = [dict(r) for r in cur.fetchall()]
 
             cur.execute('''SELECT * FROM plan_sessions
-                WHERE status = 'planned' AND week >= %s
-                ORDER BY week, dow LIMIT 20''', (iso_week,))
+                WHERE status = 'planned' AND week >= %s AND user_id = %s
+                ORDER BY week, dow LIMIT 20''', (iso_week, first_uid))
             upcoming = [dict(r) for r in cur.fetchall()]
 
             # Genomförd km och load denna vecka
-            cur.execute('''SELECT raw FROM activities WHERE date >= %s''',
-                ((today - timedelta(days=today.weekday())).isoformat(),))
+            cur.execute('''SELECT raw FROM activities WHERE date >= %s AND user_id = %s''',
+                ((today - timedelta(days=today.weekday())).isoformat(), first_uid))
             week_acts = [r['raw'] for r in cur.fetchall()]
 
     completed_km   = sum((a.get('distance',0) or 0)/1000 for a in week_acts
@@ -1852,7 +1952,7 @@ def ai_adjust_plan(user_request=None):
     week_cap   = round(planned_km * 1.1)
 
     # 4. Google Calendar — hämta från cache
-    cal_row = get_cache('gcal_events')
+    cal_row = get_cache('gcal_events', first_uid)
     gcal_str = ''
     if cal_row:
         upcoming_evs = []
@@ -1987,18 +2087,18 @@ Return ONLY this JSON, with no comments outside it:
                     km       = change.get('new_km') if change.get('new_km') is not None else 0
                     if new_week and new_dow is not None and title and detail:
                         cur.execute('''INSERT INTO plan_sessions
-                            (week, dow, type, km, title, detail, status, original_week, original_dow, ai_note, modified_at)
-                            VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s,%s,%s)''',
+                            (week, dow, type, km, title, detail, status, original_week, original_dow, ai_note, modified_at, user_id)
+                            VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s,%s,%s,%s)''',
                             (new_week, new_dow, typ, km, title, detail, new_week, new_dow,
-                             change.get('reason',''), time.time()))
+                             change.get('reason',''), time.time(), first_uid))
                         changes_applied += 1
                     continue
                 if not sid:
                     continue
                 if action == 'skip':
                     cur.execute('''UPDATE plan_sessions
-                        SET status='skipped', ai_note=%s, modified_at=%s WHERE id=%s''',
-                        (change.get('reason',''), time.time(), sid))
+                        SET status='skipped', ai_note=%s, modified_at=%s WHERE id=%s AND user_id=%s''',
+                        (change.get('reason',''), time.time(), sid, first_uid))
                     changes_applied += 1
                 elif action == 'reschedule':
                     new_week = change.get('new_week')
@@ -2016,8 +2116,8 @@ Return ONLY this JSON, with no comments outside it:
                         extra_sql = (',' + ','.join(extra_sets)) if extra_sets else ''
                         cur.execute(f'''UPDATE plan_sessions
                             SET status='planned', week=%s, dow=%s,
-                                ai_note=%s, modified_at=%s{extra_sql} WHERE id=%s''',
-                            [new_week, new_dow, change.get('reason',''), time.time()] + extra_vals + [sid])
+                                ai_note=%s, modified_at=%s{extra_sql} WHERE id=%s AND user_id=%s''',
+                            [new_week, new_dow, change.get('reason',''), time.time()] + extra_vals + [sid, first_uid])
                         changes_applied += 1
                 elif action == 'modify':
                     # Ändra passinnehåll utan att flytta det
@@ -2029,9 +2129,9 @@ Return ONLY this JSON, with no comments outside it:
                         mod_sets.append('title=%s'); mod_vals.append(change['new_title'])
                     if change.get('new_detail'):
                         mod_sets.append('detail=%s'); mod_vals.append(change['new_detail'])
-                    mod_vals.append(sid)
+                    mod_vals.extend([sid, first_uid])
                     cur.execute(f'''UPDATE plan_sessions
-                        SET {','.join(mod_sets)} WHERE id=%s AND status='planned' ''',
+                        SET {','.join(mod_sets)} WHERE id=%s AND status='planned' AND user_id=%s''',
                         mod_vals)
                     changes_applied += 1
         conn.commit()
@@ -2047,7 +2147,7 @@ Return ONLY this JSON, with no comments outside it:
         'summary': summary,
         'coaching_notes': coaching_notes,
         'user_request': user_request or None
-    })
+    }, first_uid)
 
 
 # ─────────────────────────────────────────────
@@ -2066,9 +2166,10 @@ def api_reseed():
 def manual_adjust():
     """Trigga AI-justeringen manuellt (t.ex. för testning)."""
     try:
-        match_activities_to_plan()
+        match_activities_to_plan(user_id=uid())
         ai_adjust_plan()
-        row = get_cache('last_plan_adjustment')
+        first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
+        row = get_cache('last_plan_adjustment', first_uid)
         return jsonify({'ok': True, 'result': row[0] if row else {}})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2085,9 +2186,10 @@ def plan_request():
     if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
         return jsonify({'error': 'AI key required'}), 503
     try:
-        match_activities_to_plan()
+        match_activities_to_plan(user_id=uid())
         ai_adjust_plan(user_request=text)
-        row = get_cache('last_plan_adjustment')
+        first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
+        row = get_cache('last_plan_adjustment', first_uid)
         return jsonify({'ok': True, 'result': row[0] if row else {}})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2095,7 +2197,8 @@ def plan_request():
 @app.get('/api/plan/status')
 def plan_status():
     """Senaste AI-justeringens status."""
-    row = get_cache('last_plan_adjustment')
+    first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
+    row = get_cache('last_plan_adjustment', first_uid)
     return jsonify(row[0] if row else {'date': None, 'changes': 0, 'summary': '', 'coaching_notes': ''})
 
 
@@ -2105,13 +2208,15 @@ def plan_status():
 def maybe_run_daily_routine():
     """Den dagliga rutinen körs EN gång per dag — men först när dagens hälsodata
     faktiskt har synkat. Ingen gissad klockslag, inget 'recovery unavailable'.
-    Drivs av autosynken (var 3:e timme) + varje manuell synk."""
-    row = get_cache('last_plan_adjustment')
+    Drivs av autosynken (var 3:e timme) + varje manuell synk. Kör bara för user_id=1."""
+    first_user = list(USERS.keys())[0] if USERS else 'hugo'
+    first_uid  = USERS.get(first_user, {}).get('id', 1)
+    row = get_cache('last_plan_adjustment', first_uid)
     if row and row[0].get('date') == date.today().isoformat():
         return  # redan kört idag
     today = date.today().isoformat()
     try:
-        client = get_garmin()
+        client = get_garmin(first_user)
         readiness = client.get_training_readiness(today)
         sleep = client.get_sleep_data(today)
     except Exception as e:
@@ -2123,9 +2228,9 @@ def maybe_run_daily_routine():
         print('Daglig rutin: dagens hälsodata inte synkad än — väntar till nästa synk')
         return
     print('Daglig rutin: dagens data finns → matchning + historik + AI-justering')
-    collect_health_history()
-    collect_metric_history()
-    clear_cache('insights')
+    collect_health_history(username=first_user)
+    collect_metric_history(username=first_user)
+    clear_cache('insights', user_id=first_uid)
     ai_adjust_plan()
 
 def auto_sync_job():
@@ -2142,8 +2247,9 @@ print('Scheduler active: data-driven daglig rutin via autosynk var 3:e timme')
 
 # Bootstrappa hälsohistorik + fitness-mätare i bakgrunden (blockerar inte serverstarten)
 def _bootstrap_history():
-    collect_health_history(14)
-    collect_metric_history(45)
+    first_user = list(USERS.keys())[0] if USERS else 'hugo'
+    collect_health_history(14, username=first_user)
+    collect_metric_history(45, username=first_user)
 threading.Thread(target=_bootstrap_history, daemon=True).start()
 
 
