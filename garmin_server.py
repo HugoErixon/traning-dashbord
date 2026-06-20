@@ -363,7 +363,7 @@ def ac_setpoint():
         cfg['controller']['target_c'] = round(target * 2) / 2
         with open(AC_KEEPER_CONFIG, 'w') as f:
             yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
-        result = subprocess.run(['systemctl', 'restart', AC_LOOP_SERVICE], timeout=10, capture_output=True)
+        result = subprocess.run(['sudo', 'systemctl', 'restart', AC_LOOP_SERVICE], timeout=10, capture_output=True)
         if result.returncode != 0:
             return jsonify({'ok': False, 'error': 'systemctl restart failed: ' + result.stderr.decode()}), 500
         return jsonify({'ok': True, 'target_c': cfg['controller']['target_c']})
