@@ -2047,6 +2047,25 @@
         </div>
       </div>
 
+      <!-- Sleep stage chart -->
+      <div class="bigcard" style="margin-bottom:24px;padding:20px 20px 16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted2);">Sleep stages</span>
+          <div style="display:flex;gap:14px;align-items:center;" id="sleep-chart-legend">
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#1d4ed8;"></span>Deep</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#93c5fd;"></span>Light</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#c084fc;"></span>REM</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f9a8d4;"></span>Awake</span>
+          </div>
+        </div>
+        <canvas id="sleep-stage-canvas" height="130" style="width:100%;display:block;"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;" id="sleep-chart-times">
+          <span style="font-size:11px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;" id="sleep-chart-t-start"></span>
+          <span style="font-size:11px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;" id="sleep-chart-t-end"></span>
+        </div>
+        <p id="sleep-chart-empty" style="font-size:13px;color:var(--muted3);margin:8px 0 0;display:none;">No stage data available for last night.</p>
+      </div>
+
       <div class="bigcard accent-green" style="margin-bottom:24px;">
         <div class="today-header">
           <h3 id="sleep-page-plan-title">Loading sleep plan...</h3>
@@ -2360,7 +2379,133 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setText('sleep-page-plan-body', debtSec < 900
       ? 'Last night reached the sleep goal. Keep the normal bedtime and let AC pre-cooling follow the planned sleep start.'
       : 'Last night was ' + fmt(debtSec) + ' short of the goal. Go to bed earlier tonight and let the AC start pre-cooling before the sleep window.');
-    setText('sleep-page-ac-body', 'Preliminary AC start: ' + timeFmt(acStart) + '. Once control is connected, the dashboard will send this window to AC Keeper instead of letting the AC guess.');
+
+    renderSleepStageChart(sleep.levels || [], sleep.startGMT, sleep.endGMT);
+  }
+
+  function renderSleepStageChart(levels, startGMT, endGMT) {
+    const canvas = document.getElementById('sleep-stage-canvas');
+    const empty  = document.getElementById('sleep-chart-empty');
+    if (!canvas) return;
+
+    if (!levels || levels.length === 0) {
+      canvas.style.display = 'none';
+      document.getElementById('sleep-chart-times').style.display = 'none';
+      if (empty) empty.style.display = 'block';
+      return;
+    }
+    canvas.style.display = 'block';
+    document.getElementById('sleep-chart-times').style.display = 'flex';
+    if (empty) empty.style.display = 'none';
+
+    // Parse timestamps — Garmin returns "YYYY-MM-DD HH:MM:SS" in GMT
+    const parseGMT = s => {
+      if (!s) return null;
+      if (typeof s === 'number') return new Date(s);
+      return new Date(s.replace(' ', 'T') + 'Z');
+    };
+
+    const sorted = [...levels].sort((a, b) => parseGMT(a.startGMT) - parseGMT(b.startGMT));
+    const chartStart = parseGMT(startGMT) || parseGMT(sorted[0].startGMT);
+    const chartEnd   = parseGMT(endGMT)   || parseGMT(sorted[sorted.length - 1].endGMT);
+    if (!chartStart || !chartEnd) return;
+    const totalMs = chartEnd - chartStart;
+
+    // activityLevel → row (0=top/Awake … 3=bottom/Deep)
+    // Garmin levels: 0=deep, 1=light, 2=awake, 3=REM
+    const STAGE = {
+      0: { row: 3, color: '#1d4ed8' },  // Deep
+      1: { row: 2, color: '#93c5fd' },  // Light
+      2: { row: 0, color: '#f9a8d4' },  // Awake
+      3: { row: 1, color: '#c084fc' },  // REM
+    };
+    const LABELS = ['Awake', 'REM', 'Light', 'Deep'];
+
+    const dpr   = window.devicePixelRatio || 1;
+    const W     = canvas.offsetWidth || canvas.parentElement.clientWidth || 600;
+    const H     = 130;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const LABEL_W = 38;
+    const chartW  = W - LABEL_W - 4;
+    const ROWS    = 4;
+    const rowH    = (H - 10) / ROWS;
+
+    // Row backgrounds (subtle)
+    for (let r = 0; r < ROWS; r++) {
+      ctx.fillStyle = r % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0)';
+      ctx.fillRect(LABEL_W, r * rowH, chartW, rowH);
+    }
+
+    // Stage segments
+    for (const seg of sorted) {
+      const level = Math.round(seg.activityLevel ?? seg.level ?? 1);
+      const info  = STAGE[level] ?? STAGE[1];
+      const t0 = parseGMT(seg.startGMT);
+      const t1 = parseGMT(seg.endGMT);
+      if (!t0 || !t1) continue;
+      const x  = LABEL_W + ((t0 - chartStart) / totalMs) * chartW;
+      const w  = Math.max(1, ((t1 - t0) / totalMs) * chartW);
+      const y  = info.row * rowH + 2;
+      const h  = rowH - 4;
+      ctx.fillStyle = info.color;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 2);
+      ctx.fill();
+    }
+
+    // Y-axis labels
+    ctx.font = '10px "IBM Plex Mono", monospace';
+    ctx.fillStyle = '#64748b';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let r = 0; r < ROWS; r++) {
+      ctx.fillText(LABELS[r], LABEL_W - 4, r * rowH + rowH / 2);
+    }
+
+    // Wake time dashed line
+    ctx.strokeStyle = '#475569';
+    ctx.setLineDash([3, 4]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(LABEL_W + chartW, 0);
+    ctx.lineTo(LABEL_W + chartW, H - 10);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Time labels below chart
+    const fmtTime = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const startEl = document.getElementById('sleep-chart-t-start');
+    const endEl   = document.getElementById('sleep-chart-t-end');
+    if (startEl) startEl.textContent = fmtTime(chartStart);
+    if (endEl)   endEl.textContent   = 'Wake ' + fmtTime(chartEnd);
+
+    // Hour tick marks
+    ctx.fillStyle = '#334155';
+    ctx.textAlign = 'center';
+    ctx.font = '9px "IBM Plex Mono", monospace';
+    const startH = chartStart.getHours();
+    for (let h = 0; h < 24; h++) {
+      const tick = new Date(chartStart);
+      tick.setUTCHours(0, 0, 0, 0);
+      tick.setUTCHours(tick.getUTCHours() + Math.floor(chartStart.getUTCHours() / 1 + h));
+      // draw a tick every 2 hours
+      if (h % 2 !== 0) continue;
+      const ms = tick - chartStart;
+      if (ms < 0 || ms > totalMs) continue;
+      const x = LABEL_W + (ms / totalMs) * chartW;
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(x, H - 10, 1, 6);
+      ctx.fillStyle = '#475569';
+      ctx.fillText(tick.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }), x, H - 1);
+    }
   }
 
   let currentHealthData = null;
