@@ -1080,7 +1080,7 @@ Respond ONLY with this JSON (no explanation outside JSON):
 @app.post('/api/refresh')
 def refresh():
     row = get_cache('analysis', uid())
-    if row and (time.time() - row[1]) < 5 * 60:
+    if row and (time.time() - row[1]) < 60 * 60:
         return jsonify(row[0])
 
     try:
