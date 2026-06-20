@@ -2074,6 +2074,16 @@
         <p id="sleep-page-plan-body">Reading Garmin sleep data...</p>
       </div>
 
+      <!-- Sleep AI analysis -->
+      <div class="bigcard" style="margin-bottom:24px;">
+        <div class="today-header" style="margin-bottom:14px;">
+          <h3 id="sleep-ai-headline">Analyzing your sleep patterns…</h3>
+          <span class="today-badge badge-amber" id="sleep-ai-badge">AI</span>
+        </div>
+        <div id="sleep-ai-list" style="font-size:13.5px;color:var(--muted3);line-height:1.65;">Loading…</div>
+        <button id="sleep-ai-refresh" onclick="loadSleepInsights(true)" style="margin-top:14px;background:none;border:1px solid var(--border2);border-radius:7px;padding:5px 12px;color:var(--muted2);font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer;transition:border-color 0.15s;" onmouseover="this.style.borderColor='var(--muted2)'" onmouseout="this.style.borderColor='var(--border2)'">Refresh analysis</button>
+      </div>
+
     </div>
 
     <!-- HISTORIK -->
@@ -2266,7 +2276,7 @@ window.fetch = (url, opts = {}) => {
     });
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
-    if (id === 'sleep')    { loadHealth(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
+    if (id === 'sleep')    { loadHealth(); loadSleepInsights(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') loadAnalysis();
     if (id === 'strength') loadStrengthPage();
     if (id === 'coach')    loadNotes();
@@ -3613,6 +3623,30 @@ HEALTH DATA (current):
     } catch(e) { list.textContent = 'Insights unavailable.'; }
   }
   loadInsights();
+
+  async function loadSleepInsights(force) {
+    const list  = document.getElementById('sleep-ai-list');
+    const hl    = document.getElementById('sleep-ai-headline');
+    const badge = document.getElementById('sleep-ai-badge');
+    if (!list) return;
+    try {
+      const res = await fetch('/api/sleep-insights' + (force ? '?force=1' : ''));
+      const d = await res.json();
+      if (d.error) { list.textContent = 'Error: ' + d.error; return; }
+      if (d.headline && hl) hl.textContent = d.headline;
+      const map = { good: ['badge-green','GOOD'], watch: ['badge-amber','WATCH'], caution: ['badge-red','CAUTION'] };
+      const m = map[d.status] || ['badge-amber','AI'];
+      if (badge) { badge.className = 'today-badge ' + m[0]; badge.textContent = m[1]; }
+      const items = d.insights || [];
+      if (!items.length) { list.textContent = d.headline || 'No patterns found yet.'; return; }
+      list.innerHTML = items.map(it =>
+        `<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);">
+           <div style="font-weight:700;color:var(--muted2);margin-bottom:3px;">${it.title || ''}</div>
+           <div style="margin-bottom:4px;">${it.detail || ''}</div>
+           ${it.action ? `<div style="color:var(--green);font-size:12.5px;">→ ${it.action}</div>` : ''}
+         </div>`).join('').replace(/border-bottom[^;]+;(?=[^<]*<\/div>\s*$)/, '');
+    } catch(e) { list.textContent = 'Could not load sleep analysis.'; }
+  }
 
   const history = [];
 

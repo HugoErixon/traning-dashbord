@@ -1329,6 +1329,126 @@ def insights():
         print('insights error:', e)
         return jsonify({'error': str(e)}), 500
 
+def _build_sleep_insights_prompt():
+    today = date.today()
+    start = (today - timedelta(days=28)).isoformat()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr
+                FROM health_history WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
+            hh = cur.fetchall()
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, type, distance FROM activities WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
+            acts = cur.fetchall()
+
+    acts_by_day = {}
+    for d, typ, dist in acts:
+        key = (d or '')[:10]
+        label = (typ or 'activity') + (f' {dist/1000:.1f}km' if dist else '')
+        acts_by_day.setdefault(key, []).append(label)
+
+    cal_row = get_cache('gcal_events', uid())
+    cal_by_day = {}
+    if cal_row:
+        for ev in (cal_row[0] or []):
+            s = ev.get('start', '')
+            key = s[:10]
+            if not key: continue
+            title = ev.get('title', 'event')
+            early = 'T' in s and s[11:13].isdigit() and int(s[11:13]) < 7
+            cal_by_day.setdefault(key, []).append(('early ' if early else '') + title)
+
+    lines = []
+    for d, ss, sh, dp, rp, hv, rhr in hh:
+        key = d[:10]
+        tr  = ', '.join(acts_by_day.get(key, [])) or 'rest'
+        cal = '; '.join(cal_by_day.get(key, [])) or '-'
+        lines.append(f"{key}: score={ss} hours={sh} deep={dp}% REM={rp}% HRV={hv} RHR={rhr} | training: {tr} | calendar: {cal}")
+    log = '\n'.join(lines) if lines else 'No history yet.'
+
+    temp_note = ''
+    try:
+        r = requests.get(f'{AC_KEEPER_URL}/api/control-events', params={'hours': 168}, timeout=4)
+        events = r.json()
+        if events:
+            by_day = {}
+            for e in events:
+                if e.get('measured_c') is None: continue
+                day = e.get('timestamp', '')[:10]
+                by_day.setdefault(day, []).append(e['measured_c'])
+            daily_temps = {d: round(sum(v)/len(v), 1) for d, v in by_day.items()}
+            temp_lines = [f"{d}: avg {t}°C" for d, t in sorted(daily_temps.items())]
+            temp_note = '\nBEDROOM TEMPERATURE (last 7 nights):\n' + '\n'.join(temp_lines)
+    except Exception:
+        pass
+
+    return f"""You are an expert sleep coach analyzing one athlete's sleep data from the last 4 weeks.
+
+DAILY LOG (date: sleep score, hours, deep%, REM%, HRV, resting HR | training that day | calendar events):
+{log}
+{temp_note}
+
+Your job: find REAL, SPECIFIC patterns in this person's sleep. Look for:
+- What time they naturally wake up and whether it varies
+- How training type/load affects sleep quality the SAME night and the NEXT night
+- How calendar events (work, early starts, social) correlate with sleep score and duration
+- How bedroom temperature correlates with deep sleep %
+- Whether sleep debt accumulates across the week
+- REM and deep sleep patterns — when does the athlete get the most restorative sleep?
+
+Reference actual numbers and dates. Only state patterns that the data clearly supports. If data is sparse, say so honestly.
+
+Respond ONLY with this JSON (all text in English):
+{{
+  "headline": "one-line summary of their sleep profile (max 10 words)",
+  "status": "good | watch | caution",
+  "insights": [
+    {{"title": "short title", "detail": "2-3 specific sentences with numbers from the data", "action": "one concrete thing to try tonight or this week"}}
+  ]
+}}
+Give 3-5 insights ordered by impact. Most actionable first."""
+
+
+@app.get('/api/sleep-insights')
+def sleep_insights():
+    force = request.args.get('force') == '1'
+    try:
+        row = get_cache('sleep_insights', uid())
+        if row and not force and (time.time() - row[1]) < 12 * 3600:
+            return jsonify(row[0])
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
+                n = cur.fetchone()[0]
+    except Exception as e:
+        return jsonify({'error': 'Database error: ' + str(e)}), 500
+
+    if n < 5:
+        return jsonify({'status': 'watch', 'headline': 'Collecting sleep data…',
+                        'insights': [{'title': 'Need more history',
+                                      'detail': f'Have {n} night(s) so far — need at least 5 to find patterns.',
+                                      'action': 'Check back in a few days.'}]})
+    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
+        return jsonify({'status': 'watch', 'headline': 'AI key required',
+                        'insights': [{'title': 'No API key', 'detail': 'Add ANTHROPIC_API_KEY to .env.', 'action': ''}]})
+    try:
+        prompt = _build_sleep_insights_prompt()
+        resp = requests.post('https://api.anthropic.com/v1/messages',
+            json={'model': 'claude-sonnet-4-6', 'max_tokens': 2000,
+                  'messages': [{'role': 'user', 'content': prompt}]},
+            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
+        rj = resp.json()
+        if 'error' in rj:
+            return jsonify({'error': 'Anthropic: ' + rj['error'].get('message', str(rj['error']))}), 500
+        text = rj['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
+        data = json.loads(text)
+        set_cache('sleep_insights', data, uid())
+        return jsonify(data)
+    except Exception as e:
+        print('sleep_insights error:', e)
+        return jsonify({'error': str(e)}), 500
+
+
 @app.post('/api/chat')
 def chat():
     data = request.json or {}
