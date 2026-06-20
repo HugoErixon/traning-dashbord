@@ -456,14 +456,6 @@ def hrv_signal(status, last_night, weekly):
     return 'amber', 'HRV data unavailable'
 
 
-@app.get('/api/debug-sleep')
-def debug_sleep():
-    today = date.today().isoformat()
-    client = get_garmin(uname())
-    sleep = client.get_sleep_data(today)
-    keys = list(sleep.keys()) if isinstance(sleep, dict) else []
-    levels = sleep.get('sleepLevels') or sleep.get('sleepMovement') or sleep.get('sleepLevelsMap')
-    return jsonify({'top_keys': keys, 'levels_sample': levels[:3] if levels else None})
 
 @app.get('/api/health')
 def health_data():

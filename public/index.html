@@ -2398,7 +2398,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     document.getElementById('sleep-chart-times').style.display = 'flex';
     if (empty) empty.style.display = 'none';
 
-    // Parse timestamps — Garmin returns "YYYY-MM-DD HH:MM:SS" in GMT
     const parseGMT = s => {
       if (!s) return null;
       if (typeof s === 'number') return new Date(s);
@@ -2411,19 +2410,18 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (!chartStart || !chartEnd) return;
     const totalMs = chartEnd - chartStart;
 
-    // activityLevel → row (0=top/Awake … 3=bottom/Deep)
-    // Garmin levels: 0=deep, 1=light, 2=awake, 3=REM
     const STAGE = {
-      0: { row: 3, color: '#1d4ed8' },  // Deep
-      1: { row: 2, color: '#93c5fd' },  // Light
-      2: { row: 0, color: '#f9a8d4' },  // Awake
-      3: { row: 1, color: '#c084fc' },  // REM
+      0: { row: 3, color: '#3b82f6', name: 'Deep' },
+      1: { row: 2, color: '#7dd3fc', name: 'Light' },
+      2: { row: 0, color: '#f472b6', name: 'Awake' },
+      3: { row: 1, color: '#a78bfa', name: 'REM' },
     };
     const LABELS = ['Awake', 'REM', 'Light', 'Deep'];
 
-    const dpr   = window.devicePixelRatio || 1;
-    const W     = canvas.offsetWidth || canvas.parentElement.clientWidth || 600;
-    const H     = 130;
+    const dpr    = window.devicePixelRatio || 1;
+    const W      = canvas.parentElement.clientWidth;
+    const TICK_H = 22;
+    const H      = 140;
     canvas.width  = W * dpr;
     canvas.height = H * dpr;
     canvas.style.width  = W + 'px';
@@ -2433,78 +2431,112 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
 
-    const LABEL_W = 38;
-    const chartW  = W - LABEL_W - 4;
+    const LABEL_W = 44;
+    const chartW  = W - LABEL_W;
+    const chartH  = H - TICK_H;
     const ROWS    = 4;
-    const rowH    = (H - 10) / ROWS;
+    const rowH    = chartH / ROWS;
 
-    // Row backgrounds (subtle)
     for (let r = 0; r < ROWS; r++) {
-      ctx.fillStyle = r % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0)';
+      ctx.fillStyle = r % 2 === 0 ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0)';
       ctx.fillRect(LABEL_W, r * rowH, chartW, rowH);
     }
 
-    // Stage segments
+    const segments = [];
     for (const seg of sorted) {
       const level = Math.round(seg.activityLevel ?? seg.level ?? 1);
       const info  = STAGE[level] ?? STAGE[1];
       const t0 = parseGMT(seg.startGMT);
       const t1 = parseGMT(seg.endGMT);
       if (!t0 || !t1) continue;
-      const x  = LABEL_W + ((t0 - chartStart) / totalMs) * chartW;
-      const w  = Math.max(1, ((t1 - t0) / totalMs) * chartW);
-      const y  = info.row * rowH + 2;
-      const h  = rowH - 4;
+      const x = LABEL_W + ((t0 - chartStart) / totalMs) * chartW;
+      const w = Math.max(1, ((t1 - t0) / totalMs) * chartW);
+      const y = info.row * rowH + 1;
+      const h = rowH - 2;
       ctx.fillStyle = info.color;
       ctx.fillRect(x, y, w, h);
+      segments.push({ x, w, info, t0, t1 });
     }
 
-    // Y-axis labels
-    ctx.font = '10px "IBM Plex Mono", monospace';
+    // Y labels
+    ctx.font = '600 10px "IBM Plex Sans", sans-serif';
     ctx.fillStyle = '#64748b';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     for (let r = 0; r < ROWS; r++) {
-      ctx.fillText(LABELS[r], LABEL_W - 4, r * rowH + rowH / 2);
+      ctx.fillText(LABELS[r], LABEL_W - 7, r * rowH + rowH / 2);
     }
 
-    // Wake time dashed line
+    // Wake line
     ctx.strokeStyle = '#475569';
     ctx.setLineDash([3, 4]);
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(LABEL_W + chartW, 0);
-    ctx.lineTo(LABEL_W + chartW, H - 10);
+    ctx.moveTo(LABEL_W + chartW - 0.5, 0);
+    ctx.lineTo(LABEL_W + chartW - 0.5, chartH);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Time labels below chart
-    const fmtTime = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    // Hour ticks — every 2h, computed properly in UTC
+    const startMs = chartStart.getTime();
+    const firstTickMs = Math.ceil(startMs / (2 * 3600000)) * (2 * 3600000);
+    ctx.font = '9px "IBM Plex Mono", monospace';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'center';
+    for (let t = firstTickMs; t <= startMs + totalMs; t += 2 * 3600000) {
+      const x = LABEL_W + ((t - startMs) / totalMs) * chartW;
+      if (x < LABEL_W || x > LABEL_W + chartW) continue;
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(x - 0.5, chartH, 1, 4);
+      const label = new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      ctx.fillStyle = '#475569';
+      ctx.fillText(label, x, chartH + 6);
+    }
+
+    // Bottom labels
+    const fmtLocal = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     const startEl = document.getElementById('sleep-chart-t-start');
     const endEl   = document.getElementById('sleep-chart-t-end');
-    if (startEl) startEl.textContent = fmtTime(chartStart);
-    if (endEl)   endEl.textContent   = 'Wake ' + fmtTime(chartEnd);
+    if (startEl) startEl.textContent = fmtLocal(chartStart);
+    if (endEl)   endEl.textContent   = 'Wake ' + fmtLocal(chartEnd);
 
-    // Hour tick marks
-    ctx.fillStyle = '#334155';
-    ctx.textAlign = 'center';
-    ctx.font = '9px "IBM Plex Mono", monospace';
-    const startH = chartStart.getHours();
-    for (let h = 0; h < 24; h++) {
-      const tick = new Date(chartStart);
-      tick.setUTCHours(0, 0, 0, 0);
-      tick.setUTCHours(tick.getUTCHours() + Math.floor(chartStart.getUTCHours() / 1 + h));
-      // draw a tick every 2 hours
-      if (h % 2 !== 0) continue;
-      const ms = tick - chartStart;
-      if (ms < 0 || ms > totalMs) continue;
-      const x = LABEL_W + (ms / totalMs) * chartW;
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(x, H - 10, 1, 6);
-      ctx.fillStyle = '#475569';
-      ctx.fillText(tick.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }), x, H - 1);
-    }
+    // Hover
+    canvas._sleepMeta = { segments, chartStart, totalMs, LABEL_W, chartW, chartH, rowH, STAGE, LABELS, startMs };
   }
+
+  // Set up sleep chart hover once
+  (function() {
+    const canvas = document.getElementById('sleep-stage-canvas');
+    if (!canvas) return;
+
+    const fmtTime = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const fmtDur  = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m/60)+'h '+(m%60)+'m' : m+'m'; };
+
+    canvas.addEventListener('mousemove', e => {
+      const meta = canvas._sleepMeta;
+      if (!meta) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (canvas.width / rect.width / (window.devicePixelRatio || 1));
+      if (mx < meta.LABEL_W || mx > meta.LABEL_W + meta.chartW) { hideTip(); return; }
+
+      const seg = meta.segments.find(s => mx >= s.x && mx <= s.x + s.w);
+      if (!seg) { hideTip(); return; }
+
+      clearTimeout(tipTimeout);
+      tipBox.innerHTML = `
+        <div class="tip-title" style="color:${seg.info.color}">${seg.info.name}</div>
+        <div class="tip-desc">${fmtTime(seg.t0)} – ${fmtTime(seg.t1)}</div>
+        <div class="tip-desc" style="color:var(--muted2);margin-top:2px;">${fmtDur(seg.t1 - seg.t0)}</div>`;
+      const vw = window.innerWidth;
+      let left = e.clientX + 12;
+      if (left + 180 > vw - 8) left = e.clientX - 192;
+      tipBox.style.left = left + 'px';
+      tipBox.style.top  = (e.clientY - 40) + 'px';
+      tipBox.classList.add('visible');
+    });
+
+    canvas.addEventListener('mouseleave', hideTip);
+  })();
 
   let currentHealthData = null;
 
