@@ -1202,24 +1202,27 @@ def _build_insights_prompt():
         acts_by_day.setdefault(key, []).append(label)
 
     cal_row = get_cache('gcal_events', uid())
-    work_days = {}
+    cal_days = {}
     if cal_row:
         for ev in (cal_row[0] or []):
             s = ev.get('start', '')
             key = s[:10]
             if not key:
                 continue
+            title = ev.get('title', 'event')
             early = ('T' in s and s[11:13].isdigit() and int(s[11:13]) < 7)
-            work_days[key] = 'work-early' if (early or work_days.get(key) == 'work-early') else 'work'
+            prefix = 'early ' if early else ''
+            cal_days.setdefault(key, []).append(f"{prefix}{title}")
 
     lines = []
     for d, ss, sh, dp, rp, hv, rhr in hh:
         key = d[:10]
         tr = ', '.join(acts_by_day.get(key, [])) or 'rest/none'
+        cal_str = '; '.join(cal_days.get(key, [])) or '-'
         lines.append(f"{key}: sleep {ss if ss is not None else '-'} ({sh if sh is not None else '-'}h, "
                      f"deep {dp if dp is not None else '-'}%, REM {rp if rp is not None else '-'}%), "
                      f"HRV {hv if hv is not None else '-'}, RHR {rhr if rhr is not None else '-'} | "
-                     f"training: {tr} | {work_days.get(key, '-')}")
+                     f"training: {tr} | calendar: {cal_str}")
     log = '\n'.join(lines) if lines else 'No history collected yet.'
     notes_txt = '\n'.join(f"- [{c}] {t}" for t, c in notes) if notes else 'None'
 
@@ -1237,14 +1240,14 @@ def _build_insights_prompt():
 
 GOAL: Half marathon under 1:20 on October 10, 2026.
 
-DAILY LOG (sleep score, hours, deep%, REM%, HRV, resting HR, training, work shifts):
+DAILY LOG (sleep score, hours, deep%, REM%, HRV, resting HR, training, calendar events):
 {log}
 {temp_note}
 
 ATHLETE NOTES:
 {notes_txt}
 
-Find correlations across sleep, HRV, resting HR, training and work shifts (e.g. "HRV drops the day after early work shifts", "sleep score higher on rest days", "resting HR trending up = accumulating fatigue"). Reference actual numbers. Only claim patterns the data supports; if data is thin, say what to watch.
+Find correlations across sleep, HRV, resting HR, training and life events from the calendar (e.g. "HRV drops after early starts", "travel days suppress sleep quality", "sleep score higher on rest days", "resting HR trending up = accumulating fatigue"). The calendar column shows actual event names — use them to understand context (work shifts, travel, social events, stress). Reference actual numbers. Only claim patterns the data supports; if data is thin, say what to watch.
 
 Respond ONLY with this JSON (all text in English):
 {{
