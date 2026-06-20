@@ -1289,31 +1289,43 @@ Give 3-5 insights, most important first."""
 @app.get('/api/insights')
 def insights():
     force = request.args.get('force') == '1'
-    row = get_cache('insights', uid())
-    if row and not force and (time.time() - row[1]) < 12 * 3600:
-        return jsonify(row[0])
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
-            n = cur.fetchone()[0]
+    try:
+        row = get_cache('insights', uid())
+        if row and not force and (time.time() - row[1]) < 12 * 3600:
+            return jsonify(row[0])
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
+                n = cur.fetchone()[0]
+    except Exception as e:
+        print('insights db error:', e)
+        return jsonify({'error': 'Database error: ' + str(e)}), 500
+
     if n < 3:
         return jsonify({'status': 'watch', 'headline': 'Gathering your data…',
                         'insights': [{'title': 'Building history',
                                       'detail': f'Collected {n} day(s) so far. Insights sharpen as more sleep/HRV/training history accumulates.',
                                       'action': 'Check back soon — history backfills automatically.'}]})
     if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
-        return jsonify({'status': 'watch', 'headline': 'AI key required', 'insights': []})
+        return jsonify({'status': 'watch', 'headline': 'AI key required',
+                        'insights': [{'title': 'No API key', 'detail': 'Add ANTHROPIC_API_KEY to .env to enable AI insights.', 'action': ''}]})
     try:
         prompt = _build_insights_prompt()
         resp = requests.post('https://api.anthropic.com/v1/messages',
             json={'model': 'claude-sonnet-4-6', 'max_tokens': 900,
                   'messages': [{'role': 'user', 'content': prompt}]},
             headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
-        text = resp.json()['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
+        rj = resp.json()
+        if 'error' in rj:
+            err_msg = rj['error'].get('message', str(rj['error']))
+            print('insights anthropic error:', err_msg)
+            return jsonify({'error': 'Anthropic API error: ' + err_msg}), 500
+        text = rj['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('insights', data, uid())
         return jsonify(data)
     except Exception as e:
+        print('insights error:', e)
         return jsonify({'error': str(e)}), 500
 
 @app.post('/api/chat')

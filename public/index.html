@@ -3567,7 +3567,7 @@ HEALTH DATA (current):
     try {
       const res = await fetch('/api/insights' + (force ? '?force=1' : ''));
       const d = await res.json();
-      if (d.error) { list.textContent = 'Insights unavailable.'; return; }
+      if (d.error) { list.textContent = 'Error: ' + d.error; return; }
       if (d.headline && hl) hl.textContent = d.headline;
       const map = { good:['badge-green','GOOD'], watch:['badge-amber','WATCH'], caution:['badge-red','CAUTION'] };
       const m = map[d.status] || ['badge-amber','AI'];
