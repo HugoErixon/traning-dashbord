@@ -2266,7 +2266,7 @@ window.fetch = (url, opts = {}) => {
     });
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
-    if (id === 'sleep')    loadHealth();
+    if (id === 'sleep')    { loadHealth(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') loadAnalysis();
     if (id === 'strength') loadStrengthPage();
     if (id === 'coach')    loadNotes();
@@ -2456,9 +2456,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       const y  = info.row * rowH + 2;
       const h  = rowH - 4;
       ctx.fillStyle = info.color;
-      ctx.beginPath();
-      ctx.roundRect(x, y, w, h, 2);
-      ctx.fill();
+      ctx.fillRect(x, y, w, h);
     }
 
     // Y-axis labels

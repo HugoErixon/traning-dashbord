@@ -521,7 +521,7 @@ def health_data():
             'sleep':       {'totalSec': total_sleep_sec, 'deepSec': deep_sec, 'remSec': rem_sec, 'score': sleep_score_val,
                             'deepPct': round(deep_sec/total_sleep_sec*100) if total_sleep_sec else 0,
                             'remPct':  round(rem_sec/total_sleep_sec*100)  if total_sleep_sec else 0,
-                            'levels': sleep.get('sleepLevels', []),
+                            'levels': (sleep.get('sleepLevels') or sleep.get('sleepMovement') or []),
                             'startGMT': s.get('sleepStartTimestampGMT'),
                             'endGMT':   s.get('sleepEndTimestampGMT')},
             'bodyBattery': {'current': bb_now, 'max': bb_max, 'charged': bb_today.get('charged'), 'drained': bb_today.get('drained')},
