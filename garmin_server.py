@@ -1312,7 +1312,7 @@ def insights():
     try:
         prompt = _build_insights_prompt()
         resp = requests.post('https://api.anthropic.com/v1/messages',
-            json={'model': 'claude-sonnet-4-6', 'max_tokens': 900,
+            json={'model': 'claude-sonnet-4-6', 'max_tokens': 2000,
                   'messages': [{'role': 'user', 'content': prompt}]},
             headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
         rj = resp.json()
