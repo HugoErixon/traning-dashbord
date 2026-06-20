@@ -518,6 +518,29 @@ def health_data():
             'spo2':        {'avg': avg_spo2, 'min': spo2.get('lowestSpO2')},
         }
         set_cache('health', result, uid())
+
+        # Spara även till health_history så Analysis-fliken får dagens data direkt
+        try:
+            sl = result['sleep']
+            with db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute('''INSERT INTO health_history
+                        (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, created_at, user_id)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (date, user_id) DO UPDATE SET
+                            sleep_score=EXCLUDED.sleep_score, sleep_hours=EXCLUDED.sleep_hours,
+                            deep_pct=EXCLUDED.deep_pct, rem_pct=EXCLUDED.rem_pct,
+                            hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr''',
+                        (today, sl.get('score'),
+                         round(sl.get('totalSec', 0) / 3600, 2) if sl.get('totalSec') else None,
+                         sl.get('deepPct'), sl.get('remPct'),
+                         result['hrv'].get('lastNightAvg'),
+                         result['restingHR'].get('value'),
+                         time.time(), uid()))
+                conn.commit()
+        except Exception:
+            pass
+
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
