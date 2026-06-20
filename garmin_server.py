@@ -1267,28 +1267,33 @@ def _build_insights_prompt():
     except Exception:
         pass
 
-    return f"""You are a sharp performance & health analyst (think WHOOP). Analyze the athlete's last 3 weeks and surface SPECIFIC, ACTIONABLE insights — patterns and correlations, not generic advice.
+    return f"""You are a brutal, data-driven performance analyst like WHOOP. 3 weeks of data below. Surface the 3-4 most important patterns — ONLY what the numbers support.
 
-GOAL: Half marathon under 1:20 on October 10, 2026.
+GOAL: Half marathon sub 1:20, October 10 2026.
 
-DAILY LOG (sleep score, hours, deep%, REM%, HRV, resting HR, training, calendar events):
+DATA (date: sleep score, hours, deep%, REM%, HRV, RHR | training | calendar):
 {log}
 {temp_note}
 
-ATHLETE NOTES:
-{notes_txt}
+NOTES: {notes_txt}
 
-Find correlations across sleep, HRV, resting HR, training and life events from the calendar (e.g. "HRV drops after early starts", "travel days suppress sleep quality", "sleep score higher on rest days", "resting HR trending up = accumulating fatigue"). The calendar column shows actual event names — use them to understand context (work shifts, travel, social events, stress). Reference actual numbers. Only claim patterns the data supports; if data is thin, say what to watch.
+Rules:
+- title: max 4 words, punchy
+- value: the key number (e.g. "−8 ms HRV", "+45 min sleep", "RHR 52→58")
+- detail: exactly ONE sentence, max 12 words, cite the actual number
+- action: max 5 words, starts with a verb
+- icon: one emoji that fits the category (sleep=😴, HRV=💙, training=🏃, fatigue=⚠️, trend=📈, calendar=📅, temp=🌡️)
+- color: "green", "amber", or "red" based on whether this is positive/neutral/negative
 
-Respond ONLY with this JSON (all text in English):
+Respond ONLY with this JSON:
 {{
-  "headline": "one-line overall status (max 8 words)",
+  "headline": "max 5 words",
   "status": "good | watch | caution",
   "insights": [
-    {{"title": "short title", "detail": "1-2 specific sentences referencing the data", "action": "concrete next step"}}
+    {{"icon": "emoji", "title": "max 4 words", "value": "short metric", "detail": "one sentence max 12 words", "action": "max 5 words", "color": "green|amber|red"}}
   ]
 }}
-Give 3-5 insights, most important first."""
+3-4 insights, most impactful first. Only patterns the data clearly supports."""
 
 
 @app.get('/api/insights')
@@ -1386,31 +1391,29 @@ def _build_sleep_insights_prompt():
     except Exception:
         pass
 
-    return f"""You are an expert sleep coach analyzing one athlete's sleep data from the last 4 weeks.
+    return f"""You are a blunt sleep coach. Analyze 4 weeks of sleep data. Find the 3-4 most important patterns — only what numbers actually show.
 
-DAILY LOG (date: sleep score, hours, deep%, REM%, HRV, resting HR | training that day | calendar events):
+DATA (date: sleep score, hours, deep%, REM%, HRV, RHR | training | calendar):
 {log}
 {temp_note}
 
-Your job: find REAL, SPECIFIC patterns in this person's sleep. Look for:
-- What time they naturally wake up and whether it varies
-- How training type/load affects sleep quality the SAME night and the NEXT night
-- How calendar events (work, early starts, social) correlate with sleep score and duration
-- How bedroom temperature correlates with deep sleep %
-- Whether sleep debt accumulates across the week
-- REM and deep sleep patterns — when does the athlete get the most restorative sleep?
+Rules:
+- title: max 4 words, punchy (e.g. "Late REM kicks in", "Work kills deep sleep")
+- value: the key number (e.g. "avg 6h 40m", "deep 12%", "wake 07:15")
+- detail: ONE sentence, max 12 words, cite actual numbers or dates
+- action: max 5 words, starts with a verb, specific to tonight/this week
+- icon: one emoji (😴=sleep duration, 🔵=deep sleep, 🟣=REM, ⏰=wake time, 🌡️=temp, 🏃=training effect, 📅=schedule)
+- color: "green" if positive pattern, "amber" if watch, "red" if problem
 
-Reference actual numbers and dates. Only state patterns that the data clearly supports. If data is sparse, say so honestly.
-
-Respond ONLY with this JSON (all text in English):
+Respond ONLY with this JSON:
 {{
-  "headline": "one-line summary of their sleep profile (max 10 words)",
+  "headline": "max 5 words, describes their sleep pattern",
   "status": "good | watch | caution",
   "insights": [
-    {{"title": "short title", "detail": "2-3 specific sentences with numbers from the data", "action": "one concrete thing to try tonight or this week"}}
+    {{"icon": "emoji", "title": "max 4 words", "value": "short metric", "detail": "one sentence max 12 words", "action": "max 5 words", "color": "green|amber|red"}}
   ]
 }}
-Give 3-5 insights ordered by impact. Most actionable first."""
+3-4 insights, most impactful first."""
 
 
 @app.get('/api/sleep-insights')

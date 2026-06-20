@@ -1212,6 +1212,38 @@
       margin-top: 2px;
     }
 
+    /* ─── INSIGHT CARDS (Whoop-style) ─── */
+    .insight-card {
+      display: flex; background: var(--bg3); border-radius: 10px;
+      overflow: hidden; margin-bottom: 7px; border: 1px solid var(--border);
+    }
+    .insight-bar { width: 3px; flex-shrink: 0; }
+    .insight-bar.green { background: var(--green); }
+    .insight-bar.amber { background: var(--amber); }
+    .insight-bar.red   { background: var(--red); }
+    .insight-body { padding: 10px 13px; flex: 1; min-width: 0; }
+    .insight-top { display: flex; align-items: baseline; gap: 7px; margin-bottom: 2px; flex-wrap: wrap; }
+    .insight-icon { font-size: 13px; line-height: 1; }
+    .insight-title { font-size: 13px; font-weight: 700; color: var(--fg); flex: 1; }
+    .insight-value { font-size: 11px; font-family: 'IBM Plex Mono', monospace; font-weight: 600; white-space: nowrap; }
+    .insight-value.green { color: var(--green); }
+    .insight-value.amber { color: var(--amber); }
+    .insight-value.red   { color: var(--red); }
+    .insight-detail { font-size: 12px; color: var(--muted3); line-height: 1.5; margin-bottom: 6px; }
+    .insight-action {
+      display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+      font-weight: 600; color: var(--green); background: var(--green-dim);
+      border-radius: 5px; padding: 2px 8px;
+    }
+    .insights-hl { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .insights-hl h3 { margin: 0; font-size: 15px; }
+    .insights-refresh {
+      background: none; border: 1px solid var(--border2); border-radius: 6px;
+      color: var(--muted2); font-size: 10px; font-family: 'IBM Plex Mono', monospace;
+      padding: 3px 9px; cursor: pointer; transition: border-color 0.15s;
+    }
+    .insights-refresh:hover { border-color: var(--muted2); }
+
     /* â”€â”€â”€ TOOLTIP â”€â”€â”€ */
     .tip-box {
       position: fixed;
@@ -1801,12 +1833,17 @@
 
       <!-- AI INSIGHTS -->
       <div class="sl">Insights</div>
-      <div class="bigcard accent-amber" style="margin-bottom:24px;">
-        <div class="today-header">
-          <h3 id="insights-headline">Analyzing your data…</h3>
-          <span class="today-badge badge-amber" id="insights-badge">AI</span>
+      <div class="bigcard" style="margin-bottom:24px;">
+        <div class="insights-hl">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h3 id="insights-headline" style="font-size:15px;margin:0;">Loading…</h3>
+            <span class="today-badge badge-amber" id="insights-badge">AI</span>
+          </div>
+          <button class="insights-refresh" onclick="loadInsights(true)">↺ Refresh</button>
         </div>
-        <div id="insights-list" style="font-size:13.5px;color:var(--muted3);line-height:1.65;">Loading insights…</div>
+        <div id="insights-list">
+          <div style="font-size:12px;color:var(--muted3);">Analyzing your data…</div>
+        </div>
       </div>
 
     </div>
@@ -2076,12 +2113,16 @@
 
       <!-- Sleep AI analysis -->
       <div class="bigcard" style="margin-bottom:24px;">
-        <div class="today-header" style="margin-bottom:14px;">
-          <h3 id="sleep-ai-headline">Analyzing your sleep patterns…</h3>
-          <span class="today-badge badge-amber" id="sleep-ai-badge">AI</span>
+        <div class="insights-hl">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h3 id="sleep-ai-headline" style="font-size:15px;margin:0;">Sleep patterns</h3>
+            <span class="today-badge badge-amber" id="sleep-ai-badge">AI</span>
+          </div>
+          <button class="insights-refresh" onclick="loadSleepInsights(true)">↺ Refresh</button>
         </div>
-        <div id="sleep-ai-list" style="font-size:13.5px;color:var(--muted3);line-height:1.65;">Loading…</div>
-        <button id="sleep-ai-refresh" onclick="loadSleepInsights(true)" style="margin-top:14px;background:none;border:1px solid var(--border2);border-radius:7px;padding:5px 12px;color:var(--muted2);font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer;transition:border-color 0.15s;" onmouseover="this.style.borderColor='var(--muted2)'" onmouseout="this.style.borderColor='var(--border2)'">Refresh analysis</button>
+        <div id="sleep-ai-list">
+          <div style="font-size:12px;color:var(--muted3);">Analyzing your sleep…</div>
+        </div>
       </div>
 
     </div>
@@ -3598,29 +3639,40 @@ HEALTH DATA (current):
   loadAcHistory();
   setInterval(loadAcHistory, 300000);
 
-  // AI-insikter (Whoop-likt) — korrelationer över hälsa/träning/miljö
+  function renderInsightCards(items) {
+    if (!items || !items.length) return '<div style="font-size:12px;color:var(--muted3);">No patterns found yet.</div>';
+    return items.map(it => {
+      const col = it.color || 'amber';
+      return `<div class="insight-card">
+        <div class="insight-bar ${col}"></div>
+        <div class="insight-body">
+          <div class="insight-top">
+            <span class="insight-icon">${it.icon || '•'}</span>
+            <span class="insight-title">${it.title || ''}</span>
+            ${it.value ? `<span class="insight-value ${col}">${it.value}</span>` : ''}
+          </div>
+          <div class="insight-detail">${it.detail || ''}</div>
+          ${it.action ? `<span class="insight-action">→ ${it.action}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
   async function loadInsights(force) {
-    const list = document.getElementById('insights-list');
-    const hl = document.getElementById('insights-headline');
+    const list  = document.getElementById('insights-list');
+    const hl    = document.getElementById('insights-headline');
     const badge = document.getElementById('insights-badge');
     if (!list) return;
     try {
       const res = await fetch('/api/insights' + (force ? '?force=1' : ''));
       const d = await res.json();
-      if (d.error) { list.textContent = 'Error: ' + d.error; return; }
+      if (d.error) { list.innerHTML = `<div style="font-size:12px;color:var(--red);">${d.error}</div>`; return; }
       if (d.headline && hl) hl.textContent = d.headline;
       const map = { good:['badge-green','GOOD'], watch:['badge-amber','WATCH'], caution:['badge-red','CAUTION'] };
       const m = map[d.status] || ['badge-amber','AI'];
       if (badge) { badge.className = 'today-badge ' + m[0]; badge.textContent = m[1]; }
-      const items = d.insights || [];
-      if (!items.length) { list.textContent = d.headline || 'No insights yet.'; return; }
-      list.innerHTML = items.map(it =>
-        `<div style="margin-bottom:11px;">
-           <div style="font-weight:700;color:var(--muted2);">${it.title || ''}</div>
-           <div>${it.detail || ''}</div>
-           ${it.action ? `<div style="color:var(--green);margin-top:2px;">→ ${it.action}</div>` : ''}
-         </div>`).join('');
-    } catch(e) { list.textContent = 'Insights unavailable.'; }
+      list.innerHTML = renderInsightCards(d.insights);
+    } catch(e) { list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">Could not load insights.</div>'; }
   }
   loadInsights();
 
@@ -3632,20 +3684,13 @@ HEALTH DATA (current):
     try {
       const res = await fetch('/api/sleep-insights' + (force ? '?force=1' : ''));
       const d = await res.json();
-      if (d.error) { list.textContent = 'Error: ' + d.error; return; }
+      if (d.error) { list.innerHTML = `<div style="font-size:12px;color:var(--red);">${d.error}</div>`; return; }
       if (d.headline && hl) hl.textContent = d.headline;
-      const map = { good: ['badge-green','GOOD'], watch: ['badge-amber','WATCH'], caution: ['badge-red','CAUTION'] };
+      const map = { good:['badge-green','GOOD'], watch:['badge-amber','WATCH'], caution:['badge-red','CAUTION'] };
       const m = map[d.status] || ['badge-amber','AI'];
       if (badge) { badge.className = 'today-badge ' + m[0]; badge.textContent = m[1]; }
-      const items = d.insights || [];
-      if (!items.length) { list.textContent = d.headline || 'No patterns found yet.'; return; }
-      list.innerHTML = items.map(it =>
-        `<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);">
-           <div style="font-weight:700;color:var(--muted2);margin-bottom:3px;">${it.title || ''}</div>
-           <div style="margin-bottom:4px;">${it.detail || ''}</div>
-           ${it.action ? `<div style="color:var(--green);font-size:12.5px;">→ ${it.action}</div>` : ''}
-         </div>`).join('').replace(/border-bottom[^;]+;(?=[^<]*<\/div>\s*$)/, '');
-    } catch(e) { list.textContent = 'Could not load sleep analysis.'; }
+      list.innerHTML = renderInsightCards(d.insights);
+    } catch(e) { list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">Could not load sleep analysis.</div>'; }
   }
 
   const history = [];
