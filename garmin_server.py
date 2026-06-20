@@ -357,12 +357,16 @@ def ac_setpoint():
         return jsonify({'ok': False, 'error': 'Temperatur måste vara 10–35 °C'}), 400
     try:
         with open(AC_KEEPER_CONFIG, 'r') as f:
-            cfg = yaml.safe_load(f)
-        cfg['target_c'] = round(target * 2) / 2  # avrunda till närmaste 0.5
+            cfg = yaml.safe_load(f) or {}
+        if 'controller' not in cfg:
+            cfg['controller'] = {}
+        cfg['controller']['target_c'] = round(target * 2) / 2
         with open(AC_KEEPER_CONFIG, 'w') as f:
             yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
-        subprocess.run(['systemctl', 'restart', AC_LOOP_SERVICE], timeout=10)
-        return jsonify({'ok': True, 'target_c': cfg['target_c']})
+        result = subprocess.run(['systemctl', 'restart', AC_LOOP_SERVICE], timeout=10, capture_output=True)
+        if result.returncode != 0:
+            return jsonify({'ok': False, 'error': 'systemctl restart failed: ' + result.stderr.decode()}), 500
+        return jsonify({'ok': True, 'target_c': cfg['controller']['target_c']})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
