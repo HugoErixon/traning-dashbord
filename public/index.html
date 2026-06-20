@@ -1679,6 +1679,7 @@
       <div class="nav-item" onclick="goto('upcoming')"><span>Calendar</span></div>
       <div class="nav-item" onclick="goto('analysis')"><span>Analysis</span></div>
       <div class="nav-item" onclick="goto('strength')"><span>Strength</span></div>
+      <div class="nav-item" onclick="goto('climate')"><span>Climate</span></div>
       <div class="nav-item" onclick="goto('coach')"><span>Notes</span></div>
     </div>
     <div class="sidebar-bottom">
@@ -1808,8 +1809,12 @@
         <div id="insights-list" style="font-size:13.5px;color:var(--muted3);line-height:1.65;">Loading insights…</div>
       </div>
 
-      <!-- ROOM CLIMATE & AC -->
-      <div class="sl">Room climate & AC</div>
+    </div>
+
+    <!-- CLIMATE -->
+    <div class="page" id="page-climate">
+      <div class="page-header"><h2>Climate</h2><p>Room temperature & AC control</p></div>
+
       <div class="bigcard accent-orange" style="margin-bottom:24px;">
         <div class="today-header">
           <h3 id="ac-headline">Loading AC...</h3>
@@ -1828,7 +1833,6 @@
         </div>
       </div>
 
-      <!-- ROOM TEMP 24H GRAPH -->
       <div class="sl">Room temperature - last 24h</div>
       <div class="bigcard" style="margin-bottom:24px;">
         <div id="ac-graph">Loading temperature history...</div>
@@ -2263,6 +2267,7 @@ window.fetch = (url, opts = {}) => {
     if (id === 'strength') loadStrengthPage();
     if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
+    if (id === 'climate')  { loadAcStatus(); loadAcLoopStatus(); loadAcHistory(); }
   }
 
   // Days left + goal bars
@@ -2879,7 +2884,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Refreshing...', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadAcStatus(), loadAcHistory(), loadInsights()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
