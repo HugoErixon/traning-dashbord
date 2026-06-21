@@ -2271,6 +2271,24 @@ HEALTH DATA (current):
     type.textContent       = (typeLabels[s.type] || String(s.type || 'PLAN').toUpperCase()) + statusSuffix;
   }
 
+  async function reseedPlan() {
+    const btn = document.getElementById('reseed-btn');
+    const res = document.getElementById('reseed-result');
+    if (btn) { btn.textContent = 'Återställer…'; btn.disabled = true; }
+    if (res) res.style.display = 'none';
+    try {
+      const r = await fetch('/api/plan/reseed', { method: 'POST' });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      if (res) { res.textContent = `✓ ${d.sessions} pass laddade på svenska.`; res.style.display = 'block'; res.style.color = 'var(--green)'; }
+      await loadPlan();
+    } catch(e) {
+      if (res) { res.textContent = 'Fel: ' + e.message; res.style.display = 'block'; res.style.color = 'var(--red)'; }
+    } finally {
+      if (btn) { btn.textContent = 'Återställ plan till svenska (reseed)'; btn.disabled = false; }
+    }
+  }
+
   async function loadPlan() {
     try {
       const r = await fetch('/api/plan');
