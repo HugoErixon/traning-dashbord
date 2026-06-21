@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dashboard",
+      "name": "static-ui",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["garmin_server.py"],
-      "port": 3000
+      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "public"],
+      "port": 4173
     }
   ]
 }
