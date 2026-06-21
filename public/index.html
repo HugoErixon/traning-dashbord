@@ -2103,14 +2103,6 @@
         <p id="sleep-chart-empty" style="font-size:13px;color:var(--muted3);margin:8px 0 0;display:none;">No stage data available for last night.</p>
       </div>
 
-      <div class="bigcard accent-green" style="margin-bottom:24px;">
-        <div class="today-header">
-          <h3 id="sleep-page-plan-title">Loading sleep plan...</h3>
-          <span class="today-badge badge-green" id="sleep-page-plan-badge">PLAN</span>
-        </div>
-        <p id="sleep-page-plan-body">Reading Garmin sleep data...</p>
-      </div>
-
       <div class="bigcard accent-blue" style="margin-bottom:24px;">
         <div class="today-header">
           <h3 id="sleep-coach-title">Sleep coach</h3>
@@ -2407,20 +2399,11 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       setText('sleep-page-deep-sub', 'No data');
       setText('sleep-page-rem-sub', 'No data');
       ['sleep-page-score-bar', 'sleep-page-total-bar', 'sleep-page-deep-bar', 'sleep-page-rem-bar'].forEach(id => setWidth(id, 0));
-      setText('sleep-page-plan-title', 'Waiting for sleep data');
-      setText('sleep-page-plan-body', "The watch didn't sync a night (off or out of battery). Once Garmin records another night, the dashboard can calculate a good bedtime and AC pre-cooling plan.");
       return;
     }
 
     const targetSleepSec = 7.5 * 3600;
     const debtSec = Math.max(0, targetSleepSec - totalSec);
-    const bedtime = new Date();
-    bedtime.setHours(22, 30, 0, 0);
-    if (debtSec >= 3600) bedtime.setMinutes(bedtime.getMinutes() - 45);
-    else if (debtSec >= 1800) bedtime.setMinutes(bedtime.getMinutes() - 25);
-    const wake = new Date(bedtime.getTime() + targetSleepSec * 1000);
-    const acStart = new Date(bedtime.getTime() - 120 * 60000);
-    const timeFmt = d => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
     setText('sleep-page-score', score || '-');
     setText('sleep-page-score-sub', score >= 80 ? 'Good recovery' : score >= 60 ? 'Okay, but can improve' : 'Prioritize sleep tonight');
@@ -2437,11 +2420,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setText('sleep-page-rem', rem + '%');
     setText('sleep-page-rem-sub', rem >= 20 ? 'In target range' : 'Below 20-25% target');
     setWidth('sleep-page-rem-bar', rem / 25 * 100);
-
-    setText('sleep-page-plan-title', 'Aim for sleep ' + timeFmt(bedtime) + '-' + timeFmt(wake));
-    setText('sleep-page-plan-body', debtSec < 900
-      ? 'Last night reached the sleep goal. Keep the normal bedtime and let AC pre-cooling follow the planned sleep start.'
-      : 'Last night was ' + fmt(debtSec) + ' short of the goal. Go to bed earlier tonight and let the AC start pre-cooling before the sleep window.');
 
     renderSleepStageChart(sleep.levels || [], sleep.startGMT, sleep.endGMT);
   }
@@ -2521,6 +2499,15 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (list) list.innerHTML = '<div style="font-size:12px;color:var(--muted3);font-family:\'IBM Plex Mono\',monospace;">Loading schedule...</div>';
     try {
       const res = await fetch('/api/sleep-coach');
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok) {
+        throw new Error(res.status === 404
+          ? 'Sleep coach API saknas på servern. Kör git pull och starta om dashboarden på Pi:n.'
+          : 'Sleep coach API svarade med felkod ' + res.status + '.');
+      }
+      if (!contentType.includes('application/json')) {
+        throw new Error('Servern svarade inte med JSON. Starta om Flask-dashboarden efter git pull.');
+      }
       renderSleepCoach(await res.json());
     } catch (e) {
       renderSleepCoach({ error: e.message });
