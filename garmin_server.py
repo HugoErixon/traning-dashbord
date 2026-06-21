@@ -2081,12 +2081,12 @@ def match_activities_to_plan(days_back=7, user_id=1):
     lift_types = {'strength_training','fitness_equipment'}
 
     with db() as conn:
-        for i in range(1, days_back + 1):
+        for i in range(0, days_back + 1):
             day = today - timedelta(days=i)
             wk, dw = _iso_week_dow(day)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute('''SELECT * FROM plan_sessions
-                    WHERE week = %s AND dow = %s AND status IN ('planned','missed') AND user_id = %s''',
+                    WHERE week = %s AND dow = %s AND status IN ('planned','missed','skipped') AND user_id = %s''',
                     (wk, dw, user_id))
                 planned = cur.fetchall()
                 if not planned:
@@ -2109,7 +2109,14 @@ def match_activities_to_plan(days_back=7, user_id=1):
                         completed = True  # vilodag räknas alltid som genomförd
                     else:
                         completed = False
-                    new_status = 'completed' if completed else 'missed'
+                    if completed:
+                        new_status = 'completed'
+                    elif i == 0:
+                        continue
+                    elif p['status'] == 'skipped':
+                        continue
+                    else:
+                        new_status = 'missed'
                     if new_status != p['status']:
                         cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
                             WHERE id = %s AND user_id = %s''', (new_status, time.time(), p['id'], user_id))

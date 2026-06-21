@@ -3175,7 +3175,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Refreshing...', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadSleepCoach(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights()]);
+      await Promise.all([loadHealth(), loadSleepCoach(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan(), loadPlanStatus()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
