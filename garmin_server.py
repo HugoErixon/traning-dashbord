@@ -1348,6 +1348,7 @@ Rules:
 - icon: one emoji that fits the category (sleep=😴, HRV=💙, training=🏃, fatigue=⚠️, trend=📈, calendar=📅, temp=🌡️)
 - color: "green", "amber", or "red" based on whether this is positive/neutral/negative
 
+Write ALL text fields (headline, title, value, detail, action) in Swedish (svenska).
 Respond ONLY with this JSON:
 {{
   "headline": "max 5 words",
@@ -1454,7 +1455,7 @@ def _build_sleep_insights_prompt():
     except Exception:
         pass
 
-    return f"""You are a blunt sleep coach. Analyze 4 weeks of sleep data. Find the 3-4 most important patterns — only what numbers actually show.
+    return f"""You are a blunt sleep coach. Analyze 4 weeks of sleep data. Find the 3-4 most important patterns — only what numbers actually show. Write all output (headline, title, value, detail, action) in Swedish (svenska).
 
 DATA (date: sleep score, hours, deep%, REM%, HRV, RHR | training | calendar):
 {log}
@@ -1468,6 +1469,7 @@ Rules:
 - icon: one emoji (😴=sleep duration, 🔵=deep sleep, 🟣=REM, ⏰=wake time, 🌡️=temp, 🏃=training effect, 📅=schedule)
 - color: "green" if positive pattern, "amber" if watch, "red" if problem
 
+Write ALL text fields (headline, title, value, detail, action) in Swedish (svenska).
 Respond ONLY with this JSON:
 {{
   "headline": "max 5 words, describes their sleep pattern",
@@ -1602,7 +1604,7 @@ def sleep_coach():
     chosen_event = None
     wake_dt = default_wake
     anchor = None
-    reason = 'Normal wake time tomorrow'
+    reason = 'Normal vakentid imorgon'
     for ev in sorted(day_events, key=lambda e: e['start']):
         buffer_min = 75
         if ev['kind'] == 'travel':
@@ -1621,7 +1623,7 @@ def sleep_coach():
             'time': _fmt_clock(chosen_event['start']),
             'kind': chosen_event['kind'],
         }
-        reason = f"{chosen_event['title']} starts {_fmt_clock(chosen_event['start'])}, so wake up earlier."
+        reason = f"{chosen_event['title']} börjar {_fmt_clock(chosen_event['start'])}, så vakna tidigare."
 
     bedtime = wake_dt - timedelta(hours=target_h)
     wind_down = bedtime - timedelta(minutes=45)
@@ -1639,20 +1641,20 @@ def sleep_coach():
         'anchor': anchor,
     }
 
-    headline = 'Go to bed ' + night['bedtime']
+    headline = 'Lägg dig ' + night['bedtime']
     if anchor:
-        headline = 'Calendar-adjusted sleep'
+        headline = 'Kalenderanpassad sömn'
     elif sleep_debt >= 0.5:
-        headline = 'Recover sleep debt'
+        headline = 'Ta igen sömnskuld'
 
     reason_bits = []
     if last_sleep is not None:
-        reason_bits.append(f"last night was {last_sleep:.1f}h")
+        reason_bits.append(f"i natt blev {last_sleep:.1f}h")
     if sleep_score is not None:
-        reason_bits.append(f"sleep score {sleep_score}")
+        reason_bits.append(f"sömnpoäng {sleep_score}")
     if anchor:
-        reason_bits.append(f"tomorrow starts with {anchor['title']} at {anchor['time']}")
-    basis = ', '.join(reason_bits) if reason_bits else 'your normal wake time'
+        reason_bits.append(f"imorgon börjar med {anchor['title']} kl {anchor['time']}")
+    basis = ', '.join(reason_bits) if reason_bits else 'din normala vakentid'
 
     return jsonify({
         'ok': True,
@@ -1663,8 +1665,8 @@ def sleep_coach():
         'sleepScore': sleep_score,
         'calendarSynced': bool(cal_row),
         'summary': (
-            f"Go to bed {night['bedtime']} tonight to get about {target_h:g}h of sleep. "
-            f"This is based on {basis}."
+            f"Lägg dig {night['bedtime']} i natt för att få cirka {target_h:g}h sömn. "
+            f"Detta baseras på {basis}."
         ),
         'night': night,
         'nights': [night],
