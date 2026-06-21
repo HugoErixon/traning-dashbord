@@ -992,7 +992,7 @@ def _build_refresh_prompt(acts):
     today_session_str = f"{today_session['title']} — {today_session['detail']}" if today_session else "Rest day (no session scheduled)"
     next_session_str  = f"{next_session['title']} — {next_session['detail']}"   if next_session  else "No upcoming session found"
 
-    prompt = f"""You are a personal training coach. Analyze ALL data below and respond ONLY with JSON. All text fields in the JSON must be in English.
+    prompt = f"""You are a personal training coach. Analyze ALL data below and respond ONLY with JSON. All text fields in the JSON must be written in Swedish (svenska).
 
 GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026 · Current best: 1:26:19
 SECONDARY GOAL: Build a strong body in all areas — running strength, upper body, core, mobility
@@ -1244,7 +1244,7 @@ Decide which single case applies and write accordingly:
 - OTHER: the athlete did something different than planned today — acknowledge it.
 - REST: it's a rest day — confirm that resting is the right call.
 
-Respond ONLY with this JSON (all text in English):
+Respond ONLY with this JSON (all text in Swedish / svenska):
 {{
   "status": "done | pending | missed | rest | other",
   "headline": "max 6 words",
@@ -1678,7 +1678,7 @@ def chat():
         return jsonify({'reply': 'API key missing.'})
     resp = requests.post('https://api.anthropic.com/v1/messages',
         json={'model': 'claude-sonnet-4-6', 'max_tokens': 1024,
-              'system': data.get('context', 'You are a personal training coach. Always respond in English.'),
+              'system': data.get('context', 'You are a personal training coach. Always respond in Swedish (svenska).'),
               'messages': [{'role': 'user', 'content': data.get('message', '')}]},
         headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
                  'content-type': 'application/json'})
@@ -2373,7 +2373,7 @@ The runner has personally asked for this change. Honor it as far as it is sensib
 Request: "{user_request.strip()}"
 """
 
-    prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning. You are working with a runner whose goal is a half marathon under 1:20 (3:47/km) on October 10, 2026. Current best: 1:26:19. Secondary goal: build a strong body in all areas - running strength, upper body, core, mobility. The plan runs W23-41 with phases: recovery -> base building -> threshold/tempo -> race-specific -> taper. Always respond in English. All JSON text fields must be in English.
+    prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning. You are working with a runner whose goal is a half marathon under 1:20 (3:47/km) on October 10, 2026. Current best: 1:26:19. Secondary goal: build a strong body in all areas - running strength, upper body, core, mobility. The plan runs W23-41 with phases: recovery -> base building -> threshold/tempo -> race-specific -> taper. Always respond in Swedish (svenska). All JSON text fields must be written in Swedish.
 
 TODAY: {today} (week {iso_week}, day {today.weekday()}, where 0=Monday)
 {request_block}
@@ -2430,7 +2430,7 @@ Write a concise explanation in coaching_notes before the decisions.
 
 Return ONLY this JSON, with no comments outside it:
 {{
-  "coaching_notes": "<2-4 English sentences explaining how you interpret the situation and why you chose this approach>",
+  "coaching_notes": "<2-4 Swedish sentences explaining how you interpret the situation and why you chose this approach>",
   "changes": [
     {{
       "session_id": <int or null for add>,
@@ -2439,12 +2439,12 @@ Return ONLY this JSON, with no comments outside it:
       "new_dow": <int 0-6 or null>,
       "type": "run|easy|race|lift|rest|null",
       "new_km": <float or null>,
-      "new_title": "<English string or null>",
+      "new_title": "<Swedish string or null>",
       "new_detail": "<concise workout instructions only, max 140 characters; put reasoning in coaching_notes/reason, or null if unchanged>",
-      "reason": "<one English sentence explaining this decision>"
+      "reason": "<one Swedish sentence explaining this decision>"
     }}
   ],
-  "summary": "<one English sentence summarizing today's adjustments>"
+  "summary": "<one Swedish sentence summarizing today's adjustments>"
 }}"""
 
     # 6. Anropa Claude
