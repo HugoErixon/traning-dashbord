@@ -263,6 +263,19 @@
       font-weight: 600;
     }
 
+    /* ─── HEM-LAYOUT (Whoop-inspirerad) ─── */
+    .home-hero { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; align-items:stretch; }
+    .home-cols { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; align-items:stretch; }
+    .panel { background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:20px 22px; display:flex; flex-direction:column; }
+    .panel-eyebrow { font-size:12px; font-weight:600; color:var(--muted2); margin-bottom:16px; display:flex; align-items:center; gap:10px; }
+    .recovery-wrap { display:flex; align-items:center; gap:22px; }
+    .contrib-row { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:auto; padding-top:18px; border-top:1px solid var(--border); }
+    .contrib-label { font-size:11px; color:var(--muted2); margin-bottom:7px; }
+    .contrib-val { font-size:20px; font-weight:700; font-family:var(--font-num); line-height:1; }
+    .contrib-sub { font-size:10.5px; color:var(--muted); margin-top:4px; }
+    .contrib .bar { margin-top:9px; }
+    @media (max-width:880px){ .home-hero, .home-cols { grid-template-columns:1fr; } }
+
     /* ─── STAT CARDS ─── */
     .grid {
       display: grid;

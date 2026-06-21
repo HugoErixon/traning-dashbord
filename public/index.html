@@ -48,89 +48,94 @@
     <!-- HEM -->
     <div class="page active" id="page-home">
 
-      <!-- TODAY'S SESSION from calendar -->
-      <div class="sl" style="margin-top:8px;">Dagens pass</div>
-      <div id="today-session-card" style="background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:20px 24px;margin-bottom:16px;display:flex;align-items:center;gap:22px;">
-        <div class="readiness-ring" style="position:relative;width:88px;height:88px;flex-shrink:0;">
-          <svg viewBox="0 0 88 88" width="88" height="88">
-            <circle cx="44" cy="44" r="38" fill="none" stroke="var(--border2)" stroke-width="7"></circle>
-            <circle id="readiness-ring-prog" cx="44" cy="44" r="38" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" stroke-dasharray="239" stroke-dashoffset="239" transform="rotate(-90 44 44)" style="transition:stroke-dashoffset 1s ease,stroke 0.3s;"></circle>
-          </svg>
-          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-            <div id="readiness-ring-val" style="font-size:25px;font-weight:700;font-family:var(--font-num);line-height:1;">–</div>
-            <div style="font-size:9.5px;color:var(--muted);letter-spacing:0.08em;margin-top:3px;">BEREDSKAP</div>
+      <!-- ROW 1: Återhämtning + Idag -->
+      <div class="home-hero">
+
+        <!-- Återhämtning -->
+        <div class="panel">
+          <div class="panel-eyebrow">Beredskap</div>
+          <div class="recovery-wrap">
+            <div class="readiness-ring" style="position:relative;width:124px;height:124px;flex-shrink:0;">
+              <svg viewBox="0 0 88 88" width="124" height="124">
+                <circle cx="44" cy="44" r="38" fill="none" stroke="var(--border2)" stroke-width="7"></circle>
+                <circle id="readiness-ring-prog" cx="44" cy="44" r="38" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" stroke-dasharray="239" stroke-dashoffset="239" transform="rotate(-90 44 44)" style="transition:stroke-dashoffset 1s ease,stroke 0.3s;"></circle>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                <div id="readiness-ring-val" style="font-size:34px;font-weight:700;font-family:var(--font-num);line-height:1;">–</div>
+                <div style="font-size:9.5px;color:var(--muted);letter-spacing:0.1em;margin-top:4px;">BEREDSKAP</div>
+              </div>
+            </div>
+            <div style="min-width:0;">
+              <div style="font-size:13px;color:var(--muted2);">Din återhämtning idag</div>
+              <div id="snap-readiness-sub" style="font-size:19px;font-weight:700;margin-top:3px;">Laddar…</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:12px;"><span id="days-left" style="color:var(--accent);font-weight:700;font-family:var(--font-num);">-</span> dagar till mål · 10 okt</div>
+              <div class="bar" style="margin-top:8px;max-width:170px;"><div class="bar-fill" id="days-bar" style="background:var(--accent)"></div></div>
+            </div>
+          </div>
+          <div class="contrib-row">
+            <div class="contrib">
+              <div class="contrib-label">sömn</div>
+              <div id="snap-sleep-val" class="contrib-val">-</div>
+              <div id="snap-sleep-sub" class="contrib-sub">Laddar…</div>
+              <div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
+            </div>
+            <div class="contrib">
+              <div class="contrib-label">kroppsbatteri</div>
+              <div id="snap-bb-val" class="contrib-val">-</div>
+              <div id="snap-bb-sub" class="contrib-sub">Laddar…</div>
+              <div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div>
+            </div>
+            <div class="contrib">
+              <div class="contrib-label">hrv natt</div>
+              <div id="snap-hrv-val" class="contrib-val">-</div>
+              <div id="snap-hrv-sub" class="contrib-sub">Laddar…</div>
+              <div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div>
+            </div>
           </div>
         </div>
-        <div style="flex:1;min-width:0;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+
+        <!-- Idag -->
+        <div class="panel">
+          <div class="panel-eyebrow">Idag <span class="today-badge badge-amber" id="review-badge">STATUS</span></div>
+          <div id="today-session-card" style="display:flex;align-items:center;gap:14px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px;">
             <div id="today-session-dot" style="width:8px;height:8px;border-radius:2px;background:var(--green);flex-shrink:0;"></div>
-            <div style="font-size:16px;font-weight:700;" id="today-session-title">Laddar…</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:700;" id="today-session-title">Laddar…</div>
+              <div style="font-size:12px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="today-session-detail"></div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;">
+              <div style="font-size:16px;font-weight:700;font-family:var(--font-num);" id="today-session-km"></div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px;" id="today-session-type"></div>
+            </div>
           </div>
-          <div style="font-size:12px;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="today-session-detail"></div>
-        </div>
-        <div style="text-align:right;flex-shrink:0;">
-          <div style="font-size:18px;font-weight:700;font-family:var(--font-num);" id="today-session-km"></div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;" id="today-session-type"></div>
+          <h3 id="review-headline" style="font-size:16px;font-weight:700;margin:0 0 6px;">Kollar dagens pass…</h3>
+          <p id="review-body" style="font-size:13px;color:var(--muted3);line-height:1.55;margin:0;flex:1;">Laddar…</p>
+          <div style="display:flex;gap:8px;margin-top:16px;">
+            <input id="coach-request-input" type="text" maxlength="500"
+              placeholder="Be coachen ändra dagens plan…"
+              style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:10px 13px;color:var(--text);font-size:13px;font-family:inherit;outline:none;"
+              onkeydown="if(event.key==='Enter')sendCoachRequest()">
+            <button id="coach-request-btn" class="refresh-btn" style="margin:0;width:auto;padding:9px 16px;color:var(--accent);" onclick="sendCoachRequest()">Justera</button>
+          </div>
+          <div id="coach-request-result" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);"></div>
         </div>
       </div>
 
-      <!-- ASK THE COACH — free-text plan adjustment -->
-      <div class="sl">Fråga din coach</div>
-      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:16px 18px;margin-bottom:24px;">
-        <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
-          <input id="coach-request-input" type="text" maxlength="500"
-            placeholder="t.ex. jag vill köra styrka idag istället för löpning"
-            style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:11px 14px;color:var(--text);font-size:13px;font-family:inherit;outline:none;"
-            onkeydown="if(event.key==='Enter')sendCoachRequest()">
-          <button id="coach-request-btn" class="refresh-btn" style="margin:0;color:var(--green);" onclick="sendCoachRequest()">Justera plan</button>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:8px;">Coachen bygger om ditt kommande schema utifrån förfrågan — med återhämtning och mål intakta.</div>
-        <div id="coach-request-result" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);"></div>
-      </div>
-
-      <!-- AI CHECK OF TODAY'S SESSION -->
-      <div class="sl">Dagens läge</div>
-      <div class="bigcard accent-green" style="margin-bottom:24px;">
-        <div class="today-header">
-          <h3 id="review-headline">Kollar dagens pass…</h3>
-          <span class="today-badge badge-amber" id="review-badge">STATUS</span>
-        </div>
-        <p id="review-body">Laddar…</p>
-      </div>
-
-      <div class="sl">Snabböversikt</div>
-      <div class="grid">
-        <div class="card"><div class="card-label">beredskap</div><div id="snap-readiness-val" class="card-val ca">-</div><div id="snap-readiness-sub" class="card-sub">Laddar…</div><div class="bar"><div id="snap-readiness-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">sömn</div><div id="snap-sleep-val" class="card-val cg">-</div><div id="snap-sleep-sub" class="card-sub">Laddar…</div><div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div></div>
-        <div class="card"><div class="card-label">kroppsbatteri</div><div id="snap-bb-val" class="card-val ca">-</div><div id="snap-bb-sub" class="card-sub">Laddar…</div><div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div></div>
-        <div class="card"><div class="card-label">hrv natt (ms)</div><div id="snap-hrv-val" class="card-val cr">-</div><div id="snap-hrv-sub" class="card-sub">Laddar…</div><div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div></div>
-        <div class="card"><div class="card-label">dagar kvar</div><div class="card-val cb" id="days-left">-</div><div class="card-sub">Till 10 okt</div><div class="bar"><div class="bar-fill" id="days-bar" style="background:var(--blue)"></div></div></div>
-      </div>
-
-      <div class="sl">Dagens plan</div>
-      <div class="cockpit">
+      <!-- ROW 2: Träningsbeslut + Kommande 7 dagar -->
+      <div class="home-cols">
         <div class="cockpit-card primary" id="cockpit-primary">
           <div class="cockpit-top">
             <div>
-              <div class="cockpit-kicker">Idag</div>
+              <div class="cockpit-kicker">Träningsbeslut</div>
               <div class="cockpit-title" id="cockpit-decision-title">Väntar på data</div>
             </div>
             <div class="cockpit-score" id="cockpit-score">--</div>
           </div>
           <div class="cockpit-copy" id="cockpit-decision-copy">Dashboarden väger samman återhämtning, träningsbelastning, planerade pass och senaste tiden för att rekommendera hur hårt du bör träna idag.</div>
           <div class="cockpit-metrics">
-            <div class="cockpit-metric">
-              <div class="cockpit-metric-label">Veckovolym</div>
-              <div class="cockpit-metric-value" id="cockpit-week-volume">--</div>
-            </div>
-            <div class="cockpit-metric">
-              <div class="cockpit-metric-label">Belastningsrisk</div>
-              <div class="cockpit-metric-value" id="cockpit-load-risk">--</div>
-            </div>
-            <div class="cockpit-metric">
-              <div class="cockpit-metric-label">Nästa nyckelpass</div>
-              <div class="cockpit-metric-value" id="cockpit-key-session">--</div>
-            </div>
+            <div class="cockpit-metric"><div class="cockpit-metric-label">Veckovolym</div><div class="cockpit-metric-value" id="cockpit-week-volume">--</div></div>
+            <div class="cockpit-metric"><div class="cockpit-metric-label">Belastningsrisk</div><div class="cockpit-metric-value" id="cockpit-load-risk">--</div></div>
+            <div class="cockpit-metric"><div class="cockpit-metric-label">Nästa nyckelpass</div><div class="cockpit-metric-value" id="cockpit-key-session">--</div></div>
           </div>
           <div class="cockpit-limiter-row" id="cockpit-limiters"></div>
         </div>
@@ -144,21 +149,13 @@
             <span class="cockpit-tag" id="cockpit-compliance">--</span>
           </div>
           <div class="cockpit-list" id="cockpit-next-list">
-            <div class="cockpit-row">
-              <div class="cockpit-row-day">--</div>
-              <div>
-                <div class="cockpit-row-title">Laddar plan…</div>
-                <div class="cockpit-row-sub">Kommande pass visas här.</div>
-              </div>
-              <span class="cockpit-tag">PLAN</span>
-            </div>
+            <div class="cockpit-row"><div class="cockpit-row-day">--</div><div><div class="cockpit-row-title">Laddar plan…</div><div class="cockpit-row-sub">Kommande pass visas här.</div></div><span class="cockpit-tag">PLAN</span></div>
           </div>
         </div>
       </div>
 
-      <!-- AI INSIGHTS -->
-      <div class="sl">Insikter</div>
-      <div class="bigcard" style="margin-bottom:24px;">
+      <!-- ROW 3: Insikter -->
+      <div class="bigcard" style="margin-bottom:0;">
         <div class="insights-hl">
           <div style="display:flex;align-items:center;gap:10px;">
             <h3 id="insights-headline" style="font-size:15px;margin:0;">Laddar…</h3>
