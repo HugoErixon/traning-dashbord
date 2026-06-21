@@ -1135,17 +1135,30 @@ def _build_review_prompt():
     planned_str = '; '.join(f"{p['title']} — {p['detail']}" for p in planned) if planned \
                   else 'Rest day (no session scheduled)'
 
+    INTERVAL_TYPES = {'track_running', 'interval_training', 'track'}
     acts = []
+    has_interval = False
     for name, typ, dist, dur, hr in act_rows:
+        is_interval = (typ or '').lower() in INTERVAL_TYPES or \
+                      any(w in (name or '').lower() for w in ('interval', 'track', 'fartlek', 'repeat'))
+        if is_interval:
+            has_interval = True
         parts = [typ or 'activity']
         if dist: parts.append(f"{dist/1000:.1f} km")
         if dur:  parts.append(f"{int(dur/60)} min")
         if dist and dur and dist > 0:
-            pace = (dur / 60) / (dist / 1000)  # min/km
-            parts.append(f"pace {int(pace)}:{int((pace % 1) * 60):02d}/km")
+            pace = (dur / 60) / (dist / 1000)  # min/km — includes rest for intervals
+            pace_note = ' (avg incl. rest)' if is_interval else ''
+            parts.append(f"pace {int(pace)}:{int((pace % 1) * 60):02d}/km{pace_note}")
         if hr: parts.append(f"avgHR {hr}")
         acts.append(f"{name or 'Activity'} ({', '.join(parts)})")
     acts_str = '; '.join(acts) if acts else 'nothing logged yet today'
+    if has_interval:
+        acts_str += ('\n\nIMPORTANT — INTERVAL PACE NOTE: The pace shown above is the AVERAGE across the '
+                     'entire activity including all rest/recovery periods between reps. '
+                     'The actual interval effort pace will be significantly faster (often 60–90 sec/km faster) '
+                     'than the average shown. Do NOT compare the average pace to the target interval pace — '
+                     'instead judge the session by distance completed, HR, and whether it matches the planned structure.')
 
     # Dagens kalender (jobb/åtaganden) så "har du tid" blir smart
     cal_row = get_cache('gcal_events', uid())
@@ -1176,7 +1189,7 @@ TODAY'S CALENDAR (work / commitments):
 {events_str}
 
 Decide which single case applies and write accordingly:
-- DONE: an activity matching the planned session was completed today. Praise it and compare performance to the plan's target pace/distance using the actual pace shown (e.g. "right on target" or "a bit slower than planned").
+- DONE: an activity matching the planned session was completed today. Praise it. For interval/track sessions, DO NOT compare the average pace to the target interval pace — the average is diluted by rest periods. Instead judge by total distance, HR, and session structure.
 - PENDING: the session has not been done yet. Use the current time AND the calendar to judge if there is still time today — if so, reassure ("you still have time, fit it in before/after work"); if it's late evening with no window left, gently note the day is nearly over.
 - OTHER: the athlete did something different than planned today — acknowledge it.
 - REST: it's a rest day — confirm that resting is the right call.
