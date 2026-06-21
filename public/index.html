@@ -4458,18 +4458,6 @@ HEALTH DATA (current):
   }
 
   function renderTodaySession() {
-    const now = new Date();
-    // ISO week + weekday (0=Mon)
-    const jan4 = new Date(now.getFullYear(), 0, 4);
-    const startDay = jan4.getDay() || 7;
-    const monday = new Date(jan4);
-    monday.setDate(jan4.getDate() - startDay + 1);
-    const isoWeek = Math.ceil(((now - monday) / 86400000 + 1) / 7);
-    const dow = (now.getDay() + 6) % 7; // 0=Mon
-
-    const s = PLAN_SESSIONS.find(p => p.week === isoWeek && p.dow === dow && p.status === 'planned')
-           || PLAN_SESSIONS.find(p => p.week === isoWeek && p.dow === dow);
-
     const card  = document.getElementById('today-session-card');
     const dot   = document.getElementById('today-session-dot');
     const title = document.getElementById('today-session-title');
@@ -4478,19 +4466,82 @@ HEALTH DATA (current):
     const type  = document.getElementById('today-session-type');
     if (!card || !dot || !title || !detail || !km || !type) return;
 
+    const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
+    const typeLabels = { run:'RUN', easy:'EASY RUN', lift:'STRENGTH', race:'RACE', rest:'REST' };
+
+    // Try Google Calendar first
+    const todayKey = localDateKey(new Date());
+    const todayGcal = gcalEvents.filter(ev => gcalDateKey(ev.start) === todayKey);
+
+    if (todayGcal.length > 0) {
+      // Prefer timed (non-all-day) events; among those prefer training-like titles
+      const trainKeywords = /träning|trän|run|löp|gym|strength|sprint|yoga|cykel|bike|swim|pass|workout|interval/i;
+      const timed  = todayGcal.filter(ev => !ev.allDay);
+      const scored = (timed.length ? timed : todayGcal)
+        .map(ev => ({ ev, score: trainKeywords.test(ev.title) ? 1 : 0 }))
+        .sort((a, b) => b.score - a.score);
+      const ev = scored[0].ev;
+
+      // Infer session type from title
+      let inferType = 'run';
+      const t = ev.title.toLowerCase();
+      if (/lift|gym|strength|styrka|knäböj|marklyft|bänk/i.test(t))      inferType = 'lift';
+      else if (/race|tävling|lopp(?!ning)|competition/i.test(t))          inferType = 'race';
+      else if (/yoga|stretch|vila|rest/i.test(t))                         inferType = 'rest';
+      else if (/easy|lätt|recovery|z2/i.test(t))                         inferType = 'easy';
+      const col = typeColors[inferType] || 'var(--green)';
+
+      // Format time detail
+      let detailStr = '';
+      if (!ev.allDay && ev.start && ev.start.length > 10) {
+        const st = new Date(ev.start);
+        const en = ev.end ? new Date(ev.end) : null;
+        const fmt = d => d.toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
+        detailStr = en ? fmt(st) + ' – ' + fmt(en) : fmt(st);
+        if (ev.desc) detailStr += '  ·  ' + ev.desc.split('\n')[0].substring(0, 60);
+      } else if (ev.desc) {
+        detailStr = ev.desc.split('\n')[0].substring(0, 80);
+      }
+
+      // Extract km from title if present ("10 km", "10km")
+      const kmMatch = ev.title.match(/(\d+(?:[.,]\d+)?)\s*km/i);
+      const kmVal = kmMatch ? parseFloat(kmMatch[1].replace(',', '.')) : 0;
+
+      dot.style.background   = col;
+      card.style.borderColor = col.replace('var(--','rgba(').replace(')',',0.25)');
+      title.textContent      = ev.title;
+      title.style.color      = col;
+      detail.textContent     = detailStr;
+      km.textContent         = kmVal > 0 ? kmVal + ' km' : '';
+      km.style.color         = col;
+      type.textContent       = typeLabels[inferType] || 'TRAINING';
+      return;
+    }
+
+    // Fall back to training plan DB
+    const now = new Date();
+    const jan4 = new Date(now.getFullYear(), 0, 4);
+    const startDay = jan4.getDay() || 7;
+    const monday = new Date(jan4);
+    monday.setDate(jan4.getDate() - startDay + 1);
+    const isoWeek = Math.ceil(((now - monday) / 86400000 + 1) / 7);
+    const dow = (now.getDay() + 6) % 7;
+
+    const s = PLAN_SESSIONS.find(p => p.week === isoWeek && p.dow === dow && p.status === 'planned')
+           || PLAN_SESSIONS.find(p => p.week === isoWeek && p.dow === dow);
+
     if (!s) {
       title.textContent  = 'Rest day';
       detail.textContent = 'No session scheduled today';
       km.textContent     = '';
       type.textContent   = 'REST';
       dot.style.background = 'var(--muted)';
+      card.style.borderColor = '';
+      title.style.color  = '';
       return;
     }
 
-    const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
-    const typeLabels = { run:'RUN', easy:'EASY RUN', lift:'STRENGTH', race:'RACE', rest:'REST' };
     const col = typeColors[s.type] || 'var(--green)';
-
     dot.style.background   = col;
     card.style.borderColor = col.replace('var(--','rgba(').replace(')',',0.25)');
     title.textContent      = s.title;
@@ -4853,6 +4904,7 @@ HEALTH DATA (current):
       setButtons(syncIds, 'Synced', 'var(--green)', true);
       setTimeout(() => setButtons(syncIds, 'Sync calendar', '', false), 2500);
       buildCalendar();
+      renderTodaySession();
     } catch(e) {
       setButtons(syncIds, 'Try again', 'var(--red)', false);
     }
