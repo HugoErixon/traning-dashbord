@@ -3354,6 +3354,7 @@ HEALTH DATA (current):
       const data = await res.json();
       recentActivities = data.activities || [];
       safeRenderTrainingCockpit();
+      renderTodaySession();
     } catch(e) {}
   }
   loadRecentActivities();
@@ -4466,9 +4467,57 @@ HEALTH DATA (current):
     const type  = document.getElementById('today-session-type');
     if (!card || !dot || !title || !detail || !km || !type) return;
 
-    // Match sessions against today using the same date arithmetic as buildCalendar,
-    // so the card always shows exactly what the Calendar tab shows for today.
+    const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
+    const typeLabels = { run:'RUN', easy:'EASY RUN', lift:'STRENGTH', race:'RACE', rest:'REST' };
+
+    // ── 1. Check today's completed Garmin activities ──────────────────────
     const todayKey = localDateKey(new Date());
+    const todayActs = recentActivities.filter(a => {
+      const d = (a.startTimeLocal || a.beginTimestamp || '').slice(0, 10);
+      return d === todayKey;
+    });
+
+    if (todayActs.length > 0) {
+      // Merge all into one combined session
+      const totalKm  = todayActs.reduce((s, a) => s + ((a.distance || 0) / 1000), 0);
+      const totalSec = todayActs.reduce((s, a) => s + (a.duration || a.elapsedDuration || 0), 0);
+      const totalMin = Math.round(totalSec / 60);
+
+      // Pick dominant type from the longest activity
+      const longest = todayActs.reduce((a, b) => (a.distance||0) >= (b.distance||0) ? a : b);
+      const typeKey  = longest.activityType?.typeKey || '';
+      let   planType = 'run';
+      if (/strength|fitness_equipment|weight/i.test(typeKey)) planType = 'lift';
+      else if (/track/i.test(typeKey))                         planType = 'run';
+
+      const col = typeColors[planType] || 'var(--green)';
+
+      // Build detail: individual activity names on one line
+      const actNames = todayActs.map(a => {
+        const n = a.activityName || a.name || (a.activityType?.typeKey || 'activity');
+        const km2 = a.distance ? ' ' + (a.distance / 1000).toFixed(1) + ' km' : '';
+        return n + km2;
+      });
+      const detailStr = actNames.join('  ·  ');
+
+      // Time string
+      const h = Math.floor(totalMin / 60), m = totalMin % 60;
+      const timeStr = h > 0 ? `${h}h ${m}m` : `${m} min`;
+
+      dot.style.background   = col;
+      card.style.borderColor = col.replace('var(--','rgba(').replace(')',',0.25)');
+      title.textContent      = todayActs.length > 1
+        ? `${todayActs.length} activities  —  ${timeStr} total`
+        : (todayActs[0].activityName || todayActs[0].name || 'Activity today');
+      title.style.color      = col;
+      detail.textContent     = detailStr;
+      km.textContent         = totalKm > 0 ? totalKm.toFixed(1) + ' km' : timeStr;
+      km.style.color         = col;
+      type.textContent       = 'DONE';
+      return;
+    }
+
+    // ── 2. Fall back to today's planned session ───────────────────────────
     const PLAN_YEAR = 2026;
     let s = null;
     for (const p of PLAN_SESSIONS) {
@@ -4478,9 +4527,6 @@ HEALTH DATA (current):
       if (localDateKey(sessionDate) !== todayKey) continue;
       if (!s || (p.status === 'planned' && s.status !== 'planned')) s = p;
     }
-
-    const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
-    const typeLabels = { run:'RUN', easy:'EASY RUN', lift:'STRENGTH', race:'RACE', rest:'REST' };
 
     if (!s) {
       title.textContent    = 'Rest day';
