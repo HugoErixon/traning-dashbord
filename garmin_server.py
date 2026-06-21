@@ -1551,6 +1551,7 @@ def _event_kind(title):
 @app.get('/api/sleep-coach')
 def sleep_coach():
     """Sömncoach: bygg kommande sömnschema från kalender + senaste sömn."""
+    """Build one practical recommendation for tonight from sleep history + tomorrow calendar."""
     target_base_h = 7.5
     today = date.today()
 
@@ -1591,57 +1592,67 @@ def sleep_coach():
             'location': ev.get('location', ''),
         })
 
-    nights = []
-    for i in range(0, 7):
-        wake_day = today + timedelta(days=i + 1)
-        day_events = [e for e in event_starts if e['start'].date() == wake_day]
-        first_event = min(day_events, key=lambda e: e['start']) if day_events else None
-        weekend = wake_day.weekday() >= 5
-        default_wake = datetime.combine(wake_day, datetime.min.time(), LOCAL_TZ).replace(
-            hour=8 if weekend else 7, minute=30 if weekend else 0
-        )
+    wake_day = today + timedelta(days=1)
+    day_events = [e for e in event_starts if e['start'].date() == wake_day]
+    weekend = wake_day.weekday() >= 5
+    default_wake = datetime.combine(wake_day, datetime.min.time(), LOCAL_TZ).replace(
+        hour=8 if weekend else 7, minute=30 if weekend else 0
+    )
+
+    chosen_event = None
+    wake_dt = default_wake
+    anchor = None
+    reason = 'Normal wake time tomorrow'
+    for ev in sorted(day_events, key=lambda e: e['start']):
         buffer_min = 75
-        reason = 'Normal wake time'
-        anchor = None
-        if first_event:
-            if first_event['kind'] == 'travel':
-                buffer_min = 120
-            elif first_event['kind'] == 'work':
-                buffer_min = 90
-            wake_dt = first_event['start'] - timedelta(minutes=buffer_min)
-            anchor = {
-                'title': first_event['title'],
-                'time': _fmt_clock(first_event['start']),
-                'kind': first_event['kind'],
-            }
-            reason = f"{first_event['title']} starts {_fmt_clock(first_event['start'])}"
-        else:
-            wake_dt = default_wake
+        if ev['kind'] == 'travel':
+            buffer_min = 120
+        elif ev['kind'] == 'work':
+            buffer_min = 90
+        candidate_wake = ev['start'] - timedelta(minutes=buffer_min)
+        if candidate_wake < default_wake:
+            chosen_event = ev
+            wake_dt = max(candidate_wake, datetime.combine(wake_day, datetime.min.time(), LOCAL_TZ).replace(hour=5))
+            break
 
-        if wake_dt < datetime.combine(wake_day, datetime.min.time(), LOCAL_TZ).replace(hour=5):
-            wake_dt = datetime.combine(wake_day, datetime.min.time(), LOCAL_TZ).replace(hour=5)
+    if chosen_event:
+        anchor = {
+            'title': chosen_event['title'],
+            'time': _fmt_clock(chosen_event['start']),
+            'kind': chosen_event['kind'],
+        }
+        reason = f"{chosen_event['title']} starts {_fmt_clock(chosen_event['start'])}, so wake up earlier."
 
-        bedtime = wake_dt - timedelta(hours=target_h)
-        wind_down = bedtime - timedelta(minutes=45)
-        ac_precool = bedtime - timedelta(hours=2)
+    bedtime = wake_dt - timedelta(hours=target_h)
+    wind_down = bedtime - timedelta(minutes=45)
+    ac_precool = bedtime - timedelta(hours=2)
 
-        nights.append({
-            'date': wake_day.isoformat(),
-            'label': wake_day.strftime('%a %d %b'),
-            'bedtime': _fmt_clock(bedtime),
-            'wake': _fmt_clock(wake_dt),
-            'windDown': _fmt_clock(wind_down),
-            'acPrecool': _fmt_clock(ac_precool),
-            'targetHours': target_h,
-            'reason': reason,
-            'anchor': anchor,
-        })
+    night = {
+        'date': wake_day.isoformat(),
+        'label': wake_day.strftime('%a %d %b'),
+        'bedtime': _fmt_clock(bedtime),
+        'wake': _fmt_clock(wake_dt),
+        'windDown': _fmt_clock(wind_down),
+        'acPrecool': _fmt_clock(ac_precool),
+        'targetHours': target_h,
+        'reason': reason,
+        'anchor': anchor,
+    }
 
-    headline = 'Protect tonight'
-    if nights and nights[0].get('anchor'):
+    headline = 'Go to bed ' + night['bedtime']
+    if anchor:
         headline = 'Calendar-adjusted sleep'
     elif sleep_debt >= 0.5:
         headline = 'Recover sleep debt'
+
+    reason_bits = []
+    if last_sleep is not None:
+        reason_bits.append(f"last night was {last_sleep:.1f}h")
+    if sleep_score is not None:
+        reason_bits.append(f"sleep score {sleep_score}")
+    if anchor:
+        reason_bits.append(f"tomorrow starts with {anchor['title']} at {anchor['time']}")
+    basis = ', '.join(reason_bits) if reason_bits else 'your normal wake time'
 
     return jsonify({
         'ok': True,
@@ -1652,10 +1663,11 @@ def sleep_coach():
         'sleepScore': sleep_score,
         'calendarSynced': bool(cal_row),
         'summary': (
-            f"Target {target_h:g}h tonight based on last night's sleep"
-            + (f" ({last_sleep:.1f}h)." if last_sleep is not None else '.')
+            f"Go to bed {night['bedtime']} tonight to get about {target_h:g}h of sleep. "
+            f"This is based on {basis}."
         ),
-        'nights': nights,
+        'night': night,
+        'nights': [night],
     })
 
 

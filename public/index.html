@@ -2445,7 +2445,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     title.textContent = data.headline || 'Sleep coach';
     badge.textContent = data.calendarSynced ? 'CALENDAR' : 'NO CALENDAR';
     badge.className = data.calendarSynced ? 'today-badge badge-green' : 'today-badge badge-amber';
-    summary.textContent = data.summary || 'Recommended sleep schedule for the next week.';
+    summary.textContent = data.summary || 'Recommended bedtime for tonight.';
 
     const fmtHours = h => h == null ? '-' : Number(h).toFixed(1).replace('.0', '') + 'h';
     meta.innerHTML = [
@@ -2459,35 +2459,32 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         <strong style="color:var(--text);font-weight:700;">${escapeHtml(m.value)}</strong>
       </span>`).join('');
 
-    const nights = data.nights || [];
-    if (!nights.length) {
-      list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">No schedule could be calculated.</div>';
+    const night = data.night || (data.nights || [])[0];
+    if (!night) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">No bedtime could be calculated.</div>';
       return;
     }
 
-    list.innerHTML = nights.map((n, idx) => {
-      const anchor = n.anchor
-        ? `${escapeHtml(n.anchor.title)} at ${escapeHtml(n.anchor.time)}`
-        : 'No early calendar anchor';
-      const accent = idx === 0 ? 'var(--blue)' : 'var(--border2)';
-      return `
-        <div style="display:grid;grid-template-columns:92px 1fr;gap:14px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${accent};border-radius:10px;padding:13px 14px;">
-          <div>
-            <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;">${idx === 0 ? 'Tonight' : escapeHtml(n.label)}</div>
-            <div style="font-size:20px;font-weight:800;margin-top:4px;color:var(--text);">${escapeHtml(n.bedtime)}</div>
-            <div style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">bedtime</div>
+    const anchor = night.anchor
+      ? `${escapeHtml(night.anchor.title)} at ${escapeHtml(night.anchor.time)}`
+      : 'No early calendar event changes tomorrow morning';
+    list.innerHTML = `
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:16px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:10px;padding:15px 16px;">
+        <div>
+          <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;">Tonight</div>
+          <div style="font-size:28px;font-weight:800;margin-top:4px;color:var(--text);">${escapeHtml(night.bedtime)}</div>
+          <div style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">go to bed</div>
+        </div>
+        <div style="min-width:0;">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
+            <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--green);">Wind down</strong> ${escapeHtml(night.windDown)}</span>
+            <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--blue);">Wake</strong> ${escapeHtml(night.wake)}</span>
+            <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--amber);">AC</strong> ${escapeHtml(night.acPrecool)}</span>
           </div>
-          <div style="min-width:0;">
-            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:7px;">
-              <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--green);">Wind down</strong> ${escapeHtml(n.windDown)}</span>
-              <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--blue);">Wake</strong> ${escapeHtml(n.wake)}</span>
-              <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--amber);">AC</strong> ${escapeHtml(n.acPrecool)}</span>
-            </div>
-            <div style="font-size:13px;color:var(--text);line-height:1.45;">${escapeHtml(n.reason)}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'IBM Plex Mono',monospace;">${anchor}</div>
-          </div>
-        </div>`;
-    }).join('');
+          <div style="font-size:13px;color:var(--text);line-height:1.45;">${escapeHtml(night.reason)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'IBM Plex Mono',monospace;">${anchor}</div>
+        </div>
+      </div>`;
   }
 
   async function loadSleepCoach() {
