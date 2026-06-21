@@ -2234,7 +2234,7 @@ def run_sync(count=50, username=None, user_id=1):
         link_manual_exercises_to_activities()
     except Exception as e:
         print('Strength-länkning fel:', e)
-    clear_cache('health', 'analysis', user_id=user_id)
+    clear_cache('health', 'analysis', 'training_review', user_id=user_id)
     try:
         match_activities_to_plan(user_id=user_id)
     except Exception as e:
@@ -2581,8 +2581,7 @@ def plan_request():
 @app.get('/api/plan/status')
 def plan_status():
     """Senaste AI-justeringens status."""
-    first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
-    row = get_cache('last_plan_adjustment', first_uid)
+    row = get_cache('last_plan_adjustment', uid())
     return jsonify(row[0] if row else {'date': None, 'changes': 0, 'summary': '', 'coaching_notes': ''})
 
 

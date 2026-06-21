@@ -2155,7 +2155,10 @@
         </div>
       </div>
       <div id="coach-notes-bar" style="display:none;background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:14px 18px;margin-bottom:20px;">
-        <div style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Coach  -  <span id="coach-notes-date"></span></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+          <div style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:0.06em;">Coach snapshot  -  <span id="coach-notes-date"></span></div>
+          <button id="coach-refresh-btn" class="insights-refresh" style="margin-left:auto;" onclick="refreshPlanCoach()">Refresh coach</button>
+        </div>
         <div id="coach-notes-text" style="font-size:13px;color:var(--text);line-height:1.6;"></div>
       </div>
       <div id="cal-container"></div>
@@ -4331,6 +4334,33 @@ HEALTH DATA (current):
     } catch(e) {}
   }
   loadPlanStatus();
+
+  async function refreshPlanCoach() {
+    const btn = document.getElementById('coach-refresh-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Refreshing...'; }
+    try {
+      await fetch('/api/sync', { method: 'POST' });
+      const r = await fetch('/api/plan/adjust', { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || 'Could not refresh coach');
+      await Promise.all([
+        loadPlan(),
+        loadPlanStatus(),
+        loadRecentActivities(),
+        loadTrainingReview(true),
+        loadHealth(),
+      ]);
+    } catch (e) {
+      const bar = document.getElementById('coach-notes-bar');
+      const text = document.getElementById('coach-notes-text');
+      if (bar && text) {
+        bar.style.display = 'block';
+        text.textContent = 'Could not refresh coach: ' + e.message;
+      }
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Refresh coach'; }
+    }
+  }
 
   async function sendCoachRequest() {
     const input = document.getElementById('coach-request-input');
