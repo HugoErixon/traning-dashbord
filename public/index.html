@@ -2111,6 +2111,18 @@
         <p id="sleep-page-plan-body">Reading Garmin sleep data...</p>
       </div>
 
+      <div class="bigcard accent-blue" style="margin-bottom:24px;">
+        <div class="today-header">
+          <h3 id="sleep-coach-title">Sleep coach</h3>
+          <span class="today-badge badge-amber" id="sleep-coach-badge">SCHEDULE</span>
+        </div>
+        <p id="sleep-coach-summary">Building a sleep schedule from your calendar...</p>
+        <div id="sleep-coach-meta" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 4px;"></div>
+        <div id="sleep-coach-list" style="display:flex;flex-direction:column;gap:10px;margin-top:14px;">
+          <div style="font-size:12px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;">Loading schedule...</div>
+        </div>
+      </div>
+
       <!-- Sleep AI analysis -->
       <div class="bigcard" style="margin-bottom:24px;">
         <div class="insights-hl">
@@ -2317,7 +2329,7 @@ window.fetch = (url, opts = {}) => {
     });
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
-    if (id === 'sleep')    { loadHealth(); loadSleepInsights(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
+    if (id === 'sleep')    { loadHealth(); loadSleepCoach(); loadSleepInsights(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') loadAnalysis();
     if (id === 'strength') loadStrengthPage();
     if (id === 'coach')    loadNotes();
@@ -2432,6 +2444,87 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       : 'Last night was ' + fmt(debtSec) + ' short of the goal. Go to bed earlier tonight and let the AC start pre-cooling before the sleep window.');
 
     renderSleepStageChart(sleep.levels || [], sleep.startGMT, sleep.endGMT);
+  }
+
+  function renderSleepCoach(data) {
+    const title = document.getElementById('sleep-coach-title');
+    const badge = document.getElementById('sleep-coach-badge');
+    const summary = document.getElementById('sleep-coach-summary');
+    const meta = document.getElementById('sleep-coach-meta');
+    const list = document.getElementById('sleep-coach-list');
+    if (!title || !summary || !meta || !list) return;
+
+    if (!data || data.error) {
+      title.textContent = 'Sleep coach unavailable';
+      badge.textContent = 'ERROR';
+      badge.className = 'today-badge badge-amber';
+      summary.textContent = data?.error || 'Could not build a sleep schedule right now.';
+      meta.innerHTML = '';
+      list.innerHTML = '';
+      return;
+    }
+
+    title.textContent = data.headline || 'Sleep coach';
+    badge.textContent = data.calendarSynced ? 'CALENDAR' : 'NO CALENDAR';
+    badge.className = data.calendarSynced ? 'today-badge badge-green' : 'today-badge badge-amber';
+    summary.textContent = data.summary || 'Recommended sleep schedule for the next week.';
+
+    const fmtHours = h => h == null ? '-' : Number(h).toFixed(1).replace('.0', '') + 'h';
+    meta.innerHTML = [
+      { label: 'Target', value: fmtHours(data.targetHours) },
+      { label: 'Last sleep', value: fmtHours(data.lastSleepHours) },
+      { label: '7-day avg', value: fmtHours(data.avgSleepHours) },
+      { label: 'Calendar', value: data.calendarSynced ? 'Synced' : 'Sync needed' },
+    ].map(m => `
+      <span style="display:inline-flex;gap:6px;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:999px;padding:6px 9px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted2);">
+        <span style="color:var(--muted);">${escapeHtml(m.label)}</span>
+        <strong style="color:var(--text);font-weight:700;">${escapeHtml(m.value)}</strong>
+      </span>`).join('');
+
+    const nights = data.nights || [];
+    if (!nights.length) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">No schedule could be calculated.</div>';
+      return;
+    }
+
+    list.innerHTML = nights.map((n, idx) => {
+      const anchor = n.anchor
+        ? `${escapeHtml(n.anchor.title)} at ${escapeHtml(n.anchor.time)}`
+        : 'No early calendar anchor';
+      const accent = idx === 0 ? 'var(--blue)' : 'var(--border2)';
+      return `
+        <div style="display:grid;grid-template-columns:92px 1fr;gap:14px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${accent};border-radius:10px;padding:13px 14px;">
+          <div>
+            <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;">${idx === 0 ? 'Tonight' : escapeHtml(n.label)}</div>
+            <div style="font-size:20px;font-weight:800;margin-top:4px;color:var(--text);">${escapeHtml(n.bedtime)}</div>
+            <div style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">bedtime</div>
+          </div>
+          <div style="min-width:0;">
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:7px;">
+              <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--green);">Wind down</strong> ${escapeHtml(n.windDown)}</span>
+              <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--blue);">Wake</strong> ${escapeHtml(n.wake)}</span>
+              <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--amber);">AC</strong> ${escapeHtml(n.acPrecool)}</span>
+            </div>
+            <div style="font-size:13px;color:var(--text);line-height:1.45;">${escapeHtml(n.reason)}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'IBM Plex Mono',monospace;">${anchor}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  async function loadSleepCoach() {
+    const title = document.getElementById('sleep-coach-title');
+    const summary = document.getElementById('sleep-coach-summary');
+    const list = document.getElementById('sleep-coach-list');
+    if (title) title.textContent = 'Sleep coach';
+    if (summary) summary.textContent = 'Building a sleep schedule from your calendar...';
+    if (list) list.innerHTML = '<div style="font-size:12px;color:var(--muted3);font-family:\'IBM Plex Mono\',monospace;">Loading schedule...</div>';
+    try {
+      const res = await fetch('/api/sleep-coach');
+      renderSleepCoach(await res.json());
+    } catch (e) {
+      renderSleepCoach({ error: e.message });
+    }
   }
 
   function renderSleepStageChart(levels, startGMT, endGMT) {
@@ -3095,7 +3188,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Refreshing...', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights()]);
+      await Promise.all([loadHealth(), loadSleepCoach(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -4903,6 +4996,7 @@ HEALTH DATA (current):
       setTimeout(() => setButtons(syncIds, 'Sync calendar', '', false), 2500);
       buildCalendar();
       renderTodaySession();
+      if (document.getElementById('page-sleep').classList.contains('active')) loadSleepCoach();
     } catch(e) {
       setButtons(syncIds, 'Try again', 'var(--red)', false);
     }

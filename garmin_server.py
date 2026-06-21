@@ -4,6 +4,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 import json, time, requests, psycopg2, psycopg2.extras, subprocess, threading
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import os
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -35,6 +36,7 @@ DATABASE_URL  = config.get('DATABASE_URL', '')
 GCAL_ID       = config.get('GOOGLE_CALENDAR_ID', 'primary')
 GCAL_CREDS    = 'google_credentials.json'
 GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
+LOCAL_TZ      = ZoneInfo('Europe/Stockholm')
 
 def uid():
     return getattr(flask_g, 'uid', 1)
@@ -1515,6 +1517,146 @@ def sleep_insights():
     except Exception as e:
         print('sleep_insights error:', e)
         return jsonify({'error': str(e)}), 500
+
+
+def _parse_calendar_dt(value):
+    if not value:
+        return None
+    try:
+        if 'T' not in value:
+            return datetime.fromisoformat(value).replace(tzinfo=LOCAL_TZ)
+        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=LOCAL_TZ)
+        return dt.astimezone(LOCAL_TZ)
+    except Exception:
+        return None
+
+
+def _fmt_clock(dt):
+    return dt.strftime('%H:%M')
+
+
+def _event_kind(title):
+    t = (title or '').lower()
+    work_words = ('work', 'jobb', 'jobba', 'meeting', 'möte', 'shift', 'pass', 'office')
+    travel_words = ('flight', 'flyg', 'train', 'tåg', 'airport', 'resa', 'travel')
+    if any(w in t for w in travel_words):
+        return 'travel'
+    if any(w in t for w in work_words):
+        return 'work'
+    return 'calendar'
+
+
+@app.get('/api/sleep-coach')
+def sleep_coach():
+    """Sömncoach: bygg kommande sömnschema från kalender + senaste sömn."""
+    target_base_h = 7.5
+    today = date.today()
+
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT date, sleep_score, sleep_hours, hrv_avg, resting_hr
+                    FROM health_history WHERE user_id=%s ORDER BY date DESC LIMIT 7''', (uid(),))
+                history = cur.fetchall()
+    except Exception as e:
+        return jsonify({'error': 'Database error: ' + str(e)}), 500
+
+    recent_hours = [float(r[2]) for r in history if r[2] is not None]
+    avg_sleep = round(sum(recent_hours) / len(recent_hours), 2) if recent_hours else None
+    last_sleep = recent_hours[0] if recent_hours else None
+    sleep_score = history[0][1] if history and history[0][1] is not None else None
+
+    sleep_debt = max(0, target_base_h - (last_sleep or target_base_h))
+    target_h = target_base_h
+    if sleep_debt >= 1.25 or (sleep_score is not None and sleep_score < 60):
+        target_h = 8.5
+    elif sleep_debt >= 0.5 or (sleep_score is not None and sleep_score < 75):
+        target_h = 8.0
+
+    cal_row = get_cache('gcal_events', uid())
+    events = cal_row[0] if cal_row else []
+    event_starts = []
+    for ev in events or []:
+        if ev.get('allDay'):
+            continue
+        start = _parse_calendar_dt(ev.get('start'))
+        if not start:
+            continue
+        event_starts.append({
+            'title': ev.get('title', 'Calendar event'),
+            'start': start,
+            'kind': _event_kind(ev.get('title', '')),
+            'location': ev.get('location', ''),
+        })
+
+    nights = []
+    for i in range(0, 7):
+        wake_day = today + timedelta(days=i + 1)
+        day_events = [e for e in event_starts if e['start'].date() == wake_day]
+        first_event = min(day_events, key=lambda e: e['start']) if day_events else None
+        weekend = wake_day.weekday() >= 5
+        default_wake = datetime.combine(wake_day, datetime.min.time(), LOCAL_TZ).replace(
+            hour=8 if weekend else 7, minute=30 if weekend else 0
+        )
+        buffer_min = 75
+        reason = 'Normal wake time'
+        anchor = None
+        if first_event:
+            if first_event['kind'] == 'travel':
+                buffer_min = 120
+            elif first_event['kind'] == 'work':
+                buffer_min = 90
+            wake_dt = first_event['start'] - timedelta(minutes=buffer_min)
+            anchor = {
+                'title': first_event['title'],
+                'time': _fmt_clock(first_event['start']),
+                'kind': first_event['kind'],
+            }
+            reason = f"{first_event['title']} starts {_fmt_clock(first_event['start'])}"
+        else:
+            wake_dt = default_wake
+
+        if wake_dt < datetime.combine(wake_day, datetime.min.time(), LOCAL_TZ).replace(hour=5):
+            wake_dt = datetime.combine(wake_day, datetime.min.time(), LOCAL_TZ).replace(hour=5)
+
+        bedtime = wake_dt - timedelta(hours=target_h)
+        wind_down = bedtime - timedelta(minutes=45)
+        ac_precool = bedtime - timedelta(hours=2)
+
+        nights.append({
+            'date': wake_day.isoformat(),
+            'label': wake_day.strftime('%a %d %b'),
+            'bedtime': _fmt_clock(bedtime),
+            'wake': _fmt_clock(wake_dt),
+            'windDown': _fmt_clock(wind_down),
+            'acPrecool': _fmt_clock(ac_precool),
+            'targetHours': target_h,
+            'reason': reason,
+            'anchor': anchor,
+        })
+
+    headline = 'Protect tonight'
+    if nights and nights[0].get('anchor'):
+        headline = 'Calendar-adjusted sleep'
+    elif sleep_debt >= 0.5:
+        headline = 'Recover sleep debt'
+
+    return jsonify({
+        'ok': True,
+        'headline': headline,
+        'targetHours': target_h,
+        'avgSleepHours': avg_sleep,
+        'lastSleepHours': last_sleep,
+        'sleepScore': sleep_score,
+        'calendarSynced': bool(cal_row),
+        'summary': (
+            f"Target {target_h:g}h tonight based on last night's sleep"
+            + (f" ({last_sleep:.1f}h)." if last_sleep is not None else '.')
+        ),
+        'nights': nights,
+    })
 
 
 @app.post('/api/chat')
