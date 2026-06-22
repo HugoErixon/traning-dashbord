@@ -2557,12 +2557,23 @@ HEALTH DATA (current):
     const END_WEEK   = 34;
     const YEAR       = 2026;
 
-    // Index sessions by week+dow
+    // Index sessions by week+dow — keep only the best one per slot.
+    // Priority: completed > planned/adjusted > skipped/missed
+    const statusPriority = s => {
+      if (s.status === 'completed') return 0;
+      if (s.status === 'planned')   return 1;
+      if (s.status === 'rescheduled') return 1;
+      if (s.status === 'missed')    return 2;
+      if (s.status === 'skipped')   return 2;
+      return 1;
+    };
     const sessionMap = {};
     PLAN_SESSIONS.forEach(s => {
       const key = s.week + '-' + s.dow;
-      if (!sessionMap[key]) sessionMap[key] = [];
-      sessionMap[key].push(s);
+      const existing = sessionMap[key];
+      if (!existing || statusPriority(s) < statusPriority(existing)) {
+        sessionMap[key] = s;
+      }
     });
 
     for (let w = START_WEEK; w <= END_WEEK; w++) {
@@ -2602,16 +2613,16 @@ HEALTH DATA (current):
         }
       });
 
-      // Räkna pass och km
+      // Räkna pass och km (ett pass per dag efter dedup)
       let runCount = 0, liftCount = 0, raceCount = 0, totalKm = 0, workCount = 0;
       for (let d = 0; d < 7; d++) {
-        const sessions = sessionMap[w + '-' + d] || [];
-        sessions.forEach(s => {
+        const s = sessionMap[w + '-' + d];
+        if (s) {
           if (s.type === 'run' || s.type === 'easy') runCount++;
           if (s.type === 'lift')  liftCount++;
           if (s.type === 'race')  raceCount++;
           totalKm += s.km || 0;
-        });
+        }
         const dayDate = new Date(monday);
         dayDate.setDate(monday.getDate() + d);
         const dayKey = localDateKey(dayDate);
@@ -2670,8 +2681,8 @@ HEALTH DATA (current):
           pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}"> ${ev.title}</span>`;
         });
 
-        const sessions = sessionMap[w + '-' + d] || [];
-        sessions.forEach(s => {
+        const s = sessionMap[w + '-' + d];
+        if (s) {
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
           const compactDetail = compactCalendarText(s.detail);
           const escaped = compactDetail.replace(/"/g, '&quot;');
@@ -2687,7 +2698,7 @@ HEALTH DATA (current):
           const modCls  = isModified ? ' csp-modified' : '';
           const doneCls = s.status === 'completed' ? ' csp-done' : '';
           pillsHtml += `<span class="cal-session-pill ${cls}${modCls}${doneCls}" style="${opacity}" data-freetip="${tipText}">${s.title}${statusNote}</span>`;
-        });
+        }
 
         dayEl.innerHTML = `
           <div class="cal-day-header">
