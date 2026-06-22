@@ -40,6 +40,27 @@
   </nav>
 
   <main class="main">
+    <div class="appbar" id="appbar">
+      <div class="appbar-greet">
+        <span class="appbar-hi" id="appbar-hi">God morgon, Hugo</span>
+        <span class="appbar-date" id="appbar-date">Måndag · vecka 25</span>
+      </div>
+      <div class="appbar-stats" id="appbar-stats">
+        <div class="appbar-stat">
+          <span class="appbar-stat-label">Beredskap</span>
+          <span class="appbar-stat-val" id="appbar-readiness" style="color:var(--accent)">–</span>
+        </div>
+        <div class="appbar-stat">
+          <span class="appbar-stat-label">Vilopuls</span>
+          <span class="appbar-stat-val" id="appbar-rhr">–</span>
+        </div>
+        <div class="appbar-stat">
+          <span class="appbar-stat-label">Veckovolym</span>
+          <span class="appbar-stat-val" id="appbar-volume">–<span style="font-size:11px;color:var(--muted);font-weight:500"> km</span></span>
+        </div>
+      </div>
+    </div>
+    <div class="content">
     <div class="mobile-actions" aria-label="Dashboard actions">
       <button class="refresh-btn" id="mobile-refresh-btn" onclick="refreshData()">Uppdatera data</button>
       <button class="refresh-btn" id="mobile-gcal-sync-btn" onclick="syncGcal()">Synka kalender</button>
@@ -56,9 +77,21 @@
           <div class="panel-eyebrow">Beredskap</div>
           <div class="recovery-wrap">
             <div class="readiness-ring" style="position:relative;width:124px;height:124px;flex-shrink:0;">
+              <div style="position:absolute;inset:14%;border-radius:50%;background:radial-gradient(circle,rgba(194,240,74,0.13) 0%,transparent 68%);filter:blur(6px);pointer-events:none;"></div>
               <svg viewBox="0 0 88 88" width="124" height="124">
+                <defs>
+                  <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#c2f04a"/>
+                    <stop offset="100%" stop-color="#7fd6c4"/>
+                  </linearGradient>
+                </defs>
                 <circle cx="44" cy="44" r="38" fill="none" stroke="var(--border2)" stroke-width="7"></circle>
-                <circle id="readiness-ring-prog" cx="44" cy="44" r="38" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" stroke-dasharray="239" stroke-dashoffset="239" transform="rotate(-90 44 44)" style="transition:stroke-dashoffset 1s ease,stroke 0.3s;"></circle>
+                <circle id="readiness-ring-prog" cx="44" cy="44" r="38" fill="none"
+                  stroke="url(#ring-grad)" stroke-width="7" stroke-linecap="round"
+                  stroke-dasharray="239" stroke-dashoffset="239"
+                  transform="rotate(-90 44 44)"
+                  style="transition:stroke-dashoffset 1s cubic-bezier(.4,0,.2,1);filter:drop-shadow(0 0 5px rgba(194,240,74,0.4))">
+                </circle>
               </svg>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
                 <div id="readiness-ring-val" style="font-size:34px;font-weight:700;font-family:var(--font-num);line-height:1;">–</div>
@@ -73,23 +106,26 @@
             </div>
           </div>
           <div class="contrib-row">
-            <div class="contrib">
+            <div class="contrib contrib-cell">
               <div class="contrib-label">sömn</div>
               <div id="snap-sleep-val" class="contrib-val">-</div>
               <div id="snap-sleep-sub" class="contrib-sub">Laddar…</div>
               <div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
+              <svg id="spark-sleep" class="sparkline" style="width:100%;height:28px;margin-top:8px;display:block;overflow:visible;"></svg>
             </div>
-            <div class="contrib">
+            <div class="contrib contrib-cell">
               <div class="contrib-label">kroppsbatteri</div>
               <div id="snap-bb-val" class="contrib-val">-</div>
               <div id="snap-bb-sub" class="contrib-sub">Laddar…</div>
               <div class="bar"><div id="snap-bb-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div>
+              <svg id="spark-bb" class="sparkline" style="width:100%;height:28px;margin-top:8px;display:block;overflow:visible;"></svg>
             </div>
-            <div class="contrib">
+            <div class="contrib contrib-cell">
               <div class="contrib-label">hrv natt</div>
               <div id="snap-hrv-val" class="contrib-val">-</div>
               <div id="snap-hrv-sub" class="contrib-sub">Laddar…</div>
               <div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div>
+              <svg id="spark-hrv" class="sparkline" style="width:100%;height:28px;margin-top:8px;display:block;overflow:visible;"></svg>
             </div>
           </div>
         </div>
@@ -124,6 +160,7 @@
       <!-- ROW 2: Träningsbeslut + Kommande 7 dagar -->
       <div class="home-cols">
         <div class="cockpit-card primary" id="cockpit-primary">
+          <span class="panel-accent-bar"></span>
           <div class="cockpit-top">
             <div>
               <div class="cockpit-kicker">Träningsbeslut</div>
@@ -133,9 +170,9 @@
           </div>
           <div class="cockpit-copy" id="cockpit-decision-copy">Dashboarden väger samman återhämtning, träningsbelastning, planerade pass och senaste tiden för att rekommendera hur hårt du bör träna idag.</div>
           <div class="cockpit-metrics">
-            <div class="cockpit-metric"><div class="cockpit-metric-label">Veckovolym</div><div class="cockpit-metric-value" id="cockpit-week-volume">--</div></div>
-            <div class="cockpit-metric"><div class="cockpit-metric-label">Belastningsrisk</div><div class="cockpit-metric-value" id="cockpit-load-risk">--</div></div>
-            <div class="cockpit-metric"><div class="cockpit-metric-label">Nästa nyckelpass</div><div class="cockpit-metric-value" id="cockpit-key-session">--</div></div>
+            <div class="cockpit-metric metric-tile"><div class="cockpit-metric-label metric-tile-label">Veckovolym</div><div class="cockpit-metric-value metric-tile-val" id="cockpit-week-volume">--</div></div>
+            <div class="cockpit-metric metric-tile"><div class="cockpit-metric-label metric-tile-label">Belastningsrisk</div><div class="cockpit-metric-value metric-tile-val" id="cockpit-load-risk">--</div></div>
+            <div class="cockpit-metric metric-tile"><div class="cockpit-metric-label metric-tile-label">Nästa nyckelpass</div><div class="cockpit-metric-value metric-tile-val" id="cockpit-key-session">--</div></div>
           </div>
           <div class="cockpit-limiter-row" id="cockpit-limiters"></div>
         </div>
@@ -577,6 +614,7 @@
       </div>
     </div>
 
+    </div><!-- /.content -->
   </main>
 </div>
 

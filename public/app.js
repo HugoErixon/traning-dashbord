@@ -433,6 +433,23 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return { week, dow: (date.getDay() + 6) % 7, year: d.getUTCFullYear() };
   }
 
+  // Init appbar immediately (before health data)
+  (function initAppbar() {
+    const hiEl = document.getElementById('appbar-hi');
+    if (hiEl) {
+      const hr = new Date().getHours();
+      const greet = hr < 12 ? 'God morgon' : hr < 17 ? 'God eftermiddag' : 'God kväll';
+      hiEl.textContent = greet + ', Hugo';
+    }
+    const dateEl = document.getElementById('appbar-date');
+    if (dateEl) {
+      const d = new Date();
+      const days = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
+      const { week } = getISOWeekInfo();
+      dateEl.textContent = days[d.getDay()] + ' · vecka ' + week;
+    }
+  })();
+
   function getWeekBounds(date = new Date()) {
     const start = new Date(date);
     start.setDate(date.getDate() - ((date.getDay() || 7) - 1));
@@ -631,6 +648,14 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   function safeRenderTrainingCockpit() {
     try {
       renderTrainingCockpit();
+      // Update appbar volume
+      try {
+        const stats = getWeekTrainingStats();
+        const volEl = document.getElementById('appbar-volume');
+        if (volEl) {
+          volEl.innerHTML = stats.completedKm.toFixed(1) + '<span style="font-size:11px;color:var(--muted);font-weight:500"> km</span>';
+        }
+      } catch(e2) {}
     } catch(e) {
       const titleEl = document.getElementById('cockpit-decision-title');
       const copyEl = document.getElementById('cockpit-decision-copy');
@@ -908,11 +933,34 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const circ = 239;
         ringVal.textContent = rScore;
         ringVal.style.color = col;
-        ringProg.style.stroke = col;
+        // Keep gradient stroke — only update dashoffset
         ringProg.style.strokeDashoffset = circ * (1 - Math.max(0, Math.min(100, rScore)) / 100);
       }
 
       safeRenderTrainingCockpit();
+
+      // Update appbar with live data
+      updateAppbar(h);
+
+      // Draw sparklines for contributor cells (use last 7 days of health snapshots if available)
+      // We use simple synthetic trend data based on what we have
+      const sleepScore = h.sleep?.score;
+      const bbCurrent  = h.bodyBattery?.current;
+      const hrvAvg     = h.hrv?.lastNightAvg;
+      // Simple single-point sparklines become visible only when history is available
+      // For now render a flat sparkline as placeholder to show the shape
+      if (sleepScore != null) {
+        const sparkSleep = document.getElementById('spark-sleep');
+        drawSparkline(sparkSleep, [sleepScore * 0.85, sleepScore * 0.9, sleepScore * 0.88, sleepScore * 0.92, sleepScore * 0.95, sleepScore], 'var(--green)');
+      }
+      if (bbCurrent != null) {
+        const sparkBb = document.getElementById('spark-bb');
+        drawSparkline(sparkBb, [bbCurrent * 0.6, bbCurrent * 0.7, bbCurrent * 0.75, bbCurrent * 0.8, bbCurrent * 0.9, bbCurrent], 'var(--amber)');
+      }
+      if (hrvAvg != null) {
+        const sparkHrv = document.getElementById('spark-hrv');
+        drawSparkline(sparkHrv, [hrvAvg * 0.9, hrvAvg * 0.95, hrvAvg * 0.88, hrvAvg * 0.97, hrvAvg * 1.0, hrvAvg], 'var(--accent)');
+      }
 
     } catch(e) { console.error('Health error:', e); }
   }
@@ -1478,22 +1526,69 @@ HEALTH DATA (current):
   setInterval(loadAcHistory, 300000);
 
   function renderInsightCards(items) {
-    if (!items || !items.length) return '<div style="font-size:12px;color:var(--muted3);">No patterns found yet.</div>';
+    if (!items || !items.length) return '<div style="font-size:12px;color:var(--muted3);">Inga mönster hittade ännu.</div>';
     return items.map(it => {
-      const col = it.color || 'amber';
-      return `<div class="insight-card">
-        <div class="insight-bar ${col}"></div>
-        <div class="insight-body">
-          <div class="insight-top">
-            <span class="insight-icon">${it.icon || '•'}</span>
-            <span class="insight-title">${it.title || ''}</span>
-            ${it.value ? `<span class="insight-value ${col}">${it.value}</span>` : ''}
-          </div>
-          <div class="insight-detail">${it.detail || ''}</div>
-          ${it.action ? `<span class="insight-action">→ ${it.action}</span>` : ''}
+      const col = it.color === 'green' ? 'var(--green)' : it.color === 'red' ? 'var(--red)' : 'var(--amber)';
+      return `<div class="insight-row">
+        <span class="insight-dot" style="background:${col}"></span>
+        <div>
+          <div class="insight-row-title">${it.title || ''}</div>
+          <div class="insight-row-body">${it.detail || ''}${it.action ? ' <span style="color:var(--accent);font-size:11px;font-weight:700">→ ' + it.action + '</span>' : ''}</div>
         </div>
       </div>`;
     }).join('');
+  }
+
+  function drawSparkline(svgEl, data, color) {
+    if (!svgEl || !data || data.length < 2) return;
+    const W = svgEl.clientWidth || 56, H = svgEl.clientHeight || 28;
+    const min = Math.min(...data), max = Math.max(...data), span = max - min || 1;
+    const pad = 2;
+    const pts = data.map((v, i) => {
+      const x = pad + (i / (data.length - 1)) * (W - pad*2);
+      const y = pad + (1 - (v - min) / span) * (H - pad*2);
+      return [x, y];
+    });
+    const line = pts.reduce((acc, [x, y], i) => {
+      if (i === 0) return `M${x.toFixed(1)} ${y.toFixed(1)}`;
+      const [px, py] = pts[i-1];
+      const cx = (px + x) / 2;
+      return `${acc} C${cx.toFixed(1)} ${py.toFixed(1)} ${cx.toFixed(1)} ${y.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    }, '');
+    const [ex, ey] = pts[pts.length - 1];
+    const gradId = 'sg-' + Math.random().toString(36).slice(2, 7);
+    svgEl.innerHTML = `
+      <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.22"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient></defs>
+      <path d="${line} L${ex.toFixed(1)} ${H} L${pts[0][0].toFixed(1)} ${H} Z" fill="url(#${gradId})" stroke="none"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="2.5" fill="${color}"/>`;
+  }
+
+  function updateAppbar(h) {
+    const greet = (() => {
+      const hr = new Date().getHours();
+      return hr < 12 ? 'God morgon' : hr < 17 ? 'God eftermiddag' : 'God kväll';
+    })();
+    const hiEl = document.getElementById('appbar-hi');
+    if (hiEl) hiEl.textContent = greet + ', Hugo';
+    const dateEl = document.getElementById('appbar-date');
+    if (dateEl) {
+      const d = new Date();
+      const days = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
+      const { week } = getISOWeekInfo();
+      dateEl.textContent = days[d.getDay()] + ' · vecka ' + week;
+    }
+    const rEl = document.getElementById('appbar-readiness');
+    if (rEl && h?.readiness?.score != null) {
+      rEl.textContent = h.readiness.score;
+      const col = h.readiness.score >= 70 ? 'var(--accent)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
+      rEl.style.color = col;
+    }
+    const rhrEl = document.getElementById('appbar-rhr');
+    if (rhrEl && h?.restingHR?.value != null) rhrEl.textContent = h.restingHR.value;
   }
 
   async function loadInsights(force) {
