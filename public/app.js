@@ -542,7 +542,16 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const { week } = getISOWeekInfo();
     const { start, end } = getWeekBounds();
     const planned = PLAN_SESSIONS.filter(s => s.week === week);
-    const plannedKm = planned.reduce((sum, s) => sum + (s.km || 0), 0);
+
+    // Deduplicate by dow: after reseed, DB can have both a 'completed' and a
+    // 'planned' row for the same slot. Prefer 'planned'; fall back to any.
+    const dedupMap = new Map();
+    for (const s of planned) {
+      if (!dedupMap.has(s.dow) || s.status === 'planned') dedupMap.set(s.dow, s);
+    }
+    const uniquePlanned = [...dedupMap.values()];
+    const plannedKm = uniquePlanned.reduce((sum, s) => sum + (s.km || 0), 0);
+
     const completedRuns = recentActivities.filter(a => {
       const d = new Date(a.startTimeLocal || a.beginTimestamp);
       return d >= start && d < end && isRunActivity(a);
@@ -555,9 +564,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       })
       .reduce((sum, a) => sum + (a.activityTrainingLoad || 0), 0);
     const todayDow = (new Date().getDay() + 6) % 7;
-    const remaining = planned.filter(s => s.dow >= todayDow && s.status !== 'completed' && s.status !== 'skipped');
+    const remaining = uniquePlanned.filter(s => s.dow >= todayDow && s.status !== 'completed' && s.status !== 'skipped');
     const remainingLoad = remaining.reduce((sum, s) => sum + sessionLoadEstimate(s), 0);
-    return { week, planned, plannedKm, completedKm, completedLoad, remaining, remainingLoad };
+    return { week, planned: uniquePlanned, plannedKm, completedKm, completedLoad, remaining, remainingLoad };
   }
 
   function renderTrainingCockpit() {
