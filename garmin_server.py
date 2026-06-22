@@ -989,7 +989,16 @@ def _build_refresh_prompt(acts):
                 ORDER BY week, dow LIMIT 1""", (iso_week, iso_week, weekday, uid()))
             next_session = cur.fetchone()
 
-    today_session_str = f"{today_session['title']} — {today_session['detail']}" if today_session else "Rest day (no session scheduled)"
+    if today_session:
+        today_km = today_session.get('km') or 0
+        today_session_str = (
+            f"{today_session['title']} — {today_session['detail']}"
+            + (f" — {today_km:.0f} km" if today_km and str(int(today_km)) not in today_session['title'] else "")
+        )
+        today_km_note = f"Session distance from plan: {today_km:.0f} km — use THIS number for the session, NOT the weekly remaining km."
+    else:
+        today_session_str = "Rest day (no session scheduled)"
+        today_km_note = ""
     next_session_str  = f"{next_session['title']} — {next_session['detail']}"   if next_session  else "No upcoming session found"
 
     prompt = f"""You are a personal training coach. Analyze ALL data below and respond ONLY with JSON. All text fields in the JSON must be written in Swedish (svenska).
@@ -1000,6 +1009,7 @@ VO2max: 59 · Plan: W23–41 · Current phase: {phase} (W{iso_week})
 
 TODAY'S SCHEDULED SESSION (from training plan):
 {today_session_str}
+{today_km_note}
 
 NEXT SCHEDULED SESSION:
 {next_session_str}
