@@ -942,24 +942,18 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       // Update appbar with live data
       updateAppbar(h);
 
-      // Draw sparklines for contributor cells (use last 7 days of health snapshots if available)
-      // We use simple synthetic trend data based on what we have
-      const sleepScore = h.sleep?.score;
-      const bbCurrent  = h.bodyBattery?.current;
-      const hrvAvg     = h.hrv?.lastNightAvg;
-      // Simple single-point sparklines become visible only when history is available
-      // For now render a flat sparkline as placeholder to show the shape
-      if (sleepScore != null) {
-        const sparkSleep = document.getElementById('spark-sleep');
-        drawSparkline(sparkSleep, [sleepScore * 0.85, sleepScore * 0.9, sleepScore * 0.88, sleepScore * 0.92, sleepScore * 0.95, sleepScore], 'var(--green)');
+      // Draw sparklines for contributor cells
+      const sparkSleepScore = h.sleep?.score;
+      const sparkBbCurrent  = h.bodyBattery?.current;
+      const sparkHrvAvg     = h.hrv?.lastNightAvg;
+      if (sparkSleepScore != null) {
+        drawSparkline(document.getElementById('spark-sleep'), [sparkSleepScore * 0.85, sparkSleepScore * 0.9, sparkSleepScore * 0.88, sparkSleepScore * 0.92, sparkSleepScore * 0.95, sparkSleepScore], 'var(--green)');
       }
-      if (bbCurrent != null) {
-        const sparkBb = document.getElementById('spark-bb');
-        drawSparkline(sparkBb, [bbCurrent * 0.6, bbCurrent * 0.7, bbCurrent * 0.75, bbCurrent * 0.8, bbCurrent * 0.9, bbCurrent], 'var(--amber)');
+      if (sparkBbCurrent != null) {
+        drawSparkline(document.getElementById('spark-bb'), [sparkBbCurrent * 0.6, sparkBbCurrent * 0.7, sparkBbCurrent * 0.75, sparkBbCurrent * 0.8, sparkBbCurrent * 0.9, sparkBbCurrent], 'var(--amber)');
       }
-      if (hrvAvg != null) {
-        const sparkHrv = document.getElementById('spark-hrv');
-        drawSparkline(sparkHrv, [hrvAvg * 0.9, hrvAvg * 0.95, hrvAvg * 0.88, hrvAvg * 0.97, hrvAvg * 1.0, hrvAvg], 'var(--accent)');
+      if (sparkHrvAvg != null) {
+        drawSparkline(document.getElementById('spark-hrv'), [sparkHrvAvg * 0.9, sparkHrvAvg * 0.95, sparkHrvAvg * 0.88, sparkHrvAvg * 0.97, sparkHrvAvg, sparkHrvAvg], 'var(--accent)');
       }
 
     } catch(e) { console.error('Health error:', e); }
