@@ -463,45 +463,77 @@
     <div class="page" id="page-sleep">
       <div class="page-header"><h2>Sömn</h2><p>Återhämtning, läggdags och förkylning av rummet</p></div>
 
-      <div class="grid">
-        <div class="card">
-          <div class="card-label">sömnpoäng</div>
-          <div id="sleep-page-score" class="card-val cp">-</div>
-          <div id="sleep-page-score-sub" class="card-sub">Laddar…</div>
-          <div class="bar"><div id="sleep-page-score-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div>
+      <!-- Metric cards: 2×2 premium grid -->
+      <div class="sleep-metrics-grid">
+
+        <!-- Sömnpoäng — arc gauge -->
+        <div class="sleep-metric-card sleep-metric-score-card">
+          <div class="sleep-metric-label">Sömnpoäng</div>
+          <div class="sleep-gauge-wrap">
+            <svg id="sleep-score-gauge" viewBox="0 0 120 70" width="120" height="70" aria-hidden="true">
+              <path class="sleep-gauge-track" d="M10,65 A55,55 0 0,1 110,65" fill="none" stroke-width="10" stroke-linecap="round"/>
+              <path id="sleep-score-arc" class="sleep-gauge-fill" d="M10,65 A55,55 0 0,1 110,65" fill="none" stroke-width="10" stroke-linecap="round" stroke-dasharray="172.8" stroke-dashoffset="172.8"/>
+            </svg>
+            <div class="sleep-gauge-center">
+              <span id="sleep-page-score" class="sleep-metric-val">-</span>
+            </div>
+          </div>
+          <div id="sleep-page-score-sub" class="sleep-metric-sub">Laddar…</div>
+          <div style="display:none"><div id="sleep-page-score-bar" style="width:0%"></div></div>
         </div>
-        <div class="card">
-          <div class="card-label">total sömn</div>
-          <div id="sleep-page-total" class="card-val cg">-</div>
-          <div id="sleep-page-total-sub" class="card-sub">Mål 7,5 h</div>
-          <div class="bar"><div id="sleep-page-total-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
+
+        <!-- Total sömn — big number + progress bar -->
+        <div class="sleep-metric-card">
+          <div class="sleep-metric-label">Total sömn</div>
+          <div id="sleep-page-total" class="sleep-metric-val sleep-metric-val-total">-</div>
+          <div id="sleep-page-total-sub" class="sleep-metric-sub">Mål 7,5 h</div>
+          <div class="sleep-progress-bar">
+            <div id="sleep-page-total-bar" class="sleep-progress-fill sleep-fill-green"></div>
+          </div>
         </div>
-        <div class="card">
-          <div class="card-label">djupsömn</div>
-          <div id="sleep-page-deep" class="card-val cb">-</div>
-          <div id="sleep-page-deep-sub" class="card-sub">Mål 15–25%</div>
-          <div class="bar"><div id="sleep-page-deep-bar" class="bar-fill" style="width:0%;background:var(--blue)"></div></div>
+
+        <!-- Djupsömn — radial ring -->
+        <div class="sleep-metric-card sleep-metric-ring-card">
+          <div class="sleep-metric-label">Djupsömn</div>
+          <div class="sleep-ring-wrap">
+            <svg viewBox="0 0 80 80" width="80" height="80" aria-hidden="true">
+              <circle class="sleep-ring-track" cx="40" cy="40" r="30" fill="none" stroke-width="9"/>
+              <circle id="sleep-deep-ring" class="sleep-ring-fill" cx="40" cy="40" r="30" fill="none" stroke-width="9" stroke-dasharray="188.5" stroke-dashoffset="188.5" stroke-linecap="round" transform="rotate(-90 40 40)"/>
+            </svg>
+            <div id="sleep-page-deep" class="sleep-ring-val">-</div>
+          </div>
+          <div id="sleep-page-deep-sub" class="sleep-metric-sub sleep-metric-sub-center">Mål 15–25%</div>
+          <div style="display:none"><div id="sleep-page-deep-bar" style="width:0%"></div></div>
         </div>
-        <div class="card">
-          <div class="card-label">REM-sömn</div>
-          <div id="sleep-page-rem" class="card-val ca">-</div>
-          <div id="sleep-page-rem-sub" class="card-sub">Mål 20–25%</div>
-          <div class="bar"><div id="sleep-page-rem-bar" class="bar-fill" style="width:0%;background:var(--amber)"></div></div>
+
+        <!-- REM-sömn — radial ring -->
+        <div class="sleep-metric-card sleep-metric-ring-card">
+          <div class="sleep-metric-label">REM-sömn</div>
+          <div class="sleep-ring-wrap">
+            <svg viewBox="0 0 80 80" width="80" height="80" aria-hidden="true">
+              <circle class="sleep-ring-track" cx="40" cy="40" r="30" fill="none" stroke-width="9"/>
+              <circle id="sleep-rem-ring" class="sleep-ring-fill sleep-ring-rem" cx="40" cy="40" r="30" fill="none" stroke-width="9" stroke-dasharray="188.5" stroke-dashoffset="188.5" stroke-linecap="round" transform="rotate(-90 40 40)"/>
+            </svg>
+            <div id="sleep-page-rem" class="sleep-ring-val">-</div>
+          </div>
+          <div id="sleep-page-rem-sub" class="sleep-metric-sub sleep-metric-sub-center">Mål 20–25%</div>
+          <div style="display:none"><div id="sleep-page-rem-bar" style="width:0%"></div></div>
         </div>
+
       </div>
 
-      <!-- Sleep stage chart -->
+      <!-- Sleep stage chart — SVG container -->
       <div class="bigcard" style="margin-bottom:24px;padding:20px 20px 16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
           <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted2);">Sömnstadier</span>
           <div style="display:flex;gap:14px;align-items:center;" id="sleep-chart-legend">
-            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#1d4ed8;"></span>Djup</span>
-            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#93c5fd;"></span>Lätt</span>
-            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#c084fc;"></span>REM</span>
-            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f9a8d4;"></span>Vaken</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#4F46E5;"></span>Djup</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#A78BFA;"></span>REM</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#6B7280;"></span>Lätt</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#374151;"></span>Vaken</span>
           </div>
         </div>
-        <canvas id="sleep-stage-canvas" height="130" style="width:100%;display:block;"></canvas>
+        <div id="sleep-stage-canvas" style="width:100%;min-height:130px;display:block;"></div>
         <div style="display:flex;justify-content:space-between;margin-top:6px;" id="sleep-chart-times">
           <span style="font-size:11px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;" id="sleep-chart-t-start"></span>
           <span style="font-size:11px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;" id="sleep-chart-t-end"></span>

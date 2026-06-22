@@ -2041,3 +2041,173 @@
     @media (max-width: 720px) {
       .appbar { display: none; }
     }
+
+    /* ── SLEEP PAGE ─────────────────────────────────────── */
+    .sleep-metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .sleep-metric-card {
+      background: var(--card-grad), var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 18px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    .sleep-metric-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted2);
+      margin-bottom: 2px;
+    }
+
+    .sleep-metric-val {
+      font-size: 48px;
+      font-weight: 800;
+      line-height: 1;
+      color: var(--text);
+      font-family: var(--font-sans);
+    }
+
+    .sleep-metric-val-total {
+      font-size: 36px;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+
+    .sleep-metric-sub {
+      font-size: 12px;
+      color: var(--muted2);
+      margin-top: 2px;
+    }
+
+    .sleep-metric-sub-center {
+      text-align: center;
+    }
+
+    /* Arc gauge — Sömnpoäng */
+    .sleep-metric-score-card {
+      align-items: flex-start;
+    }
+
+    .sleep-gauge-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: flex-end;
+      justify-content: center;
+      margin: 4px 0 2px;
+    }
+
+    .sleep-gauge-track {
+      stroke: rgba(255,255,255,0.08);
+    }
+
+    .sleep-gauge-fill {
+      stroke: #C8F135;
+      transition: stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1), stroke 0.4s ease;
+    }
+
+    .sleep-gauge-center {
+      position: absolute;
+      bottom: 2px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .sleep-gauge-center .sleep-metric-val {
+      font-size: 30px;
+    }
+
+    /* Radial ring cards */
+    .sleep-metric-ring-card {
+      align-items: center;
+    }
+
+    .sleep-ring-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 6px 0 2px;
+    }
+
+    .sleep-ring-track {
+      stroke: rgba(255,255,255,0.08);
+    }
+
+    .sleep-ring-fill {
+      stroke: #4F46E5;
+      transition: stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    .sleep-ring-rem {
+      stroke: #A78BFA;
+    }
+
+    .sleep-ring-val {
+      position: absolute;
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      text-align: center;
+      line-height: 1;
+    }
+
+    /* Progress bar — Total sömn */
+    .sleep-progress-bar {
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+
+    .sleep-progress-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.6s ease;
+    }
+
+    .sleep-fill-green {
+      background: var(--green);
+    }
+
+    /* Sleep stage SVG chart hover */
+    .sleep-seg {
+      cursor: default;
+      transition: opacity 0.1s;
+    }
+    .sleep-seg:hover {
+      opacity: 0.75;
+    }
+
+    @media (max-width: 520px) {
+      .sleep-metrics-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .sleep-metric-card {
+        padding: 16px 14px 12px;
+      }
+      .sleep-metric-val {
+        font-size: 36px;
+      }
+      .sleep-metric-val-total {
+        font-size: 28px;
+      }
+      #sleep-score-gauge {
+        width: 100px;
+        height: 60px;
+      }
+    }

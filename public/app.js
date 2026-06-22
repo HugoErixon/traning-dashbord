@@ -167,6 +167,26 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setText('sleep-page-rem-sub', rem >= 20 ? 'Inom målintervall' : 'Under mål 20–25%');
     setWidth('sleep-page-rem-bar', rem / 25 * 100);
 
+    // Update arc gauge for score
+    const scoreArc = document.getElementById('sleep-score-arc');
+    if (scoreArc) {
+      const total = 172.8;
+      scoreArc.style.strokeDashoffset = (total * (1 - Math.min(1, (score || 0) / 100))).toFixed(1);
+      scoreArc.style.stroke = score >= 80 ? '#C8F135' : score >= 60 ? '#F59E0B' : '#FF6B6B';
+    }
+
+    // Update radial rings
+    const deepRing = document.getElementById('sleep-deep-ring');
+    if (deepRing) {
+      const circ = 188.5;
+      deepRing.style.strokeDashoffset = (circ * (1 - Math.min(1, (deep || 0) / 25))).toFixed(1);
+    }
+    const remRing = document.getElementById('sleep-rem-ring');
+    if (remRing) {
+      const circ = 188.5;
+      remRing.style.strokeDashoffset = (circ * (1 - Math.min(1, (rem || 0) / 25))).toFixed(1);
+    }
+
     renderSleepStageChart(sleep.levels || [], sleep.startGMT, sleep.endGMT);
   }
 
@@ -258,18 +278,21 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   }
 
   function renderSleepStageChart(levels, startGMT, endGMT) {
-    const canvas = document.getElementById('sleep-stage-canvas');
-    const empty  = document.getElementById('sleep-chart-empty');
-    if (!canvas) return;
+    const container = document.getElementById('sleep-stage-canvas');
+    const empty = document.getElementById('sleep-chart-empty');
+    if (!container) return;
 
     if (!levels || levels.length === 0) {
-      canvas.style.display = 'none';
-      document.getElementById('sleep-chart-times').style.display = 'none';
+      container.innerHTML = '';
+      container.style.display = 'none';
+      const timesEl = document.getElementById('sleep-chart-times');
+      if (timesEl) timesEl.style.display = 'none';
       if (empty) empty.style.display = 'block';
       return;
     }
-    canvas.style.display = 'block';
-    document.getElementById('sleep-chart-times').style.display = 'flex';
+    container.style.display = 'block';
+    const timesEl = document.getElementById('sleep-chart-times');
+    if (timesEl) timesEl.style.display = 'flex';
     if (empty) empty.style.display = 'none';
 
     const parseGMT = s => {
@@ -284,39 +307,34 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (!chartStart || !chartEnd) return;
     const totalMs = chartEnd - chartStart;
 
+    // Depth order: Vaken(top)=row0, Lätt=row1, REM=row2, Djup(bottom)=row3
     const STAGE = {
-      0: { row: 3, color: '#3b82f6', name: 'Deep' },
-      1: { row: 2, color: '#7dd3fc', name: 'Light' },
-      2: { row: 0, color: '#f472b6', name: 'Awake' },
-      3: { row: 1, color: '#a78bfa', name: 'REM' },
+      0: { row: 3, color: '#4F46E5', name: 'Djup' },
+      1: { row: 1, color: '#6B7280', name: 'Lätt' },
+      2: { row: 0, color: '#374151', name: 'Vaken' },
+      3: { row: 2, color: '#A78BFA', name: 'REM' },
     };
-    const LABELS = ['Awake', 'REM', 'Light', 'Deep'];
+    const LABELS = ['Vaken', 'Lätt', 'REM', 'Djup'];
 
-    const dpr    = window.devicePixelRatio || 1;
-    const W      = canvas.parentElement.clientWidth;
+    const W = container.clientWidth || 600;
+    const LABEL_W = 46;
+    const chartW = W - LABEL_W;
+    const ROW_H = 32;
+    const ROWS = 4;
     const TICK_H = 22;
-    const H      = 140;
-    canvas.width  = W * dpr;
-    canvas.height = H * dpr;
-    canvas.style.width  = W + 'px';
-    canvas.style.height = H + 'px';
+    const H = ROWS * ROW_H + TICK_H;
 
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, W, H);
+    const fmtTime = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+    const fmtDur = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m/60)+'h '+(m%60)+'m' : m+'m'; };
 
-    const LABEL_W = 44;
-    const chartW  = W - LABEL_W;
-    const chartH  = H - TICK_H;
-    const ROWS    = 4;
-    const rowH    = chartH / ROWS;
+    const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;overflow:visible;">`];
 
+    // Row stripes
     for (let r = 0; r < ROWS; r++) {
-      ctx.fillStyle = r % 2 === 0 ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0)';
-      ctx.fillRect(LABEL_W, r * rowH, chartW, rowH);
+      if (r % 2 === 0) parts.push(`<rect x="${LABEL_W}" y="${r * ROW_H}" width="${chartW}" height="${ROW_H}" fill="rgba(255,255,255,0.018)"/>`);
     }
 
-    const segments = [];
+    // Stage segments
     for (const seg of sorted) {
       const level = Math.round(seg.activityLevel ?? seg.level ?? 1);
       const info  = STAGE[level] ?? STAGE[1];
@@ -325,82 +343,53 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       if (!t0 || !t1) continue;
       const x = LABEL_W + ((t0 - chartStart) / totalMs) * chartW;
       const w = Math.max(1, ((t1 - t0) / totalMs) * chartW);
-      const y = info.row * rowH + 1;
-      const h = rowH - 2;
-      ctx.fillStyle = info.color;
-      ctx.fillRect(x, y, w, h);
-      segments.push({ x, w, info, t0, t1 });
+      const y = info.row * ROW_H + 1;
+      parts.push(`<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="${ROW_H - 2}" fill="${info.color}" rx="2" class="sleep-seg" data-name="${info.name}" data-t0="${fmtTime(t0)}" data-t1="${fmtTime(t1)}" data-dur="${fmtDur(t1 - t0)}" data-color="${info.color}"/>`);
     }
 
-    // Y labels
-    ctx.font = '600 10px "IBM Plex Sans", sans-serif';
-    ctx.fillStyle = '#64748b';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
+    // Wake dashed vertical line
+    const wakeX = (LABEL_W + chartW - 0.5).toFixed(1);
+    parts.push(`<line x1="${wakeX}" y1="0" x2="${wakeX}" y2="${ROWS * ROW_H}" stroke="#475569" stroke-width="1" stroke-dasharray="3,4"/>`);
+
+    // Y-axis labels
     for (let r = 0; r < ROWS; r++) {
-      ctx.fillText(LABELS[r], LABEL_W - 7, r * rowH + rowH / 2);
+      const cy = (r * ROW_H + ROW_H / 2).toFixed(1);
+      parts.push(`<text x="${LABEL_W - 7}" y="${cy}" text-anchor="end" dominant-baseline="middle" font-size="10" font-weight="600" fill="#64748b" font-family="var(--font-mono,monospace)">${LABELS[r]}</text>`);
     }
 
-    // Wake line
-    ctx.strokeStyle = '#475569';
-    ctx.setLineDash([3, 4]);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(LABEL_W + chartW - 0.5, 0);
-    ctx.lineTo(LABEL_W + chartW - 0.5, chartH);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Hour ticks — every 2h, computed properly in UTC
+    // Hour ticks every 2h
     const startMs = chartStart.getTime();
     const firstTickMs = Math.ceil(startMs / (2 * 3600000)) * (2 * 3600000);
-    ctx.font = '9px "IBM Plex Mono", monospace';
-    ctx.textBaseline = 'top';
-    ctx.textAlign = 'center';
+    const chartBottom = ROWS * ROW_H;
     for (let t = firstTickMs; t <= startMs + totalMs; t += 2 * 3600000) {
-      const x = LABEL_W + ((t - startMs) / totalMs) * chartW;
-      if (x < LABEL_W || x > LABEL_W + chartW) continue;
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(x - 0.5, chartH, 1, 4);
+      const tx = (LABEL_W + ((t - startMs) / totalMs) * chartW).toFixed(1);
+      if (parseFloat(tx) < LABEL_W || parseFloat(tx) > LABEL_W + chartW) continue;
       const label = new Date(t).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-      ctx.fillStyle = '#475569';
-      ctx.fillText(label, x, chartH + 6);
+      parts.push(`<line x1="${tx}" y1="${chartBottom}" x2="${tx}" y2="${chartBottom + 4}" stroke="#334155" stroke-width="1"/>`);
+      parts.push(`<text x="${tx}" y="${chartBottom + 14}" text-anchor="middle" font-size="9" fill="#475569" font-family="var(--font-mono,monospace)">${label}</text>`);
     }
 
-    // Bottom labels
+    parts.push('</svg>');
+    container.innerHTML = parts.join('');
+
+    // Bottom time labels
     const fmtLocal = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
     const startEl = document.getElementById('sleep-chart-t-start');
     const endEl   = document.getElementById('sleep-chart-t-end');
     if (startEl) startEl.textContent = fmtLocal(chartStart);
     if (endEl)   endEl.textContent   = 'Wake ' + fmtLocal(chartEnd);
 
-    // Hover
-    canvas._sleepMeta = { segments, chartStart, totalMs, LABEL_W, chartW, chartH, rowH, STAGE, LABELS, startMs };
-  }
-
-  // Set up sleep chart hover once
-  (function() {
-    const canvas = document.getElementById('sleep-stage-canvas');
-    if (!canvas) return;
-
-    const fmtTime = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-    const fmtDur  = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m/60)+'h '+(m%60)+'m' : m+'m'; };
-
-    canvas.addEventListener('mousemove', e => {
-      const meta = canvas._sleepMeta;
-      if (!meta) return;
-      const rect = canvas.getBoundingClientRect();
-      const mx = (e.clientX - rect.left) * (canvas.width / rect.width / (window.devicePixelRatio || 1));
-      if (mx < meta.LABEL_W || mx > meta.LABEL_W + meta.chartW) { hideTip(); return; }
-
-      const seg = meta.segments.find(s => mx >= s.x && mx <= s.x + s.w);
-      if (!seg) { hideTip(); return; }
-
+    // SVG hover tooltips
+    const svgEl = container.querySelector('svg');
+    if (!svgEl) return;
+    svgEl.addEventListener('mouseover', e => {
+      const rect = e.target.closest('.sleep-seg');
+      if (!rect) return;
       clearTimeout(tipTimeout);
       tipBox.innerHTML = `
-        <div class="tip-title" style="color:${seg.info.color}">${seg.info.name}</div>
-        <div class="tip-desc">${fmtTime(seg.t0)} – ${fmtTime(seg.t1)}</div>
-        <div class="tip-desc" style="color:var(--muted2);margin-top:2px;">${fmtDur(seg.t1 - seg.t0)}</div>`;
+        <div class="tip-title" style="color:${rect.dataset.color}">${rect.dataset.name}</div>
+        <div class="tip-desc">${rect.dataset.t0} – ${rect.dataset.t1}</div>
+        <div class="tip-desc" style="color:var(--muted2);margin-top:2px;">${rect.dataset.dur}</div>`;
       const vw = window.innerWidth;
       let left = e.clientX + 12;
       if (left + 180 > vw - 8) left = e.clientX - 192;
@@ -408,9 +397,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       tipBox.style.top  = (e.clientY - 40) + 'px';
       tipBox.classList.add('visible');
     });
-
-    canvas.addEventListener('mouseleave', hideTip);
-  })();
+    svgEl.addEventListener('mouseleave', hideTip);
+  }
 
   let currentHealthData = null;
 
