@@ -513,12 +513,12 @@ HRV_STATUS_CAP = {         # status → taklimit för HRV-komponenten i CNS (tre
     'POOR':        45,
     'NONE':        None,
 }
-HRV_STATUS_VERDICT = {     # status → kort verdikt (engelska)
-    'BALANCED':   'Balanced — autonomic system in your normal range',
+HRV_STATUS_VERDICT = {     # status → kort verdikt
+    'BALANCED':   'HRV balanserad — autonoma nervsystemet ligger i ditt normala spann',
     'UNBALANCED': 'HRV i obalans — utanför ditt normala spann, träna med viss försiktighet',
-    'LOW':        'Low — below baseline, prioritize recovery',
-    'POOR':       'Poor — sustained low HRV, rest needed',
-    'NONE':       'Not enough baseline data yet',
+    'LOW':        'HRV låg — under baslinjen, prioritera återhämtning',
+    'POOR':       'HRV mycket låg — längre låg trend, vila rekommenderas',
+    'NONE':       'Inte tillräckligt med baslinjedata ännu',
 }
 
 def hrv_component(last_night, low_upper, balanced_low, status, raw_pct):

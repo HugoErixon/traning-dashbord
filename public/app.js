@@ -515,6 +515,26 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return 'HRV otillgängligt';
   }
 
+  function getHrvVerdictText(hrv) {
+    const statusText = getHrvStatusLabel(hrv?.status);
+    if (statusText) {
+      const key = String(hrv.status || '').toUpperCase();
+      return {
+        BALANCED: 'HRV balanserad — autonoma nervsystemet ligger i ditt normala spann',
+        UNBALANCED: 'HRV i obalans — utanför ditt normala spann, träna med viss försiktighet',
+        LOW: 'HRV låg — under baslinjen, prioritera återhämtning',
+        POOR: 'HRV mycket låg — längre låg trend, vila rekommenderas',
+      }[key] || statusText;
+    }
+    if (!hrv?.verdict) return 'HRV-data saknas';
+    return String(hrv.verdict)
+      .replace(/Balanced\s*[—-]\s*autonomic system in your normal range/i, 'HRV balanserad — autonoma nervsystemet ligger i ditt normala spann')
+      .replace(/Unbalanced\s*[—-]\s*outside your normal range,\s*train with caution/i, 'HRV i obalans — utanför ditt normala spann, träna med viss försiktighet')
+      .replace(/Low\s*[—-]\s*below baseline,\s*prioritize recovery/i, 'HRV låg — under baslinjen, prioritera återhämtning')
+      .replace(/Poor\s*[—-]\s*sustained low HRV,\s*rest needed/i, 'HRV mycket låg — längre låg trend, vila rekommenderas')
+      .replace(/Not enough baseline data yet/i, 'Inte tillräckligt med baslinjedata ännu');
+  }
+
   function getHrvClass(hrv) {
     if (hrv?.light === 'green') return 'good';
     if (hrv?.light === 'red') return 'bad';
@@ -741,7 +761,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         ? ((h.hrv.lastNightAvg - h.hrv.weeklyAvg) / h.hrv.weeklyAvg) * 100
         : null;
       let hrvLight = h.hrv?.light || 'amber';
-      let hrvLightText = h.hrv?.verdict || 'HRV-data saknas';
+      let hrvLightText = getHrvVerdictText(h.hrv);
       if (!h.hrv?.light && hrvDiff !== null) {
         if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% – kvalitetspass går bra`; }
         else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% – vila eller Z2`; }
