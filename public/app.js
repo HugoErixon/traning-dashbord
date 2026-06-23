@@ -1834,9 +1834,143 @@ HEALTH DATA (current):
     strengthCurrentTab = which;
     document.getElementById('stab-today').classList.toggle('active', which === 'today');
     document.getElementById('stab-history').classList.toggle('active', which === 'history');
+    document.getElementById('stab-analysis').classList.toggle('active', which === 'analysis');
     document.getElementById('strength-today').style.display   = which === 'today'   ? 'block' : 'none';
     document.getElementById('strength-history').style.display = which === 'history' ? 'block' : 'none';
-    if (which === 'today') loadTodayWorkout(); else loadStrength();
+    document.getElementById('strength-analysis').style.display = which === 'analysis' ? 'block' : 'none';
+    if (which === 'today') loadTodayWorkout();
+    else if (which === 'history') loadStrength();
+    else loadStrengthAnalysis();
+  }
+
+  function fmtKg(value) {
+    if (value === null || value === undefined || value === '') return '-';
+    return Number(value).toLocaleString('sv-SE', { maximumFractionDigits: 1 }) + ' kg';
+  }
+
+  function fmtSignedKg(value) {
+    if (value === null || value === undefined) return '-';
+    const n = Number(value);
+    const sign = n > 0 ? '+' : '';
+    return sign + n.toLocaleString('sv-SE', { maximumFractionDigits: 1 }) + ' kg';
+  }
+
+  function fmtVolume(value) {
+    const n = Number(value || 0);
+    if (n >= 1000) return (n / 1000).toLocaleString('sv-SE', { maximumFractionDigits: 1 }) + ' ton';
+    return n.toLocaleString('sv-SE', { maximumFractionDigits: 0 }) + ' kg';
+  }
+
+  async function loadStrengthAnalysis() {
+    const el = document.getElementById('strength-analysis-content');
+    if (!el) return;
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'IBM Plex Mono\',monospace;">Analyserar styrkeloggar...</div>';
+    try {
+      const res = await fetch('/api/strength/analysis');
+      const data = await res.json();
+      const summary = data.summary || {};
+      const exercises = data.exercises || [];
+      if (!summary.exerciseLogs) {
+        el.innerHTML = '<div class="no-sessions">Logga några övningar först, så börjar analysen räkna progression, volym och personbästan.</div>';
+        return;
+      }
+
+      const maxWeekVolume = Math.max(1, ...(data.weeks || []).map(w => Number(w.volume || 0)));
+      const weeksHtml = (data.weeks || []).map(w => {
+        const h = Math.max(8, Math.round((Number(w.volume || 0) / maxWeekVolume) * 100));
+        const label = new Date(w.weekStart).toLocaleDateString('sv-SE', { month:'short', day:'numeric' });
+        return `<div class="strength-week">
+          <div class="strength-week-bar" style="height:${h}%"></div>
+          <div class="strength-week-label">${escapeHtml(label)}</div>
+        </div>`;
+      }).join('');
+
+      const bestHtml = (data.bestLifts || []).map(ex => `
+        <div class="strength-rank-row">
+          <span>${escapeHtml(ex.exercise)}</span>
+          <strong>${fmtKg(ex.bestE1rm)}</strong>
+        </div>`).join('') || '<div class="strength-empty">Ingen viktdata ännu.</div>';
+
+      const prsHtml = (data.recentPrs || []).map(pr => `
+        <div class="strength-pr">
+          <div>
+            <strong>${escapeHtml(pr.exercise)}</strong>
+            <span>${escapeHtml(fmtDateStr(pr.date))} · ${escapeHtml(pr.reps || '')} @ ${fmtKg(pr.weight)}</span>
+          </div>
+          <b>${fmtKg(pr.e1rm)}</b>
+        </div>`).join('') || '<div class="strength-empty">Inga nya personbästan i senaste loggen.</div>';
+
+      const rowsHtml = exercises.map(ex => `
+        <tr>
+          <td>
+            <strong>${escapeHtml(ex.exercise)}</strong>
+            <span>${escapeHtml(fmtDateStr(ex.lastDate))}</span>
+          </td>
+          <td>${ex.sessions}</td>
+          <td>${fmtVolume(ex.totalVolume)}</td>
+          <td>${fmtKg(ex.currentE1rm)}</td>
+          <td class="trend-${ex.trend}">${fmtSignedKg(ex.deltaE1rm)}</td>
+        </tr>`).join('');
+
+      el.innerHTML = `
+        <div class="strength-analysis-grid">
+          <div class="strength-metric-card">
+            <span>Senaste 28 dagar</span>
+            <strong>${summary.recentSessions28d || 0}</strong>
+            <em>styrkepass</em>
+          </div>
+          <div class="strength-metric-card">
+            <span>Total volym</span>
+            <strong>${fmtVolume(summary.totalVolume)}</strong>
+            <em>${summary.exerciseLogs || 0} loggade övningar</em>
+          </div>
+          <div class="strength-metric-card">
+            <span>Övningsbredd</span>
+            <strong>${summary.uniqueExercises || 0}</strong>
+            <em>unika övningar</em>
+          </div>
+        </div>
+
+        <div class="strength-analysis-layout">
+          <div class="strength-panel">
+            <div class="strength-panel-head">
+              <h3>Volym per vecka</h3>
+              <span>senaste 8 veckorna</span>
+            </div>
+            <div class="strength-week-chart">${weeksHtml}</div>
+          </div>
+          <div class="strength-panel">
+            <div class="strength-panel-head">
+              <h3>Starkaste lyften</h3>
+              <span>estimerad 1RM</span>
+            </div>
+            <div class="strength-rank-list">${bestHtml}</div>
+          </div>
+        </div>
+
+        <div class="strength-panel">
+          <div class="strength-panel-head">
+            <h3>Nya toppnoteringar</h3>
+            <span>senaste loggade bästa per övning</span>
+          </div>
+          <div class="strength-pr-list">${prsHtml}</div>
+        </div>
+
+        <div class="strength-panel">
+          <div class="strength-panel-head">
+            <h3>Progression per övning</h3>
+            <span>nuvarande e1RM mot förra loggen</span>
+          </div>
+          <div class="strength-table-wrap">
+            <table class="strength-analysis-table">
+              <thead><tr><th>Övning</th><th>Pass</th><th>Volym</th><th>e1RM</th><th>Trend</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        </div>`;
+    } catch(e) {
+      el.innerHTML = '<div class="no-sessions">Kunde inte ladda styrkeanalys: ' + escapeHtml(e.message) + '</div>';
+    }
   }
 
   async function loadTodayWorkout() {

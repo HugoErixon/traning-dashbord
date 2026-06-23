@@ -1271,6 +1271,168 @@
     }
     .add-ex-btn:hover { background: rgba(255,140,66,0.15); }
     .no-sessions { color: var(--muted); font-size: 13px; padding: 20px 0; }
+    .strength-analysis-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .strength-metric-card,
+    .strength-panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-card);
+    }
+    .strength-metric-card {
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-height: 104px;
+    }
+    .strength-metric-card span,
+    .strength-panel-head span {
+      color: var(--muted);
+      font: 600 10px 'IBM Plex Mono', monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .strength-metric-card strong {
+      color: var(--text);
+      font-size: 28px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    .strength-metric-card em {
+      color: var(--muted2);
+      font-size: 12px;
+      font-style: normal;
+    }
+    .strength-analysis-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .strength-panel {
+      padding: 18px;
+      margin-bottom: 14px;
+    }
+    .strength-panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+    .strength-panel-head h3 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+    .strength-week-chart {
+      height: 160px;
+      display: grid;
+      grid-template-columns: repeat(8, minmax(26px, 1fr));
+      align-items: end;
+      gap: 8px;
+      padding-top: 8px;
+    }
+    .strength-week {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 8px;
+      min-width: 0;
+    }
+    .strength-week-bar {
+      border-radius: 6px 6px 2px 2px;
+      background: linear-gradient(180deg, var(--green), rgba(45,212,191,0.32));
+      min-height: 8px;
+      transition: height 0.2s;
+    }
+    .strength-week-label {
+      color: var(--muted2);
+      font-size: 10px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .strength-rank-list,
+    .strength-pr-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .strength-rank-row,
+    .strength-pr {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      font-size: 13px;
+    }
+    .strength-rank-row:last-child,
+    .strength-pr:last-child { border-bottom: 0; padding-bottom: 0; }
+    .strength-rank-row span,
+    .strength-pr span {
+      color: var(--muted2);
+      display: block;
+      font-size: 11px;
+      margin-top: 3px;
+    }
+    .strength-rank-row strong,
+    .strength-pr b {
+      color: var(--green);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .strength-empty {
+      color: var(--muted);
+      font-size: 12px;
+      padding: 4px 0;
+    }
+    .strength-table-wrap { overflow-x: auto; }
+    .strength-analysis-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      min-width: 620px;
+    }
+    .strength-analysis-table th {
+      color: var(--muted);
+      font: 600 10px 'IBM Plex Mono', monospace;
+      letter-spacing: 0.1em;
+      text-align: left;
+      text-transform: uppercase;
+      padding: 0 10px 10px 0;
+    }
+    .strength-analysis-table td {
+      border-top: 1px solid var(--border);
+      padding: 11px 10px 11px 0;
+      color: var(--text);
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    .strength-analysis-table td:first-child {
+      white-space: normal;
+      min-width: 180px;
+    }
+    .strength-analysis-table td strong,
+    .strength-analysis-table td span {
+      display: block;
+    }
+    .strength-analysis-table td span {
+      color: var(--muted2);
+      font-size: 11px;
+      margin-top: 3px;
+    }
+    .trend-up { color: var(--green) !important; }
+    .trend-down { color: var(--red) !important; }
+    .trend-flat { color: var(--muted2) !important; }
 
     /* ─── CHAT ─── */
     .chat-wrap { background: var(--card-grad), var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-card); }
@@ -2212,5 +2374,24 @@
       }
       .sleep-metric-val-total {
         font-size: 28px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .strength-analysis-grid,
+      .strength-analysis-layout {
+        grid-template-columns: 1fr;
+      }
+      .strength-panel-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .strength-week-chart {
+        height: 130px;
+        gap: 5px;
+      }
+      .strength-metric-card {
+        min-height: 88px;
       }
     }

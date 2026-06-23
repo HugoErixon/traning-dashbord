@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import os
 import yaml
+import re
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # Google Calendar (valfritt — kräver google_credentials.json)
@@ -1973,6 +1974,152 @@ def get_exercises(session_id):
                         (session_id, uid()))
             rows = cur.fetchall()
     return jsonify({'exercises': [{'id': r[0], 'exercise': r[1], 'sets': r[2], 'reps': r[3], 'weight': r[4], 'note': r[5]} for r in rows]})
+
+def _first_rep_count(reps):
+    if reps is None:
+        return None
+    m = re.search(r'\d+(?:[,.]\d+)?', str(reps))
+    if not m:
+        return None
+    return float(m.group(0).replace(',', '.'))
+
+def _session_day(session_id, activity_dates, created_at):
+    sid = str(session_id)
+    if sid in activity_dates:
+        return activity_dates[sid]
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', sid):
+        return sid
+    try:
+        return datetime.fromtimestamp(float(created_at), LOCAL_TZ).date().isoformat()
+    except Exception:
+        return date.today().isoformat()
+
+@app.get('/api/strength/analysis')
+def strength_analysis():
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, raw FROM activities WHERE type = ANY(%s) AND user_id=%s",
+                        (list(STRENGTH_TYPES), uid()))
+            activity_rows = cur.fetchall()
+            cur.execute('''
+                SELECT id, session_id, exercise, sets, reps, weight, note, created_at
+                FROM strength_exercises
+                WHERE user_id=%s
+                ORDER BY created_at ASC, id ASC
+            ''', (uid(),))
+            exercise_rows = cur.fetchall()
+
+    activity_dates = {}
+    for aid, raw in activity_rows:
+        raw = raw or {}
+        start = raw.get('startTimeLocal') or raw.get('date')
+        if start:
+            activity_dates[str(aid)] = str(start)[:10]
+
+    entries = []
+    sessions = set()
+    weekly_volume = {}
+    by_exercise = {}
+    now_day = datetime.now(LOCAL_TZ).date()
+    cutoff_28 = now_day - timedelta(days=28)
+
+    for ex_id, session_id, exercise, sets, reps, weight, note, created_at in exercise_rows:
+        name = (exercise or '').strip()
+        if not name:
+            continue
+        day = _session_day(session_id, activity_dates, created_at)
+        try:
+            day_obj = datetime.fromisoformat(day[:10]).date()
+        except Exception:
+            day_obj = now_day
+            day = day_obj.isoformat()
+
+        set_count = int(sets or 1)
+        rep_count = _first_rep_count(reps)
+        kg = float(weight) if weight is not None else None
+        volume = round(set_count * rep_count * kg, 1) if rep_count and kg else 0
+        e1rm = round(kg * (1 + rep_count / 30), 1) if rep_count and kg else None
+        key = name.lower()
+        entry = {
+            'id': ex_id,
+            'sessionId': str(session_id),
+            'date': day,
+            'exercise': name,
+            'sets': set_count,
+            'reps': reps,
+            'repCount': rep_count,
+            'weight': kg,
+            'volume': volume,
+            'e1rm': e1rm,
+            'note': note or '',
+        }
+        entries.append(entry)
+        sessions.add((str(session_id), day))
+        monday = (day_obj - timedelta(days=day_obj.weekday())).isoformat()
+        weekly_volume[monday] = weekly_volume.get(monday, 0) + volume
+        by_exercise.setdefault(key, {'name': name, 'entries': []})['entries'].append(entry)
+
+    exercises = []
+    prs = []
+    for item in by_exercise.values():
+        ex_entries = sorted(item['entries'], key=lambda e: (e['date'], e['id']))
+        weighted = [e for e in ex_entries if e['weight']]
+        e1rms = [e for e in ex_entries if e['e1rm']]
+        latest = ex_entries[-1]
+        best = max(e1rms, key=lambda e: e['e1rm']) if e1rms else None
+        latest_e1rm = next((e for e in reversed(ex_entries) if e['e1rm']), None)
+        previous_e1rm = next((e for e in reversed(ex_entries[:-1]) if e['e1rm']), None)
+        delta = round(latest_e1rm['e1rm'] - previous_e1rm['e1rm'], 1) if latest_e1rm and previous_e1rm else None
+        total_volume = round(sum(e['volume'] for e in ex_entries), 1)
+        trend = 'flat'
+        if delta is not None:
+            trend = 'up' if delta > 0.2 else 'down' if delta < -0.2 else 'flat'
+        if best and latest_e1rm and best['id'] == latest_e1rm['id']:
+            prs.append({
+                'exercise': item['name'],
+                'date': best['date'],
+                'e1rm': best['e1rm'],
+                'weight': best['weight'],
+                'reps': best['reps'],
+            })
+        exercises.append({
+            'exercise': item['name'],
+            'sessions': len({e['sessionId'] for e in ex_entries}),
+            'sets': sum(e['sets'] for e in ex_entries),
+            'totalVolume': total_volume,
+            'lastDate': latest['date'],
+            'lastWeight': latest['weight'],
+            'lastReps': latest['reps'],
+            'bestWeight': max((e['weight'] or 0) for e in weighted) if weighted else None,
+            'bestE1rm': best['e1rm'] if best else None,
+            'currentE1rm': latest_e1rm['e1rm'] if latest_e1rm else None,
+            'deltaE1rm': delta,
+            'trend': trend,
+        })
+
+    exercises.sort(key=lambda e: (e['lastDate'], e['totalVolume']), reverse=True)
+    weeks = [{'weekStart': k, 'volume': round(v, 1)} for k, v in sorted(weekly_volume.items())[-8:]]
+    recent_sessions = len({s for s in sessions if datetime.fromisoformat(s[1]).date() >= cutoff_28})
+    total_volume = round(sum(e['volume'] for e in entries), 1)
+    latest_date = max((e['date'] for e in entries), default=None)
+    best_lifts = sorted([e for e in exercises if e['bestE1rm']], key=lambda e: e['bestE1rm'], reverse=True)[:5]
+    improvements = sorted([e for e in exercises if e['deltaE1rm'] is not None], key=lambda e: e['deltaE1rm'], reverse=True)[:5]
+
+    return jsonify({
+        'summary': {
+            'exerciseLogs': len(entries),
+            'sessions': len(sessions),
+            'recentSessions28d': recent_sessions,
+            'uniqueExercises': len(exercises),
+            'totalVolume': total_volume,
+            'latestDate': latest_date,
+        },
+        'weeks': weeks,
+        'exercises': exercises[:30],
+        'bestLifts': best_lifts,
+        'improvements': improvements,
+        'recentPrs': sorted(prs, key=lambda p: p['date'], reverse=True)[:6],
+    })
 
 @app.post('/api/strength/<session_id>/exercises')
 def add_exercise(session_id):
