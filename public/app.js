@@ -170,9 +170,12 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     // Update arc gauge for score
     const scoreArc = document.getElementById('sleep-score-arc');
     if (scoreArc) {
-      const total = 172.8;
+      const total = 175.9;
+      const col = score >= 80 ? '#C8F135' : score >= 60 ? '#F59E0B' : '#FF6B6B';
       scoreArc.style.strokeDashoffset = (total * (1 - Math.min(1, (score || 0) / 100))).toFixed(1);
-      scoreArc.style.stroke = score >= 80 ? '#C8F135' : score >= 60 ? '#F59E0B' : '#FF6B6B';
+      scoreArc.style.stroke = col;
+      const scoreVal = document.getElementById('sleep-page-score');
+      if (scoreVal) scoreVal.style.color = col;
     }
 
     // Update radial rings

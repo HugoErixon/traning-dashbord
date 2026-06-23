@@ -2107,12 +2107,12 @@
       display: flex;
       align-items: flex-end;
       justify-content: center;
-      margin: 6px 0 0;
+      margin: 10px 0 2px;
     }
 
     #sleep-score-gauge {
-      width: 92%;
-      max-width: 220px;
+      width: 100%;
+      max-width: none;
       height: auto;
       display: block;
     }
@@ -2128,7 +2128,7 @@
 
     .sleep-gauge-center {
       position: absolute;
-      bottom: 6px;
+      bottom: 4px;
       left: 50%;
       transform: translateX(-50%);
       text-align: center;
@@ -2136,8 +2136,11 @@
     }
 
     .sleep-gauge-center .sleep-metric-val {
-      font-size: 46px;
+      font-size: 54px;
+      font-weight: 800;
       line-height: 1;
+      color: #C8F135;
+      transition: color 0.4s ease;
     }
 
     /* Radial ring cards */
