@@ -295,7 +295,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       return;
     }
     container.style.display = 'block';
-    if (timesEl) timesEl.style.display = 'none'; // ticks drawn inline
     if (empty) empty.style.display = 'none';
 
     const parseGMT = s => {
@@ -309,6 +308,16 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const chartEnd   = parseGMT(endGMT)   || parseGMT(sorted[sorted.length - 1].endGMT);
     if (!chartStart || !chartEnd) return;
     const totalMs = chartEnd - chartStart;
+
+    // Sleep start/end times below the chart (UTC, to match the axis ticks)
+    const fmtUTC = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+    if (timesEl) {
+      timesEl.style.display = 'flex';
+      const sEl = document.getElementById('sleep-chart-t-start');
+      const eEl = document.getElementById('sleep-chart-t-end');
+      if (sEl) sEl.innerHTML = `<span style="color:var(--muted3);">Somnade</span> <span style="color:#CBD5E1;">${fmtUTC(chartStart)}</span>`;
+      if (eEl) eEl.innerHTML = `<span style="color:var(--muted3);">Vaknade</span> <span style="color:#CBD5E1;">${fmtUTC(chartEnd)}</span>`;
+    }
 
     const STAGE = {
       0: { color: '#EC4899', name: 'Djup' },
