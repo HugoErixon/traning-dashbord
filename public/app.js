@@ -937,17 +937,22 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const r = document.getElementById(s.barId);  if (r) { r.style.width = (s.pct||0) + '%'; r.style.background = s.col; }
       });
 
-      // Beredskapsring i hem-hero
-      const rScore = h.readiness?.score;
+      // CNS-poäng i hem-hero (ersätter Garmin-beredskap)
+      const cnsHero = computeCnsScore(h);
       const ringVal = document.getElementById('readiness-ring-val');
       const ringProg = document.getElementById('readiness-ring-prog');
-      if (ringVal && ringProg && rScore != null) {
-        const col = rScore >= 70 ? 'var(--accent)' : rScore >= 40 ? 'var(--amber)' : 'var(--red)';
+      if (ringVal && ringProg && cnsHero != null) {
+        const col = cnsHero >= 70 ? 'var(--accent)' : cnsHero >= 45 ? 'var(--amber)' : 'var(--red)';
         const circ = 239;
-        ringVal.textContent = rScore;
+        ringVal.textContent = cnsHero;
         ringVal.style.color = col;
         // Keep gradient stroke — only update dashoffset
-        ringProg.style.strokeDashoffset = circ * (1 - Math.max(0, Math.min(100, rScore)) / 100);
+        ringProg.style.strokeDashoffset = circ * (1 - Math.max(0, Math.min(100, cnsHero)) / 100);
+        const sub = document.getElementById('snap-readiness-sub');
+        if (sub) {
+          sub.textContent = cnsHero >= 70 ? 'Redo för kvalitetspass' : cnsHero >= 45 ? 'Normalt pass ok' : 'Vila eller Z2 idag';
+          sub.style.color = col;
+        }
       }
 
       safeRenderTrainingCockpit();
