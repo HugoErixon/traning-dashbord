@@ -515,7 +515,7 @@ HRV_STATUS_CAP = {         # status → taklimit för HRV-komponenten i CNS (tre
 }
 HRV_STATUS_VERDICT = {     # status → kort verdikt (engelska)
     'BALANCED':   'Balanced — autonomic system in your normal range',
-    'UNBALANCED': 'Unbalanced — outside your normal range, train with caution',
+    'UNBALANCED': 'HRV i obalans — utanför ditt normala spann, träna med viss försiktighet',
     'LOW':        'Low — below baseline, prioritize recovery',
     'POOR':       'Poor — sustained low HRV, rest needed',
     'NONE':       'Not enough baseline data yet',
@@ -1166,7 +1166,7 @@ HEALTH DATA (today):
         cns = round(0.40 * hrv_score + 0.30 * (sleep_score or 50) + 0.20 * (readiness or 50) + 0.10 * (100 - min(stress_avg,100)))
         st = (hrv_status or 'NONE').upper()
         hrv_signal_str = {'BALANCED':'GREEN (balanced — train as planned)',
-                          'UNBALANCED':'YELLOW (unbalanced — caution)',
+                          'UNBALANCED':'YELLOW (HRV i obalans — caution)',
                           'LOW':'RED (low — recover)',
                           'POOR':'RED (poor — rest)'}.get(st)
         if not hrv_signal_str:

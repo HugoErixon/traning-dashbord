@@ -497,12 +497,20 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return 'Ingen baslinje';
   }
 
+  function getHrvStatusLabel(status) {
+    const key = String(status || '').toUpperCase();
+    return {
+      BALANCED: 'HRV balanserad',
+      UNBALANCED: 'HRV i obalans',
+      LOW: 'HRV låg',
+      POOR: 'HRV mycket låg',
+    }[key] || '';
+  }
+
   function getHrvStatusText(hrv) {
     if (!hrv) return 'HRV otillgängligt';
-    const status = hrv.status && hrv.status !== 'NONE'
-      ? String(hrv.status).replace('_', ' ')
-      : null;
-    if (status) return `HRV ${status}`;
+    const status = hrv.status && hrv.status !== 'NONE' ? getHrvStatusLabel(hrv.status) : null;
+    if (status) return status;
     if (hrv.pct != null) return `HRV ${hrv.pct}%`;
     return 'HRV otillgängligt';
   }
@@ -749,7 +757,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const pctCol = getHrvColor(h.hrv);
         document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
         document.getElementById('cns-hrv-val').style.color = pctCol;
-        const statusText = h.hrv.status && h.hrv.status !== 'NONE' ? `${h.hrv.status} - ` : '';
+        const statusText = h.hrv.status && h.hrv.status !== 'NONE' ? `${getHrvStatusLabel(h.hrv.status)} - ` : '';
         document.getElementById('cns-hrv-sub').textContent = `${statusText}${getHrvBaselineText(h.hrv)}`;
       } else {
         document.getElementById('cns-hrv-val').textContent = '–';
@@ -928,7 +936,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           col: h.restingHR?.value <= (h.restingHR?.sevenDayAvg || h.restingHR?.value) + 2 ? 'var(--green)' : h.restingHR?.value <= (h.restingHR?.sevenDayAvg || h.restingHR?.value) + 6 ? 'var(--amber)' : 'var(--red)',
           pct: Math.max(0, Math.min(100, 100 - ((h.restingHR?.value || 60) - 35) / 45 * 100)) },
         { valId:'snap-hrv-val', subId:'snap-hrv-sub', barId:'snap-hrv-bar',
-          val: h.hrv?.lastNightAvg, sub: h.hrv?.status && h.hrv.status !== 'NONE' ? `${h.hrv.status} - ${getHrvBaselineText(h.hrv)}` : getHrvBaselineText(h.hrv),
+          val: h.hrv?.lastNightAvg, sub: h.hrv?.status && h.hrv.status !== 'NONE' ? `${getHrvStatusLabel(h.hrv.status)} - ${getHrvBaselineText(h.hrv)}` : getHrvBaselineText(h.hrv),
           col: getHrvColor(h.hrv), pct: Math.min(h.hrv?.component ?? h.hrv?.pct ?? 0, 100) },
       ];
       snapSets.forEach(s => {
@@ -1769,12 +1777,13 @@ HEALTH DATA (current):
       const d = await res.json();
       const statusMap = {
         BALANCED:   ['badge-green','Balanserad'],
-        UNBALANCED: ['badge-amber','Obalanserad'],
+        UNBALANCED: ['badge-amber','HRV i obalans'],
         LOW:        ['badge-red','Låg'],
         POOR:       ['badge-red','Dålig'],
       };
       const st = (d.hrv_status || '').toUpperCase();
       const sm = statusMap[st];
+      if (sm) sm[1] = getHrvStatusLabel(st) || sm[1];
       summary.innerHTML = `
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);">
           <span>Trender över de senaste ${d.window_days} dagarna. Pilarna visar förändringens riktning (derivatan), inte bara dagens värde.</span>
