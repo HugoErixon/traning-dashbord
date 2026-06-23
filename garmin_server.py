@@ -2953,17 +2953,9 @@ def api_reseed():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.post('/api/plan/adjust')
-def manual_adjust():
+def manual_adjust_disabled():
     """Trigga AI-justeringen manuellt (t.ex. för testning)."""
-    try:
-        match_activities_to_plan(user_id=uid())
-        ai_adjust_plan()
-        first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
-        row = get_cache('last_plan_adjustment', first_uid)
-        return jsonify({'ok': True, 'result': row[0] if row else {}})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Automatic plan coach is disabled'}), 410
 
 @app.post('/api/plan/request')
 def plan_request():
@@ -2988,8 +2980,7 @@ def plan_request():
 @app.get('/api/plan/status')
 def plan_status():
     """Senaste AI-justeringens status."""
-    row = get_cache('last_plan_adjustment', uid())
-    return jsonify(row[0] if row else {'date': None, 'changes': 0, 'summary': '', 'coaching_notes': ''})
+    return jsonify({'date': None, 'changes': 0, 'summary': '', 'coaching_notes': ''})
 
 
 # ─────────────────────────────────────────────
@@ -3001,7 +2992,7 @@ def maybe_run_daily_routine():
     Drivs av autosynken (var 3:e timme) + varje manuell synk. Kör bara för user_id=1."""
     first_user = list(USERS.keys())[0] if USERS else 'hugo'
     first_uid  = USERS.get(first_user, {}).get('id', 1)
-    row = get_cache('last_plan_adjustment', first_uid)
+    row = get_cache('last_daily_history', first_uid)
     if row and row[0].get('date') == date.today().isoformat():
         return  # redan kört idag
     today = date.today().isoformat()
@@ -3017,11 +3008,11 @@ def maybe_run_daily_routine():
     if not (sleep_ok or ready_ok):
         print('Daglig rutin: dagens hälsodata inte synkad än — väntar till nästa synk')
         return
-    print('Daglig rutin: dagens data finns → matchning + historik + AI-justering')
+    print('Daglig rutin: dagens data finns → matchning + historik')
     collect_health_history(username=first_user)
     collect_metric_history(username=first_user)
     clear_cache('insights', user_id=first_uid)
-    ai_adjust_plan()
+    set_cache('last_daily_history', {'date': today}, first_uid)
 
 def auto_sync_job():
     try:

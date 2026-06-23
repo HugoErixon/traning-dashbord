@@ -1179,7 +1179,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadSleepCoach(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan(), loadPlanStatus()]);
+      await Promise.all([loadHealth(), loadSleepCoach(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2724,49 +2724,6 @@ HEALTH DATA (current):
   // Fallback till hårdkodad array om API-anropet misslyckas
   let PLAN_SESSIONS = [];
 
-  async function loadPlanStatus() {
-    try {
-      const r = await fetch('/api/plan/status');
-      const d = await r.json();
-      const bar = document.getElementById('coach-notes-bar');
-      if (d.coaching_notes && d.date) {
-        document.getElementById('coach-notes-text').textContent = d.coaching_notes;
-        document.getElementById('coach-notes-date').textContent = d.date;
-        bar.style.display = 'block';
-      } else {
-        bar.style.display = 'none';
-      }
-    } catch(e) {}
-  }
-  loadPlanStatus();
-
-  async function refreshPlanCoach() {
-    const btn = document.getElementById('coach-refresh-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Uppdaterar…'; }
-    try {
-      await fetch('/api/sync', { method: 'POST' });
-      const r = await fetch('/api/plan/adjust', { method: 'POST' });
-      const d = await r.json();
-      if (!r.ok || d.error) throw new Error(d.error || 'Kunde inte uppdatera coachen');
-      await Promise.all([
-        loadPlan(),
-        loadPlanStatus(),
-        loadRecentActivities(),
-        loadTrainingReview(true),
-        loadHealth(),
-      ]);
-    } catch (e) {
-      const bar = document.getElementById('coach-notes-bar');
-      const text = document.getElementById('coach-notes-text');
-      if (bar && text) {
-        bar.style.display = 'block';
-        text.textContent = 'Kunde inte uppdatera coachen: ' + e.message;
-      }
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Uppdatera coach'; }
-    }
-  }
-
   async function sendCoachRequest() {
     const input = document.getElementById('coach-request-input');
     const btn = document.getElementById('coach-request-btn');
@@ -2790,9 +2747,8 @@ HEALTH DATA (current):
         <div style="font-size:11px;font-weight:700;letter-spacing:0.04em;color:var(--green);margin-bottom:6px;">Planen justerad · ${n} ändring${n === 1 ? '' : 'ar'}</div>
         <div style="font-size:13px;line-height:1.5;color:var(--text);">${msg}</div>`;
       input.value = '';
-      // Uppdatera schemat överallt (kalender, dagens pass, cockpit, coach-notisen)
+      // Uppdatera schemat överallt (kalender, dagens pass, cockpit)
       loadPlan();
-      loadPlanStatus();
     } catch(e) {
       out.innerHTML = `<span style="font-size:12px;color:var(--red);">${e.message}</span>`;
     } finally {
