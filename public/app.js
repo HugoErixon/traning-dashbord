@@ -955,19 +955,13 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       // Update appbar with live data
       updateAppbar(h);
 
-      // Draw sparklines for contributor cells
-      const sparkSleepScore = h.sleep?.score;
-      const sparkBbCurrent  = h.bodyBattery?.current;
-      const sparkHrvAvg     = h.hrv?.lastNightAvg;
-      if (sparkSleepScore != null) {
-        drawSparkline(document.getElementById('spark-sleep'), [sparkSleepScore * 0.85, sparkSleepScore * 0.9, sparkSleepScore * 0.88, sparkSleepScore * 0.92, sparkSleepScore * 0.95, sparkSleepScore], 'var(--green)');
-      }
-      if (sparkBbCurrent != null) {
-        drawSparkline(document.getElementById('spark-bb'), [sparkBbCurrent * 0.6, sparkBbCurrent * 0.7, sparkBbCurrent * 0.75, sparkBbCurrent * 0.8, sparkBbCurrent * 0.9, sparkBbCurrent], 'var(--amber)');
-      }
-      if (sparkHrvAvg != null) {
-        drawSparkline(document.getElementById('spark-hrv'), [sparkHrvAvg * 0.9, sparkHrvAvg * 0.95, sparkHrvAvg * 0.88, sparkHrvAvg * 0.97, sparkHrvAvg, sparkHrvAvg], 'var(--accent)');
-      }
+      // Draw sparklines from real 7-day history (needs >=2 days of data)
+      try {
+        const sp = await (await fetch('/api/health/spark')).json();
+        if (sp.sleep?.length >= 2) drawSparkline(document.getElementById('spark-sleep'), sp.sleep, 'var(--green)');
+        if (sp.bb?.length >= 2)    drawSparkline(document.getElementById('spark-bb'),    sp.bb,    'var(--amber)');
+        if (sp.hrv?.length >= 2)   drawSparkline(document.getElementById('spark-hrv'),   sp.hrv,   'var(--accent)');
+      } catch (e) { /* sparklines are optional decoration */ }
 
     } catch(e) { console.error('Health error:', e); }
   }

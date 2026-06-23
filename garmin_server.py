@@ -97,7 +97,7 @@ def setup_db():
             cur.execute('''CREATE TABLE IF NOT EXISTS health_history (
                 date TEXT PRIMARY KEY,
                 sleep_score INTEGER, sleep_hours REAL, deep_pct INTEGER, rem_pct INTEGER,
-                hrv_avg INTEGER, resting_hr INTEGER, readiness INTEGER, created_at REAL)''')
+                hrv_avg INTEGER, resting_hr INTEGER, readiness INTEGER, body_battery INTEGER, created_at REAL)''')
             cur.execute('''CREATE TABLE IF NOT EXISTS metric_history (
                 date TEXT PRIMARY KEY,
                 vo2max REAL, endurance_score INTEGER,
@@ -115,6 +115,10 @@ def migrate_db():
                     cur.execute(f'ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS user_id INTEGER DEFAULT 1')
                 except Exception as e:
                     print(f'migrate_db {tbl} user_id:', e)
+            try:
+                cur.execute('ALTER TABLE health_history ADD COLUMN IF NOT EXISTS body_battery INTEGER')
+            except Exception as e:
+                print('migrate_db health_history body_battery:', e)
             for tbl in ('health_history', 'metric_history'):
                 try:
                     cur.execute(f'ALTER TABLE {tbl} DROP CONSTRAINT IF EXISTS {tbl}_pkey')
@@ -535,17 +539,19 @@ def health_data():
             with db() as conn:
                 with conn.cursor() as cur:
                     cur.execute('''INSERT INTO health_history
-                        (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, created_at, user_id)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, created_at, user_id)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (date, user_id) DO UPDATE SET
                             sleep_score=EXCLUDED.sleep_score, sleep_hours=EXCLUDED.sleep_hours,
                             deep_pct=EXCLUDED.deep_pct, rem_pct=EXCLUDED.rem_pct,
-                            hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr''',
+                            hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr,
+                            body_battery=EXCLUDED.body_battery''',
                         (today, sl.get('score'),
                          round(sl.get('totalSec', 0) / 3600, 2) if sl.get('totalSec') else None,
                          sl.get('deepPct'), sl.get('remPct'),
                          result['hrv'].get('lastNightAvg'),
                          result['restingHR'].get('value'),
+                         result['bodyBattery'].get('max'),
                          time.time(), uid()))
                 conn.commit()
         except Exception:
@@ -554,6 +560,21 @@ def health_data():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.get('/api/health/spark')
+def health_spark():
+    """Senaste 7 dagarnas värden för hem-sidans mini-grafer (sömnpoäng, HRV, body battery)."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT sleep_score, hrv_avg, body_battery
+                FROM health_history WHERE user_id=%s ORDER BY date DESC LIMIT 7''', (uid(),))
+            rows = cur.fetchall()[::-1]  # äldst först
+    return jsonify({
+        'sleep': [r[0] for r in rows if r[0] is not None],
+        'hrv':   [r[1] for r in rows if r[1] is not None],
+        'bb':    [r[2] for r in rows if r[2] is not None],
+    })
 
 
 def _fetch_day_health(client, day_str):
@@ -571,11 +592,18 @@ def _fetch_day_health(client, day_str):
         rhr = (client.get_heart_rates(day_str) or {}).get('restingHeartRate')
     except Exception:
         pass
+    bb_max = None
+    try:
+        bb = client.get_body_battery(day_str, day_str) or []
+        vals = (bb[0].get('bodyBatteryValuesArray') if bb else []) or []
+        bb_max = max((v[1] for v in vals if v and v[1] is not None), default=None)
+    except Exception:
+        pass
     return {'date': day_str, 'sleep_score': sleep_score,
             'sleep_hours': round(total / 3600, 2) if total else None,
             'deep_pct': round(deep / total * 100) if total else None,
             'rem_pct':  round(rem / total * 100)  if total else None,
-            'hrv_avg': hrv_avg, 'resting_hr': rhr}
+            'hrv_avg': hrv_avg, 'resting_hr': rhr, 'body_battery': bb_max}
 
 
 def collect_health_history(days=14, username=None):
@@ -591,7 +619,9 @@ def collect_health_history(days=14, username=None):
     today = date.today()
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT date FROM health_history WHERE user_id=%s', (user_id,))
+            # Treat a day as "have" only if body_battery is filled too, so existing
+            # rows from before this column get re-fetched once and backfilled.
+            cur.execute('SELECT date FROM health_history WHERE user_id=%s AND body_battery IS NOT NULL', (user_id,))
             have = {r[0] for r in cur.fetchall()}
     added = 0
     for i in range(1, days + 1):
@@ -606,13 +636,14 @@ def collect_health_history(days=14, username=None):
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute('''INSERT INTO health_history
-                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, created_at, user_id)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, created_at, user_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (date, user_id) DO UPDATE SET sleep_score=EXCLUDED.sleep_score,
                         sleep_hours=EXCLUDED.sleep_hours, deep_pct=EXCLUDED.deep_pct,
-                        rem_pct=EXCLUDED.rem_pct, hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr''',
+                        rem_pct=EXCLUDED.rem_pct, hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr,
+                        body_battery=EXCLUDED.body_battery''',
                     (rec['date'], rec['sleep_score'], rec['sleep_hours'], rec['deep_pct'],
-                     rec['rem_pct'], rec['hrv_avg'], rec['resting_hr'], time.time(), user_id))
+                     rec['rem_pct'], rec['hrv_avg'], rec['resting_hr'], rec['body_battery'], time.time(), user_id))
             conn.commit()
         added += 1
     print(f'health-history: {added} nya dagar tillagda')
