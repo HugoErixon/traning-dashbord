@@ -1546,9 +1546,16 @@ HEALTH DATA (current):
     }).join('');
   }
 
-  function drawSparkline(svgEl, data, color) {
+  function drawSparkline(svgEl, data, color, _tries) {
     if (!svgEl || !data || data.length < 2) return;
-    const W = svgEl.clientWidth || 56, H = svgEl.clientHeight || 28;
+    // If layout isn't ready yet, clientWidth is 0 — wait a frame and retry
+    // (otherwise the curve only fills a tiny fallback width).
+    const W = Math.round(svgEl.getBoundingClientRect().width);
+    if (W < 10) {
+      if ((_tries || 0) < 30) requestAnimationFrame(() => drawSparkline(svgEl, data, color, (_tries || 0) + 1));
+      return;
+    }
+    const H = svgEl.clientHeight || 28;
     const min = Math.min(...data), max = Math.max(...data), span = max - min || 1;
     const pad = 2;
     const pts = data.map((v, i) => {
