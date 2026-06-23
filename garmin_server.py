@@ -588,8 +588,58 @@ def safe_health_fetch(label, default, fetcher):
         value = fetcher()
         return default if value is None else value
     except Exception as e:
-        print(f'Garmin health {label} unavailable: {e}')
+        print(f'Garmin health {label} unavailable: {e}', flush=True)
         return default
+
+
+def has_health_payload(result):
+    return any([
+        result.get('readiness', {}).get('score') is not None,
+        result.get('hrv', {}).get('lastNightAvg') is not None,
+        result.get('restingHR', {}).get('value') is not None,
+        result.get('sleep', {}).get('totalSec') is not None,
+        result.get('bodyBattery', {}).get('max') is not None,
+        result.get('stress', {}).get('avg') is not None,
+        result.get('respiration', {}).get('avg') is not None,
+        result.get('spo2', {}).get('avg') is not None,
+    ])
+
+
+def latest_health_snapshot(user_id, display_date):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, sleep_score, sleep_hours, deep_pct, rem_pct,
+                                  hrv_avg, resting_hr, body_battery, stress_avg
+                           FROM health_history
+                           WHERE user_id=%s AND (
+                               sleep_score IS NOT NULL OR sleep_hours IS NOT NULL OR
+                               hrv_avg IS NOT NULL OR resting_hr IS NOT NULL OR
+                               body_battery IS NOT NULL OR stress_avg IS NOT NULL
+                           )
+                           ORDER BY date DESC LIMIT 1''', (user_id,))
+            row = cur.fetchone()
+    if not row:
+        return None
+
+    source_date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, stress_avg = row
+    total_sec = round(float(sleep_hours) * 3600) if sleep_hours is not None else None
+    return {
+        'date': display_date,
+        'sourceDate': source_date.isoformat() if hasattr(source_date, 'isoformat') else source_date,
+        'fallback': True,
+        'readiness': {'score': None, 'level': None, 'feedback': None},
+        'hrv': {'lastNightAvg': hrv_avg, 'weeklyAvg': None, 'status': None, 'pct': None,
+                'balancedLow': None, 'balancedUpper': None, 'lowUpper': None,
+                'component': None, 'light': 'amber', 'verdict': 'Senaste sparade HRV'},
+        'restingHR': {'value': resting_hr, 'sevenDayAvg': None, 'min': None},
+        'sleep': {'totalSec': total_sec, 'deepSec': None, 'remSec': None, 'score': sleep_score,
+                  'deepPct': deep_pct or 0, 'remPct': rem_pct or 0, 'levels': [],
+                  'startGMT': None, 'endGMT': None},
+        'bodyBattery': {'current': body_battery, 'max': body_battery, 'charged': None, 'drained': None},
+        'stress': {'avg': stress_avg, 'max': None},
+        'respiration': {'avg': None, 'sleepAvg': None},
+        'spo2': {'avg': None, 'min': None},
+    }
 
 
 
@@ -597,7 +647,7 @@ def safe_health_fetch(label, default, fetcher):
 def health_data():
     today = date.today().isoformat()
     row = get_cache('health', uid())
-    if row and (time.time() - row[1]) < 30 * 60:
+    if row and (time.time() - row[1]) < 30 * 60 and has_health_payload(row[0]):
         return jsonify(row[0])
 
     try:
@@ -667,10 +717,19 @@ def health_data():
             'respiration': {'avg': round(avg_resp) if avg_resp else None, 'sleepAvg': round(sleep_resp) if sleep_resp else None},
             'spo2':        {'avg': avg_spo2, 'min': spo2.get('lowestSpO2')},
         }
-        set_cache('health', result, uid())
+        has_payload = has_health_payload(result)
+        if not has_payload:
+            snapshot = latest_health_snapshot(uid(), today)
+            if snapshot:
+                result = snapshot
+                has_payload = True
+        if has_payload:
+            set_cache('health', result, uid())
 
         # Spara även till health_history så Analysis-fliken får dagens data direkt
         try:
+            if not has_payload or result.get('fallback'):
+                return jsonify(result)
             sl = result['sleep']
             with db() as conn:
                 with conn.cursor() as cur:
