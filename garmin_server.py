@@ -51,6 +51,31 @@ AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
 AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
 AC_KEEPER_CONFIG = config.get('AC_KEEPER_CONFIG', '/home/hugoerixon/tuya-ac-keeper/config.yaml')
+WEATHER_LAT = float(config.get('WEATHER_LAT', '58.35593'))
+WEATHER_LON = float(config.get('WEATHER_LON', '11.22411'))
+WEATHER_LOCATION = config.get('WEATHER_LOCATION', 'Smögen')
+
+WEATHER_CODES = {
+    0: 'klart',
+    1: 'mest klart',
+    2: 'halvklart',
+    3: 'mulet',
+    45: 'dimma',
+    48: 'rimfrost-dimma',
+    51: 'lätt duggregn',
+    53: 'duggregn',
+    55: 'kraftigt duggregn',
+    61: 'lätt regn',
+    63: 'regn',
+    65: 'kraftigt regn',
+    71: 'lätt snöfall',
+    73: 'snöfall',
+    75: 'kraftigt snöfall',
+    80: 'lätta regnskurar',
+    81: 'regnskurar',
+    82: 'kraftiga regnskurar',
+    95: 'åska',
+}
 
 # --- Databas ---
 def db():
@@ -247,6 +272,41 @@ def login():
 @app.get('/api/status')
 def status():
     return jsonify({'status': 'ok'})
+
+@app.get('/api/weather/current')
+def current_weather():
+    """Aktuell utetemperatur från Open-Meteo."""
+    try:
+        params = {
+            'latitude': WEATHER_LAT,
+            'longitude': WEATHER_LON,
+            'current': 'temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m',
+            'timezone': 'auto',
+            'wind_speed_unit': 'ms',
+        }
+        r = requests.get('https://api.open-meteo.com/v1/forecast', params=params, timeout=6)
+        r.raise_for_status()
+        payload = r.json()
+        current = payload.get('current') or {}
+        units = payload.get('current_units') or {}
+        code = current.get('weather_code')
+        return jsonify({
+            'ok': True,
+            'source': 'Open-Meteo',
+            'location': WEATHER_LOCATION,
+            'latitude': WEATHER_LAT,
+            'longitude': WEATHER_LON,
+            'time': current.get('time'),
+            'temperature_c': current.get('temperature_2m'),
+            'apparent_temperature_c': current.get('apparent_temperature'),
+            'humidity_pct': current.get('relative_humidity_2m'),
+            'wind_speed_ms': current.get('wind_speed_10m'),
+            'weather_code': code,
+            'weather_text': WEATHER_CODES.get(code, 'okänt väderläge'),
+            'units': units,
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'source': 'Open-Meteo', 'error': str(e)}), 502
 
 @app.get('/api/ac')
 def ac_proxy():

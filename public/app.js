@@ -72,7 +72,7 @@ window.fetch = (url, opts = {}) => {
     if (id === 'strength') loadStrengthPage();
     if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
-    if (id === 'climate')  { loadAcStatus(); loadAcLoopStatus(); loadAcHistory(); }
+    if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcHistory(); }
   }
 
   // Days left + goal bars
@@ -1376,6 +1376,41 @@ HEALTH DATA (current):
       btn.disabled = false;
     }
   }
+
+  // Outdoor weather - fetched through the dashboard proxy (/api/weather/current)
+  async function loadWeatherStatus() {
+    const hl = document.getElementById('weather-headline');
+    const body = document.getElementById('weather-body');
+    const badge = document.getElementById('weather-badge');
+    if (!hl || !body || !badge) return;
+    try {
+      const res = await fetch('/api/weather/current');
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Weather unavailable');
+      const temp = Number(d.temperature_c);
+      const feels = Number(d.apparent_temperature_c);
+      const wind = Number(d.wind_speed_ms);
+      const humidity = Number(d.humidity_pct);
+      const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '-';
+      const updated = d.time ? new Date(d.time).toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' }) : '-';
+      hl.textContent = 'Ute ' + fmt(temp) + '\u00B0C';
+      badge.className = 'today-badge badge-green';
+      badge.textContent = (d.location || 'UTE').toUpperCase();
+      body.textContent =
+        (d.weather_text || 'Aktuellt väder') +
+        '. Känns som ' + fmt(feels) + '\u00B0C' +
+        (Number.isFinite(wind) ? ', vind ' + fmt(wind) + ' m/s' : '') +
+        (Number.isFinite(humidity) ? ', luftfuktighet ' + humidity.toFixed(0) + '%' : '') +
+        '. Uppdaterat ' + updated + ' via ' + (d.source || 'väder-API') + '.';
+    } catch(e) {
+      hl.textContent = 'Väder otillgängligt';
+      body.textContent = 'Kunde inte hämta aktuell utetemperatur just nu.';
+      badge.className = 'today-badge badge-red';
+      badge.textContent = 'OFFLINE';
+    }
+  }
+  loadWeatherStatus();
+  setInterval(loadWeatherStatus, 300000);
 
   // AC / room temperature - fetched from ac-keeper through the dashboard proxy (/api/ac)
   async function loadAcStatus() {
