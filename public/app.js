@@ -70,6 +70,7 @@ window.fetch = (url, opts = {}) => {
     if (id === 'sleep')    { loadHealth(); loadSleepCoach(); loadSleepInsights(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') loadAnalysis();
     if (id === 'strength') loadStrengthPage();
+    if (id === 'journal')  loadJournal();
     if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
     if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcHistory(); }
@@ -426,6 +427,12 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return String(value ?? '').replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
+  }
+
+  function todayLocalDate() {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 10);
   }
 
   function getISOWeekInfo(date = new Date()) {
@@ -1129,6 +1136,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
   // Noteringar - laddas från DB och används i varje AI-anrop
   let userNotes = [];
+  let userJournal = [];
 
   const BASE_CTX = `Du är en personlig träningscoach för en löpare med dubbelt fokus. Svara alltid på svenska.
 
@@ -1200,6 +1208,13 @@ HEALTH DATA (current):
       userNotes.forEach(n => {
         const cat = catLabels[n.category] || n.category;
         ctx += `\n- [${cat}] ${n.text}`;
+      });
+    }
+    if (userJournal.length > 0) {
+      ctx += '\n\nRECENT JOURNAL ENTRIES (how the days felt; use gently as context):';
+      userJournal.slice(0, 5).forEach(j => {
+        const meta = [j.mood, j.energy ? `energy ${j.energy}/5` : ''].filter(Boolean).join(', ');
+        ctx += `\n- ${j.date}${meta ? ` (${meta})` : ''}: ${j.text}`;
       });
     }
     // Volymsanalys för innevarande vecka
@@ -1291,6 +1306,144 @@ HEALTH DATA (current):
     ctx += '\n\nSvara alltid på svenska. Var konkret och personlig. Väg alltid in BÅDA målen i svaret. Max 3-4 meningar.';
     return ctx;
   }
+
+  function setupJournalDefaults() {
+    const dateInput = document.getElementById('journal-date');
+    const energyInput = document.getElementById('journal-energy');
+    const textInput = document.getElementById('journal-text');
+    if (dateInput && !dateInput.value) dateInput.value = todayLocalDate();
+    if (energyInput) {
+      const syncEnergy = () => {
+        const label = document.getElementById('journal-energy-label');
+        if (label) label.textContent = energyInput.value + '/5';
+      };
+      energyInput.oninput = syncEnergy;
+      syncEnergy();
+    }
+    if (textInput) {
+      textInput.oninput = () => {
+        const count = document.getElementById('journal-char-count');
+        const status = document.getElementById('journal-save-status');
+        if (count) count.textContent = textInput.value.length + ' tecken';
+        if (status) {
+          status.textContent = 'OSPARAT';
+          status.className = 'today-badge badge-amber';
+        }
+      };
+    }
+    if (dateInput && !dateInput.dataset.bound) {
+      dateInput.dataset.bound = '1';
+      dateInput.addEventListener('change', fillJournalEditorForDate);
+    }
+  }
+
+  async function loadJournal() {
+    setupJournalDefaults();
+    try {
+      const res = await fetch('/api/journal?limit=45');
+      const data = await res.json();
+      userJournal = data.entries || [];
+      renderJournalList();
+      fillJournalEditorForDate();
+    } catch(e) {
+      console.error('Journal error:', e);
+      const list = document.getElementById('journal-list');
+      if (list) list.innerHTML = '<div class="journal-empty">Kunde inte ladda dagboken.</div>';
+    }
+  }
+
+  function fillJournalEditorForDate() {
+    const dateInput = document.getElementById('journal-date');
+    const moodInput = document.getElementById('journal-mood');
+    const energyInput = document.getElementById('journal-energy');
+    const textInput = document.getElementById('journal-text');
+    if (!dateInput || !textInput) return;
+    const entry = userJournal.find(j => j.date === dateInput.value);
+    if (moodInput) moodInput.value = entry?.mood || '';
+    if (energyInput) {
+      energyInput.value = entry?.energy || 3;
+      document.getElementById('journal-energy-label').textContent = energyInput.value + '/5';
+    }
+    textInput.value = entry?.text || '';
+    document.getElementById('journal-char-count').textContent = textInput.value.length + ' tecken';
+    const status = document.getElementById('journal-save-status');
+    if (status) {
+      status.textContent = entry ? 'SPARAD' : 'NY';
+      status.className = 'today-badge ' + (entry ? 'badge-green' : 'badge-amber');
+    }
+  }
+
+  function renderJournalList() {
+    const list = document.getElementById('journal-list');
+    const count = document.getElementById('journal-count');
+    if (!list) return;
+    if (count) count.textContent = userJournal.length + (userJournal.length === 1 ? ' dag' : ' dagar');
+    if (!userJournal.length) {
+      list.innerHTML = '<div class="journal-empty">Inga dagboksinlägg än. Börja med dagens incheckning.</div>';
+      return;
+    }
+    list.innerHTML = userJournal.map(j => {
+      const d = new Date(j.date + 'T12:00:00');
+      const dateLabel = d.toLocaleDateString('sv-SE', { weekday:'short', day:'numeric', month:'short' });
+      const meta = [j.mood, j.energy ? `Energi ${j.energy}/5` : ''].filter(Boolean);
+      return `<article class="journal-entry" onclick="editJournalDate('${escapeHtml(j.date)}')">
+        <div class="journal-entry-top">
+          <span class="journal-entry-date">${escapeHtml(dateLabel)}</span>
+          ${meta.map(m => `<span class="journal-pill">${escapeHtml(m)}</span>`).join('')}
+          <button class="journal-delete" onclick="deleteJournalEntry(event, ${j.id})">x</button>
+        </div>
+        <div class="journal-entry-text">${escapeHtml(j.text)}</div>
+      </article>`;
+    }).join('');
+  }
+
+  function editJournalDate(date) {
+    const dateInput = document.getElementById('journal-date');
+    if (!dateInput) return;
+    dateInput.value = date;
+    fillJournalEditorForDate();
+    document.getElementById('journal-text')?.focus();
+  }
+
+  async function saveJournalEntry() {
+    setupJournalDefaults();
+    const dateInput = document.getElementById('journal-date');
+    const moodInput = document.getElementById('journal-mood');
+    const energyInput = document.getElementById('journal-energy');
+    const textInput = document.getElementById('journal-text');
+    const btn = document.getElementById('journal-save-btn');
+    const status = document.getElementById('journal-save-status');
+    const text = textInput.value.trim();
+    if (!text) { textInput.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Sparar…'; }
+    try {
+      await fetch('/api/journal', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          date: dateInput.value || todayLocalDate(),
+          mood: moodInput.value,
+          energy: energyInput.value,
+          text
+        })
+      });
+      if (status) {
+        status.textContent = 'SPARAD';
+        status.className = 'today-badge badge-green';
+      }
+      await loadJournal();
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Spara dagbok'; }
+    }
+  }
+
+  async function deleteJournalEntry(event, id) {
+    event.stopPropagation();
+    await fetch('/api/journal/' + id, { method: 'DELETE' });
+    await loadJournal();
+  }
+
+  loadJournal();
 
   async function loadNotes() {
     try {

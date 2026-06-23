@@ -137,6 +137,16 @@ def setup_db():
                 text TEXT NOT NULL,
                 category TEXT DEFAULT 'general',
                 created_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS journal_entries (
+                id SERIAL PRIMARY KEY,
+                entry_date TEXT NOT NULL,
+                mood TEXT DEFAULT '',
+                energy INTEGER,
+                text TEXT NOT NULL,
+                created_at REAL,
+                updated_at REAL,
+                user_id INTEGER DEFAULT 1,
+                UNIQUE(entry_date, user_id))''')
             cur.execute('''CREATE TABLE IF NOT EXISTS plan_sessions (
                 id SERIAL PRIMARY KEY,
                 week INTEGER NOT NULL,
@@ -166,7 +176,7 @@ def setup_db():
 def migrate_db():
     with db() as conn:
         with conn.cursor() as cur:
-            for tbl in ('activities', 'user_notes', 'plan_sessions', 'strength_exercises',
+            for tbl in ('activities', 'user_notes', 'journal_entries', 'plan_sessions', 'strength_exercises',
                         'health_history', 'metric_history'):
                 try:
                     cur.execute(f'ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS user_id INTEGER DEFAULT 1')
@@ -186,6 +196,10 @@ def migrate_db():
                     cur.execute(f'ALTER TABLE {tbl} ADD PRIMARY KEY (date, user_id)')
                 except Exception as e:
                     print(f'migrate_db {tbl} pk:', e)
+            try:
+                cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_date_user_idx ON journal_entries (entry_date, user_id)')
+            except Exception as e:
+                print('migrate_db journal_entries unique:', e)
         conn.commit()
     print('Databas: migrering klar')
 
@@ -1962,6 +1976,74 @@ def delete_note(note_id):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('DELETE FROM user_notes WHERE id=%s AND user_id=%s', (note_id, uid()))
+        conn.commit()
+    return jsonify({'ok': True})
+
+# --- Dagbok ---
+@app.get('/api/journal')
+def get_journal():
+    try:
+        limit = min(int(request.args.get('limit', 30)), 90)
+    except ValueError:
+        limit = 30
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT id, entry_date, mood, energy, text, created_at, updated_at
+                FROM journal_entries
+                WHERE user_id=%s
+                ORDER BY entry_date DESC
+                LIMIT %s
+            ''', (uid(), limit))
+            rows = cur.fetchall()
+    return jsonify({'entries': [
+        {
+            'id': r[0],
+            'date': r[1],
+            'mood': r[2] or '',
+            'energy': r[3],
+            'text': r[4],
+            'created_at': r[5],
+            'updated_at': r[6],
+        } for r in rows
+    ]})
+
+@app.post('/api/journal')
+def save_journal():
+    data = request.get_json(force=True, silent=True) or {}
+    text = data.get('text', '').strip()
+    entry_date = (data.get('date') or datetime.now(LOCAL_TZ).date().isoformat()).strip()
+    mood = (data.get('mood') or '').strip()[:32]
+    energy = data.get('energy')
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', entry_date):
+        return jsonify({'error': 'Invalid date'}), 400
+    if not text:
+        return jsonify({'error': 'Empty journal entry'}), 400
+    try:
+        energy = int(energy) if energy not in (None, '') else None
+    except (TypeError, ValueError):
+        energy = None
+    if energy is not None:
+        energy = max(1, min(5, energy))
+    now = time.time()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                INSERT INTO journal_entries (entry_date, mood, energy, text, created_at, updated_at, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (entry_date, user_id)
+                DO UPDATE SET mood=EXCLUDED.mood, energy=EXCLUDED.energy, text=EXCLUDED.text, updated_at=EXCLUDED.updated_at
+                RETURNING id
+            ''', (entry_date, mood, energy, text, now, now, uid()))
+            entry_id = cur.fetchone()[0]
+        conn.commit()
+    return jsonify({'ok': True, 'id': entry_id})
+
+@app.delete('/api/journal/<int:entry_id>')
+def delete_journal(entry_id):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM journal_entries WHERE id=%s AND user_id=%s', (entry_id, uid()))
         conn.commit()
     return jsonify({'ok': True})
 

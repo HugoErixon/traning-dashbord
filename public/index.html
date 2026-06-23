@@ -50,6 +50,10 @@
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/></svg></span>
         <span>Klimat</span>
       </div>
+      <div class="nav-item" onclick="goto('journal')">
+        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></span>
+        <span>Dagbok</span>
+      </div>
       <div class="nav-item" onclick="goto('coach')">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
         <span>Anteckningar</span>
@@ -628,6 +632,67 @@
         <div id="strength-analysis-content"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Laddar analys...</div></div>
       </div>
     </div>
+
+    <!-- JOURNAL -->
+    <div class="page" id="page-journal">
+      <div class="page-header"><h2>Dagbok</h2><p>Hur dagen kändes, vad som hände och vad du vill minnas</p></div>
+
+      <div class="journal-layout">
+        <section class="journal-editor">
+          <div class="journal-editor-top">
+            <div>
+              <div class="journal-kicker">Dagens incheckning</div>
+              <h3 id="journal-editor-title">Skriv några rader</h3>
+            </div>
+            <span class="today-badge badge-amber" id="journal-save-status">OSPARAT</span>
+          </div>
+
+          <div class="journal-field-grid">
+            <label class="journal-field">
+              <span>Datum</span>
+              <input type="date" id="journal-date">
+            </label>
+            <label class="journal-field">
+              <span>Humör</span>
+              <select id="journal-mood">
+                <option value="">Välj känsla</option>
+                <option value="Lugn">Lugn</option>
+                <option value="Glad">Glad</option>
+                <option value="Stolt">Stolt</option>
+                <option value="Trött">Trött</option>
+                <option value="Stressad">Stressad</option>
+                <option value="Tung dag">Tung dag</option>
+              </select>
+            </label>
+            <label class="journal-field">
+              <span>Energi</span>
+              <input type="range" id="journal-energy" min="1" max="5" value="3">
+              <strong id="journal-energy-label">3/5</strong>
+            </label>
+          </div>
+
+          <textarea id="journal-text" class="journal-textarea" rows="10" maxlength="6000" placeholder="Hur har dagen varit? Vad tog energi, vad gav energi, och finns det något du vill bära med dig till imorgon?"></textarea>
+          <div class="journal-actions">
+            <span id="journal-char-count">0 tecken</span>
+            <button class="refresh-btn" id="journal-save-btn" onclick="saveJournalEntry()">Spara dagbok</button>
+          </div>
+        </section>
+
+        <aside class="journal-history">
+          <div class="journal-history-head">
+            <div>
+              <div class="journal-kicker">Historik</div>
+              <h3>Senaste inlägg</h3>
+            </div>
+            <span id="journal-count">0 dagar</span>
+          </div>
+          <div id="journal-list" class="journal-list">
+            <div class="journal-empty">Laddar dagbok…</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
     <!-- COACH -->
     <div class="page" id="page-coach">
       <div class="page-header"><h2>Anteckningar</h2><p>Frågor, sammanhang och sparade anteckningar</p></div>
