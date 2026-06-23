@@ -605,6 +605,10 @@ def has_health_payload(result):
     ])
 
 
+def has_sleep_levels(result):
+    return bool(((result or {}).get('sleep') or {}).get('levels'))
+
+
 def latest_health_snapshot(user_id, display_date):
     with db() as conn:
         with conn.cursor() as cur:
@@ -647,7 +651,7 @@ def latest_health_snapshot(user_id, display_date):
 def health_data():
     today = date.today().isoformat()
     row = get_cache('health', uid())
-    if row and (time.time() - row[1]) < 30 * 60 and has_health_payload(row[0]):
+    if row and (time.time() - row[1]) < 10 * 60 and has_health_payload(row[0]) and (not row[0].get('fallback') or has_sleep_levels(row[0])):
         return jsonify(row[0])
 
     try:
@@ -669,6 +673,14 @@ def health_data():
         hr = hr if isinstance(hr, dict) else {}
         resp = resp if isinstance(resp, dict) else {}
         spo2 = spo2 if isinstance(spo2, dict) else {}
+
+        sleep_source_date = today
+        if not (sleep.get('sleepLevels') or sleep.get('sleepMovement')):
+            previous_day = (date.today() - timedelta(days=1)).isoformat()
+            previous_sleep = safe_health_fetch('sleep fallback', {}, lambda: client.get_sleep_data(previous_day))
+            if isinstance(previous_sleep, dict) and (previous_sleep.get('sleepLevels') or previous_sleep.get('sleepMovement')):
+                sleep = previous_sleep
+                sleep_source_date = previous_day
 
         s = sleep.get('dailySleepDTO', {})
         total_sleep_sec = s.get('sleepTimeSeconds', 0)
@@ -710,6 +722,8 @@ def health_data():
                             'deepPct': round(deep_sec/total_sleep_sec*100) if total_sleep_sec else 0,
                             'remPct':  round(rem_sec/total_sleep_sec*100)  if total_sleep_sec else 0,
                             'levels': (sleep.get('sleepLevels') or sleep.get('sleepMovement') or []),
+                            'sourceDate': sleep_source_date,
+                            'fallback': sleep_source_date != today,
                             'startGMT': s.get('sleepStartTimestampGMT'),
                             'endGMT':   s.get('sleepEndTimestampGMT')},
             'bodyBattery': {'current': bb_now, 'max': bb_max, 'charged': bb_today.get('charged'), 'drained': bb_today.get('drained')},
