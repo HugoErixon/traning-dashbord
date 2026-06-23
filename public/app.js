@@ -923,9 +923,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         { valId:'snap-sleep-val', subId:'snap-sleep-sub', barId:'snap-sleep-bar',
           val: h.sleep?.score, sub: h.sleep?.totalSec ? fmtTime(h.sleep.totalSec) : '',
           col: h.sleep?.score >= 80 ? 'var(--green)' : h.sleep?.score >= 60 ? 'var(--amber)' : 'var(--red)', pct: h.sleep?.score },
-        { valId:'snap-bb-val', subId:'snap-bb-sub', barId:'snap-bb-bar',
-          val: h.bodyBattery?.current, sub: 'Max idag: ' + (h.bodyBattery?.max || '-'),
-          col: h.bodyBattery?.current >= 60 ? 'var(--green)' : h.bodyBattery?.current >= 30 ? 'var(--amber)' : 'var(--red)', pct: h.bodyBattery?.current },
+        { valId:'snap-rhr-val', subId:'snap-rhr-sub', barId:'snap-rhr-bar',
+          val: h.restingHR?.value, sub: 'Snitt 7d: ' + (h.restingHR?.sevenDayAvg || '-') + ' bpm',
+          col: h.restingHR?.value <= (h.restingHR?.sevenDayAvg || h.restingHR?.value) + 2 ? 'var(--green)' : h.restingHR?.value <= (h.restingHR?.sevenDayAvg || h.restingHR?.value) + 6 ? 'var(--amber)' : 'var(--red)',
+          pct: Math.max(0, Math.min(100, 100 - ((h.restingHR?.value || 60) - 35) / 45 * 100)) },
         { valId:'snap-hrv-val', subId:'snap-hrv-sub', barId:'snap-hrv-bar',
           val: h.hrv?.lastNightAvg, sub: h.hrv?.status && h.hrv.status !== 'NONE' ? `${h.hrv.status} - ${getHrvBaselineText(h.hrv)}` : getHrvBaselineText(h.hrv),
           col: getHrvColor(h.hrv), pct: Math.min(h.hrv?.component ?? h.hrv?.pct ?? 0, 100) },
@@ -964,7 +965,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       try {
         const sp = await (await fetch('/api/health/spark')).json();
         if (sp.sleep?.length >= 2) drawSparkline(document.getElementById('spark-sleep'), sp.sleep, 'var(--green)');
-        if (sp.bb?.length >= 2)    drawSparkline(document.getElementById('spark-bb'),    sp.bb,    'var(--amber)');
+        if (sp.rhr?.length >= 2)   drawSparkline(document.getElementById('spark-rhr'),   sp.rhr,   'var(--green)');
         if (sp.hrv?.length >= 2)   drawSparkline(document.getElementById('spark-hrv'),   sp.hrv,   'var(--accent)');
       } catch (e) { /* sparklines are optional decoration */ }
 

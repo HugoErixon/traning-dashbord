@@ -662,16 +662,16 @@ def health_data():
 
 @app.get('/api/health/spark')
 def health_spark():
-    """Senaste 7 dagarnas värden för hem-sidans mini-grafer (sömnpoäng, HRV, body battery)."""
+    """Senaste 7 dagarnas värden för hem-sidans mini-grafer (sömnpoäng, RHR, HRV)."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('''SELECT sleep_score, hrv_avg, body_battery
+            cur.execute('''SELECT sleep_score, hrv_avg, resting_hr
                 FROM health_history WHERE user_id=%s ORDER BY date DESC LIMIT 7''', (uid(),))
             rows = cur.fetchall()[::-1]  # äldst först
     return jsonify({
         'sleep': [r[0] for r in rows if r[0] is not None],
         'hrv':   [r[1] for r in rows if r[1] is not None],
-        'bb':    [r[2] for r in rows if r[2] is not None],
+        'rhr':   [r[2] for r in rows if r[2] is not None],
     })
 
 
