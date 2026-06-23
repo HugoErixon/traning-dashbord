@@ -780,8 +780,17 @@
       background: transparent;
       border: 0;
       color: var(--text);
+      color-scheme: dark;
       font: 600 13px var(--font-sans);
       outline: none;
+    }
+    .journal-field select option {
+      background: var(--bg3);
+      color: var(--text);
+    }
+    .journal-field select option:checked {
+      background: var(--accent);
+      color: var(--accent-ink);
     }
     .journal-field input[type="range"] {
       accent-color: var(--accent);
