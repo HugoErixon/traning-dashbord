@@ -353,8 +353,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       const tx = (((t - startMs) / totalMs) * W).toFixed(1);
       if (parseFloat(tx) < 0 || parseFloat(tx) > W) continue;
       const label = new Date(t).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-      parts.push(`<line x1="${tx}" y1="${BAR_H}" x2="${tx}" y2="${BAR_H + 5}" stroke="#334155" stroke-width="1"/>`);
-      parts.push(`<text x="${tx}" y="${BAR_H + 15}" text-anchor="middle" font-size="9" fill="#475569" font-family="var(--font-mono,monospace)">${label}</text>`);
+      parts.push(`<line x1="${tx}" y1="${BAR_H}" x2="${tx}" y2="${BAR_H + 5}" stroke="#64748B" stroke-width="1"/>`);
+      parts.push(`<text x="${tx}" y="${BAR_H + 16}" text-anchor="middle" font-size="11" fill="#CBD5E1" font-family="var(--font-mono,monospace)">${label}</text>`);
     }
 
     parts.push('</svg>');
