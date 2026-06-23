@@ -318,7 +318,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     };
 
     const W = container.clientWidth || 600;
-    const BAR_H = 44;
+    const BAR_H = 68;
     const TICK_H = 20;
     const H = BAR_H + TICK_H;
 
