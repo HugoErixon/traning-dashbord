@@ -568,6 +568,19 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return { color:'var(--red)', status:'Hög stress', badge:'Hög', pct:n };
   }
 
+  function setCnsDriver(key, value, pct, color) {
+    const val = document.getElementById(`cns-driver-${key}-val`);
+    const bar = document.getElementById(`cns-driver-${key}-bar`);
+    if (val) {
+      val.textContent = value ?? '-';
+      val.style.color = color || 'var(--muted2)';
+    }
+    if (bar) {
+      bar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+      bar.style.background = color || 'var(--muted2)';
+    }
+  }
+
   function drawStressHistory(points, current, avg) {
     const svg = document.getElementById('stress-history-chart');
     if (!svg) return;
@@ -882,6 +895,30 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         document.getElementById('cns-rhr-val').textContent = '–';
         document.getElementById('cns-rhr-val').style.color = 'var(--muted2)';
         document.getElementById('cns-rhr-sub').textContent = 'Ingen data';
+      }
+
+      // CNS-drivare
+      const sleepDriver = h.sleep?.score;
+      const sleepDriverColor = sleepDriver == null ? 'var(--muted2)' : sleepDriver >= 80 ? 'var(--green)' : sleepDriver >= 60 ? 'var(--amber)' : 'var(--red)';
+      setCnsDriver('sleep', sleepDriver == null ? '-' : `${sleepDriver}/100`, sleepDriver || 0, sleepDriverColor);
+
+      const stressDriver = h.stress?.avg;
+      const stressRecovery = stressDriver == null ? null : Math.max(0, 100 - stressDriver);
+      const stressDriverColor = stressDriver == null ? 'var(--muted2)' : stressDriver <= 35 ? 'var(--green)' : stressDriver <= 60 ? 'var(--amber)' : 'var(--red)';
+      setCnsDriver('stress', stressDriver == null ? '-' : `${stressDriver}/100`, stressRecovery || 0, stressDriverColor);
+
+      const bbDriver = h.bodyBattery?.current;
+      const bbDriverColor = bbDriver == null ? 'var(--muted2)' : bbDriver >= 60 ? 'var(--green)' : bbDriver >= 30 ? 'var(--amber)' : 'var(--red)';
+      setCnsDriver('bb', bbDriver == null ? '-' : `${bbDriver}/100`, bbDriver || 0, bbDriverColor);
+
+      const driverSummary = document.getElementById('cns-driver-summary');
+      if (driverSummary) {
+        const weakSignals = [
+          sleepDriver != null && sleepDriver < 60 ? 'sömn' : '',
+          stressDriver != null && stressDriver > 60 ? 'stress' : '',
+          bbDriver != null && bbDriver < 35 ? 'batteri' : ''
+        ].filter(Boolean);
+        driverSummary.textContent = weakSignals.length ? `Begränsas av ${weakSignals.join(', ')}` : 'Stabil helhetsbild';
       }
 
       // ── SÖMN ──

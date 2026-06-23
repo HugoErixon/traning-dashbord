@@ -1332,7 +1332,7 @@
       background: var(--card-grad), var(--bg2);
       border: 1px solid var(--border);
       border-radius: var(--radius-xl);
-      padding: 22px 24px 18px;
+      padding: 22px 24px 20px;
       margin-bottom: 0;
       position: relative;
       overflow: hidden;
@@ -1341,7 +1341,7 @@
       flex-direction: column;
       box-shadow: var(--shadow-card);
     }
-    .cns-metrics { flex: 1; align-content: start; }
+    .cns-metrics { align-content: start; }
     .cns-card::after {
       content: '';
       position: absolute;
@@ -1390,6 +1390,68 @@
     .cns-metric-name  { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
     .cns-metric-val   { font-size: 18px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
     .cns-metric-sub   { font-size: 10px; color: var(--muted2); }
+
+    .cns-drivers {
+      background: rgba(255,255,255,0.018);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-top: 14px;
+      padding: 13px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 11px;
+    }
+    .cns-drivers-head,
+    .cns-driver-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .cns-drivers-head span {
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .cns-drivers-head strong {
+      color: var(--muted2);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      text-align: right;
+    }
+    .cns-driver-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .cns-driver-top span {
+      color: var(--muted3);
+      font-size: 11.5px;
+      font-weight: 650;
+    }
+    .cns-driver-top strong {
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 750;
+    }
+    .cns-driver-bar {
+      height: 5px;
+      background: rgba(255,255,255,0.045);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .cns-driver-bar > div {
+      width: 0%;
+      height: 100%;
+      background: var(--cns-color, var(--green));
+      border-radius: 99px;
+      transition: width 1.2s cubic-bezier(.4,0,.2,1), background 0.2s;
+    }
 
     
     .sleep-debt-row {
