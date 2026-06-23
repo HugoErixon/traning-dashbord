@@ -2096,7 +2096,8 @@
 
     /* Arc gauge — Sömnpoäng */
     .sleep-metric-score-card {
-      align-items: flex-start;
+      align-items: center;
+      text-align: center;
     }
 
     .sleep-gauge-wrap {
