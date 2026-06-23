@@ -573,26 +573,60 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (!svg) return;
     const values = (points || []).map(p => Number(p.value)).filter(Number.isFinite);
     if (values.length < 2) {
-      svg.innerHTML = '<text x="0" y="52" fill="currentColor" style="color:var(--muted);font-size:11px;">Mer historik visas efter några synkar.</text>';
+      svg.innerHTML = '<text x="18" y="72" fill="currentColor" style="color:var(--muted);font-size:11px;">Mer historik visas efter några synkar.</text>';
       return;
     }
-    const W = 320, H = 92, P = 8;
-    const max = Math.max(80, ...values, current || 0);
-    const min = Math.min(0, ...values);
+    const W = 320, H = 132, PX = 18, PT = 28, PB = 24;
+    const chartH = H - PT - PB;
+    const max = Math.min(100, Math.max(70, ...values, current ?? 0, avg ?? 0) + 8);
+    const min = Math.max(0, Math.min(15, ...values, current ?? 100, avg ?? 100) - 8);
     const span = Math.max(1, max - min);
     const pts = values.map((v, i) => ({
-      x: P + (i / Math.max(1, values.length - 1)) * (W - P * 2),
-      y: H - P - ((v - min) / span) * (H - P * 2)
+      x: PX + (i / Math.max(1, values.length - 1)) * (W - PX * 2),
+      y: PT + (1 - ((v - min) / span)) * chartH
     }));
-    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-    const avgY = avg == null ? null : H - P - ((avg - min) / span) * (H - P * 2);
+    const lineD = pts.map((p, i) => {
+      if (i === 0) return `M${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+      const prev = pts[i - 1];
+      const cx = (prev.x + p.x) / 2;
+      return `C${cx.toFixed(1)},${prev.y.toFixed(1)} ${cx.toFixed(1)},${p.y.toFixed(1)} ${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+    }).join(' ');
+    const baseY = H - PB;
+    const areaD = `${lineD} L${pts[pts.length - 1].x.toFixed(1)},${baseY} L${pts[0].x.toFixed(1)},${baseY} Z`;
+    const avgY = avg == null ? null : PT + (1 - ((avg - min) / span)) * chartH;
     const last = pts[pts.length - 1];
+    const first = pts[0];
+    const avgLabel = avg == null ? '-' : Number(avg).toFixed(1);
+    const lastValue = values[values.length - 1];
+    const stressColor = stressMeta(lastValue).color;
+    const grid = [0.25, 0.5, 0.75].map(t => {
+      const y = PT + chartH * t;
+      return `<line x1="${PX}" y1="${y.toFixed(1)}" x2="${W - PX}" y2="${y.toFixed(1)}" class="stress-grid-line"/>`;
+    }).join('');
     svg.innerHTML = `
-      ${avgY == null ? '' : `<line x1="${P}" y1="${avgY.toFixed(1)}" x2="${W - P}" y2="${avgY.toFixed(1)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 5" opacity="0.45"/>`}
-      <path d="${d}" fill="none" stroke="var(--amber)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="3" fill="var(--amber)"/>
-      <text x="${P}" y="12" fill="currentColor" style="color:var(--muted);font-size:10px;">30 dagar</text>
-      <text x="${W - P}" y="12" text-anchor="end" fill="currentColor" style="color:var(--muted);font-size:10px;">snitt ${avg ?? '-'}</text>`;
+      <defs>
+        <linearGradient id="stress-area-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#FBBF24" stop-opacity="0.28"/>
+          <stop offset="72%" stop-color="#FBBF24" stop-opacity="0.04"/>
+          <stop offset="100%" stop-color="#FBBF24" stop-opacity="0"/>
+        </linearGradient>
+        <filter id="stress-line-glow" x="-10%" y="-80%" width="120%" height="260%">
+          <feGaussianBlur stdDeviation="2.2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect x="0" y="0" width="${W}" height="${H}" rx="12" class="stress-chart-bg"/>
+      ${grid}
+      ${avgY == null ? '' : `<line x1="${PX}" y1="${avgY.toFixed(1)}" x2="${W - PX}" y2="${avgY.toFixed(1)}" class="stress-avg-line"/>`}
+      <path d="${areaD}" class="stress-area"/>
+      <path d="${lineD}" class="stress-line-shadow"/>
+      <path d="${lineD}" class="stress-line" filter="url(#stress-line-glow)"/>
+      <circle cx="${first.x.toFixed(1)}" cy="${first.y.toFixed(1)}" r="2" class="stress-end-dot stress-start-dot"/>
+      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="6.5" class="stress-current-halo"/>
+      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="3.4" fill="${stressColor}" class="stress-current-dot"/>
+      <text x="${PX}" y="15" class="stress-chart-label">Senaste 30 dagar</text>
+      <text x="${W - PX}" y="15" text-anchor="end" class="stress-chart-label">Snitt ${avgLabel}</text>
+      <text x="${last.x.toFixed(1)}" y="${Math.max(25, last.y - 12).toFixed(1)}" text-anchor="middle" class="stress-current-label">${Math.round(lastValue)}</text>`;
   }
 
   function getSessionDate(session, year) {
