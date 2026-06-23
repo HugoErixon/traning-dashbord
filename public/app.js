@@ -309,14 +309,26 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (!chartStart || !chartEnd) return;
     const totalMs = chartEnd - chartStart;
 
-    // Sleep start/end times below the chart (UTC, to match the axis ticks)
-    const fmtUTC = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+    // All times shown in Swedish local time (Europe/Stockholm), DST-aware.
+    const TZ = 'Europe/Stockholm';
+    // Offset (ms) between an absolute instant and its Stockholm wall-clock.
+    const tzOffsetMs = d => {
+      const p = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        .formatToParts(d).reduce((a, x) => (a[x.type] = x.value, a), {});
+      const h = p.hour === '24' ? 0 : +p.hour;
+      return Date.UTC(+p.year, +p.month - 1, +p.day, h, +p.minute, +p.second) - d.getTime();
+    };
+
+    // Sleep start/end times below the chart
+    const fmtLocal = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
     if (timesEl) {
       timesEl.style.display = 'flex';
       const sEl = document.getElementById('sleep-chart-t-start');
       const eEl = document.getElementById('sleep-chart-t-end');
-      if (sEl) sEl.innerHTML = `<span style="color:var(--muted3);">Somnade</span> <span style="color:#CBD5E1;">${fmtUTC(chartStart)}</span>`;
-      if (eEl) eEl.innerHTML = `<span style="color:var(--muted3);">Vaknade</span> <span style="color:#CBD5E1;">${fmtUTC(chartEnd)}</span>`;
+      if (sEl) sEl.innerHTML = `<span style="color:var(--muted3);">Somnade</span> <span style="color:#CBD5E1;">${fmtLocal(chartStart)}</span>`;
+      if (eEl) eEl.innerHTML = `<span style="color:var(--muted3);">Vaknade</span> <span style="color:#CBD5E1;">${fmtLocal(chartEnd)}</span>`;
     }
 
     const STAGE = {
@@ -331,7 +343,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const TICK_H = 20;
     const H = BAR_H + TICK_H;
 
-    const fmtTime = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+    const fmtTime = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
     const fmtDur = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m/60)+'h '+(m%60)+'m' : m+'m'; };
 
     const parts = [
@@ -355,13 +367,15 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
     parts.push(`</g>`);
 
-    // Hour ticks every 2h
+    // Hour ticks every 2h, aligned to round *local* hours (DST-aware)
     const startMs = chartStart.getTime();
-    const firstTickMs = Math.ceil(startMs / (2 * 3600000)) * (2 * 3600000);
-    for (let t = firstTickMs; t <= startMs + totalMs; t += 2 * 3600000) {
+    const offset = tzOffsetMs(chartStart);             // local = utc + offset
+    const STEP = 2 * 3600000;
+    const firstTickMs = Math.ceil((startMs + offset) / STEP) * STEP - offset;
+    for (let t = firstTickMs; t <= startMs + totalMs; t += STEP) {
       const tx = (((t - startMs) / totalMs) * W).toFixed(1);
       if (parseFloat(tx) < 0 || parseFloat(tx) > W) continue;
-      const label = new Date(t).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      const label = fmtLocal(new Date(t));
       parts.push(`<line x1="${tx}" y1="${BAR_H}" x2="${tx}" y2="${BAR_H + 5}" stroke="#64748B" stroke-width="1"/>`);
       parts.push(`<text x="${tx}" y="${BAR_H + 16}" text-anchor="middle" font-size="11" fill="#CBD5E1" font-family="var(--font-mono,monospace)">${label}</text>`);
     }
