@@ -282,17 +282,17 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const empty = document.getElementById('sleep-chart-empty');
     if (!container) return;
 
+    const timesEl = document.getElementById('sleep-chart-times');
+
     if (!levels || levels.length === 0) {
       container.innerHTML = '';
       container.style.display = 'none';
-      const timesEl = document.getElementById('sleep-chart-times');
       if (timesEl) timesEl.style.display = 'none';
       if (empty) empty.style.display = 'block';
       return;
     }
     container.style.display = 'block';
-    const timesEl = document.getElementById('sleep-chart-times');
-    if (timesEl) timesEl.style.display = 'flex';
+    if (timesEl) timesEl.style.display = 'none'; // ticks drawn inline
     if (empty) empty.style.display = 'none';
 
     const parseGMT = s => {
@@ -307,97 +307,87 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (!chartStart || !chartEnd) return;
     const totalMs = chartEnd - chartStart;
 
-    // Depth order: Vaken(top)=row0, Lätt=row1, REM=row2, Djup(bottom)=row3
     const STAGE = {
-      0: { row: 3, color: '#4F46E5', name: 'Djup' },
-      1: { row: 1, color: '#6B7280', name: 'Lätt' },
-      2: { row: 0, color: '#374151', name: 'Vaken' },
-      3: { row: 2, color: '#A78BFA', name: 'REM' },
+      0: { color: '#4F46E5', name: 'Djup' },
+      1: { color: '#6B7280', name: 'Lätt' },
+      2: { color: '#374151', name: 'Vaken' },
+      3: { color: '#A78BFA', name: 'REM' },
     };
-    const LABELS = ['Vaken', 'Lätt', 'REM', 'Djup'];
 
     const W = container.clientWidth || 600;
-    const LABEL_W = 46;
-    const chartW = W - LABEL_W;
-    const ROW_H = 32;
-    const ROWS = 4;
-    const TICK_H = 22;
-    const H = ROWS * ROW_H + TICK_H;
+    const BAR_H = 44;
+    const TICK_H = 20;
+    const H = BAR_H + TICK_H;
 
     const fmtTime = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
     const fmtDur = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m/60)+'h '+(m%60)+'m' : m+'m'; };
 
-    const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;overflow:visible;">`];
+    const parts = [
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;overflow:visible;">`,
+      `<defs><clipPath id="sleep-bar-clip"><rect x="0" y="0" width="${W}" height="${BAR_H}" rx="7"/></clipPath></defs>`,
+      `<rect x="0" y="0" width="${W}" height="${BAR_H}" rx="7" fill="rgba(255,255,255,0.05)"/>`,
+      `<g clip-path="url(#sleep-bar-clip)">`,
+    ];
 
-    // Row stripes
-    for (let r = 0; r < ROWS; r++) {
-      if (r % 2 === 0) parts.push(`<rect x="${LABEL_W}" y="${r * ROW_H}" width="${chartW}" height="${ROW_H}" fill="rgba(255,255,255,0.018)"/>`);
-    }
-
-    // Stage segments
+    // Single-row segments
     for (const seg of sorted) {
       const level = Math.round(seg.activityLevel ?? seg.level ?? 1);
       const info  = STAGE[level] ?? STAGE[1];
       const t0 = parseGMT(seg.startGMT);
       const t1 = parseGMT(seg.endGMT);
       if (!t0 || !t1) continue;
-      const x = LABEL_W + ((t0 - chartStart) / totalMs) * chartW;
-      const w = Math.max(1, ((t1 - t0) / totalMs) * chartW);
-      const y = info.row * ROW_H + 1;
-      parts.push(`<rect x="${x.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="${ROW_H - 2}" fill="${info.color}" rx="2" class="sleep-seg" data-name="${info.name}" data-t0="${fmtTime(t0)}" data-t1="${fmtTime(t1)}" data-dur="${fmtDur(t1 - t0)}" data-color="${info.color}"/>`);
+      const x = ((t0 - chartStart) / totalMs) * W;
+      const w = Math.max(1, ((t1 - t0) / totalMs) * W);
+      parts.push(`<rect class="sleep-seg" data-stage="${level}" x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${BAR_H}" fill="${info.color}" data-name="${info.name}" data-t0="${fmtTime(t0)}" data-t1="${fmtTime(t1)}" data-dur="${fmtDur(t1 - t0)}" data-color="${info.color}" style="cursor:pointer;transition:opacity 0.12s;"/>`);
     }
 
-    // Wake dashed vertical line
-    const wakeX = (LABEL_W + chartW - 0.5).toFixed(1);
-    parts.push(`<line x1="${wakeX}" y1="0" x2="${wakeX}" y2="${ROWS * ROW_H}" stroke="#475569" stroke-width="1" stroke-dasharray="3,4"/>`);
-
-    // Y-axis labels
-    for (let r = 0; r < ROWS; r++) {
-      const cy = (r * ROW_H + ROW_H / 2).toFixed(1);
-      parts.push(`<text x="${LABEL_W - 7}" y="${cy}" text-anchor="end" dominant-baseline="middle" font-size="10" font-weight="600" fill="#64748b" font-family="var(--font-mono,monospace)">${LABELS[r]}</text>`);
-    }
+    parts.push(`</g>`);
 
     // Hour ticks every 2h
     const startMs = chartStart.getTime();
     const firstTickMs = Math.ceil(startMs / (2 * 3600000)) * (2 * 3600000);
-    const chartBottom = ROWS * ROW_H;
     for (let t = firstTickMs; t <= startMs + totalMs; t += 2 * 3600000) {
-      const tx = (LABEL_W + ((t - startMs) / totalMs) * chartW).toFixed(1);
-      if (parseFloat(tx) < LABEL_W || parseFloat(tx) > LABEL_W + chartW) continue;
+      const tx = (((t - startMs) / totalMs) * W).toFixed(1);
+      if (parseFloat(tx) < 0 || parseFloat(tx) > W) continue;
       const label = new Date(t).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-      parts.push(`<line x1="${tx}" y1="${chartBottom}" x2="${tx}" y2="${chartBottom + 4}" stroke="#334155" stroke-width="1"/>`);
-      parts.push(`<text x="${tx}" y="${chartBottom + 14}" text-anchor="middle" font-size="9" fill="#475569" font-family="var(--font-mono,monospace)">${label}</text>`);
+      parts.push(`<line x1="${tx}" y1="${BAR_H}" x2="${tx}" y2="${BAR_H + 5}" stroke="#334155" stroke-width="1"/>`);
+      parts.push(`<text x="${tx}" y="${BAR_H + 15}" text-anchor="middle" font-size="9" fill="#475569" font-family="var(--font-mono,monospace)">${label}</text>`);
     }
 
     parts.push('</svg>');
     container.innerHTML = parts.join('');
 
-    // Bottom time labels
-    const fmtLocal = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-    const startEl = document.getElementById('sleep-chart-t-start');
-    const endEl   = document.getElementById('sleep-chart-t-end');
-    if (startEl) startEl.textContent = fmtLocal(chartStart);
-    if (endEl)   endEl.textContent   = 'Wake ' + fmtLocal(chartEnd);
-
-    // SVG hover tooltips
+    // Interactions
     const svgEl = container.querySelector('svg');
     if (!svgEl) return;
+    const allSegs = svgEl.querySelectorAll('.sleep-seg');
+
     svgEl.addEventListener('mouseover', e => {
-      const rect = e.target.closest('.sleep-seg');
-      if (!rect) return;
-      clearTimeout(tipTimeout);
-      tipBox.innerHTML = `
-        <div class="tip-title" style="color:${rect.dataset.color}">${rect.dataset.name}</div>
-        <div class="tip-desc">${rect.dataset.t0} – ${rect.dataset.t1}</div>
-        <div class="tip-desc" style="color:var(--muted2);margin-top:2px;">${rect.dataset.dur}</div>`;
-      const vw = window.innerWidth;
-      let left = e.clientX + 12;
-      if (left + 180 > vw - 8) left = e.clientX - 192;
-      tipBox.style.left = left + 'px';
-      tipBox.style.top  = (e.clientY - 40) + 'px';
-      tipBox.classList.add('visible');
+      const seg = e.target.closest('.sleep-seg');
+      if (seg) {
+        const activeStage = seg.dataset.stage;
+        allSegs.forEach(s => { s.style.opacity = s.dataset.stage === activeStage ? '1' : '0.18'; });
+        clearTimeout(tipTimeout);
+        tipBox.innerHTML = `
+          <div class="tip-title" style="color:${seg.dataset.color}">${seg.dataset.name}</div>
+          <div class="tip-desc">${seg.dataset.t0} – ${seg.dataset.t1}</div>
+          <div class="tip-desc" style="color:var(--muted2);margin-top:2px;">${seg.dataset.dur}</div>`;
+        const vw = window.innerWidth;
+        let left = e.clientX + 12;
+        if (left + 180 > vw - 8) left = e.clientX - 192;
+        tipBox.style.left = left + 'px';
+        tipBox.style.top  = (e.clientY - 40) + 'px';
+        tipBox.classList.add('visible');
+      } else {
+        allSegs.forEach(s => { s.style.opacity = '1'; });
+        hideTip();
+      }
     });
-    svgEl.addEventListener('mouseleave', hideTip);
+
+    svgEl.addEventListener('mouseleave', () => {
+      allSegs.forEach(s => { s.style.opacity = '1'; });
+      hideTip();
+    });
   }
 
   let currentHealthData = null;
