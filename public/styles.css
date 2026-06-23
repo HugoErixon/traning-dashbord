@@ -2136,7 +2136,7 @@
     }
 
     .sleep-gauge-center .sleep-metric-val {
-      font-size: 54px;
+      font-size: 72px;
       font-weight: 800;
       line-height: 1;
       color: #C8F135;
@@ -2221,6 +2221,6 @@
         font-size: 28px;
       }
       .sleep-gauge-center .sleep-metric-val {
-        font-size: 38px;
+        font-size: 56px;
       }
     }
