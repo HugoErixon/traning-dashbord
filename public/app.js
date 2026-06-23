@@ -308,10 +308,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const totalMs = chartEnd - chartStart;
 
     const STAGE = {
-      0: { color: '#4F46E5', name: 'Djup' },
-      1: { color: '#6B7280', name: 'Lätt' },
-      2: { color: '#374151', name: 'Vaken' },
-      3: { color: '#A78BFA', name: 'REM' },
+      0: { color: '#EC4899', name: 'Djup' },
+      1: { color: '#10B981', name: 'Lätt' },
+      2: { color: '#EF4444', name: 'Vaken' },
+      3: { color: '#38BDF8', name: 'REM' },
     };
 
     const W = container.clientWidth || 600;
