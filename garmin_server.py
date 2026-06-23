@@ -583,6 +583,15 @@ def hrv_signal(status, last_night, weekly):
     return 'amber', 'HRV data unavailable'
 
 
+def safe_health_fetch(label, default, fetcher):
+    try:
+        value = fetcher()
+        return default if value is None else value
+    except Exception as e:
+        print(f'Garmin health {label} unavailable: {e}')
+        return default
+
+
 
 @app.get('/api/health')
 def health_data():
@@ -593,14 +602,23 @@ def health_data():
 
     try:
         client = get_garmin(uname())
-        sleep     = client.get_sleep_data(today)
-        hrv       = client.get_hrv_data(today)
-        bb        = client.get_body_battery(today, today)
-        stress    = client.get_stress_data(today)
-        readiness = client.get_training_readiness(today)
-        hr        = client.get_heart_rates(today)
-        resp      = client.get_respiration_data(today)
-        spo2      = client.get_spo2_data(today)
+        sleep     = safe_health_fetch('sleep', {}, lambda: client.get_sleep_data(today))
+        hrv       = safe_health_fetch('hrv', {}, lambda: client.get_hrv_data(today))
+        bb        = safe_health_fetch('body battery', [], lambda: client.get_body_battery(today, today))
+        stress    = safe_health_fetch('stress', {}, lambda: client.get_stress_data(today))
+        readiness = safe_health_fetch('training readiness', [], lambda: client.get_training_readiness(today))
+        hr        = safe_health_fetch('heart rates', {}, lambda: client.get_heart_rates(today))
+        resp      = safe_health_fetch('respiration', {}, lambda: client.get_respiration_data(today))
+        spo2      = safe_health_fetch('spo2', {}, lambda: client.get_spo2_data(today))
+
+        sleep = sleep if isinstance(sleep, dict) else {}
+        hrv = hrv if isinstance(hrv, dict) else {}
+        bb = bb if isinstance(bb, list) else []
+        stress = stress if isinstance(stress, dict) else {}
+        readiness = readiness if isinstance(readiness, list) else []
+        hr = hr if isinstance(hr, dict) else {}
+        resp = resp if isinstance(resp, dict) else {}
+        spo2 = spo2 if isinstance(spo2, dict) else {}
 
         s = sleep.get('dailySleepDTO', {})
         total_sleep_sec = s.get('sleepTimeSeconds', 0)
@@ -618,13 +636,13 @@ def health_data():
         hrv_comp = hrv_component(hrv_ln, hrv_base.get('lowUpper'), hrv_base.get('balancedLow'), hrv_st, hrv_pct)
         hrv_lt, hrv_verdict = hrv_signal(hrv_st, hrv_ln, hrv_wk)
 
-        bb_today = bb[0] if bb else {}
-        bb_vals  = bb_today.get('bodyBatteryValuesArray', [])
+        bb_today = bb[0] if bb and isinstance(bb[0], dict) else {}
+        bb_vals  = bb_today.get('bodyBatteryValuesArray') or []
         bb_points = [v[1] for v in bb_vals if v and len(v) > 1 and v[1] is not None]
         bb_now   = bb_points[-1] if bb_points else None
         bb_max   = max(bb_points, default=None)
 
-        ready    = readiness[0] if readiness else {}
+        ready    = readiness[0] if readiness and isinstance(readiness[0], dict) else {}
         avg_resp = resp.get('avgWakingRespirationValue') or resp.get('avgRespirationValue')
         sleep_resp = resp.get('avgSleepRespirationValue')
         avg_spo2 = spo2.get('averageSpO2')
