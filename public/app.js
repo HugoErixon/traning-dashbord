@@ -1861,6 +1861,25 @@ HEALTH DATA (current):
     return n.toLocaleString('sv-SE', { maximumFractionDigits: 0 }) + ' kg';
   }
 
+  function strengthSessionTitle(session) {
+    const d = new Date(session.date);
+    const dateLabel = Number.isNaN(d.getTime())
+      ? ''
+      : d.toLocaleDateString('sv-SE', { day:'numeric', month:'short' });
+    let title = '';
+    if (!Number.isNaN(d.getTime())) {
+      const info = getISOWeekInfo(d);
+      const plannedLift = (PLAN_SESSIONS || []).find(p =>
+        p.type === 'lift' && p.week === info.week && p.dow === info.dow
+      );
+      title = plannedLift?.title || '';
+    }
+    const garminName = String(session.name || '').trim();
+    if (!title && garminName && !/^strength$/i.test(garminName)) title = garminName;
+    if (!title) title = 'Styrka';
+    return [title, dateLabel].filter(Boolean).join(' ');
+  }
+
   async function loadStrengthAnalysis() {
     const el = document.getElementById('strength-analysis-content');
     if (!el) return;
@@ -2066,7 +2085,7 @@ HEALTH DATA (current):
         <div class="strength-session ${initialSession && s.id === initialSession.id ? 'open' : ''}" id="sess-${s.id}">
           <div class="strength-header" onclick="toggleSession('${s.id}')">
             <div class="strength-header-left">
-              <div class="strength-title">${s.name}</div>
+              <div class="strength-title">${escapeHtml(strengthSessionTitle(s))}</div>
               <div class="strength-meta">${fmtDateStr(s.date)} &nbsp; - &nbsp; ${fmtDur(s.duration)} &nbsp; - &nbsp; ${Math.round(s.calories||0)} kcal${s.avgHR?' &nbsp; - &nbsp;  '+Math.round(s.avgHR)+' bpm':''}</div>
             </div>
             <span class="strength-chevron">▾</span>
