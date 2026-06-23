@@ -1457,8 +1457,11 @@ HEALTH DATA (current):
       const d = await res.json();
       const raw = (d.points || []).filter(p => p.temp != null);
       if (!raw.length) { el.textContent = d.error ? 'Temperature history unavailable.' : 'Collecting temperature data...'; return; }
+      const outsideRaw = (d.outside_points || []).filter(p => p.temp != null);
       const temps = raw.map(p => p.temp);
-      let lo = Math.min(...temps), hi = Math.max(...temps);
+      const outsideTemps = outsideRaw.map(p => p.temp);
+      const allTemps = temps.concat(outsideTemps);
+      let lo = Math.min(...allTemps), hi = Math.max(...allTemps);
       if (d.target != null) { lo = Math.min(lo, d.target); hi = Math.max(hi, d.target); }
       const pad = Math.max(0.5, (hi - lo) * 0.15);
       const yLo = lo - pad, yHi = hi + pad;
@@ -1470,6 +1473,8 @@ HEALTH DATA (current):
       const Y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * innerH;
       const fmt = ms => new Date(ms).toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
       const P = raw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; });
+      const OP = outsideRaw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; }).filter(p => p.ms >= t0 && p.ms <= t1);
+      const outsidePath = OP.map((p,i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
       // Bryt linjen där det finns ett glapp i datan (annars ritas en falsk "trendlinje" över hål)
       const dts = []; for (let i = 1; i < P.length; i++) dts.push(P[i].ms - P[i-1].ms);
       const sortedDt = dts.slice().sort((a,b) => a - b);
@@ -1480,6 +1485,7 @@ HEALTH DATA (current):
         return (i === 0 || gap ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
       }).join(' ');
       const cur = temps[temps.length-1];
+      const outsideCur = outsideTemps.length ? outsideTemps[outsideTemps.length-1] : null;
       // AC-kylperioder som mjuka band i bakgrunden (istället för en massa streck per på/av)
       const trans = (d.markers || []).filter(m => m.kind === 'on' || m.kind === 'off')
         .map(m => ({ ms: new Date(m.t).getTime(), kind: m.kind })).sort((a,b) => a.ms - b.ms);
@@ -1522,7 +1528,9 @@ HEALTH DATA (current):
           <span style="font-size:22px;font-weight:800;">${cur.toFixed(1)}°C</span>
           <span style="font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center;">
             ${bands.length ? '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--blue);opacity:0.25;display:inline-block;"></span>cooling</span>' : ''}
-            <span>range ${Math.min(...temps).toFixed(1)}–${Math.max(...temps).toFixed(1)}°C</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--green);display:inline-block;"></span>inne ${cur.toFixed(1)}°C</span>
+            ${outsideCur != null ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--blue);display:inline-block;"></span>ute ${outsideCur.toFixed(1)}°C</span>` : ''}
+            <span>range ${Math.min(...allTemps).toFixed(1)}–${Math.max(...allTemps).toFixed(1)}°C</span>
           </span>
         </div>
         <div style="position:relative;">
@@ -1532,6 +1540,7 @@ HEALTH DATA (current):
             <text x="${padL-5}" y="${Y(hi).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${hi.toFixed(1)}</text>
             <text x="${padL-5}" y="${Y(lo).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${lo.toFixed(1)}</text>
             ${tline}
+            ${outsidePath ? `<path d="${outsidePath}" fill="none" stroke="var(--blue)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>` : ''}
             <path d="${path}" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
             ${mhtml}
             <line id="ac-cross" y1="${padT}" y2="${H-padB}" stroke="var(--muted2)" stroke-width="1" opacity="0"/>
@@ -1546,6 +1555,8 @@ HEALTH DATA (current):
         const vbX = ((clientX - rect.left) / rect.width) * W;
         let best = P[0], bd = Infinity;
         for (const p of P) { const dd = Math.abs(p.x - vbX); if (dd < bd) { bd = dd; best = p; } }
+        let outside = null, od = Infinity;
+        for (const p of OP) { const dd = Math.abs(p.x - vbX); if (dd < od) { od = dd; outside = p; } }
         cross.setAttribute('x1', best.x); cross.setAttribute('x2', best.x); cross.setAttribute('opacity', '0.5');
         dot.setAttribute('cx', best.x); dot.setAttribute('cy', best.y); dot.setAttribute('opacity', '1');
         tip.style.left = (best.x / W * rect.width) + 'px';
@@ -1555,7 +1566,8 @@ HEALTH DATA (current):
         for (const m of MK) { const dd = Math.abs(m.x - vbX); if (dd < md) { md = dd; mk = m; } }
         const mkLabel = (mk && md < 7) ? `<br><span style="color:var(--amber);">${mk.label}</span>`
           : (inBand(best.ms) ? '<br><span style="color:var(--blue);">cooling</span>' : '');
-        tip.innerHTML = `<strong>${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${mkLabel}`;
+        const outsideLabel = outside ? `<br><span style="color:var(--blue);">ute ${outside.temp.toFixed(1)}°C</span>` : '';
+        tip.innerHTML = `<strong>inne ${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${outsideLabel}${mkLabel}`;
       };
       const hide = () => { cross.setAttribute('opacity','0'); dot.setAttribute('opacity','0'); tip.style.opacity='0'; };
       svg.addEventListener('pointermove', e => at(e.clientX));

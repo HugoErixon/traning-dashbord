@@ -77,6 +77,36 @@ WEATHER_CODES = {
     95: 'åska',
 }
 
+def _get_outdoor_temperature_history(hours=24):
+    """Hämta utetemperatur för grafen. Fel här ska inte slå ut rumstempgrafen."""
+    end = datetime.now(LOCAL_TZ)
+    start = end - timedelta(hours=hours)
+    try:
+        params = {
+            'latitude': WEATHER_LAT,
+            'longitude': WEATHER_LON,
+            'hourly': 'temperature_2m',
+            'timezone': 'auto',
+            'start_date': start.date().isoformat(),
+            'end_date': end.date().isoformat(),
+        }
+        r = requests.get('https://api.open-meteo.com/v1/forecast', params=params, timeout=6)
+        r.raise_for_status()
+        hourly = (r.json() or {}).get('hourly') or {}
+        times = hourly.get('time') or []
+        temps = hourly.get('temperature_2m') or []
+        points = []
+        for ts, temp in zip(times, temps):
+            if temp is None:
+                continue
+            dt = datetime.fromisoformat(ts).replace(tzinfo=LOCAL_TZ)
+            if start <= dt <= end:
+                points.append({'t': dt.isoformat(), 'temp': temp})
+        return points
+    except Exception as e:
+        print('weather history unavailable:', e)
+        return []
+
 # --- Databas ---
 def db():
     conn = psycopg2.connect(DATABASE_URL, sslmode='prefer')
@@ -321,7 +351,7 @@ def ac_proxy():
 
 @app.get('/api/ac/history')
 def ac_history():
-    """Rumstemperatur (aggregerat) + mål senaste 24h, nedsamplat, från ac-keeper."""
+    """Rumstemperatur + utetemperatur senaste 24h för klimatgrafen."""
     if uid() != 1:
         return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
     try:
@@ -353,7 +383,14 @@ def ac_history():
         prev_cool = cool
         prev_sp = sp
     target = events[-1].get('target_c') if events else None
-    return jsonify({'available': True, 'points': pts, 'target': target, 'markers': markers})
+    return jsonify({
+        'available': True,
+        'points': pts,
+        'outside_points': _get_outdoor_temperature_history(24),
+        'outside_location': WEATHER_LOCATION,
+        'target': target,
+        'markers': markers,
+    })
 
 def _read_control_flag():
     """Är AC-STYRNINGEN aktiverad? (flagg-fil; saknas → på). Loopen loggar alltid."""
