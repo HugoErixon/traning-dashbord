@@ -620,8 +620,9 @@ def health_data():
 
         bb_today = bb[0] if bb else {}
         bb_vals  = bb_today.get('bodyBatteryValuesArray', [])
-        bb_now   = bb_vals[-1][1] if bb_vals else None
-        bb_max   = max(v[1] for v in bb_vals) if bb_vals else None
+        bb_points = [v[1] for v in bb_vals if v and len(v) > 1 and v[1] is not None]
+        bb_now   = bb_points[-1] if bb_points else None
+        bb_max   = max(bb_points, default=None)
 
         ready    = readiness[0] if readiness else {}
         avg_resp = resp.get('avgWakingRespirationValue') or resp.get('avgRespirationValue')
