@@ -175,7 +175,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       scoreArc.style.strokeDashoffset = (total * (1 - Math.min(1, (score || 0) / 100))).toFixed(1);
       scoreArc.style.stroke = col;
       const scoreVal = document.getElementById('sleep-page-score');
-      if (scoreVal) scoreVal.style.color = col;
+      if (scoreVal) scoreVal.style.fill = col;
     }
 
     // Update radial rings
