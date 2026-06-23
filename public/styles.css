@@ -2098,7 +2098,7 @@
     .sleep-metric-score-card {
       align-items: center;
       text-align: center;
-      justify-content: center;
+      justify-content: flex-start;
     }
 
     .sleep-gauge-wrap {
@@ -2107,7 +2107,7 @@
       display: flex;
       align-items: flex-end;
       justify-content: center;
-      margin: 16px 0 8px;
+      margin: 6px 0 0;
     }
 
     #sleep-score-gauge {
