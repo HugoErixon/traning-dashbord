@@ -470,16 +470,15 @@
         <div class="sleep-metric-card sleep-metric-score-card">
           <div class="sleep-metric-label">Sömnpoäng</div>
           <div class="sleep-gauge-wrap">
-            <svg id="sleep-score-gauge" viewBox="0 0 120 70" width="120" height="70" aria-hidden="true">
-              <path class="sleep-gauge-track" d="M10,65 A55,55 0 0,1 110,65" fill="none" stroke-width="10" stroke-linecap="round"/>
-              <path id="sleep-score-arc" class="sleep-gauge-fill" d="M10,65 A55,55 0 0,1 110,65" fill="none" stroke-width="10" stroke-linecap="round" stroke-dasharray="172.8" stroke-dashoffset="172.8"/>
+            <svg id="sleep-score-gauge" viewBox="0 0 120 70" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              <path class="sleep-gauge-track" d="M10,65 A55,55 0 0,1 110,65" fill="none" stroke-width="9" stroke-linecap="round"/>
+              <path id="sleep-score-arc" class="sleep-gauge-fill" d="M10,65 A55,55 0 0,1 110,65" fill="none" stroke-width="9" stroke-linecap="round" stroke-dasharray="172.8" stroke-dashoffset="172.8"/>
             </svg>
             <div class="sleep-gauge-center">
               <span id="sleep-page-score" class="sleep-metric-val">-</span>
             </div>
           </div>
-          <div id="sleep-page-score-sub" class="sleep-metric-sub">Laddar…</div>
-          <div style="display:none"><div id="sleep-page-score-bar" style="width:0%"></div></div>
+          <div style="display:none"><span id="sleep-page-score-sub"></span><div id="sleep-page-score-bar" style="width:0%"></div></div>
         </div>
 
         <!-- Total sömn — big number + progress bar -->

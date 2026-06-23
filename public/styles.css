@@ -2098,14 +2098,23 @@
     .sleep-metric-score-card {
       align-items: center;
       text-align: center;
+      justify-content: center;
     }
 
     .sleep-gauge-wrap {
       position: relative;
-      display: inline-flex;
+      width: 100%;
+      display: flex;
       align-items: flex-end;
       justify-content: center;
-      margin: 4px 0 2px;
+      margin: 16px 0 8px;
+    }
+
+    #sleep-score-gauge {
+      width: 92%;
+      max-width: 220px;
+      height: auto;
+      display: block;
     }
 
     .sleep-gauge-track {
@@ -2119,7 +2128,7 @@
 
     .sleep-gauge-center {
       position: absolute;
-      bottom: 2px;
+      bottom: 6px;
       left: 50%;
       transform: translateX(-50%);
       text-align: center;
@@ -2127,7 +2136,8 @@
     }
 
     .sleep-gauge-center .sleep-metric-val {
-      font-size: 30px;
+      font-size: 46px;
+      line-height: 1;
     }
 
     /* Radial ring cards */
@@ -2207,8 +2217,7 @@
       .sleep-metric-val-total {
         font-size: 28px;
       }
-      #sleep-score-gauge {
-        width: 100px;
-        height: 60px;
+      .sleep-gauge-center .sleep-metric-val {
+        font-size: 38px;
       }
     }
