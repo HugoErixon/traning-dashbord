@@ -153,7 +153,8 @@ def setup_db():
             cur.execute('''CREATE TABLE IF NOT EXISTS health_history (
                 date TEXT PRIMARY KEY,
                 sleep_score INTEGER, sleep_hours REAL, deep_pct INTEGER, rem_pct INTEGER,
-                hrv_avg INTEGER, resting_hr INTEGER, readiness INTEGER, body_battery INTEGER, created_at REAL)''')
+                hrv_avg INTEGER, resting_hr INTEGER, readiness INTEGER, body_battery INTEGER,
+                stress_avg INTEGER, created_at REAL)''')
             cur.execute('''CREATE TABLE IF NOT EXISTS metric_history (
                 date TEXT PRIMARY KEY,
                 vo2max REAL, endurance_score INTEGER,
@@ -175,6 +176,10 @@ def migrate_db():
                 cur.execute('ALTER TABLE health_history ADD COLUMN IF NOT EXISTS body_battery INTEGER')
             except Exception as e:
                 print('migrate_db health_history body_battery:', e)
+            try:
+                cur.execute('ALTER TABLE health_history ADD COLUMN IF NOT EXISTS stress_avg INTEGER')
+            except Exception as e:
+                print('migrate_db health_history stress_avg:', e)
             for tbl in ('health_history', 'metric_history'):
                 try:
                     cur.execute(f'ALTER TABLE {tbl} DROP CONSTRAINT IF EXISTS {tbl}_pkey')
@@ -637,19 +642,20 @@ def health_data():
             with db() as conn:
                 with conn.cursor() as cur:
                     cur.execute('''INSERT INTO health_history
-                        (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, created_at, user_id)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, stress_avg, created_at, user_id)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON CONFLICT (date, user_id) DO UPDATE SET
                             sleep_score=EXCLUDED.sleep_score, sleep_hours=EXCLUDED.sleep_hours,
                             deep_pct=EXCLUDED.deep_pct, rem_pct=EXCLUDED.rem_pct,
                             hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr,
-                            body_battery=EXCLUDED.body_battery''',
+                            body_battery=EXCLUDED.body_battery, stress_avg=EXCLUDED.stress_avg''',
                         (today, sl.get('score'),
                          round(sl.get('totalSec', 0) / 3600, 2) if sl.get('totalSec') else None,
                          sl.get('deepPct'), sl.get('remPct'),
                          result['hrv'].get('lastNightAvg'),
                          result['restingHR'].get('value'),
                          result['bodyBattery'].get('max'),
+                         result['stress'].get('avg'),
                          time.time(), uid()))
                 conn.commit()
         except Exception:
@@ -674,6 +680,24 @@ def health_spark():
         'rhr':   [r[2] for r in rows if r[2] is not None],
     })
 
+@app.get('/api/health/stress-history')
+def health_stress_history():
+    days = max(7, min(90, int(request.args.get('days', 30))))
+    start = (date.today() - timedelta(days=days)).isoformat()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT date, stress_avg
+                FROM health_history
+                WHERE user_id=%s AND date >= %s AND stress_avg IS NOT NULL
+                ORDER BY date
+            ''', (uid(), start))
+            rows = cur.fetchall()
+    values = [{'date': r[0], 'value': r[1]} for r in rows]
+    nums = [v['value'] for v in values if v['value'] is not None]
+    avg = round(sum(nums) / len(nums), 1) if nums else None
+    return jsonify({'days': days, 'avg': avg, 'values': values})
+
 
 def _fetch_day_health(client, day_str):
     sleep = client.get_sleep_data(day_str) or {}
@@ -690,6 +714,11 @@ def _fetch_day_health(client, day_str):
         rhr = (client.get_heart_rates(day_str) or {}).get('restingHeartRate')
     except Exception:
         pass
+    stress_avg = None
+    try:
+        stress_avg = (client.get_stress_data(day_str) or {}).get('avgStressLevel')
+    except Exception:
+        pass
     bb_max = None
     try:
         bb = client.get_body_battery(day_str, day_str) or []
@@ -701,7 +730,8 @@ def _fetch_day_health(client, day_str):
             'sleep_hours': round(total / 3600, 2) if total else None,
             'deep_pct': round(deep / total * 100) if total else None,
             'rem_pct':  round(rem / total * 100)  if total else None,
-            'hrv_avg': hrv_avg, 'resting_hr': rhr, 'body_battery': bb_max}
+            'hrv_avg': hrv_avg, 'resting_hr': rhr, 'body_battery': bb_max,
+            'stress_avg': stress_avg}
 
 
 def collect_health_history(days=14, username=None):
@@ -717,9 +747,9 @@ def collect_health_history(days=14, username=None):
     today = date.today()
     with db() as conn:
         with conn.cursor() as cur:
-            # Treat a day as "have" only if body_battery is filled too, so existing
-            # rows from before this column get re-fetched once and backfilled.
-            cur.execute('SELECT date FROM health_history WHERE user_id=%s AND body_battery IS NOT NULL', (user_id,))
+            # Treat a day as "have" only when newer history columns are filled too,
+            # so older sparse rows get re-fetched once and backfilled.
+            cur.execute('SELECT date FROM health_history WHERE user_id=%s AND body_battery IS NOT NULL AND stress_avg IS NOT NULL', (user_id,))
             have = {r[0] for r in cur.fetchall()}
     added = 0
     for i in range(1, days + 1):
@@ -734,14 +764,15 @@ def collect_health_history(days=14, username=None):
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute('''INSERT INTO health_history
-                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, created_at, user_id)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, stress_avg, created_at, user_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (date, user_id) DO UPDATE SET sleep_score=EXCLUDED.sleep_score,
                         sleep_hours=EXCLUDED.sleep_hours, deep_pct=EXCLUDED.deep_pct,
                         rem_pct=EXCLUDED.rem_pct, hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr,
-                        body_battery=EXCLUDED.body_battery''',
+                        body_battery=EXCLUDED.body_battery, stress_avg=EXCLUDED.stress_avg''',
                     (rec['date'], rec['sleep_score'], rec['sleep_hours'], rec['deep_pct'],
-                     rec['rem_pct'], rec['hrv_avg'], rec['resting_hr'], rec['body_battery'], time.time(), user_id))
+                     rec['rem_pct'], rec['hrv_avg'], rec['resting_hr'], rec['body_battery'],
+                     rec['stress_avg'], time.time(), user_id))
             conn.commit()
         added += 1
     print(f'health-history: {added} nya dagar tillagda')

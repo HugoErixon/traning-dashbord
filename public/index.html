@@ -399,37 +399,27 @@
           </div>
         </div>
 
-        <!-- ENERGI & STRESS -->
-        <div class="hg-card c-energy" id="hg-energy">
+        <!-- STRESS -->
+        <div class="hg-card c-stress" id="hg-stress">
           <div class="hg-top">
-            <div class="hg-cat">Energi & stress</div>
+            <div class="hg-cat">Stress</div>
             <div class="hg-score-row">
-              <div class="hg-score ca" id="hg-energy-score">-</div>
+              <div class="hg-score ca" id="hg-stress-score">-</div>
               <div class="hg-score-right">
-                <span class="hg-status hs-ok" id="hg-energy-badge">Laddar…</span>
-                <span class="hg-summary" id="hg-energy-summary" style="font-size:11px;"></span>
+                <span class="hg-status hs-ok" id="hg-stress-badge">Laddar…</span>
+                <span class="hg-summary" id="hg-stress-summary" style="font-size:11px;"></span>
               </div>
             </div>
-            <div class="hg-summary" id="hg-energy-desc">Laddar kroppsbatteri och stressnivå…</div>
+            <div class="hg-summary" id="hg-stress-desc">Laddar stressnivå och historik…</div>
             <div class="hg-bar-wrap">
-              <div class="hg-bar"><div class="hg-bar-fill" id="hg-energy-bar" style="width:0%"></div></div>
+              <div class="hg-bar"><div class="hg-bar-fill" id="hg-stress-bar" style="width:0%"></div></div>
             </div>
           </div>
-          <div class="hg-details" id="hg-energy-details" style="display:flex;border-top:1px solid var(--border)">
+          <div class="hg-details" id="hg-stress-details" style="display:flex;border-top:1px solid var(--border)">
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Kroppsbatteri</div>
-                <div class="hg-metric-desc" id="hd-bb-desc">75–100: hög energi  ·  &lt;25: vila</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-bb-val">-</div>
-                <div class="hg-metric-status" id="hd-bb-status">/ 100</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Stressnivå</div>
-                <div class="hg-metric-desc" id="hd-stress-desc">0–25: vila  ·  26–50: ok  ·  75+: hög</div>
+                <div class="hg-metric-name">Stressgenomsnitt</div>
+                <div class="hg-metric-desc" id="hd-stress-desc">0–25: vila  ·  26–50: låg  ·  51–75: måttlig</div>
               </div>
               <div class="hg-metric-right">
                 <div class="hg-metric-val" id="hd-stress-val">-</div>
@@ -438,23 +428,31 @@
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Syremättnad (SpO2)</div>
-                <div class="hg-metric-desc" id="hd-spo2-desc">Normalt: 95–100%</div>
+                <div class="hg-metric-name">Historiskt snitt</div>
+                <div class="hg-metric-desc" id="hd-stress-hist-desc">Senaste 30 dagarna</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-spo2-val">-</div>
-                <div class="hg-metric-status" id="hd-spo2-status">%</div>
+                <div class="hg-metric-val" id="hd-stress-hist-val">-</div>
+                <div class="hg-metric-status" id="hd-stress-hist-status"></div>
               </div>
             </div>
             <div class="hg-metric">
 <div class="hg-metric-body">
-                <div class="hg-metric-name">Andningsfrekvens</div>
-                <div class="hg-metric-desc" id="hd-resp-desc">Normalt: 12–20/min i vila</div>
+                <div class="hg-metric-name">Avvikelse</div>
+                <div class="hg-metric-desc" id="hd-stress-delta-desc">Jämfört med historiken</div>
               </div>
               <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-resp-val">-</div>
-                <div class="hg-metric-status" id="hd-resp-status">/min</div>
+                <div class="hg-metric-val" id="hd-stress-delta-val">-</div>
+                <div class="hg-metric-status" id="hd-stress-delta-status"></div>
               </div>
+            </div>
+            <div class="stress-chart-wrap">
+              <svg id="stress-history-chart" viewBox="0 0 320 92" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <div style="display:none">
+              <span id="hd-bb-desc"></span>
+              <span id="hd-spo2-desc"></span>
+              <span id="hd-resp-desc"></span>
             </div>
           </div>
         </div>

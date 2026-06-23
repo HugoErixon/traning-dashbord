@@ -552,6 +552,42 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
   }
 
+  function stressMeta(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return { color:'var(--muted2)', status:'Ingen data', badge:'Ingen data', pct:0 };
+    if (n <= 25) return { color:'var(--green)', status:'Vila', badge:'Vila', pct:n };
+    if (n <= 50) return { color:'var(--green)', status:'Låg stress', badge:'Låg', pct:n };
+    if (n <= 75) return { color:'var(--amber)', status:'Måttlig stress', badge:'Måttlig', pct:n };
+    return { color:'var(--red)', status:'Hög stress', badge:'Hög', pct:n };
+  }
+
+  function drawStressHistory(points, current, avg) {
+    const svg = document.getElementById('stress-history-chart');
+    if (!svg) return;
+    const values = (points || []).map(p => Number(p.value)).filter(Number.isFinite);
+    if (values.length < 2) {
+      svg.innerHTML = '<text x="0" y="52" fill="currentColor" style="color:var(--muted);font-size:11px;">Mer historik visas efter några synkar.</text>';
+      return;
+    }
+    const W = 320, H = 92, P = 8;
+    const max = Math.max(80, ...values, current || 0);
+    const min = Math.min(0, ...values);
+    const span = Math.max(1, max - min);
+    const pts = values.map((v, i) => ({
+      x: P + (i / Math.max(1, values.length - 1)) * (W - P * 2),
+      y: H - P - ((v - min) / span) * (H - P * 2)
+    }));
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const avgY = avg == null ? null : H - P - ((avg - min) / span) * (H - P * 2);
+    const last = pts[pts.length - 1];
+    svg.innerHTML = `
+      ${avgY == null ? '' : `<line x1="${P}" y1="${avgY.toFixed(1)}" x2="${W - P}" y2="${avgY.toFixed(1)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 5" opacity="0.45"/>`}
+      <path d="${d}" fill="none" stroke="var(--amber)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="3" fill="var(--amber)"/>
+      <text x="${P}" y="12" fill="currentColor" style="color:var(--muted);font-size:10px;">30 dagar</text>
+      <text x="${W - P}" y="12" text-anchor="end" fill="currentColor" style="color:var(--muted);font-size:10px;">snitt ${avg ?? '-'}</text>`;
+  }
+
   function getSessionDate(session, year) {
     const monday = getMondayOfISOWeek(session.week, year);
     const d = new Date(monday);
@@ -938,6 +974,56 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           ? `Kroppsbatteri ${bb}/100 – måttlig energinivå; håll träningen lagom.`
           : `Kroppsbatteri ${bb}/100 – kroppen är trött. Prioritera vila och återhämtning.`;
         setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
+      }
+
+      const healthStressAvg = h.stress?.avg;
+      const healthStressInfo = stressMeta(healthStressAvg);
+      const healthStressScoreEl = document.getElementById('hg-stress-score');
+      if (healthStressScoreEl) {
+        healthStressScoreEl.textContent = healthStressAvg ?? '-';
+        healthStressScoreEl.style.color = healthStressInfo.color;
+      }
+      const healthStressBadge = document.getElementById('hg-stress-badge');
+      if (healthStressBadge) {
+        healthStressBadge.textContent = healthStressInfo.badge;
+        healthStressBadge.className = healthStressInfo.color === 'var(--red)' ? 'hg-status hs-low' : healthStressInfo.color === 'var(--amber)' ? 'hg-status hs-ok' : 'hg-status hs-great';
+      }
+      const healthStressBar = document.getElementById('hg-stress-bar');
+      if (healthStressBar) healthStressBar.style.width = Math.max(0, Math.min(100, healthStressInfo.pct)) + '%';
+      setMetric('hd-stress-val', 'hd-stress-status', healthStressAvg ?? '-', '/ 100', healthStressInfo.status, healthStressInfo.color);
+      const healthStressDesc = document.getElementById('hg-stress-desc');
+      if (healthStressDesc) {
+        healthStressDesc.textContent = healthStressAvg == null
+          ? 'Ingen stressdata från Garmin ännu.'
+          : healthStressAvg <= 25 ? 'Låg fysiologisk belastning idag. Kroppen ser lugn ut.'
+          : healthStressAvg <= 50 ? 'Stressnivån är låg till normal. Bra läge för planerad träning.'
+          : healthStressAvg <= 75 ? 'Måttlig stress idag. Var uppmärksam på återhämtning och passintensitet.'
+          : 'Hög stress idag. Prioritera återhämtning och undvik extra belastning.';
+      }
+      const healthStressSummary = document.getElementById('hg-stress-summary');
+      if (healthStressSummary) healthStressSummary.textContent = h.stress?.max != null ? `Max ${h.stress.max}` : '';
+      try {
+        const sr = await fetch('/api/health/stress-history?days=30');
+        const sd = await sr.json();
+        const histAvg = sd.avg;
+        const delta = healthStressAvg != null && histAvg != null ? Math.round((healthStressAvg - histAvg) * 10) / 10 : null;
+        const deltaColor = delta == null ? 'var(--muted2)' : delta <= -5 ? 'var(--green)' : delta <= 5 ? 'var(--amber)' : 'var(--red)';
+        const histVal = document.getElementById('hd-stress-hist-val');
+        if (histVal) histVal.textContent = histAvg ?? '-';
+        const histStatus = document.getElementById('hd-stress-hist-status');
+        if (histStatus) histStatus.textContent = histAvg == null ? '' : '/ 100';
+        const deltaVal = document.getElementById('hd-stress-delta-val');
+        if (deltaVal) {
+          deltaVal.textContent = delta == null ? '-' : (delta > 0 ? '+' : '') + delta;
+          deltaVal.style.color = deltaColor;
+        }
+        const deltaStatus = document.getElementById('hd-stress-delta-status');
+        if (deltaStatus) deltaStatus.textContent = delta == null ? '' : delta <= -5 ? 'lägre än vanligt' : delta <= 5 ? 'nära normalt' : 'högre än vanligt';
+        const deltaDesc = document.getElementById('hd-stress-delta-desc');
+        if (deltaDesc && delta != null) deltaDesc.textContent = `Mot 30-dagars snitt ${histAvg}`;
+        drawStressHistory(sd.values || [], healthStressAvg, histAvg);
+      } catch(e) {
+        drawStressHistory([], healthStressAvg, null);
       }
 
       const d = new Date();
@@ -3003,4 +3089,3 @@ HEALTH DATA (current):
   if (document.getElementById('page-upcoming').classList.contains('active')) {
     checkGcalStatus();
   }
-

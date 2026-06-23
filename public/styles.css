@@ -1557,6 +1557,7 @@
     .hg-card.c-recovery .hg-top::after { background: linear-gradient(90deg, var(--green)  0%, transparent 55%); }
     .hg-card.c-sleep    .hg-top::after { background: linear-gradient(90deg, var(--blue) 0%, transparent 55%); }
     .hg-card.c-energy   .hg-top::after { background: linear-gradient(90deg, var(--amber)  0%, transparent 55%); }
+    .hg-card.c-stress   .hg-top::after { background: linear-gradient(90deg, var(--red)  0%, transparent 55%); }
 
     .hg-cat {
       font-size: 10px;
@@ -1615,6 +1616,7 @@
     .hg-card.c-recovery .hg-bar-fill { background: linear-gradient(90deg, var(--green), var(--blue)); }
     .hg-card.c-sleep    .hg-bar-fill { background: linear-gradient(90deg, var(--blue), var(--green)); }
     .hg-card.c-energy   .hg-bar-fill { background: linear-gradient(90deg, var(--amber), var(--green)); }
+    .hg-card.c-stress   .hg-bar-fill { background: linear-gradient(90deg, var(--green), var(--amber), var(--red)); }
 
     /* Detaljer */
     .hg-toggle {
@@ -1678,6 +1680,17 @@
     }
 
     /* ─── INSIGHT CARDS (Whoop-style) ─── */
+    .stress-chart-wrap {
+      padding: 14px 22px 18px;
+      border-top: 1px solid var(--border);
+    }
+    #stress-history-chart {
+      width: 100%;
+      height: 92px;
+      display: block;
+      overflow: visible;
+    }
+
     .insight-card {
       display: flex; background: var(--bg3); border-radius: 12px;
       overflow: hidden; margin-bottom: 8px; border: 1px solid var(--border);
