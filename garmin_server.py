@@ -2106,11 +2106,11 @@ def fetch_gcal_events(days=14, past_days=30):
             singleEvents=True,
             orderBy='startTime'
         ).execute()
-        events = []
+        raw_events = []
         for e in result.get('items', []):
             start = e['start'].get('dateTime', e['start'].get('date', ''))
             end   = e['end'].get('dateTime',   e['end'].get('date', ''))
-            events.append({
+            raw_events.append({
                 'id':       e.get('id'),
                 'title':    e.get('summary', 'Event'),
                 'start':    start,
@@ -2119,6 +2119,31 @@ def fetch_gcal_events(days=14, past_days=30):
                 'location': e.get('location', ''),
                 'desc':     e.get('description', ''),
             })
+        # Some imported calendars encode all-day trips as repeated 06:00-20:00
+        # timed events. Treat repeated same-title daytime blocks as all-day so
+        # the dashboard does not imply exact clock commitments.
+        title_day_counts = {}
+        for ev in raw_events:
+            if ev['allDay']:
+                continue
+            title = (ev.get('title') or '').strip().lower()
+            start_day = (ev.get('start') or '')[:10]
+            if title and start_day:
+                title_day_counts.setdefault(title, set()).add(start_day)
+        repeated_titles = {title for title, days_seen in title_day_counts.items() if len(days_seen) >= 2}
+        events = []
+        for ev in raw_events:
+            title = (ev.get('title') or '').strip().lower()
+            if not ev['allDay'] and title in repeated_titles:
+                try:
+                    start_dt = datetime.fromisoformat(ev['start'].replace('Z', '+00:00'))
+                    end_dt = datetime.fromisoformat(ev['end'].replace('Z', '+00:00'))
+                    dur_h = (end_dt - start_dt).total_seconds() / 3600
+                    if 6 <= start_dt.hour <= 9 and 18 <= end_dt.hour <= 22 and dur_h >= 8:
+                        ev = {**ev, 'allDay': True}
+                except Exception:
+                    pass
+            events.append(ev)
         return events
     except Exception as ex:
         print('Google Calendar fel:', ex)
