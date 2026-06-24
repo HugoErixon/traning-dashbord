@@ -1414,6 +1414,14 @@ def _build_review_prompt():
     today = now.date()
     wk, dw = _iso_week_dow(today)
 
+    # Refresh Garmin before judging today's workout, so this card uses the
+    # latest activity/lap data rather than stale DB rows.
+    try:
+        client = get_garmin(uname())
+        save_activities(client.get_activities(0, 20), uid())
+    except Exception as e:
+        print('training review: Garmin refresh failed', e)
+
     # Dagens planerade pass + dagens faktiska aktiviteter
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1446,22 +1454,44 @@ def _build_review_prompt():
                 return []
             # Compute pace for each lap
             lap_data = []
-            for lap in laps:
+            for idx, lap in enumerate(laps):
                 spd = lap.get('averageSpeed') or lap.get('avgSpeed')
                 dist = lap.get('distance') or 0
                 dur  = lap.get('duration') or lap.get('elapsedDuration') or 0
                 hr   = lap.get('averageHR') or lap.get('avgHR')
                 if dist < 50:   # skip sub-50 m auto-laps / pauses
                     continue
-                lap_data.append({'dist': dist, 'dur': dur, 'speed': spd, 'hr': hr})
+                lap_data.append({'idx': idx, 'dist': dist, 'dur': dur, 'speed': spd, 'hr': hr})
             if not lap_data:
                 return []
-            # Identify work laps as the fastest half (by speed)
+            four_hundreds = [
+                l for l in lap_data
+                if 300 <= (l.get('dist') or 0) <= 550
+                and (l.get('dur') or 0) <= 150
+                and (l.get('speed') or 0) > 0
+            ]
+            if len(four_hundreds) >= 4:
+                return sorted(four_hundreds, key=lambda l: l['idx'])
+
+            # Identify work laps by the largest speed gap between reps and rests.
             speeds = sorted([l['speed'] for l in lap_data if l['speed']], reverse=True)
             if not speeds:
                 return lap_data  # no speed data — return all
-            threshold = speeds[max(0, len(speeds) // 2 - 1)]  # median speed of top half
-            return [l for l in lap_data if l['speed'] and l['speed'] >= threshold]
+            best_gap = None
+            for i in range(len(speeds) - 1):
+                if speeds[i + 1] <= 0:
+                    continue
+                ratio = speeds[i] / speeds[i + 1]
+                if ratio >= 1.15 and (best_gap is None or ratio > best_gap[0]):
+                    best_gap = (ratio, i)
+            if best_gap is not None:
+                threshold = speeds[best_gap[1] + 1] * best_gap[0] ** 0.5
+                work = [l for l in lap_data if l['speed'] and l['speed'] >= threshold]
+                if len(work) >= 2:
+                    return sorted(work, key=lambda l: l['idx'])
+
+            threshold = speeds[max(0, len(speeds) // 2 - 1)]  # conservative fallback
+            return sorted([l for l in lap_data if l['speed'] and l['speed'] >= threshold], key=lambda l: l['idx'])
         except Exception:
             return []
 
@@ -1491,14 +1521,15 @@ def _build_review_prompt():
                     lap_lines.append(f"  Rep {i}: {d} @ {p or '?'}{h_str}")
                 lap_notes.append(
                     f"INTERVAL REPS for '{name or 'track activity'}' "
-                    f"(work laps only, rest excluded):\n" + '\n'.join(lap_lines)
+                    f"(verified from Garmin laps: {len(work_laps)} work reps, rest excluded):\n" + '\n'.join(lap_lines)
                 )
 
     acts_str = '; '.join(acts) if acts else 'nothing logged yet today'
     if lap_notes:
         acts_str += '\n\n' + '\n\n'.join(lap_notes)
         acts_str += ('\n\nNOTE: Use the rep paces above (not the average pace) when evaluating '
-                     'interval performance against the target pace in the plan.')
+                     'interval performance against the target pace in the plan. The rep count above '
+                     'is verified from Garmin laps; do not invent or round it.')
 
     # Dagens kalender (jobb/åtaganden) så "har du tid" blir smart
     cal_row = get_cache('gcal_events', uid())
@@ -1545,7 +1576,7 @@ Respond ONLY with this JSON (all text in Swedish / svenska):
 def training_review():
     force = request.args.get('force') == '1'
     row = get_cache('training_review', uid())
-    if row and not force and (time.time() - row[1]) < 30 * 60:
+    if row and row[0].get('_review_version') == 2 and not force and (time.time() - row[1]) < 30 * 60:
         return jsonify(row[0])
     if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
         return jsonify({'status': 'pending', 'headline': 'AI key required',
@@ -1559,6 +1590,7 @@ def training_review():
                      'content-type': 'application/json'})
         text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
         review = json.loads(text)
+        review['_review_version'] = 2
         set_cache('training_review', review, uid())
         return jsonify(review)
     except Exception as e:
