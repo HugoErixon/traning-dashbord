@@ -52,6 +52,7 @@ AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
 AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
 AC_KEEPER_CONFIG = config.get('AC_KEEPER_CONFIG', '/home/hugoerixon/tuya-ac-keeper/config.yaml')
+WATER_TOKEN = config.get('WATER_TOKEN', 'vatten-byt-mig')  # delad hemlighet för ESP32-vattensensorn
 WEATHER_LAT = float(config.get('WEATHER_LAT', '58.35593'))
 WEATHER_LON = float(config.get('WEATHER_LON', '11.22411'))
 WEATHER_LOCATION = config.get('WEATHER_LOCATION', 'Smögen')
@@ -282,6 +283,8 @@ def check_auth():
         return
     if request.path == '/api/login':
         return
+    if request.path == '/api/water':
+        return  # ESP32-vattensensorn — autentiseras via egen token i endpointen
     if request.host.startswith('localhost') or request.host.startswith('127.0.0.1'):
         first = list(USERS.keys())[0] if USERS else 'hugo'
         flask_g.uid = USERS.get(first, {}).get('id', 1)
@@ -3124,6 +3127,38 @@ def _bootstrap_history():
     collect_health_history(14, username=first_user)
     collect_metric_history(45, username=first_user)
 threading.Thread(target=_bootstrap_history, daemon=True).start()
+
+
+# --- Vattensensor (ESP32) ---
+# Senast rapporterade tillstånd, för dashboard/felsökning.
+_water_state = {'level': None, 'ts': None, 'ac_disabled': False}
+
+@app.post('/api/water')
+def water_alert():
+    """ESP32 anropar denna. När dunken är FULL stängs AC-styrningen av
+    (skriver 0 till samma flagg-fil som av/på-knappen i dashboarden)."""
+    if request.headers.get('x-water-token', '') != WATER_TOKEN:
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
+    data = request.json or {}
+    level = data.get('level', '')
+    _water_state['level'] = level
+    _water_state['ts'] = datetime.now(LOCAL_TZ).isoformat()
+    if level == 'full':
+        try:
+            os.makedirs(os.path.dirname(AC_CONTROL_FLAG), exist_ok=True)
+            with open(AC_CONTROL_FLAG, 'w') as f:
+                f.write('0')
+            _water_state['ac_disabled'] = True
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True, 'level': level, 'ac_disabled': _water_state['ac_disabled']})
+
+@app.get('/api/water')
+def water_status():
+    """Visar senaste vattenrapporten (för dashboard/felsökning)."""
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'Endast ägaren'}), 403
+    return jsonify({'available': True, **_water_state})
 
 
 @app.get('/')
