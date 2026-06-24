@@ -53,6 +53,8 @@ AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
 AC_KEEPER_CONFIG = config.get('AC_KEEPER_CONFIG', '/home/hugoerixon/tuya-ac-keeper/config.yaml')
 WATER_TOKEN = config.get('WATER_TOKEN', 'vatten-byt-mig')  # delad hemlighet för ESP32-vattensensorn
+# Lockout-flagga: ligger i samma katalog som AC-flaggan (keeperns data/-katalog).
+WATER_LOCKOUT_FLAG = config.get('WATER_LOCKOUT_FLAG', os.path.join(os.path.dirname(AC_CONTROL_FLAG), 'water_lockout'))
 WEATHER_LAT = float(config.get('WEATHER_LAT', '58.35593'))
 WEATHER_LON = float(config.get('WEATHER_LON', '11.22411'))
 WEATHER_LOCATION = config.get('WEATHER_LOCATION', 'Smögen')
@@ -457,6 +459,15 @@ def ac_loop_control():
         os.makedirs(os.path.dirname(AC_CONTROL_FLAG), exist_ok=True)
         with open(AC_CONTROL_FLAG, 'w') as f:
             f.write('1' if enabled else '0')
+        # Att slå PÅ styrningen igen släpper även vattendunk-låset (manuell kvittering
+        # efter att dunken tömts). Är dunken fortfarande full låser ESP32:n om igen.
+        if enabled:
+            try:
+                with open(WATER_LOCKOUT_FLAG, 'w') as f:
+                    f.write('0')
+                _water_state['ac_disabled'] = False
+            except Exception:
+                pass
         status = _ac_loop_status()
         status['ok'] = True
         return jsonify(status)
@@ -3135,8 +3146,10 @@ _water_state = {'level': None, 'ts': None, 'ac_disabled': False}
 
 @app.post('/api/water')
 def water_alert():
-    """ESP32 anropar denna. När dunken är FULL stängs AC-styrningen av
-    (skriver 0 till samma flagg-fil som av/på-knappen i dashboarden)."""
+    """ESP32 anropar denna. När dunken är FULL aktiveras översvämningsskyddet:
+    keepern tvingar AC:n AV varje cykel tills låset släpps manuellt (av/på-knappen).
+    Skriver water_lockout=1 + control_enabled=0 (så dashboard-knappen visar AV) och
+    ber keepern verkställa direkt så AC:n stängs av med en gång, inte vid nästa poll."""
     if request.headers.get('x-water-token', '') != WATER_TOKEN:
         return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
     data = request.json or {}
@@ -3145,12 +3158,19 @@ def water_alert():
     _water_state['ts'] = datetime.now(LOCAL_TZ).isoformat()
     if level == 'full':
         try:
-            os.makedirs(os.path.dirname(AC_CONTROL_FLAG), exist_ok=True)
+            os.makedirs(os.path.dirname(WATER_LOCKOUT_FLAG), exist_ok=True)
+            with open(WATER_LOCKOUT_FLAG, 'w') as f:
+                f.write('1')
             with open(AC_CONTROL_FLAG, 'w') as f:
                 f.write('0')
             _water_state['ac_disabled'] = True
         except Exception as e:
             return jsonify({'ok': False, 'error': str(e)}), 500
+        # Verkställ direkt — vänta inte på keeperns nästa pollcykel.
+        try:
+            requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=6)
+        except Exception:
+            pass  # keepern fångar låset ändå vid nästa cykel
     return jsonify({'ok': True, 'level': level, 'ac_disabled': _water_state['ac_disabled']})
 
 @app.get('/api/water')
