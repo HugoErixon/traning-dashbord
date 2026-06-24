@@ -509,9 +509,22 @@ def ac_setpoint():
 
 @app.get('/api/activities')
 def activities():
+    try:
+        days = max(1, min(365, int(request.args.get('days', 50))))
+    except (TypeError, ValueError):
+        days = 50
+    start = (date.today() - timedelta(days=days)).isoformat()
+    if request.args.get('refresh') == '1':
+        try:
+            client = get_garmin(uname())
+            save_activities(client.get_activities(0, 100), uid())
+        except Exception as e:
+            print('activities refresh failed', e)
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('SELECT raw FROM activities WHERE user_id=%s ORDER BY date DESC LIMIT 50', (uid(),))
+            cur.execute('''SELECT raw FROM activities
+                WHERE user_id=%s AND date >= %s
+                ORDER BY date DESC LIMIT 200''', (uid(), start))
             rows = cur.fetchall()
     if rows:
         return jsonify({'activities': [r[0] for r in rows], 'source': 'database'})

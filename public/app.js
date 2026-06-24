@@ -1580,11 +1580,12 @@ HEALTH DATA (current):
   let recentActivities = [];
   async function loadRecentActivities() {
     try {
-      const res = await fetch('/api/activities?days=14');
+      const res = await fetch('/api/activities?days=120&refresh=1');
       const data = await res.json();
       recentActivities = data.activities || [];
       safeRenderTrainingCockpit();
       renderTodaySession();
+      buildCalendar();
     } catch(e) {}
   }
   loadRecentActivities();
@@ -2861,6 +2862,34 @@ HEALTH DATA (current):
     return text.slice(0, maxLen - 1).trimEnd().replace(/[,\-–—;:]+$/, '') + '…';
   }
 
+  function activityDateKey(activity) {
+    return (activity.startTimeLocal || activity.beginTimestamp || activity.date || '').slice(0, 10);
+  }
+
+  function calendarActivityType(activity) {
+    const key = String(activity.activityType?.typeKey || activity.type || '').toLowerCase();
+    if (/strength|fitness|weight/.test(key)) return 'lift';
+    if (/race/.test(key)) return 'race';
+    if (/track|running|treadmill|trail/.test(key)) return 'run';
+    return 'rest';
+  }
+
+  function calendarActivityLabel(activity) {
+    const name = activity.activityName || activity.name || activity.activityType?.typeKey || 'Garmin-aktivitet';
+    const km = activity.distance ? ' · ' + (activity.distance / 1000).toFixed(1) + ' km' : '';
+    return name + km;
+  }
+
+  function activitiesByDate() {
+    const map = {};
+    (recentActivities || []).forEach(activity => {
+      const key = activityDateKey(activity);
+      if (!key) return;
+      (map[key] ||= []).push(activity);
+    });
+    return map;
+  }
+
   function renderTodaySession() {
     const card  = document.getElementById('today-session-card');
     const dot   = document.getElementById('today-session-dot');
@@ -3174,6 +3203,8 @@ HEALTH DATA (current):
       return;
     }
 
+    const actualByDate = activitiesByDate();
+
     // Index sessions by week+dow — keep only the best one per slot.
     // Priority: completed > planned/adjusted > skipped/missed
     const statusPriority = s => {
@@ -3290,6 +3321,7 @@ HEALTH DATA (current):
         // Google Calendar-events för denna dag (visas först)
         const dateKey = localDateKey(date);
         const dayGcal = gcalMap[dateKey] || [];
+        const dayActivities = actualByDate[dateKey] || [];
 
         let pillsHtml = '';
         dayGcal.forEach(ev => {
@@ -3298,8 +3330,23 @@ HEALTH DATA (current):
           pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}"> ${ev.title}</span>`;
         });
 
+        dayActivities.forEach(activity => {
+          const actualType = calendarActivityType(activity);
+          const cls = actualType === 'run' ? 'csp-run' : actualType === 'lift' ? 'csp-lift' : actualType === 'race' ? 'csp-race' : 'csp-rest';
+          const label = calendarActivityLabel(activity);
+          const seconds = activity.duration || activity.elapsedDuration || 0;
+          const minutes = seconds ? Math.round(seconds / 60) : null;
+          const tipParts = [
+            'Garmin',
+            label,
+            minutes != null ? minutes + ' min' : '',
+            activity.averageHR || activity.avg_hr ? 'HR ' + (activity.averageHR || activity.avg_hr) : ''
+          ].filter(Boolean);
+          pillsHtml += `<span class="cal-session-pill ${cls} csp-done csp-actual" data-freetip="${escapeHtml(tipParts.join(' - '))}">${escapeHtml(label)}</span>`;
+        });
+
         const s = sessionMap[w + '-' + d];
-        if (s) {
+        if (s && !dayActivities.length) {
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
           const compactDetail = compactCalendarText(s.detail);
           const escaped = compactDetail.replace(/"/g, '&quot;');

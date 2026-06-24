@@ -2326,6 +2326,7 @@
     .csp-race { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,77,109,0.2); }
     .csp-rest { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.18); }
     .csp-done { background: var(--green-dim);  color: var(--green);  border: 1px solid var(--green); font-weight: 700; }
+    .csp-actual { box-shadow: inset 3px 0 0 currentColor; }
     .cal-day.past .cal-session-pill.csp-done { opacity: 1; }
     .csp-modified { outline: 1px dashed rgba(255,200,80,0.5); }
 
