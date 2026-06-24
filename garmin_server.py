@@ -2775,6 +2775,9 @@ def ai_adjust_plan(user_request=None):
 
     today     = date.today()
     iso_week  = today.isocalendar()[1]
+    today_dow = today.weekday()
+    req_text = (user_request or '').strip()
+    explicit_today_request = bool(re.search(r'\b(idag|i dag|ikväll|nu|today|tonight)\b', req_text, re.I))
 
     first_user = list(USERS.keys())[0] if USERS else 'hugo'
     first_uid  = USERS.get(first_user, {}).get('id', 1)
@@ -2876,6 +2879,7 @@ def ai_adjust_plan(user_request=None):
 
 === RUNNER'S EXPLICIT REQUEST FOR TODAY (HIGH PRIORITY) ===
 The runner has personally asked for this change. Honor it as far as it is sensible and safe, and adjust the surrounding plan so the training logic stays intact (e.g. if they want strength instead of a run today, move today's run to a suitable nearby day or fold it into another run, and place/keep a strength session today). Only push back if the request would clearly harm recovery or the goal — and then explain why in coaching_notes.
+If the request explicitly says today/idag/tonight/ikväll/nu, the requested workout MUST be placed on TODAY (week {iso_week}, day {today_dow}). Do not move the requested workout to another day because of ACWR, weekly cap, calendar, or recovery concerns. Instead, add a concise warning in coaching_notes/reason and adjust later sessions if needed.
 Request: "{user_request.strip()}"
 """
 
@@ -2973,6 +2977,14 @@ Return ONLY this JSON, with no comments outside it:
             for change in result.get('changes', []):
                 sid    = change.get('session_id')
                 action = change.get('action')
+                if explicit_today_request and action in ('add', 'modify', 'reschedule') and (
+                    not sid or change.get('new_title') or change.get('new_detail') or change.get('new_km') is not None
+                ):
+                    change['new_week'] = iso_week
+                    change['new_dow'] = today_dow
+                    reason = change.get('reason') or ''
+                    guard_note = 'Användaren bad uttryckligen om passet idag; därför läggs det på idag trots belastningsvarning.'
+                    change['reason'] = (reason + ' ' + guard_note).strip()
                 if action == 'keep':
                     continue
                 if action == 'add':
@@ -3026,6 +3038,9 @@ Return ONLY this JSON, with no comments outside it:
                         mod_sets.append('title=%s'); mod_vals.append(change['new_title'])
                     if change.get('new_detail'):
                         mod_sets.append('detail=%s'); mod_vals.append(change['new_detail'])
+                    if change.get('new_week') is not None and change.get('new_dow') is not None:
+                        mod_sets.append('week=%s'); mod_vals.append(change['new_week'])
+                        mod_sets.append('dow=%s'); mod_vals.append(change['new_dow'])
                     mod_vals.extend([sid, first_uid])
                     cur.execute(f'''UPDATE plan_sessions
                         SET {','.join(mod_sets)} WHERE id=%s AND status='planned' AND user_id=%s''',
