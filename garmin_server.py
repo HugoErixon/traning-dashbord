@@ -1305,8 +1305,11 @@ def _build_refresh_prompt(acts):
             if today <= ev_date <= today + timedelta(days=14):
                 day_name = ev_dt.strftime('%A') + ' ' + str(ev_dt.day) + ' ' + ev_dt.strftime('%b')
                 time_str = ev_dt.strftime('%H:%M') if 'T' in start_str else 'all day'
-                desc_str = f" — {ev['desc']}" if ev.get('desc') else ''
-                gcal_lines.append(f"- {day_name}: {ev.get('title','')} ({time_str}){desc_str}")
+                desc = _plain_calendar_text(ev.get('desc', ''))
+                desc_str = f" — description: {desc}" if desc else ''
+                signals = _calendar_description_signals(ev)
+                signal_str = f" — training impact: {'; '.join(signals)}" if signals else ''
+                gcal_lines.append(f"- {day_name}: {ev.get('title','')} ({time_str}){desc_str}{signal_str}")
                 if ev_dt.hour < 7:
                     early_days.append(day_name)
 
@@ -1413,7 +1416,7 @@ RULE: If ACWR < 0.8 you can carefully increase intensity. If > 1.3, prioritize r
 
 CALENDAR (next 7 days):
 {chr(10).join(gcal_lines)}
-Factor this into the recommendation — avoid hard sessions on heavy work days."""
+Factor this into the recommendation. Calendar descriptions are user-provided context: use the "training impact" notes to avoid hard sessions around travel, poor sleep, stress, illness, or late nights."""
 
     if early_days:
         prompt += f"\nEarly starts (before 07:00, likely reduced sleep): {', '.join(early_days)} — avoid quality sessions on these days and the day after."
@@ -2090,6 +2093,38 @@ def get_gcal_service():
             f.write(creds.to_json())
     return gbuild('calendar', 'v3', credentials=creds)
 
+def _plain_calendar_text(value):
+    text = re.sub(r'<[^>]+>', ' ', value or '')
+    return re.sub(r'\s+', ' ', text).strip()
+
+def _calendar_description_signals(ev):
+    text = _plain_calendar_text(' '.join([
+        ev.get('title', ''),
+        ev.get('location', ''),
+        ev.get('desc', ''),
+    ])).lower()
+    signals = []
+    rules = [
+        (r'\b(flight|flyg|airport|flygplats|resa|travel|train|tåg|bilresa|spanien|hotell)\b',
+         'resa/logistik: sänk kraven, undvik kvalitetspass samma dag om möjligt'),
+        (r'\b(tidig|early|06:|05:|04:|before 7|innan 7)\b',
+         'tidig start: räkna med kortare sömn och undvik hårda pass'),
+        (r'\b(sen|late|middag|fest|party|konsert|after work|aw|alkohol|vin|öl)\b',
+         'sen kväll/social belastning: prioritera återhämtning dagen efter'),
+        (r'\b(stress|deadline|presentation|möte|meeting|workshop|kund|jobb|work)\b',
+         'arbetsstress: lägg helst inte nyckelpass samma dag'),
+        (r'\b(vila|rest|ledig|semester|vacation|holiday|fri)\b',
+         'ledig/vila: kan passa lugnt pass om övriga signaler är gröna'),
+        (r'\b(sjuk|ill|förkyld|cold|feber|injur|skad)\b',
+         'sjukdom/skada nämns: prioritera vila eller mycket lugnt'),
+        (r'\b(sov|sleep|dålig sömn|lite sömn|trött|tired)\b',
+         'sömn/trötthet nämns: undvik intensitet'),
+    ]
+    for pattern, signal in rules:
+        if re.search(pattern, text):
+            signals.append(signal)
+    return list(dict.fromkeys(signals))
+
 def fetch_gcal_events(days=14, past_days=30):
     svc = get_gcal_service()
     if not svc:
@@ -2117,7 +2152,7 @@ def fetch_gcal_events(days=14, past_days=30):
                 'end':      end,
                 'allDay':   'dateTime' not in e['start'],
                 'location': e.get('location', ''),
-                'desc':     e.get('description', ''),
+                'desc':     _plain_calendar_text(e.get('description', '')),
             })
         # Some imported calendars encode all-day trips as repeated 06:00-20:00
         # timed events. Treat repeated same-title daytime blocks as all-day so
@@ -2979,8 +3014,11 @@ def ai_adjust_plan(user_request=None):
             try:
                 ev_date = datetime.fromisoformat(ev.get('start','')[:10]).date()
                 if today <= ev_date <= today + timedelta(days=14):
-                    desc_part = f" — {ev['desc']}" if ev.get('desc') else ''
-                    upcoming_evs.append(f"- {ev_date}: {ev.get('title','')}{desc_part}")
+                    desc = _plain_calendar_text(ev.get('desc', ''))
+                    desc_part = f" — description: {desc}" if desc else ''
+                    signals = _calendar_description_signals(ev)
+                    signal_part = f" — training impact: {'; '.join(signals)}" if signals else ''
+                    upcoming_evs.append(f"- {ev_date}: {ev.get('title','')}{desc_part}{signal_part}")
             except Exception:
                 continue
         gcal_str = '\n'.join(upcoming_evs)
@@ -3061,7 +3099,8 @@ Think like a coach, not a rule sheet. Reason about examples like:
 - If one session was missed but the next one fits the structure well, it may be better to make the next session slightly longer than to cram in the missed one
 - If the runner is in good shape, with high HRV and good sleep, use that readiness carefully
 - If the runner is tired, protect quality adaptations: one good session is better than three mediocre ones
-- Consider Google Calendar: a stressful workday affects recovery
+- Consider Google Calendar titles AND descriptions. Descriptions can contain the real constraint: travel, work stress, early start, late night, illness, poor sleep, vacation, or explicit training notes.
+- Use calendar "training impact" notes when placing sessions. Avoid quality sessions on travel/stress/poor-sleep/illness days and usually the day after late nights or very early starts.
 - Avoid stacking more than two hard sessions in a row, including run quality or high-load strength work
 - Keep sessions with status completed or skipped unchanged
 
