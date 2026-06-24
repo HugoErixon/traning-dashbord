@@ -1671,7 +1671,7 @@ HEALTH DATA (current):
       renderAcLoopControl(status);
       loadAcStatus();
     } catch(e) {
-      if (label) label.textContent = 'Control loop: ' + e.message;
+      if (label) label.textContent = 'Styrloop: ' + e.message;
       btn.textContent = acLoopEnabled ? 'Stäng av styrning' : 'Slå på styrning';
       btn.disabled = false;
     }
@@ -1751,6 +1751,75 @@ HEALTH DATA (current):
   loadWeatherStatus();
   setInterval(loadWeatherStatus, 300000);
 
+  function formatAcNumber(value, digits) {
+    return Number(value).toLocaleString('sv-SE', {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
+
+  function formatAcMode(mode) {
+    const modes = {
+      cool: 'kyla',
+      cold: 'kyla',
+      heat: 'värme',
+      hot: 'värme',
+      dry: 'avfuktning',
+      fan: 'fläkt',
+      auto: 'auto'
+    };
+    const key = String(mode || '').toLowerCase();
+    return modes[key] || (mode || '-');
+  }
+
+  function formatAcReason(reason) {
+    if (!reason) return '';
+
+    let m = reason.match(/^Room ([\d.]+)C vs target ([\d.]+)C -> cool, AC setpoint ([\d.]+)C\.$/);
+    if (m) {
+      return `Rum ${formatAcNumber(m[1], 2)} °C jämfört med mål ${formatAcNumber(m[2], 1)} °C → kyler, AC-mål ${formatAcNumber(m[3], 1)} °C.`;
+    }
+
+    m = reason.match(/^Room ([\d.]+)C at\/below target ([\d.]+)C -> keep AC on at target for stable overnight temperature\.$/);
+    if (m) {
+      return `Rum ${formatAcNumber(m[1], 2)} °C är vid eller under målet ${formatAcNumber(m[2], 1)} °C → behåller AC:n på för stabil nattemperatur.`;
+    }
+
+    m = reason.match(/^Room ([\d.]+)C at\/below target ([\d.]+)C -> AC off\.$/);
+    if (m) {
+      return `Rum ${formatAcNumber(m[1], 2)} °C är vid eller under målet ${formatAcNumber(m[2], 1)} °C → AC av.`;
+    }
+
+    m = reason.match(/^Pre-cool waits until ([\d:]+) for bedtime ([\d:]+) \(wake ([\d:]+), room ([\d.]+)C, target ([\d.]+)C(.*)\)$/);
+    if (m) {
+      return `Förkylning väntar till ${m[1]} inför läggdags ${m[2]} (uppstigning ${m[3]}, rum ${formatAcNumber(m[4], 2)} °C, mål ${formatAcNumber(m[5], 1)} °C).`;
+    }
+
+    if (reason.toLowerCase().includes('water') && reason.toLowerCase().includes('lockout')) {
+      return 'Vattenlås aktivt → tvingar AC:n av tills dunken är tömd och styrningen kvitteras.';
+    }
+
+    return reason
+      .replaceAll('Room', 'Rum')
+      .replaceAll('target', 'mål')
+      .replaceAll('AC setpoint', 'AC-mål')
+      .replaceAll('cooling rate', 'kylhastighet')
+      .replaceAll('cool', 'kyler')
+      .replaceAll('AC off', 'AC av')
+      .replaceAll('C', ' °C');
+  }
+
+  function formatAcMarkerLabel(label) {
+    if (!label) return '';
+    let m = label.match(/^Setpoint → ([\d.]+)°$/);
+    if (m) return `Mål → ${formatAcNumber(m[1], 0)}°`;
+    m = label.match(/^AC on, setpoint ([\d.]+)°$/);
+    if (m) return `AC på, mål ${formatAcNumber(m[1], 0)}°`;
+    if (label === 'AC on') return 'AC på';
+    if (label === 'AC off') return 'AC av';
+    return label;
+  }
+
   // AC / room temperature - fetched from ac-keeper through the dashboard proxy (/api/ac)
   async function loadAcStatus() {
     try {
@@ -1763,23 +1832,33 @@ HEALTH DATA (current):
       if (d.error || !ev) {
         hl.textContent = 'AC otillgänglig';
         body.textContent = 'Kunde inte nå AC-styrenheten på Pi:n.';
-        badge.className = 'today-badge badge-red'; badge.textContent = 'OFFLINE';
+        badge.className = 'today-badge badge-red'; badge.textContent = 'NERE';
         return;
       }
       const ac = d.latest_ac_status || {};
       const measured = ev.measured_c;
-      hl.textContent = 'Rum ' + (measured != null ? measured.toFixed(1) : '-') + '\u00B0C -> mål ' + ev.target_c + '\u00B0C';
+      hl.textContent = 'Rum ' + (measured != null ? measured.toFixed(1) : '-') + '\u00B0C → mål ' + ev.target_c + '\u00B0C';
       const inp = document.getElementById('ac-setpoint-input');
       if (inp && !inp.dataset.dirty) inp.value = ev.target_c;
       const action = ev.action || '';
       const dry = action.indexOf('dry_run_') === 0;
       const base = action.replace('dry_run_', '');
-      const map = { cool:['badge-amber','COOLING'], heat:['badge-amber','HEATING'], off:['badge-green','OFF'], hold:['badge-green','OK'], defer:['badge-amber','WAIT'], no_sensor_data:['badge-red','NO DATA'] };
+      const map = {
+        cool:['badge-amber','KYLER'],
+        hold_cool:['badge-amber','HÅLLER KYLA'],
+        heat:['badge-amber','VÄRMER'],
+        off:['badge-green','AV'],
+        hold:['badge-green','OK'],
+        defer:['badge-amber','VÄNTAR'],
+        pre_cool_wait:['badge-amber','VÄNTAR'],
+        no_sensor_data:['badge-red','INGEN DATA'],
+        water_lockout:['badge-red','VATTENLÅS']
+      };
       const m = map[base] || ['badge-amber', base.toUpperCase()];
       badge.className = 'today-badge ' + m[0];
       badge.textContent = (dry ? 'TEST – ' : '') + m[1];
-      const acState = ac.power ? ('AC på (' + (ac.mode || '-') + ')') : 'AC av';
-      body.textContent = acState + '. ' + (dry ? 'Testläge (dry-run) – styr inte den riktiga AC:n än. ' : '') + (ev.reason || '');
+      const acState = ac.power ? ('AC på (' + formatAcMode(ac.mode) + ')') : 'AC av';
+      body.textContent = acState + '. ' + (dry ? 'Testläge – styr inte den riktiga AC:n än. ' : '') + formatAcReason(ev.reason);
     } catch(e) {}
   }
   loadAcStatus();
@@ -1795,7 +1874,7 @@ HEALTH DATA (current):
       const res = await fetch('/api/ac/history');
       const d = await res.json();
       const raw = (d.points || []).filter(p => p.temp != null);
-      if (!raw.length) { el.textContent = d.error ? 'Temperature history unavailable.' : 'Collecting temperature data...'; return; }
+      if (!raw.length) { el.textContent = d.error ? 'Temperaturhistorik otillgänglig.' : 'Samlar temperaturdata...'; return; }
       const outsideRaw = (d.outside_points || []).filter(p => p.temp != null);
       const temps = raw.map(p => p.temp);
       const outsideTemps = outsideRaw.map(p => p.temp);
@@ -1845,14 +1924,14 @@ HEALTH DATA (current):
       const mcolor = () => 'var(--amber)';
       const yAt = ms => { let b = P[0], bd = Infinity; for (const p of P) { const dd = Math.abs(p.ms - ms); if (dd < bd) { bd = dd; b = p; } } return b.y; };
       const MK = (d.markers || []).filter(m => m.kind === 'setpoint')
-        .map(m => { const ms = new Date(m.t).getTime(); return { ms, x: X(ms), y: yAt(ms), kind: m.kind, label: m.label }; });
+        .map(m => { const ms = new Date(m.t).getTime(); return { ms, x: X(ms), y: yAt(ms), kind: m.kind, label: formatAcMarkerLabel(m.label) }; });
       const mhtml = MK.map(m =>
         `<circle cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="2.5" fill="var(--amber)" stroke="var(--bg2)" stroke-width="1"/>`
       ).join('');
       let tline = '';
       if (d.target != null) {
         const ty = Y(d.target).toFixed(1);
-        tline = `<line x1="${padL}" y1="${ty}" x2="${W-padR}" y2="${ty}" stroke="var(--blue)" stroke-width="1" stroke-dasharray="4 3" opacity="0.6"/><text x="${W-padR}" y="${(+ty)-3}" text-anchor="end" font-size="9" fill="var(--blue)">target ${d.target}°</text>`;
+        tline = `<line x1="${padL}" y1="${ty}" x2="${W-padR}" y2="${ty}" stroke="var(--blue)" stroke-width="1" stroke-dasharray="4 3" opacity="0.6"/><text x="${W-padR}" y="${(+ty)-3}" text-anchor="end" font-size="9" fill="var(--blue)">mål ${d.target}°</text>`;
       }
       // tidsaxel med klockslag (5 markeringar)
       let xaxis = '', N = 4;
@@ -1866,10 +1945,10 @@ HEALTH DATA (current):
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
           <span style="font-size:22px;font-weight:800;">${cur.toFixed(1)}°C</span>
           <span style="font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center;">
-            ${bands.length ? '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--blue);opacity:0.25;display:inline-block;"></span>cooling</span>' : ''}
+            ${bands.length ? '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--blue);opacity:0.25;display:inline-block;"></span>kyler</span>' : ''}
             <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--green);display:inline-block;"></span>inne ${cur.toFixed(1)}°C</span>
             ${outsideCur != null ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--blue);display:inline-block;"></span>ute ${outsideCur.toFixed(1)}°C</span>` : ''}
-            <span>range ${Math.min(...allTemps).toFixed(1)}–${Math.max(...allTemps).toFixed(1)}°C</span>
+            <span>spann ${Math.min(...allTemps).toFixed(1)}–${Math.max(...allTemps).toFixed(1)}°C</span>
           </span>
         </div>
         <div style="position:relative;">
@@ -1904,7 +1983,7 @@ HEALTH DATA (current):
         let mk = null, md = Infinity;
         for (const m of MK) { const dd = Math.abs(m.x - vbX); if (dd < md) { md = dd; mk = m; } }
         const mkLabel = (mk && md < 7) ? `<br><span style="color:var(--amber);">${mk.label}</span>`
-          : (inBand(best.ms) ? '<br><span style="color:var(--blue);">cooling</span>' : '');
+          : (inBand(best.ms) ? '<br><span style="color:var(--blue);">kyler</span>' : '');
         const outsideLabel = outside ? `<br><span style="color:var(--blue);">ute ${outside.temp.toFixed(1)}°C</span>` : '';
         tip.innerHTML = `<strong>inne ${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${outsideLabel}${mkLabel}`;
       };
@@ -1912,7 +1991,7 @@ HEALTH DATA (current):
       svg.addEventListener('pointermove', e => at(e.clientX));
       svg.addEventListener('pointerdown', e => at(e.clientX));
       svg.addEventListener('pointerleave', hide);
-    } catch(e) { el.textContent = 'Temperature history unavailable.'; }
+    } catch(e) { el.textContent = 'Temperaturhistorik otillgänglig.'; }
   }
   loadAcHistory();
   setInterval(loadAcHistory, 300000);
