@@ -2955,8 +2955,17 @@ def ai_adjust_plan(user_request=None):
         gcal_str = '\n'.join(upcoming_evs)
 
     # 5. Bygg AI-prompt
+    weekday_sv = ['måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag', 'söndag']
+
+    def _date_for_session(s):
+        year = today.isocalendar()[0]
+        return date.fromisocalendar(year, int(s['week']), int(s['dow']) + 1)
+
     def _sess(s):
-        return {'id': s['id'], 'week': s['week'], 'day': s['dow'], 'type': s['type'],
+        session_date = _date_for_session(s)
+        return {'id': s['id'], 'date': session_date.isoformat(),
+                'weekday_sv': weekday_sv[session_date.weekday()],
+                'week': s['week'], 'day': s['dow'], 'type': s['type'],
                 'km': s['km'], 'title': s['title'], 'detail': s['detail']}
     missed_json   = json.dumps([_sess(s) for s in missed],   ensure_ascii=False, indent=2) if missed else '(no missed sessions)'
     upcoming_json = json.dumps([_sess(s) for s in upcoming], ensure_ascii=False, indent=2)
@@ -3024,6 +3033,12 @@ Think like a coach, not a rule sheet. Reason about examples like:
 - Avoid stacking more than two hard sessions in a row, including run quality or high-load strength work
 - Keep sessions with status completed or skipped unchanged
 
+Grounding rules:
+- Treat the "Upcoming planned sessions" JSON as the only source of truth for planned workouts. Do not assume a strength/run/rest day exists unless it appears there with its session_id.
+- Use the provided date and weekday_sv fields when referring to today, tomorrow, or any moved session. If you are unsure, write the exact date instead of a relative day.
+- Every change must reference a real session_id from the JSON, except action="add". Never say a session was moved, shortened, or skipped unless that exact change is present in the changes array.
+- The summary must describe only applied changes from the changes array. Do not mention "tomorrow", "styrkepass", or "vilodag" unless those exact sessions/dates are affected by a change.
+
 Write a concise explanation in coaching_notes before the decisions.
 
 Return ONLY this JSON, with no comments outside it:
@@ -3058,8 +3073,20 @@ Return ONLY this JSON, with no comments outside it:
         print('AI adjustment: Claude error', e)
         return
 
+    valid_session_ids = {s['id'] for s in missed + upcoming}
+    filtered_changes = []
+    for change in result.get('changes', []):
+        action = change.get('action')
+        sid = change.get('session_id')
+        if action != 'add' and sid not in valid_session_ids:
+            print(f"AI adjustment: ignored ungrounded change action={action} session_id={sid}")
+            continue
+        filtered_changes.append(change)
+    result['changes'] = filtered_changes
+
     # 7. Applicera ändringarna på DB
     changes_applied = 0
+    applied_actions = []
     with db() as conn:
         with conn.cursor() as cur:
             for change in result.get('changes', []):
@@ -3089,6 +3116,7 @@ Return ONLY this JSON, with no comments outside it:
                             (new_week, new_dow, typ, km, title, detail, new_week, new_dow,
                              change.get('reason',''), time.time(), first_uid))
                         changes_applied += 1
+                        applied_actions.append('lades till')
                     continue
                 if not sid:
                     continue
@@ -3097,6 +3125,7 @@ Return ONLY this JSON, with no comments outside it:
                         SET status='skipped', ai_note=%s, modified_at=%s WHERE id=%s AND user_id=%s''',
                         (change.get('reason',''), time.time(), sid, first_uid))
                     changes_applied += 1
+                    applied_actions.append('markerades som skippat')
                 elif action == 'reschedule':
                     new_week = change.get('new_week')
                     new_dow  = change.get('new_dow')
@@ -3116,6 +3145,7 @@ Return ONLY this JSON, with no comments outside it:
                                 ai_note=%s, modified_at=%s{extra_sql} WHERE id=%s AND user_id=%s''',
                             [new_week, new_dow, change.get('reason',''), time.time()] + extra_vals + [sid, first_uid])
                         changes_applied += 1
+                        applied_actions.append('flyttades')
                 elif action == 'modify':
                     # Ändra passinnehåll utan att flytta det
                     mod_sets = ['ai_note=%s', 'modified_at=%s']
@@ -3134,9 +3164,14 @@ Return ONLY this JSON, with no comments outside it:
                         SET {','.join(mod_sets)} WHERE id=%s AND status='planned' AND user_id=%s''',
                         mod_vals)
                     changes_applied += 1
+                    applied_actions.append('justerades')
         conn.commit()
 
-    summary        = result.get('summary', '')
+    if changes_applied:
+        action_counts = ', '.join(f"{applied_actions.count(a)} {a}" for a in sorted(set(applied_actions)))
+        summary = f"Planen justerad: {action_counts}."
+    else:
+        summary = 'Inga planändringar gjordes.'
     coaching_notes = result.get('coaching_notes', '')
     print(f'AI adjustment complete: {changes_applied} changes. {summary}')
     if coaching_notes:
