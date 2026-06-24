@@ -3113,6 +3113,8 @@ HEALTH DATA (current):
     return monday;
   }
 
+  let calendarView = 'current';
+
   // Lokal datumnyckel "YYYY-MM-DD" - toISOString() räknar om till UTC, vilket
   // gör att lokal midnatt i svensk tidszon hamnar på föregående dygn.
   function localDateKey(d) {
@@ -3141,6 +3143,36 @@ HEALTH DATA (current):
     const START_WEEK = 23;
     const END_WEEK   = 34;
     const YEAR       = 2026;
+    const currentWeek = Math.min(Math.max(getISOWeek(today), START_WEEK), END_WEEK);
+    const currentTab = document.getElementById('cal-tab-current');
+    const pastTab = document.getElementById('cal-tab-past');
+
+    if (currentTab && pastTab) {
+      const showingPast = calendarView === 'past';
+      currentTab.classList.toggle('active', !showingPast);
+      currentTab.setAttribute('aria-selected', String(!showingPast));
+      pastTab.classList.toggle('active', showingPast);
+      pastTab.setAttribute('aria-selected', String(showingPast));
+    }
+
+    const visibleWeeks = [];
+    for (let w = START_WEEK; w <= END_WEEK; w++) {
+      const isPastWeek = w < currentWeek;
+      if ((calendarView === 'past' && isPastWeek) || (calendarView !== 'past' && !isPastWeek)) {
+        visibleWeeks.push(w);
+      }
+    }
+    if (calendarView === 'past') visibleWeeks.reverse();
+
+    if (!visibleWeeks.length) {
+      const empty = document.createElement('div');
+      empty.className = 'cal-empty';
+      empty.textContent = calendarView === 'past'
+        ? 'Inga tidigare veckor i planen än.'
+        : 'Inga kommande veckor kvar i planen.';
+      container.appendChild(empty);
+      return;
+    }
 
     // Index sessions by week+dow — keep only the best one per slot.
     // Priority: completed > planned/adjusted > skipped/missed
@@ -3161,12 +3193,12 @@ HEALTH DATA (current):
       }
     });
 
-    for (let w = START_WEEK; w <= END_WEEK; w++) {
+    visibleWeeks.forEach((w, idx) => {
       // Fas-rubrik?
       if (phases[w]) {
         const ph = document.createElement('div');
         ph.className = 'sl';
-        ph.style.marginTop = w === START_WEEK ? '0' : '28px';
+        ph.style.marginTop = idx === 0 ? '0' : '28px';
         ph.style.marginBottom = '12px';
         ph.textContent = phases[w];
         container.appendChild(ph);
@@ -3296,7 +3328,12 @@ HEALTH DATA (current):
 
       weekEl.appendChild(daysEl);
       container.appendChild(weekEl);
-    }
+    });
+  }
+
+  function setCalendarView(view) {
+    calendarView = view === 'past' ? 'past' : 'current';
+    buildCalendar();
   }
 
   // ─── GOOGLE CALENDAR ────────────────────────────────────────

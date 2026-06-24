@@ -2170,6 +2170,46 @@
     }
 
     /* ─── KALENDER ─── */
+    .cal-tabs {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      margin: 0 0 14px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: var(--edge-top);
+    }
+    .cal-tab {
+      appearance: none;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted2);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .cal-tab:hover {
+      color: var(--text);
+      background: var(--bg3);
+    }
+    .cal-tab.active {
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .cal-empty {
+      padding: 18px;
+      color: var(--muted2);
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      font-size: 13px;
+      font-family: var(--font-mono);
+    }
     .cal-week {
       margin-bottom: 10px;
       background: var(--card-grad), var(--bg2);
@@ -2293,6 +2333,8 @@
 
     @media (max-width: 900px) {
       .cal-days { grid-template-columns: repeat(7, minmax(0,1fr)); }
+      .cal-tabs { display: flex; width: 100%; }
+      .cal-tab { flex: 1; padding: 8px 6px; }
       .cal-session-pill { font-size: 9px; padding: 2px 5px; }
       .cal-day { padding: 8px 6px; min-height: 60px; }
       .cal-day-num { font-size: 13px; }

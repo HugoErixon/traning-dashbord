@@ -621,6 +621,10 @@
           <span style="font-size:12px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;">Idag</span>
         </div>
       </div>
+      <div class="cal-tabs" role="tablist" aria-label="Kalendervy">
+        <button class="cal-tab active" id="cal-tab-current" type="button" role="tab" aria-selected="true" onclick="setCalendarView('current')">Denna vecka framåt</button>
+        <button class="cal-tab" id="cal-tab-past" type="button" role="tab" aria-selected="false" onclick="setCalendarView('past')">Tidigare veckor</button>
+      </div>
       <div id="cal-container"></div>
       <div style="margin-top:32px;padding-top:20px;border-top:1px solid var(--border);">
         <button id="reseed-btn" class="refresh-btn" style="color:var(--muted2);" onclick="reseedPlan()">Återställ plan till svenska (reseed)</button>
