@@ -507,6 +507,46 @@ def ac_setpoint():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
+def _interval_work_laps_for_activity(client, activity_id):
+    """Return fast 300-550 m work reps from Garmin splits for calendar labels."""
+    try:
+        splits = client.get_activity_splits(activity_id)
+        laps = splits.get('lapDTOs') or splits.get('laps') or []
+    except Exception:
+        return []
+    work = []
+    for idx, lap in enumerate(laps):
+        dist = lap.get('distance') or 0
+        dur = lap.get('duration') or lap.get('elapsedDuration') or 0
+        speed = lap.get('averageSpeed') or lap.get('avgSpeed') or 0
+        if 300 <= dist <= 550 and dur <= 150 and speed > 0:
+            work.append({'idx': idx, 'dist': dist, 'dur': dur, 'speed': speed})
+    return sorted(work, key=lambda l: l['idx'])
+
+def _add_calendar_activity_summaries(activities):
+    try:
+        client = get_garmin(uname())
+    except Exception:
+        return activities
+    for activity in activities:
+        type_key = ((activity.get('activityType') or {}).get('typeKey') or activity.get('type') or '').lower()
+        name = (activity.get('activityName') or activity.get('name') or '').lower()
+        if not any(token in type_key + ' ' + name for token in ('track', 'interval', 'fartlek', 'repeat')):
+            continue
+        activity_id = activity.get('activityId') or activity.get('id')
+        if not activity_id:
+            continue
+        laps = _interval_work_laps_for_activity(client, activity_id)
+        if len(laps) < 4:
+            continue
+        avg_dist = sum(l['dist'] for l in laps) / len(laps)
+        rep_m = int(round(avg_dist / 100) * 100)
+        activity['calendarSummary'] = {
+            'kind': 'interval',
+            'label': f"{len(laps)}×{rep_m}"
+        }
+    return activities
+
 @app.get('/api/activities')
 def activities():
     try:
@@ -527,7 +567,10 @@ def activities():
                 ORDER BY date DESC LIMIT 200''', (uid(), start))
             rows = cur.fetchall()
     if rows:
-        return jsonify({'activities': [r[0] for r in rows], 'source': 'database'})
+        activities_out = [r[0] for r in rows]
+        if request.args.get('calendar') == '1':
+            activities_out = _add_calendar_activity_summaries(activities_out)
+        return jsonify({'activities': activities_out, 'source': 'database'})
     try:
         client = get_garmin(uname())
         acts = client.get_activities(0, 50)

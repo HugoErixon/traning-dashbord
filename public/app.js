@@ -1580,7 +1580,7 @@ HEALTH DATA (current):
   let recentActivities = [];
   async function loadRecentActivities() {
     try {
-      const res = await fetch('/api/activities?days=120&refresh=1');
+      const res = await fetch('/api/activities?days=120&refresh=1&calendar=1');
       const data = await res.json();
       recentActivities = data.activities || [];
       safeRenderTrainingCockpit();
@@ -2890,6 +2890,43 @@ HEALTH DATA (current):
     return map;
   }
 
+  function calendarActualPills(dayActivities, plannedSession) {
+    if (!dayActivities.length) return '';
+    const runs = dayActivities.filter(a => calendarActivityType(a) === 'run');
+    const lifts = dayActivities.filter(a => calendarActivityType(a) === 'lift');
+    const totalRunKm = runs.reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
+    const totalSec = dayActivities.reduce((sum, a) => sum + (a.duration || a.elapsedDuration || 0), 0);
+    const minutes = totalSec ? Math.round(totalSec / 60) : null;
+
+    if (plannedSession?.type === 'lift' && lifts.length) {
+      const label = plannedSession.title || 'Styrkepass';
+      const tip = ['Garmin', label, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+      return `<span class="cal-session-pill csp-lift csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+    }
+
+    if (runs.length) {
+      const interval = runs.find(a => a.calendarSummary?.kind === 'interval');
+      const label = interval?.calendarSummary?.label
+        ? `${interval.calendarSummary.label}${totalRunKm ? ' · ' + totalRunKm.toFixed(1) + ' km' : ''}`
+        : runs.length > 1
+          ? `${runs.length} löpdelar${totalRunKm ? ' · ' + totalRunKm.toFixed(1) + ' km' : ''}`
+          : calendarActivityLabel(runs[0]);
+      const names = runs.map(calendarActivityLabel).join(' - ');
+      const tip = ['Garmin', names, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+      return `<span class="cal-session-pill csp-run csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+    }
+
+    return dayActivities.map(activity => {
+      const actualType = calendarActivityType(activity);
+      const cls = actualType === 'lift' ? 'csp-lift' : actualType === 'race' ? 'csp-race' : 'csp-rest';
+      const label = calendarActivityLabel(activity);
+      const seconds = activity.duration || activity.elapsedDuration || 0;
+      const mins = seconds ? Math.round(seconds / 60) : null;
+      const tip = ['Garmin', label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
+      return `<span class="cal-session-pill ${cls} csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+    }).join('');
+  }
+
   function renderTodaySession() {
     const card  = document.getElementById('today-session-card');
     const dot   = document.getElementById('today-session-dot');
@@ -3330,22 +3367,8 @@ HEALTH DATA (current):
           pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}"> ${ev.title}</span>`;
         });
 
-        dayActivities.forEach(activity => {
-          const actualType = calendarActivityType(activity);
-          const cls = actualType === 'run' ? 'csp-run' : actualType === 'lift' ? 'csp-lift' : actualType === 'race' ? 'csp-race' : 'csp-rest';
-          const label = calendarActivityLabel(activity);
-          const seconds = activity.duration || activity.elapsedDuration || 0;
-          const minutes = seconds ? Math.round(seconds / 60) : null;
-          const tipParts = [
-            'Garmin',
-            label,
-            minutes != null ? minutes + ' min' : '',
-            activity.averageHR || activity.avg_hr ? 'HR ' + (activity.averageHR || activity.avg_hr) : ''
-          ].filter(Boolean);
-          pillsHtml += `<span class="cal-session-pill ${cls} csp-done csp-actual" data-freetip="${escapeHtml(tipParts.join(' - '))}">${escapeHtml(label)}</span>`;
-        });
-
         const s = sessionMap[w + '-' + d];
+        pillsHtml += calendarActualPills(dayActivities, s);
         if (s && !dayActivities.length) {
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
           const compactDetail = compactCalendarText(s.detail);
