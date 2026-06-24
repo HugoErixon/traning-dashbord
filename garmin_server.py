@@ -2866,6 +2866,12 @@ def ai_adjust_plan(user_request=None):
     today_dow = today.weekday()
     req_text = (user_request or '').strip()
     explicit_today_request = bool(re.search(r'\b(idag|i dag|ikväll|nu|today|tonight)\b', req_text, re.I))
+    explicit_tomorrow_request = bool(re.search(r'\b(imorgon|i morgon|tomorrow)\b', req_text, re.I))
+    explicit_rest_request = bool(re.search(r'\b(vilodag|vila|vilo|rest day|rest)\b', req_text, re.I))
+    explicit_add_request = bool(re.search(r'\b(lägg till|lagg till|addera|skapa|extra|add|create)\b', req_text, re.I))
+    tomorrow = today + timedelta(days=1)
+    tomorrow_week = tomorrow.isocalendar()[1]
+    tomorrow_dow = tomorrow.weekday()
 
     first_user = list(USERS.keys())[0] if USERS else 'hugo'
     first_uid  = USERS.get(first_user, {}).get('id', 1)
@@ -2977,6 +2983,7 @@ def ai_adjust_plan(user_request=None):
 === RUNNER'S EXPLICIT REQUEST FOR TODAY (HIGH PRIORITY) ===
 The runner has personally asked for this change. Honor it as far as it is sensible and safe, and adjust the surrounding plan so the training logic stays intact (e.g. if they want strength instead of a run today, move today's run to a suitable nearby day or fold it into another run, and place/keep a strength session today). Only push back if the request would clearly harm recovery or the goal — and then explain why in coaching_notes.
 If the request explicitly says today/idag/tonight/ikväll/nu, the requested workout MUST be placed on TODAY (week {iso_week}, day {today_dow}). Do not move the requested workout to another day because of ACWR, weekly cap, calendar, or recovery concerns. Instead, add a concise warning in coaching_notes/reason and adjust later sessions if needed.
+If the request explicitly says rest/vila/vilodag tomorrow/imorgon, ONLY affect sessions on TOMORROW ({tomorrow.isoformat()}, week {tomorrow_week}, day {tomorrow_dow}). Do not add a new workout and do not change today.
 Request: "{user_request.strip()}"
 """
 
@@ -3073,11 +3080,36 @@ Return ONLY this JSON, with no comments outside it:
         print('AI adjustment: Claude error', e)
         return
 
+    tomorrow_rest_request = explicit_tomorrow_request and explicit_rest_request
+    if tomorrow_rest_request:
+        tomorrow_sessions = [
+            s for s in upcoming
+            if s['week'] == tomorrow_week and s['dow'] == tomorrow_dow and s['type'] != 'rest'
+        ]
+        result['changes'] = [{
+            'session_id': s['id'],
+            'action': 'skip',
+            'new_week': None,
+            'new_dow': None,
+            'type': s['type'],
+            'new_km': None,
+            'new_title': None,
+            'new_detail': None,
+            'reason': f"Användaren bad uttryckligen om vilodag imorgon ({tomorrow.isoformat()})."
+        } for s in tomorrow_sessions]
+        result['coaching_notes'] = (
+            f"Jag tolkar önskemålet strikt: {tomorrow.isoformat()} ska vara vilodag. "
+            "Därför ändras bara planerade pass på morgondagens datum."
+        )
+
     valid_session_ids = {s['id'] for s in missed + upcoming}
     filtered_changes = []
     for change in result.get('changes', []):
         action = change.get('action')
         sid = change.get('session_id')
+        if action == 'add' and not explicit_add_request and not explicit_today_request:
+            print("AI adjustment: ignored add without explicit add/today request")
+            continue
         if action != 'add' and sid not in valid_session_ids:
             print(f"AI adjustment: ignored ungrounded change action={action} session_id={sid}")
             continue
