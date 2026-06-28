@@ -1868,18 +1868,22 @@ HEALTH DATA (current):
       const [currentRes, historyRes] = await Promise.all([fetch('/api/ac'), fetch('/api/ac/history')]);
       const current = await currentRes.json();
       const history = await historyRes.json();
-      const latest = (current.latest_readings || [])
+      const latestReadings = (current.latest_readings || [])
         .filter(r => r.humidity_pct != null)
-        .sort((a, b) => new Date(b.ts) - new Date(a.ts))[0];
+        .sort((a, b) => new Date(b.ts) - new Date(a.ts));
       const points = (history.humidity_points || []).filter(p => p.humidity != null);
-      const value = latest ? Number(latest.humidity_pct) : (points.length ? Number(points[points.length - 1].humidity) : NaN);
+      const latestVals = latestReadings.map(r => Number(r.humidity_pct)).filter(Number.isFinite);
+      const value = latestVals.length
+        ? latestVals.reduce((a, b) => a + b, 0) / latestVals.length
+        : (points.length ? Number(points[points.length - 1].humidity) : NaN);
       const [badgeClass, badgeText, verdict] = humidityVerdict(value);
       badge.className = 'today-badge ' + badgeClass;
       badge.textContent = badgeText;
       if (Number.isFinite(value)) {
         hl.textContent = 'Luftfuktighet ' + value.toFixed(0) + '%';
-        const sensor = latest && latest.sensor_name ? ' fr\u00e5n ' + latest.sensor_name : '';
-        body.textContent = verdict + sensor + '.';
+        const sensorText = latestVals.length > 1 ? ' Snitt fr\u00e5n ' + latestVals.length + ' sensorer.' :
+          latestVals.length === 1 ? ' Fr\u00e5n ' + (latestReadings[0].sensor_name || '1 sensor') + '.' : '';
+        body.textContent = verdict + sensorText;
         if (fill) fill.style.width = Math.max(0, Math.min(100, value)).toFixed(0) + '%';
       } else {
         hl.textContent = 'Luftfuktighet saknas';
@@ -1961,23 +1965,38 @@ HEALTH DATA (current):
       const raw = (d.points || []).filter(p => p.temp != null);
       if (!raw.length) { el.textContent = d.error ? 'Temperaturhistorik otillgänglig.' : 'Samlar temperaturdata...'; return; }
       const outsideRaw = (d.outside_points || []).filter(p => p.temp != null);
+      const humidityRaw = (d.humidity_points || []).filter(p => p.humidity != null);
       const temps = raw.map(p => p.temp);
       const outsideTemps = outsideRaw.map(p => p.temp);
+      const humidityVals = humidityRaw.map(p => Number(p.humidity)).filter(Number.isFinite);
       const allTemps = temps.concat(outsideTemps);
       let lo = Math.min(...allTemps), hi = Math.max(...allTemps);
       if (d.target != null) { lo = Math.min(lo, d.target); hi = Math.max(hi, d.target); }
       const pad = Math.max(0.5, (hi - lo) * 0.15);
       const yLo = lo - pad, yHi = hi + pad;
-      const W = 600, H = 195, padL = 34, padR = 12, padT = 10, padB = 30;
+      const W = 600, H = 195, padL = 34, padR = humidityVals.length ? 44 : 12, padT = 10, padB = 30;
       const innerW = W - padL - padR, innerH = H - padT - padB;
       const t0 = new Date(raw[0].t).getTime(), t1 = new Date(raw[raw.length-1].t).getTime();
       const tspan = Math.max(1, t1 - t0);
       const X = ms => padL + ((ms - t0) / tspan) * innerW;
       const Y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * innerH;
+      let hLo = 30, hHi = 70;
+      if (humidityVals.length) {
+        hLo = Math.max(0, Math.min(...humidityVals) - 4);
+        hHi = Math.min(100, Math.max(...humidityVals) + 4);
+        if ((hHi - hLo) < 12) {
+          const mid = (hHi + hLo) / 2;
+          hLo = Math.max(0, mid - 6);
+          hHi = Math.min(100, mid + 6);
+        }
+      }
+      const YH = v => padT + (1 - (v - hLo) / Math.max(1, hHi - hLo)) * innerH;
       const fmt = ms => new Date(ms).toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
       const P = raw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; });
       const OP = outsideRaw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; }).filter(p => p.ms >= t0 && p.ms <= t1);
+      const HP = humidityRaw.map(p => { const ms = new Date(p.t).getTime(); const humidity = Number(p.humidity); return { ms, humidity, x: X(ms), y: YH(humidity), sensors: p.sensors || [], samples: p.samples || 1 }; }).filter(p => Number.isFinite(p.humidity) && p.ms >= t0 && p.ms <= t1);
       const outsidePath = OP.map((p,i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+      const humidityPath = HP.map((p,i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
       // Bryt linjen där det finns ett glapp i datan (annars ritas en falsk "trendlinje" över hål)
       const dts = []; for (let i = 1; i < P.length; i++) dts.push(P[i].ms - P[i-1].ms);
       const sortedDt = dts.slice().sort((a,b) => a - b);
@@ -1989,6 +2008,7 @@ HEALTH DATA (current):
       }).join(' ');
       const cur = temps[temps.length-1];
       const outsideCur = outsideTemps.length ? outsideTemps[outsideTemps.length-1] : null;
+      const humidityCur = HP.length ? HP[HP.length - 1].humidity : null;
       // AC-kylperioder som mjuka band i bakgrunden (istället för en massa streck per på/av)
       const trans = (d.markers || []).filter(m => m.kind === 'on' || m.kind === 'off')
         .map(m => ({ ms: new Date(m.t).getTime(), kind: m.kind })).sort((a,b) => a.ms - b.ms);
@@ -2026,11 +2046,15 @@ HEALTH DATA (current):
         xaxis += `<line x1="${xx}" y1="${padT}" x2="${xx}" y2="${H-padB}" stroke="var(--border2)" stroke-width="0.5" opacity="0.4"/>`;
         xaxis += `<text x="${xx}" y="${H-12}" text-anchor="${anchor}" font-size="9" fill="var(--muted)">${fmt(ms)}</text>`;
       }
+      const hAxis = HP.length ? `
+            <text x="${W-padR+8}" y="${YH(hHi).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--amber)">${hHi.toFixed(0)}%</text>
+            <text x="${W-padR+8}" y="${YH(hLo).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--amber)">${hLo.toFixed(0)}%</text>` : '';
       el.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
           <span style="font-size:22px;font-weight:800;">${cur.toFixed(1)}°C</span>
           <span style="font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center;">
             ${bands.length ? '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--blue);opacity:0.25;display:inline-block;"></span>kyler</span>' : ''}
+            ${humidityCur != null ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--amber);display:inline-block;"></span>fukt ${humidityCur.toFixed(0)}%</span>` : ''}
             <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--green);display:inline-block;"></span>inne ${cur.toFixed(1)}°C</span>
             ${outsideCur != null ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--blue);display:inline-block;"></span>ute ${outsideCur.toFixed(1)}°C</span>` : ''}
             <span>spann ${Math.min(...allTemps).toFixed(1)}–${Math.max(...allTemps).toFixed(1)}°C</span>
@@ -2042,17 +2066,20 @@ HEALTH DATA (current):
             ${xaxis}
             <text x="${padL-5}" y="${Y(hi).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${hi.toFixed(1)}</text>
             <text x="${padL-5}" y="${Y(lo).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${lo.toFixed(1)}</text>
+            ${hAxis}
             ${tline}
             ${outsidePath ? `<path d="${outsidePath}" fill="none" stroke="var(--blue)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>` : ''}
+            ${humidityPath ? `<path d="${humidityPath}" fill="none" stroke="var(--amber)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>` : ''}
             <path d="${path}" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
             ${mhtml}
             <line id="ac-cross" y1="${padT}" y2="${H-padB}" stroke="var(--muted2)" stroke-width="1" opacity="0"/>
             <circle id="ac-dot" r="3.5" fill="var(--green)" stroke="var(--bg2)" stroke-width="1.5" opacity="0"/>
+            <circle id="humidity-dot" r="3.2" fill="var(--amber)" stroke="var(--bg2)" stroke-width="1.5" opacity="0"/>
           </svg>
           <div id="ac-tip" style="position:absolute;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;white-space:nowrap;opacity:0;transform:translate(-50%,-135%);z-index:5;"></div>
         </div>`;
       const svg = document.getElementById('ac-svg');
-      const cross = document.getElementById('ac-cross'), dot = document.getElementById('ac-dot'), tip = document.getElementById('ac-tip');
+      const cross = document.getElementById('ac-cross'), dot = document.getElementById('ac-dot'), humDot = document.getElementById('humidity-dot'), tip = document.getElementById('ac-tip');
       const at = clientX => {
         const rect = svg.getBoundingClientRect();
         const vbX = ((clientX - rect.left) / rect.width) * W;
@@ -2060,19 +2087,29 @@ HEALTH DATA (current):
         for (const p of P) { const dd = Math.abs(p.x - vbX); if (dd < bd) { bd = dd; best = p; } }
         let outside = null, od = Infinity;
         for (const p of OP) { const dd = Math.abs(p.x - vbX); if (dd < od) { od = dd; outside = p; } }
+        let humidity = null, hd = Infinity;
+        for (const p of HP) { const dd = Math.abs(p.x - vbX); if (dd < hd) { hd = dd; humidity = p; } }
         cross.setAttribute('x1', best.x); cross.setAttribute('x2', best.x); cross.setAttribute('opacity', '0.5');
         dot.setAttribute('cx', best.x); dot.setAttribute('cy', best.y); dot.setAttribute('opacity', '1');
+        if (humDot && humidity && hd < 12) {
+          humDot.setAttribute('cx', humidity.x);
+          humDot.setAttribute('cy', humidity.y);
+          humDot.setAttribute('opacity', '1');
+        } else if (humDot) {
+          humDot.setAttribute('opacity', '0');
+        }
         tip.style.left = (best.x / W * rect.width) + 'px';
         tip.style.top = (best.y / H * rect.height) + 'px';
         tip.style.opacity = '1';
         let mk = null, md = Infinity;
         for (const m of MK) { const dd = Math.abs(m.x - vbX); if (dd < md) { md = dd; mk = m; } }
-        const mkLabel = (mk && md < 7) ? `<br><span style="color:var(--amber);">${mk.label}</span>`
-          : (inBand(best.ms) ? '<br><span style="color:var(--blue);">kyler</span>' : '');
+        const humidityLabel = (humidity && hd < 12) ? `<br><span style="color:var(--amber);">fukt ${humidity.humidity.toFixed(0)}%${humidity.sensors.length ? ' · ' + humidity.sensors.length + ' sensorer' : ''}</span>` : '';
+        const mkLabel = humidityLabel + ((mk && md < 7) ? `<br><span style="color:var(--amber);">${mk.label}</span>`
+          : (inBand(best.ms) ? '<br><span style="color:var(--blue);">kyler</span>' : ''));
         const outsideLabel = outside ? `<br><span style="color:var(--blue);">ute ${outside.temp.toFixed(1)}°C</span>` : '';
         tip.innerHTML = `<strong>inne ${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${outsideLabel}${mkLabel}`;
       };
-      const hide = () => { cross.setAttribute('opacity','0'); dot.setAttribute('opacity','0'); tip.style.opacity='0'; };
+      const hide = () => { cross.setAttribute('opacity','0'); dot.setAttribute('opacity','0'); if (humDot) humDot.setAttribute('opacity','0'); tip.style.opacity='0'; };
       svg.addEventListener('pointermove', e => at(e.clientX));
       svg.addEventListener('pointerdown', e => at(e.clientX));
       svg.addEventListener('pointerleave', hide);

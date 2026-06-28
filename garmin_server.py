@@ -374,6 +374,40 @@ def ac_proxy():
     except Exception as e:
         return jsonify({'available': False, 'error': str(e)})
 
+def _aggregate_humidity_points(readings, bucket_seconds=300):
+    buckets = {}
+    raw_points = []
+    for reading in readings:
+        humidity = reading.get('humidity_pct')
+        ts = reading.get('ts')
+        if humidity is None or not ts:
+            continue
+        try:
+            humidity = float(humidity)
+            dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            bucket = int(dt.timestamp()) // bucket_seconds * bucket_seconds
+        except Exception:
+            continue
+        raw_points.append({'t': ts, 'humidity': humidity, 'sensor': reading.get('sensor_name')})
+        bucket_data = buckets.setdefault(bucket, {'values': [], 'sensors': set()})
+        bucket_data['values'].append(humidity)
+        if reading.get('sensor_name'):
+            bucket_data['sensors'].add(reading.get('sensor_name'))
+
+    points = []
+    for bucket, data in sorted(buckets.items()):
+        values = data['values']
+        if not values:
+            continue
+        points.append({
+            't': datetime.fromtimestamp(bucket, timezone.utc).isoformat(),
+            'humidity': round(sum(values) / len(values), 1),
+            'samples': len(values),
+            'sensors': sorted(data['sensors']),
+        })
+    return points, raw_points
+
+
 @app.get('/api/ac/history')
 def ac_history():
     """Rumstemperatur + utetemperatur senaste 24h för klimatgrafen."""
@@ -390,8 +424,7 @@ def ac_history():
     except Exception:
         readings = []
     pts = [{'t': e['ts'], 'temp': e['measured_c']} for e in events if e.get('measured_c') is not None]
-    humidity_pts = [{'t': r['ts'], 'humidity': r.get('humidity_pct'), 'sensor': r.get('sensor_name')}
-                    for r in readings if r.get('humidity_pct') is not None]
+    humidity_pts, humidity_sensor_pts = _aggregate_humidity_points(readings)
     if len(pts) > 180:
         step = len(pts) // 180 + 1
         pts = pts[::step]
@@ -422,6 +455,7 @@ def ac_history():
         'available': True,
         'points': pts,
         'humidity_points': humidity_pts,
+        'humidity_sensor_points': humidity_sensor_pts,
         'outside_points': _get_outdoor_temperature_history(24),
         'outside_location': WEATHER_LOCATION,
         'target': target,
