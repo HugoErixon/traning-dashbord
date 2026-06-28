@@ -73,7 +73,7 @@ window.fetch = (url, opts = {}) => {
     if (id === 'journal')  loadJournal();
     if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
-    if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcHistory(); }
+    if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadHumidityStatus(); loadAcHistory(); }
   }
 
   // Days left + goal bars
@@ -1821,6 +1821,88 @@ HEALTH DATA (current):
     return label;
   }
 
+  function ensureHumidityCard() {
+    let card = document.getElementById('humidity-card');
+    if (card) return card;
+    const graph = document.getElementById('ac-graph');
+    const graphCard = graph ? graph.closest('.bigcard') : null;
+    const page = document.getElementById('page-climate');
+    if (!page) return null;
+    card = document.createElement('div');
+    card.className = 'bigcard accent-blue humidity-card';
+    card.id = 'humidity-card';
+    card.innerHTML = `
+      <div class="today-header">
+        <h3 id="humidity-headline">Laddar luftfuktighet...</h3>
+        <span class="today-badge badge-amber" id="humidity-badge">FUKT</span>
+      </div>
+      <p id="humidity-body">L&auml;ser luftfuktighet fr&aring;n tempsensorerna...</p>
+      <div class="humidity-meter" aria-hidden="true"><div class="humidity-fill" id="humidity-fill"></div></div>
+      <div class="humidity-meta">
+        <span id="humidity-average">24h snitt: -</span>
+        <span id="humidity-range">spann: -</span>
+      </div>`;
+    if (graphCard) page.insertBefore(card, graphCard);
+    else page.appendChild(card);
+    return card;
+  }
+
+  function humidityVerdict(value) {
+    if (!Number.isFinite(value)) return ['badge-amber', 'OKANT', 'Ingen luftfuktighet fr\u00e5n sensorerna \u00e4n.'];
+    if (value < 30) return ['badge-amber', 'TORRT', 'Torr luft. Sikta helst p\u00e5 40-55% f\u00f6r sovrumskomfort.'];
+    if (value <= 60) return ['badge-green', 'BRA', 'Inom ett bra spann f\u00f6r komfort och \u00e5terh\u00e4mtning.'];
+    if (value <= 70) return ['badge-amber', 'FUKTIGT', 'Lite h\u00f6g luftfuktighet. Ventilation eller avfuktning kan hj\u00e4lpa.'];
+    return ['badge-red', 'HOGT', 'H\u00f6g luftfuktighet. Risk f\u00f6r kvav k\u00e4nsla och s\u00e4mre komfort.'];
+  }
+
+  async function loadHumidityStatus() {
+    const card = ensureHumidityCard();
+    if (!card) return;
+    const hl = document.getElementById('humidity-headline');
+    const body = document.getElementById('humidity-body');
+    const badge = document.getElementById('humidity-badge');
+    const fill = document.getElementById('humidity-fill');
+    const avgEl = document.getElementById('humidity-average');
+    const rangeEl = document.getElementById('humidity-range');
+    try {
+      const [currentRes, historyRes] = await Promise.all([fetch('/api/ac'), fetch('/api/ac/history')]);
+      const current = await currentRes.json();
+      const history = await historyRes.json();
+      const latest = (current.latest_readings || [])
+        .filter(r => r.humidity_pct != null)
+        .sort((a, b) => new Date(b.ts) - new Date(a.ts))[0];
+      const points = (history.humidity_points || []).filter(p => p.humidity != null);
+      const value = latest ? Number(latest.humidity_pct) : (points.length ? Number(points[points.length - 1].humidity) : NaN);
+      const [badgeClass, badgeText, verdict] = humidityVerdict(value);
+      badge.className = 'today-badge ' + badgeClass;
+      badge.textContent = badgeText;
+      if (Number.isFinite(value)) {
+        hl.textContent = 'Luftfuktighet ' + value.toFixed(0) + '%';
+        const sensor = latest && latest.sensor_name ? ' fr\u00e5n ' + latest.sensor_name : '';
+        body.textContent = verdict + sensor + '.';
+        if (fill) fill.style.width = Math.max(0, Math.min(100, value)).toFixed(0) + '%';
+      } else {
+        hl.textContent = 'Luftfuktighet saknas';
+        body.textContent = 'Sensorerna skickar temperatur, men ingen luftfuktighet \u00e4nnu.';
+        if (fill) fill.style.width = '0%';
+      }
+      if (points.length) {
+        const vals = points.map(p => Number(p.humidity)).filter(Number.isFinite);
+        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+        avgEl.textContent = '24h snitt: ' + avg.toFixed(0) + '%';
+        rangeEl.textContent = 'spann: ' + Math.min(...vals).toFixed(0) + '-' + Math.max(...vals).toFixed(0) + '%';
+      } else {
+        avgEl.textContent = '24h snitt: -';
+        rangeEl.textContent = 'spann: -';
+      }
+    } catch(e) {
+      hl.textContent = 'Luftfuktighet otillg\u00e4nglig';
+      body.textContent = 'Kunde inte h\u00e4mta luftfuktighet fr\u00e5n AC-keeper just nu.';
+      badge.className = 'today-badge badge-red';
+      badge.textContent = 'NERE';
+    }
+  }
+
   // AC / room temperature - fetched from ac-keeper through the dashboard proxy (/api/ac)
   async function loadAcStatus() {
     try {
@@ -1863,8 +1945,10 @@ HEALTH DATA (current):
     } catch(e) {}
   }
   loadAcStatus();
+  loadHumidityStatus();
   loadAcLoopStatus();
   setInterval(loadAcStatus, 60000);
+  setInterval(loadHumidityStatus, 60000);
   setInterval(loadAcLoopStatus, 60000);
 
   // 24h rumstemperatur-graf (inline SVG, ingen extern lib) — med klockslag + hover/touch

@@ -1865,6 +1865,35 @@
     }
     @media(max-width:960px) { .hg-row { grid-template-columns: 1fr; } }
 
+    .humidity-card {
+      margin-bottom: 24px;
+    }
+    .humidity-meter {
+      width: 100%;
+      height: 8px;
+      margin-top: 16px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+    }
+    .humidity-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--amber), var(--green), var(--blue));
+      transition: width 0.3s ease;
+    }
+    .humidity-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      color: var(--muted3);
+      font-size: 12px;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
     .hg-card {
       background: var(--card-grad), var(--bg2);
       border: 1px solid var(--border);

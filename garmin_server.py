@@ -384,10 +384,20 @@ def ac_history():
         events = r.json()
     except Exception as e:
         return jsonify({'available': False, 'error': str(e), 'points': []})
+    try:
+        rr = requests.get(f'{AC_KEEPER_URL}/api/readings', params={'hours': 24}, timeout=6)
+        readings = rr.json()
+    except Exception:
+        readings = []
     pts = [{'t': e['ts'], 'temp': e['measured_c']} for e in events if e.get('measured_c') is not None]
+    humidity_pts = [{'t': r['ts'], 'humidity': r.get('humidity_pct'), 'sensor': r.get('sensor_name')}
+                    for r in readings if r.get('humidity_pct') is not None]
     if len(pts) > 180:
         step = len(pts) // 180 + 1
         pts = pts[::step]
+    if len(humidity_pts) > 180:
+        step = len(humidity_pts) // 180 + 1
+        humidity_pts = humidity_pts[::step]
     # AC-lägesändringar (på/av + setpoint) från den fulla event-listan
     markers = []
     prev_cool = None
@@ -411,6 +421,7 @@ def ac_history():
     return jsonify({
         'available': True,
         'points': pts,
+        'humidity_points': humidity_pts,
         'outside_points': _get_outdoor_temperature_history(24),
         'outside_location': WEATHER_LOCATION,
         'target': target,
