@@ -52,12 +52,37 @@ AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
 AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
 AC_KEEPER_CONFIG = config.get('AC_KEEPER_CONFIG', '/home/hugoerixon/tuya-ac-keeper/config.yaml')
+AC_BEDTIME_OVERRIDE = config.get('AC_BEDTIME_OVERRIDE', 'data/ac_bedtime_override.json')
 WATER_TOKEN = config.get('WATER_TOKEN', 'vatten-byt-mig')  # delad hemlighet för ESP32-vattensensorn
 # Lockout-flagga: ligger i samma katalog som AC-flaggan (keeperns data/-katalog).
 WATER_LOCKOUT_FLAG = config.get('WATER_LOCKOUT_FLAG', os.path.join(os.path.dirname(AC_CONTROL_FLAG), 'water_lockout'))
 WEATHER_LAT = float(config.get('WEATHER_LAT', '58.35593'))
 WEATHER_LON = float(config.get('WEATHER_LON', '11.22411'))
 WEATHER_LOCATION = config.get('WEATHER_LOCATION', 'Smögen')
+
+def _valid_clock(value):
+    if not isinstance(value, str) or not re.match(r'^\d{2}:\d{2}$', value):
+        return False
+    hour, minute = [int(part) for part in value.split(':', 1)]
+    return 0 <= hour <= 23 and 0 <= minute <= 59
+
+def _read_ac_bedtime_override():
+    try:
+        with open(AC_BEDTIME_OVERRIDE, encoding='utf-8') as f:
+            data = json.load(f) or {}
+        bedtime = data.get('bedtime')
+        if _valid_clock(bedtime):
+            return {'bedtime': bedtime, 'updated_at': data.get('updated_at')}
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return {'bedtime': None, 'updated_at': None}
+
+def _write_control_flag(enabled):
+    os.makedirs(os.path.dirname(AC_CONTROL_FLAG), exist_ok=True)
+    with open(AC_CONTROL_FLAG, 'w') as f:
+        f.write('1' if enabled else '0')
 
 WEATHER_CODES = {
     0: 'klart',
@@ -501,9 +526,7 @@ def ac_loop_control():
     data = request.json or {}
     enabled = bool(data.get('enabled'))
     try:
-        os.makedirs(os.path.dirname(AC_CONTROL_FLAG), exist_ok=True)
-        with open(AC_CONTROL_FLAG, 'w') as f:
-            f.write('1' if enabled else '0')
+        _write_control_flag(enabled)
         # Att slå PÅ styrningen igen släpper även vattendunk-låset (manuell kvittering
         # efter att dunken tömts). Är dunken fortfarande full låser ESP32:n om igen.
         if enabled:
@@ -524,6 +547,73 @@ def ac_loop_control():
             'enabled': _read_control_flag(),
             'error': str(e),
         }), 500
+
+@app.get('/api/ac/bedtime')
+def ac_bedtime_get():
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
+    override = _read_ac_bedtime_override()
+    return jsonify({
+        'available': True,
+        'bedtime': override['bedtime'],
+        'updated_at': override['updated_at'],
+        'source': 'manual' if override['bedtime'] else 'calculated',
+    })
+
+@app.post('/api/ac/bedtime')
+def ac_bedtime_set():
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
+    data = request.json or {}
+    bedtime = data.get('bedtime')
+    try:
+        os.makedirs(os.path.dirname(AC_BEDTIME_OVERRIDE), exist_ok=True)
+        if bedtime in (None, ''):
+            payload = {'bedtime': None, 'updated_at': datetime.now(timezone.utc).isoformat()}
+        else:
+            bedtime = str(bedtime).strip()
+            if not _valid_clock(bedtime):
+                return jsonify({'ok': False, 'error': 'Läggtid måste vara HH:MM'}), 400
+            payload = {'bedtime': bedtime, 'updated_at': datetime.now(timezone.utc).isoformat()}
+        with open(AC_BEDTIME_OVERRIDE, 'w', encoding='utf-8') as f:
+            json.dump(payload, f)
+        return jsonify({'ok': True, 'available': True, **payload, 'source': 'manual' if payload['bedtime'] else 'calculated'})
+    except Exception as e:
+        return jsonify({'ok': False, 'available': False, 'error': str(e)}), 500
+
+@app.post('/api/ac/manual-control')
+def ac_manual_control():
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
+    data = request.json or {}
+    mode = str(data.get('mode') or '').strip().lower()
+    allowed_modes = {'cool', 'fan', 'auto', 'heat', 'off'}
+    if mode not in allowed_modes:
+        return jsonify({'ok': False, 'error': 'Ogiltigt AC-läge'}), 400
+
+    payload = {'mode': mode}
+    if mode != 'off':
+        try:
+            setpoint = float(data.get('setpoint_c'))
+        except (ValueError, TypeError):
+            return jsonify({'ok': False, 'error': 'Temperatur saknas eller är ogiltig'}), 400
+        if not (10.0 <= setpoint <= 35.0):
+            return jsonify({'ok': False, 'error': 'Temperatur måste vara 10-35 °C'}), 400
+        payload['setpoint_c'] = round(setpoint * 2) / 2
+
+    try:
+        _write_control_flag(False)
+        r = requests.post(f'{AC_KEEPER_URL}/api/manual-control', json=payload, timeout=8)
+        try:
+            body = r.json()
+        except Exception:
+            body = {'error': r.text}
+        if not r.ok:
+            return jsonify({'ok': False, 'available': False, 'error': body.get('error') or body.get('detail') or 'AC-keeper avvisade kommandot'}), r.status_code
+        status = _ac_loop_status()
+        return jsonify({'ok': True, 'automatic_enabled': status['enabled'], **body})
+    except Exception as e:
+        return jsonify({'ok': False, 'available': False, 'error': str(e)}), 500
 
 @app.post('/api/ac/setpoint')
 def ac_setpoint():

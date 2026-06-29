@@ -283,6 +283,49 @@
         </div>
       </div>
 
+      <div class="climate-control-grid">
+        <div class="bigcard accent-blue">
+          <div class="today-header">
+            <h3>Förkylning inför sömn</h3>
+            <span class="today-badge badge-blue" id="ac-bedtime-badge">AUTO</span>
+          </div>
+          <p id="ac-bedtime-body">Använder uträknad läggtid om inget skrivs här.</p>
+          <div class="ac-setpoint-row">
+            <span class="ac-setpoint-label">Läggtid:</span>
+            <input class="ac-setpoint-input ac-time-input" type="time" id="ac-bedtime-input">
+            <button class="ac-setpoint-btn" id="ac-bedtime-save" onclick="saveAcBedtime()">Spara</button>
+            <button class="ac-setpoint-btn" id="ac-bedtime-clear" onclick="clearAcBedtime()">Auto</button>
+            <span class="ac-setpoint-status" id="ac-bedtime-status"></span>
+          </div>
+        </div>
+
+        <div class="bigcard accent-orange">
+          <div class="today-header">
+            <h3>Manuell AC</h3>
+            <span class="today-badge badge-amber" id="ac-manual-badge">MANUELL</span>
+          </div>
+          <p id="ac-manual-body">När du skickar ett manuellt kommando stängs automatisk styrning av.</p>
+          <div class="ac-manual-grid">
+            <label class="ac-field">
+              <span>Temperatur</span>
+              <input class="ac-setpoint-input" type="number" id="ac-manual-temp" min="10" max="35" step="0.5" value="18">
+            </label>
+            <label class="ac-field">
+              <span>Läge</span>
+              <select class="ac-select" id="ac-manual-mode">
+                <option value="cool">Kyla</option>
+                <option value="fan">Fläkt</option>
+                <option value="auto">Auto</option>
+                <option value="heat">Värme</option>
+                <option value="off">Av</option>
+              </select>
+            </label>
+            <button class="ac-loop-btn" id="ac-manual-send" onclick="sendManualAcCommand()">Skicka</button>
+          </div>
+          <div class="ac-setpoint-status" id="ac-manual-status"></div>
+        </div>
+      </div>
+
       <div class="sl">Rumstemperatur – senaste 24h</div>
       <div class="bigcard" style="margin-bottom:24px;">
         <div id="ac-graph">Laddar temperaturhistorik…</div>

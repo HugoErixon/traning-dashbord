@@ -73,7 +73,7 @@ window.fetch = (url, opts = {}) => {
     if (id === 'journal')  loadJournal();
     if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
-    if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadHumidityStatus(); loadAcHistory(); }
+    if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcBedtime(); loadHumidityStatus(); loadAcHistory(); }
   }
 
   // Days left + goal bars
@@ -1628,16 +1628,16 @@ HEALTH DATA (current):
 
     if (!status || status.available === false) {
       acLoopEnabled = false;
-      label.textContent = 'Styrloop: otillgänglig';
-      btn.textContent = 'Otillgänglig';
+      label.textContent = 'Automatisk styrning: otillgänglig';
+      btn.textContent = 'Av';
       btn.className = 'ac-loop-btn is-off';
       btn.disabled = true;
       return;
     }
 
     acLoopEnabled = !!status.enabled;
-    label.textContent = 'AC-styrning: ' + (acLoopEnabled ? 'på' : 'av (temperatur loggas ändå)') + (status.running === false ? ' – loggningsloop NERE' : '');
-    btn.textContent = acLoopEnabled ? 'Stäng av styrning' : 'Slå på styrning';
+    label.textContent = 'Automatisk styrning: ' + (acLoopEnabled ? 'på' : 'av') + (status.running === false ? ' – loggningsloop NERE' : '');
+    btn.textContent = acLoopEnabled ? 'På' : 'Av';
     btn.className = 'ac-loop-btn ' + (acLoopEnabled ? 'is-on' : 'is-off');
     btn.disabled = false;
   }
@@ -1658,8 +1658,8 @@ HEALTH DATA (current):
     if (!btn) return;
     const nextEnabled = !acLoopEnabled;
     btn.disabled = true;
-    btn.textContent = nextEnabled ? 'Slår på…' : 'Stänger av…';
-    if (label) label.textContent = 'Styrloop: uppdaterar…';
+    btn.textContent = nextEnabled ? 'På…' : 'Av…';
+    if (label) label.textContent = 'Automatisk styrning: uppdaterar…';
 
     try {
       const res = await fetch('/api/ac/loop', {
@@ -1672,8 +1672,140 @@ HEALTH DATA (current):
       renderAcLoopControl(status);
       loadAcStatus();
     } catch(e) {
-      if (label) label.textContent = 'Styrloop: ' + e.message;
-      btn.textContent = acLoopEnabled ? 'Stäng av styrning' : 'Slå på styrning';
+      if (label) label.textContent = 'Automatisk styrning: ' + e.message;
+      btn.textContent = acLoopEnabled ? 'På' : 'Av';
+      btn.disabled = false;
+    }
+  }
+
+  async function loadAcBedtime() {
+    const inp = document.getElementById('ac-bedtime-input');
+    const body = document.getElementById('ac-bedtime-body');
+    const badge = document.getElementById('ac-bedtime-badge');
+    if (!inp || !body || !badge) return;
+    try {
+      const res = await fetch('/api/ac/bedtime');
+      const d = await res.json();
+      if (!res.ok || d.available === false) throw new Error(d.error || 'otillgänglig');
+      inp.value = d.bedtime || '';
+      if (d.bedtime) {
+        badge.className = 'today-badge badge-blue';
+        badge.textContent = 'MANUELL';
+        body.textContent = 'AC:n planerar för att rummet ska vara vid måltemperatur till ' + d.bedtime + '.';
+      } else {
+        badge.className = 'today-badge badge-green';
+        badge.textContent = 'AUTO';
+        body.textContent = 'Ingen manuell läggtid satt. Förkylningen använder den uträknade sömntiden.';
+      }
+    } catch(e) {
+      badge.className = 'today-badge badge-red';
+      badge.textContent = 'NERE';
+      body.textContent = 'Kunde inte läsa läggtidsstyrningen.';
+    }
+  }
+
+  async function saveAcBedtime() {
+    const inp = document.getElementById('ac-bedtime-input');
+    const status = document.getElementById('ac-bedtime-status');
+    const btn = document.getElementById('ac-bedtime-save');
+    if (!inp || !status || !btn) return;
+    const bedtime = inp.value;
+    if (!bedtime) {
+      status.textContent = 'Välj en tid eller tryck Auto.';
+      status.style.color = 'var(--amber)';
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Sparar...';
+    status.style.color = 'var(--muted)';
+    try {
+      const res = await fetch('/api/ac/bedtime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bedtime })
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Kunde inte spara');
+      status.textContent = '✓ Sparad';
+      status.style.color = 'var(--green)';
+      loadAcBedtime();
+      setTimeout(() => { status.textContent = ''; }, 3500);
+    } catch(e) {
+      status.textContent = e.message;
+      status.style.color = 'var(--red)';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function clearAcBedtime() {
+    const status = document.getElementById('ac-bedtime-status');
+    const btn = document.getElementById('ac-bedtime-clear');
+    if (!status || !btn) return;
+    btn.disabled = true;
+    status.textContent = 'Återställer...';
+    status.style.color = 'var(--muted)';
+    try {
+      const res = await fetch('/api/ac/bedtime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bedtime: null })
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Kunde inte återställa');
+      status.textContent = '✓ Auto';
+      status.style.color = 'var(--green)';
+      loadAcBedtime();
+      setTimeout(() => { status.textContent = ''; }, 3500);
+    } catch(e) {
+      status.textContent = e.message;
+      status.style.color = 'var(--red)';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function sendManualAcCommand() {
+    const temp = document.getElementById('ac-manual-temp');
+    const mode = document.getElementById('ac-manual-mode');
+    const btn = document.getElementById('ac-manual-send');
+    const status = document.getElementById('ac-manual-status');
+    const badge = document.getElementById('ac-manual-badge');
+    if (!temp || !mode || !btn || !status) return;
+    const payload = { mode: mode.value };
+    if (payload.mode !== 'off') {
+      const setpoint = parseFloat(temp.value);
+      if (isNaN(setpoint) || setpoint < 10 || setpoint > 35) {
+        status.textContent = 'Ange 10-35 °C.';
+        status.style.color = 'var(--red)';
+        return;
+      }
+      payload.setpoint_c = setpoint;
+    }
+    btn.disabled = true;
+    status.textContent = 'Skickar...';
+    status.style.color = 'var(--muted)';
+    try {
+      const res = await fetch('/api/ac/manual-control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Kunde inte styra AC:n');
+      status.textContent = '✓ Manuellt kommando skickat. Automatisk styrning är av.';
+      status.style.color = 'var(--green)';
+      if (badge) {
+        badge.className = 'today-badge badge-red';
+        badge.textContent = 'AUTO AV';
+      }
+      loadAcLoopStatus();
+      setTimeout(loadAcStatus, 1500);
+      setTimeout(loadAcHistory, 5000);
+    } catch(e) {
+      status.textContent = e.message;
+      status.style.color = 'var(--red)';
+    } finally {
       btn.disabled = false;
     }
   }
@@ -1951,6 +2083,7 @@ HEALTH DATA (current):
   loadAcStatus();
   loadHumidityStatus();
   loadAcLoopStatus();
+  loadAcBedtime();
   setInterval(loadAcStatus, 60000);
   setInterval(loadHumidityStatus, 60000);
   setInterval(loadAcLoopStatus, 60000);

@@ -412,6 +412,49 @@
       color: var(--muted);
       font-family: 'IBM Plex Mono', monospace;
     }
+    .climate-control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .ac-time-input {
+      width: 92px;
+    }
+    .ac-manual-grid {
+      display: grid;
+      grid-template-columns: minmax(84px, 0.7fr) minmax(118px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      margin-top: 12px;
+    }
+    .ac-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+    }
+    .ac-field span {
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .ac-select {
+      width: 100%;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--fg);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      padding: 6px 8px;
+    }
+    .ac-select:focus {
+      outline: none;
+      border-color: var(--blue);
+    }
 
     /* ─── APPBAR ─── */
     .appbar {
@@ -1135,6 +1178,7 @@
     .badge-amber  { background: var(--amber-dim);  color: var(--amber);  border: 1px solid rgba(245,158,11,0.20); }
     .badge-green  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(45,212,191,0.20); }
     .badge-red    { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(248,113,113,0.20); }
+    .badge-blue   { background: var(--blue-dim);   color: var(--blue);   border: 1px solid rgba(77,159,255,0.20); }
     .badge-orange { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(251,146,60,0.20); }
     .badge-accent { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(194,240,74,0.25); }
 
@@ -2550,6 +2594,14 @@
       .ac-loop-btn {
         width: 100%;
         min-height: 42px;
+      }
+      .climate-control-grid,
+      .ac-manual-grid {
+        grid-template-columns: 1fr;
+      }
+      .ac-field .ac-setpoint-input,
+      .ac-time-input {
+        width: 100%;
       }
       #ac-graph { overflow-x: auto; }
       #ac-graph svg { min-width: 500px; }
