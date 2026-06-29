@@ -2,6 +2,7 @@ node_modules/
 venv/
 .env
 dashboard.db
+data/
 __pycache__/
 *.pyc
 test-garmin*.js
