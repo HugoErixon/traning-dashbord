@@ -353,6 +353,103 @@ def login():
 def status():
     return jsonify({'status': 'ok'})
 
+def _cns_score_from_health(h):
+    if not h:
+        return None
+    hrv = h.get('hrv') or {}
+    sleep = h.get('sleep') or {}
+    readiness = h.get('readiness') or {}
+    stress = h.get('stress') or {}
+    hrv_pct = hrv.get('component') if hrv.get('component') is not None else hrv.get('pct')
+    hrv_pct = hrv_pct if hrv_pct is not None else 50
+    sleep_score = sleep.get('score') if sleep.get('score') is not None else 50
+    readiness_score = readiness.get('score') if readiness.get('score') is not None else 50
+    stress_val = stress.get('avg') if stress.get('avg') is not None else 50
+    return round(
+        0.40 * min(float(hrv_pct), 100) +
+        0.30 * float(sleep_score) +
+        0.20 * float(readiness_score) +
+        0.10 * (100 - min(float(stress_val), 100))
+    )
+
+def _session_date(year, week, dow):
+    return date.fromisocalendar(year, int(week), int(dow) + 1)
+
+def _mobile_widget_payload(user_id):
+    today = date.today()
+    year = today.year
+    iso_week = today.isocalendar()[1]
+    monday = today - timedelta(days=today.weekday())
+    next_monday = monday + timedelta(days=7)
+
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT COALESCE(SUM(distance), 0) AS meters
+                           FROM activities
+                           WHERE user_id=%s AND date >= %s AND date < %s
+                             AND type IN ('running','track_running','treadmill_running','trail_running')''',
+                        (user_id, monday.isoformat(), next_monday.isoformat()))
+            completed_km = round(float((cur.fetchone() or {}).get('meters') or 0) / 1000, 1)
+
+            cur.execute('''SELECT COALESCE(SUM(km), 0) AS km
+                           FROM plan_sessions
+                           WHERE user_id=%s AND week=%s AND status IN ('planned','completed')''',
+                        (user_id, iso_week))
+            planned_km = round(float((cur.fetchone() or {}).get('km') or 0), 1)
+
+            cur.execute('''SELECT id, week, dow, type, km, title, detail
+                           FROM plan_sessions
+                           WHERE user_id=%s AND status='planned'
+                             AND type IN ('run','race')
+                             AND (week > %s OR (week = %s AND dow >= %s))
+                           ORDER BY week, dow
+                           LIMIT 8''',
+                        (user_id, iso_week, iso_week, today.weekday()))
+            candidates = [dict(r) for r in cur.fetchall()]
+
+    next_quality = None
+    for session in candidates:
+        try:
+            session_day = _session_date(year, session['week'], session['dow'])
+        except Exception:
+            continue
+        if session_day < today:
+            continue
+        next_quality = {
+            'date': session_day.isoformat(),
+            'weekday': session_day.strftime('%a'),
+            'title': session.get('title'),
+            'detail': session.get('detail'),
+            'km': float(session.get('km') or 0),
+            'type': session.get('type'),
+        }
+        break
+
+    h_row = get_cache('health', user_id)
+    health = h_row[0] if h_row else {}
+    sleep = health.get('sleep') or {}
+    return {
+        'date': today.isoformat(),
+        'week': iso_week,
+        'weeklyVolume': {
+            'completedKm': completed_km,
+            'plannedKm': planned_km,
+            'remainingKm': round(max(0, planned_km - completed_km), 1) if planned_km else None,
+        },
+        'cns': {
+            'score': _cns_score_from_health(health),
+        },
+        'sleep': {
+            'score': sleep.get('score'),
+            'sourceDate': sleep.get('sourceDate') or health.get('sourceDate') or today.isoformat(),
+        },
+        'nextQuality': next_quality,
+    }
+
+@app.get('/api/widget/mobile')
+def mobile_widget():
+    return jsonify(_mobile_widget_payload(uid()))
+
 @app.get('/api/weather/current')
 def current_weather():
     """Aktuell utetemperatur från Open-Meteo."""
