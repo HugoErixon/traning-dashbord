@@ -54,6 +54,7 @@ AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper
 AC_KEEPER_CONFIG = config.get('AC_KEEPER_CONFIG', '/home/hugoerixon/tuya-ac-keeper/config.yaml')
 AC_BEDTIME_OVERRIDE = config.get('AC_BEDTIME_OVERRIDE', 'data/ac_bedtime_override.json')
 WATER_TOKEN = config.get('WATER_TOKEN', 'vatten-byt-mig')  # delad hemlighet för ESP32-vattensensorn
+AC_BUTTON_TOKEN = config.get('AC_BUTTON_TOKEN', WATER_TOKEN)  # fysisk ESP32-knapp, fallback till vatten-token
 # Lockout-flagga: ligger i samma katalog som AC-flaggan (keeperns data/-katalog).
 WATER_LOCKOUT_FLAG = config.get('WATER_LOCKOUT_FLAG', os.path.join(os.path.dirname(AC_CONTROL_FLAG), 'water_lockout'))
 WEATHER_LAT = float(config.get('WEATHER_LAT', '58.35593'))
@@ -312,6 +313,8 @@ def check_auth():
         return
     if request.path == '/api/water':
         return  # ESP32-vattensensorn — autentiseras via egen token i endpointen
+    if request.path in ('/api/ac/button/off', '/api/ac/button/auto-on'):
+        return  # ESP32-knappen — autentiseras via egen token i endpointen
     if request.host.startswith('localhost') or request.host.startswith('127.0.0.1'):
         first = list(USERS.keys())[0] if USERS else 'hugo'
         flask_g.uid = USERS.get(first, {}).get('id', 1)
@@ -711,6 +714,43 @@ def ac_manual_control():
         return jsonify({'ok': True, 'automatic_enabled': status['enabled'], **body})
     except Exception as e:
         return jsonify({'ok': False, 'available': False, 'error': str(e)}), 500
+
+def _check_ac_button_token():
+    token = request.headers.get('x-ac-button-token') or request.headers.get('x-water-token') or ''
+    return token == AC_BUTTON_TOKEN
+
+@app.post('/api/ac/button/off')
+def ac_button_off():
+    """ESP32-knapp: kort tryck stänger av AC:n och den automatiska styrningen."""
+    if not _check_ac_button_token():
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
+    try:
+        _write_control_flag(False)
+        r = requests.post(f'{AC_KEEPER_URL}/api/manual-control', json={'mode': 'off'}, timeout=8)
+        try:
+            body = r.json()
+        except Exception:
+            body = {'error': r.text}
+        if not r.ok:
+            return jsonify({'ok': False, 'automatic_enabled': False, 'error': body.get('error') or body.get('detail') or 'AC-keeper avvisade kommandot'}), r.status_code
+        return jsonify({'ok': True, 'action': 'off', 'automatic_enabled': False, **body})
+    except Exception as e:
+        return jsonify({'ok': False, 'automatic_enabled': False, 'error': str(e)}), 500
+
+@app.post('/api/ac/button/auto-on')
+def ac_button_auto_on():
+    """ESP32-knapp: långt tryck slår på automatisk AC-styrning igen."""
+    if not _check_ac_button_token():
+        return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
+    try:
+        _write_control_flag(True)
+        try:
+            requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=6)
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'action': 'auto-on', 'automatic_enabled': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'automatic_enabled': _read_control_flag(), 'error': str(e)}), 500
 
 @app.post('/api/ac/setpoint')
 def ac_setpoint():
