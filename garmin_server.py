@@ -3438,6 +3438,7 @@ def ai_adjust_plan(user_request=None):
                 'date': item.get('lastDate'),
                 'sets': item.get('lastSets'),
                 'reps': item.get('lastReps'),
+                'reps_max': item.get('lastRepsMax'),
                 'weight_kg': item.get('lastWeight'),
             }
         return {

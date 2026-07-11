@@ -2550,8 +2550,11 @@ HEALTH DATA (current):
         : 'HISTORIK';
       const statusClass = rec.confidence === 'caution' ? ' caution'
         : rec.confidence === 'none' ? ' new' : '';
+      const lastRepLabel = rec.lastRepsMax != null && Number(rec.lastRepsMax) !== Number(rec.lastReps)
+        ? `${rec.lastReps}–${rec.lastRepsMax}`
+        : (rec.lastReps || '-');
       const last = rec.lastWeight != null
-        ? `Senast ${rec.lastSets || 1}×${rec.lastReps || '-'} @ ${fmtKg(rec.lastWeight)} · ${fmtDateStr(rec.lastDate)}`
+        ? `Senast ${rec.lastSets || 1}×${lastRepLabel} @ ${fmtKg(rec.lastWeight)} · ${fmtDateStr(rec.lastDate)}`
         : rec.reason || '';
       return `<div class="strength-rx-row${statusClass}">
         <div class="strength-rx-main">

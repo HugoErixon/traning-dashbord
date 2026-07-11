@@ -246,6 +246,7 @@ def _base_result(target, reps=None):
         'lastDate': None,
         'lastSets': None,
         'lastReps': None,
+        'lastRepsMax': None,
         'lastWeight': None,
         'confidence': 'none',
         'reason': '',
@@ -319,6 +320,7 @@ def _recommend_target(target, entries, before_date=None):
         'lastDate': latest_entry.get('date'),
         'lastSets': top_sets,
         'lastReps': int(top_min_reps) if float(top_min_reps).is_integer() else top_min_reps,
+        'lastRepsMax': int(max(expanded_reps)) if float(max(expanded_reps)).is_integer() else max(expanded_reps),
         'lastWeight': top_weight,
         'confidence': 'high',
     })

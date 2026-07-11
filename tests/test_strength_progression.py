@@ -34,6 +34,7 @@ class StrengthProgressionTests(unittest.TestCase):
         self.assertEqual(rec['sets'], 5)
         self.assertEqual(rec['reps'], 5)
         self.assertEqual(rec['weight'], 52.5)
+        self.assertEqual((rec['lastReps'], rec['lastRepsMax']), (4, 4))
 
     def test_lower_rep_target_advances_lat_pulldown_weight(self):
         history = [
@@ -50,6 +51,7 @@ class StrengthProgressionTests(unittest.TestCase):
         ]
         rec = build_strength_recommendations('B\u00e4nkpress 4\u00d76', history, '2026-07-11')[0]
         self.assertEqual(rec['lastDate'], '2026-07-08')
+        self.assertEqual((rec['lastReps'], rec['lastRepsMax']), (3, 6))
         self.assertEqual(rec['weight'], 55.0)
 
     def test_pain_note_prevents_automatic_weight_recommendation(self):
