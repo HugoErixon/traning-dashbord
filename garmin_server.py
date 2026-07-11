@@ -9,6 +9,11 @@ import os
 import yaml
 import re
 from apscheduler.schedulers.background import BackgroundScheduler
+from strength_progression import (
+    build_default_recommendations,
+    build_strength_recommendations,
+    recommendation_summary,
+)
 
 # Google Calendar (valfritt — kräver google_credentials.json)
 try:
@@ -2684,6 +2689,65 @@ def _session_day(session_id, activity_dates, created_at):
     except Exception:
         return date.today().isoformat()
 
+
+def _strength_progression_history(user_id):
+    """Return strength logs with a stable local date for progression planning."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT id, session_id, exercise, sets, reps, weight, note, created_at
+                FROM strength_exercises
+                WHERE user_id=%s
+                ORDER BY created_at ASC, id ASC
+            ''', (user_id,))
+            exercise_rows = cur.fetchall()
+            cur.execute('SELECT id, date, raw FROM activities WHERE user_id=%s', (user_id,))
+            activity_rows = cur.fetchall()
+
+    activity_dates = {}
+    for activity_id, stored_date, raw in activity_rows:
+        raw = raw or {}
+        started = raw.get('startTimeLocal') or raw.get('date') or stored_date
+        if started:
+            activity_dates[str(activity_id)] = str(started)[:10]
+
+    return [{
+        'id': row[0],
+        'sessionId': str(row[1]),
+        'exercise': row[2],
+        'sets': row[3],
+        'reps': row[4],
+        'weight': float(row[5]) if row[5] is not None else None,
+        'note': row[6] or '',
+        'date': _session_day(row[1], activity_dates, row[7]),
+    } for row in exercise_rows]
+
+
+def _plan_session_date(session, reference_day=None):
+    reference_day = reference_day or date.today()
+    iso_year = reference_day.isocalendar()[0]
+    return date.fromisocalendar(iso_year, int(session['week']), int(session['dow']) + 1)
+
+
+def _enrich_strength_plan(sessions, user_id, history=None):
+    """Attach calculated prescriptions without mutating the saved plan text."""
+    history = history if history is not None else _strength_progression_history(user_id)
+    for session in sessions:
+        session['strength_recommendations'] = []
+        session['strength_recommendation_text'] = ''
+        if session.get('type') != 'lift':
+            continue
+        try:
+            session_day = _plan_session_date(session).isoformat()
+            recommendations = build_strength_recommendations(
+                session.get('detail', ''), history, before_date=session_day
+            )
+            session['strength_recommendations'] = recommendations
+            session['strength_recommendation_text'] = recommendation_summary(recommendations)
+        except (TypeError, ValueError) as exc:
+            print(f"Strength progression skipped for plan session {session.get('id')}: {exc}")
+    return sessions
+
 @app.get('/api/strength/analysis')
 def strength_analysis():
     with db() as conn:
@@ -3019,7 +3083,12 @@ def get_plan():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute('SELECT * FROM plan_sessions WHERE user_id=%s ORDER BY week, dow', (uid(),))
             rows = cur.fetchall()
-    return jsonify({'sessions': [dict(r) for r in rows]})
+    sessions = [dict(r) for r in rows]
+    try:
+        _enrich_strength_plan(sessions, uid())
+    except Exception as exc:
+        print('Strength progression enrichment error:', exc)
+    return jsonify({'sessions': sessions})
 
 @app.patch('/api/plan/<int:session_id>')
 def update_session(session_id):
@@ -3362,6 +3431,49 @@ def ai_adjust_plan(user_request=None):
     missed_json   = json.dumps([_sess(s) for s in missed],   ensure_ascii=False, indent=2) if missed else '(no missed sessions)'
     upcoming_json = json.dumps([_sess(s) for s in upcoming], ensure_ascii=False, indent=2)
 
+    def _compact_strength_recommendation(item):
+        previous = None
+        if item.get('lastWeight') is not None:
+            previous = {
+                'date': item.get('lastDate'),
+                'sets': item.get('lastSets'),
+                'reps': item.get('lastReps'),
+                'weight_kg': item.get('lastWeight'),
+            }
+        return {
+            'exercise': item.get('exercise'),
+            'prescription': item.get('prescription'),
+            'weight_kg': item.get('weight'),
+            'confidence': item.get('confidence'),
+            'previous': previous,
+            'reason': item.get('reason'),
+        }
+
+    strength_planner_context = {'upcoming_lift_sessions': [], 'exercise_library_for_new_sessions': []}
+    try:
+        strength_history = _strength_progression_history(first_uid)
+        for session in upcoming:
+            if session.get('type') != 'lift':
+                continue
+            session_day = _plan_session_date(session, today).isoformat()
+            recommendations = build_strength_recommendations(
+                session.get('detail', ''), strength_history, before_date=session_day
+            )
+            strength_planner_context['upcoming_lift_sessions'].append({
+                'session_id': session['id'],
+                'date': session_day,
+                'recommendations': [_compact_strength_recommendation(item) for item in recommendations],
+            })
+        default_recommendations = build_default_recommendations(
+            strength_history, before_date=tomorrow.isoformat()
+        )
+        strength_planner_context['exercise_library_for_new_sessions'] = [
+            _compact_strength_recommendation(item) for item in default_recommendations
+        ]
+    except Exception as exc:
+        print('AI adjustment: strength progression context error', exc)
+    strength_planner_json = json.dumps(strength_planner_context, ensure_ascii=False, indent=2)
+
     request_block = ''
     if user_request:
         request_block = f"""
@@ -3395,6 +3507,17 @@ Week status W{iso_week}:
 - Completed running: {completed_km:.1f} km · Planned weekly cap: {week_cap} km
 - Completed total load: {round(completed_load)}
 
+=== VERIFIED STRENGTH PROGRESSION ===
+
+The prescriptions below are calculated deterministically from completed exercise logs before each session date. Swedish and English aliases for the same exercise have already been merged. Treat these values as the source of truth; do not invent a different weight or percentage.
+{strength_planner_json}
+
+Strength rules:
+- For an existing lift session, preserve the supplied sets, reps and exact weight recommendation for recognized exercises.
+- For a newly added lift session, choose exercises from exercise_library_for_new_sessions when suitable and use those prescriptions.
+- A null weight means there is no comparable history, a pain warning, or no external weight is needed. Never replace null with a guessed number.
+- The dashboard renders these prescriptions in a separate compact block, so do not repeat a long strength history in summary, coaching_notes or reason.
+
 === SESSIONS THAT NEED A DECISION ===
 
 Missed sessions:
@@ -3414,6 +3537,7 @@ Analyze the situation as a coach and make the best decisions for the runner's lo
 - Reschedule sessions: provide the new week and day
 - Skip sessions: when they do not add value given fatigue or context
 - Modify session content: change distance, pace, type, or structure
+- For strength sessions, name each exercise with explicit sets and reps so the progression engine can attach the verified weight
 - Combine logic: for example reschedule and modify the same session
 - Keep sessions unchanged: when that is the right decision
 
@@ -3431,6 +3555,7 @@ Grounding rules:
 - Treat the "Upcoming planned sessions" JSON as the only source of truth for planned workouts. Do not assume a strength/run/rest day exists unless it appears there with its session_id.
 - Use the provided date and weekday_sv fields when referring to today, tomorrow, or any moved session. If you are unsure, write the exact date instead of a relative day.
 - Every change must reference a real session_id from the JSON, except action="add". Never say a session was moved, shortened, or skipped unless that exact change is present in the changes array.
+- Never write a strength weight or percentage that conflicts with VERIFIED STRENGTH PROGRESSION. If no verified kg exists, omit kg.
 - The summary must describe only applied changes from the changes array. Do not mention "tomorrow", "styrkepass", or "vilodag" unless those exact sessions/dates are affected by a change.
 
 Write a concise explanation in coaching_notes before the decisions.
@@ -3447,7 +3572,7 @@ Return ONLY this JSON, with no comments outside it:
       "type": "run|easy|race|lift|rest|null",
       "new_km": <float or null>,
       "new_title": "<Swedish string or null>",
-      "new_detail": "<concise workout instructions only, max 140 characters; put reasoning in coaching_notes/reason, or null if unchanged>",
+      "new_detail": "<concise workout instructions only, max 140 characters; for lift sessions include exercise + sets x reps but omit unverified kg; put reasoning in coaching_notes/reason, or null if unchanged>",
       "reason": "<one Swedish sentence explaining this decision>"
     }}
   ],

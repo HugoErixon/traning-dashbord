@@ -769,7 +769,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           <div class="cockpit-row-day">${escapeHtml(dayFmt(s.date))}</div>
           <div>
             <div class="cockpit-row-title">${escapeHtml(s.title)}</div>
-            <div class="cockpit-row-sub">${escapeHtml(s.detail || (s.km ? `${s.km} km` : ''))}</div>
+            <div class="cockpit-row-sub">${escapeHtml(
+              (s.type === 'lift' && s.strength_recommendation_text) || s.detail || (s.km ? `${s.km} km` : '')
+            )}</div>
           </div>
           <span class="cockpit-tag ${typeClass(s)}">${escapeHtml(typeLabel(s))}</span>
         </div>
@@ -2504,6 +2506,7 @@ HEALTH DATA (current):
 
   // ─── STRENGTH: sub-tabs (today's live workout vs history) ───
   let strengthCurrentTab = 'today';
+  let activeStrengthRecommendations = [];
   function loadStrengthPage() { strengthTab(strengthCurrentTab); }
   function strengthTab(which) {
     strengthCurrentTab = which;
@@ -2534,6 +2537,53 @@ HEALTH DATA (current):
     const n = Number(value || 0);
     if (n >= 1000) return (n / 1000).toLocaleString('sv-SE', { maximumFractionDigits: 1 }) + ' ton';
     return n.toLocaleString('sv-SE', { maximumFractionDigits: 0 }) + ' kg';
+  }
+
+  function strengthPrescriptionHtml(session, contextId) {
+    const recommendations = session?.strength_recommendations || [];
+    if (!recommendations.length) return '';
+    activeStrengthRecommendations = recommendations;
+    const rows = recommendations.map((rec, index) => {
+      const status = rec.confidence === 'caution' ? 'VARNING'
+        : rec.confidence === 'none' ? 'NY ÖVNING'
+        : rec.confidence === 'planned' ? 'UTAN VIKT'
+        : 'HISTORIK';
+      const statusClass = rec.confidence === 'caution' ? ' caution'
+        : rec.confidence === 'none' ? ' new' : '';
+      const last = rec.lastWeight != null
+        ? `Senast ${rec.lastSets || 1}×${rec.lastReps || '-'} @ ${fmtKg(rec.lastWeight)} · ${fmtDateStr(rec.lastDate)}`
+        : rec.reason || '';
+      return `<div class="strength-rx-row${statusClass}">
+        <div class="strength-rx-main">
+          <div class="strength-rx-name">${escapeHtml(rec.exercise || '')}<span>${status}</span></div>
+          <div class="strength-rx-value">${escapeHtml(rec.prescription || '')}</div>
+          <div class="strength-rx-last">${escapeHtml(last)}</div>
+        </div>
+        <button type="button" class="strength-rx-use" onclick="applyStrengthRecommendation('${contextId}',${index})">Fyll i</button>
+      </div>`;
+    }).join('');
+    return `<div class="strength-rx">
+      <div class="strength-rx-head">
+        <span>Rekommenderad progression</span>
+        <em>från din logg</em>
+      </div>
+      <div class="strength-rx-list">${rows}</div>
+    </div>`;
+  }
+
+  function applyStrengthRecommendation(contextId, index) {
+    const rec = activeStrengthRecommendations[index];
+    if (!rec) return;
+    const name = document.getElementById('ex-name-' + contextId);
+    const sets = document.getElementById('ex-sets-' + contextId);
+    const reps = document.getElementById('ex-reps-' + contextId);
+    const weight = document.getElementById('ex-weight-' + contextId);
+    if (!name || !sets || !reps || !weight) return;
+    name.value = rec.exercise || '';
+    sets.value = rec.sets || '';
+    reps.value = rec.reps == null ? '' : String(rec.reps) + (rec.unit === 'seconds' ? ' sek' : '');
+    weight.value = rec.weight == null ? '' : rec.weight;
+    name.focus();
   }
 
   function strengthSessionTitle(session) {
@@ -2695,12 +2745,15 @@ HEALTH DATA (current):
       ? `<div style="font-size:11px;color:var(--green);margin-top:8px;">✓ Kopplat till Garmin-aktivitet "${linkedActivity.name}" — övningar sparas på det passet.</div>`
       : `<div style="font-size:11px;color:var(--muted);margin-top:8px;">Inte synkat från Garmin än. Övningar loggas under dagens datum och kopplas automatiskt när klockan laddar upp passet.</div>`;
 
+    const contextId = 'today-' + sessionId;
+    activeStrengthRecommendations = [];
     let ctx;
     if (lift) {
       ctx = `<div style="background:var(--bg2);border:1px solid rgba(245,158,11,0.25);border-left:3px solid var(--amber);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
         <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:var(--amber);margin-bottom:6px;">DAGENS GYMPASS · ${dateLabel}</div>
         <div style="font-size:16px;font-weight:700;margin-bottom:4px;">${lift.title || 'Styrka'}</div>
         ${lift.detail ? `<div style="font-size:13px;color:var(--muted2);line-height:1.5;">${lift.detail}</div>` : ''}
+        ${strengthPrescriptionHtml(lift, contextId)}
         ${lift.ai_note ? `<div style="font-size:12px;color:var(--blue);margin-top:6px;">Coach: ${lift.ai_note}</div>` : ''}
         ${linkNote}
       </div>`;
@@ -2713,7 +2766,6 @@ HEALTH DATA (current):
       </div>`;
     }
 
-    const contextId = 'today-' + sessionId;
     el.innerHTML = ctx + `
       <div class="add-ex-form">
         <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOG EXERCISE</div>
@@ -2841,12 +2893,14 @@ HEALTH DATA (current):
     });
     ['ex-name-','ex-sets-','ex-reps-','ex-weight-','ex-note-'].forEach(p => document.getElementById(p + contextId).value = '');
     await loadExercises(sessionId, contextId);
+    await loadPlan();
     nameEl.focus();
   }
 
   async function deleteExercise(exId, sessionId, contextId = sessionId) {
     await fetch('/api/strength/exercises/' + exId, { method: 'DELETE' });
     await loadExercises(sessionId, contextId);
+    await loadPlan();
   }
   document.getElementById('chat-input').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
 
@@ -3103,6 +3157,8 @@ HEALTH DATA (current):
       title: translatePlanText(session.title),
       detail: translatePlanText(session.detail),
       ai_note: translatePlanText(session.ai_note),
+      strength_recommendations: Array.isArray(session.strength_recommendations) ? session.strength_recommendations : [],
+      strength_recommendation_text: session.strength_recommendation_text || '',
     };
   }
 
@@ -3268,7 +3324,7 @@ HEALTH DATA (current):
     card.style.borderColor = col.replace('var(--','rgba(').replace(')',',0.25)');
     title.textContent      = s.title;
     title.style.color      = col;
-    detail.textContent     = s.detail || '';
+    detail.textContent     = (s.type === 'lift' && s.strength_recommendation_text) || s.detail || '';
     km.textContent         = s.km > 0 ? s.km + ' km' : '';
     km.style.color         = col;
     const statusSuffix = s.status && s.status !== 'planned' ? '  -  ' + s.status.toUpperCase() : '';
@@ -3627,7 +3683,10 @@ HEALTH DATA (current):
         if (s && !dayActivities.length) {
           const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
           const compactDetail = compactCalendarText(s.detail);
-          const escaped = compactDetail.replace(/"/g, '&quot;');
+          const strengthDetail = s.type === 'lift'
+            ? compactCalendarText(s.strength_recommendation_text, 180)
+            : '';
+          const escaped = (strengthDetail || compactDetail).replace(/"/g, '&quot;');
           const isModified = s.ai_note && s.status === 'planned' && s.modified_at;
           const statusNote = s.status === 'missed'      ? ' - Missed'
                            : s.status === 'skipped'     ? ' - Skipped'

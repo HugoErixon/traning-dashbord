@@ -1647,6 +1647,78 @@
       transition: all 0.15s;
     }
     .add-ex-btn:hover { background: rgba(255,140,66,0.15); }
+    .strength-rx {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .strength-rx-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 4px;
+    }
+    .strength-rx-head span {
+      color: var(--orange);
+      font: 700 10px var(--font-mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .strength-rx-head em {
+      color: var(--muted);
+      font: 500 10px var(--font-mono);
+      font-style: normal;
+    }
+    .strength-rx-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      padding: 11px 0;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .strength-rx-row:first-child { border-top: none; }
+    .strength-rx-main { min-width: 0; }
+    .strength-rx-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .strength-rx-name span {
+      color: var(--green);
+      font: 700 8px var(--font-mono);
+      letter-spacing: 0.08em;
+    }
+    .strength-rx-row.new .strength-rx-name span { color: var(--blue); }
+    .strength-rx-row.caution .strength-rx-name span { color: var(--red); }
+    .strength-rx-value {
+      margin-top: 3px;
+      color: var(--orange);
+      font: 700 13px var(--font-mono);
+      line-height: 1.45;
+    }
+    .strength-rx-row.caution .strength-rx-value { color: var(--amber); }
+    .strength-rx-last {
+      margin-top: 3px;
+      color: var(--muted2);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+    .strength-rx-use {
+      min-height: 32px;
+      padding: 6px 10px;
+      border: 1px solid rgba(251,146,60,0.28);
+      border-radius: 7px;
+      background: var(--orange-dim);
+      color: var(--orange);
+      font: 700 10px var(--font-sans);
+      cursor: pointer;
+    }
+    .strength-rx-use:hover { background: rgba(251,146,60,0.16); }
     .no-sessions { color: var(--muted); font-size: 13px; padding: 20px 0; }
     .strength-analysis-grid {
       display: grid;
