@@ -2739,17 +2739,21 @@
       grid-template-columns: 1fr 1fr;
       gap: 16px;
       margin-bottom: 24px;
+      align-items: stretch;
     }
 
     .sleep-metric-card {
       background: var(--card-grad), var(--bg2);
       border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 20px 18px 16px;
+      border-radius: 12px;
+      padding: 18px 18px 16px;
+      min-height: 220px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+      justify-content: space-between;
+      gap: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.32);
     }
 
     .sleep-metric-label {
@@ -2789,21 +2793,21 @@
     .sleep-metric-score-card {
       align-items: center;
       text-align: center;
-      justify-content: flex-start;
+      justify-content: center;
     }
 
     .sleep-gauge-wrap {
       position: relative;
       width: 100%;
       display: flex;
-      align-items: flex-end;
+      align-items: center;
       justify-content: center;
-      margin: 10px 0 2px;
+      margin: 0;
     }
 
     #sleep-score-gauge {
-      width: 100%;
-      max-width: none;
+      width: min(100%, 340px);
+      max-height: 156px;
       height: auto;
       display: block;
     }
@@ -2821,15 +2825,30 @@
        — identical proportion on phone and desktop. */
     .sleep-gauge-num {
       font-family: var(--font-sans);
-      font-size: 46px;
+      font-size: 34px;
       font-weight: 800;
       fill: #C8F135;
       transition: fill 0.4s ease;
     }
 
+    .sleep-metrics-grid > .sleep-metric-card:nth-child(2) {
+      justify-content: center;
+    }
+
+    .sleep-metrics-grid > .sleep-metric-card:nth-child(2) .sleep-metric-label,
+    .sleep-metrics-grid > .sleep-metric-card:nth-child(2) .sleep-metric-sub {
+      align-self: flex-start;
+    }
+
+    .sleep-metrics-grid > .sleep-metric-card:nth-child(2) .sleep-progress-bar {
+      width: 100%;
+    }
+
     /* Radial ring cards */
     .sleep-metric-ring-card {
       align-items: center;
+      justify-content: center;
+      text-align: center;
     }
 
     .sleep-ring-wrap {
@@ -2837,7 +2856,12 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: 6px 0 2px;
+      margin: 0;
+    }
+
+    .sleep-ring-wrap svg {
+      width: 116px;
+      height: 116px;
     }
 
     .sleep-ring-track {
@@ -2855,7 +2879,7 @@
 
     .sleep-ring-val {
       position: absolute;
-      font-size: 18px;
+      font-size: 24px;
       font-weight: 800;
       color: var(--text);
       text-align: center;
@@ -2896,6 +2920,7 @@
         gap: 12px;
       }
       .sleep-metric-card {
+        min-height: 178px;
         padding: 16px 14px 12px;
       }
       .sleep-metric-val {
@@ -2903,6 +2928,19 @@
       }
       .sleep-metric-val-total {
         font-size: 28px;
+      }
+      #sleep-score-gauge {
+        width: min(100%, 210px);
+      }
+      .sleep-gauge-num {
+        font-size: 38px;
+      }
+      .sleep-ring-wrap svg {
+        width: 88px;
+        height: 88px;
+      }
+      .sleep-ring-val {
+        font-size: 18px;
       }
     }
 
