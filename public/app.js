@@ -2406,6 +2406,7 @@ HEALTH DATA (current):
   function fmtMetric(v, fmt) {
     if (v == null) return '–';
     if (fmt === 'pace') { const m = Math.floor(v/60), s = Math.round(v%60); return m + ':' + String(s).padStart(2,'0'); }
+    if (fmt === 'load') return Math.round(v).toString();
     if (fmt === 1) return v.toFixed(1);
     return Math.round(v).toString();
   }

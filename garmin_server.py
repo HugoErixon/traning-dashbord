@@ -1358,7 +1358,9 @@ def _linreg_per_week(series):
 def analysis():
     """Trender + förändringstakt (derivata) för fitness-mätare över ett fönster."""
     window = int(request.args.get('days', 60))
-    start = (date.today() - timedelta(days=window)).isoformat()
+    start_date = date.today() - timedelta(days=window)
+    start = start_date.isoformat()
+    load_start = (start_date - timedelta(days=6)).isoformat()
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('''SELECT date, hrv_avg, resting_hr, sleep_score
@@ -1368,6 +1370,10 @@ def analysis():
             cur.execute('''SELECT date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status
                 FROM metric_history WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
             mh = cur.fetchall()
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, raw
+                FROM activities WHERE date >= %s AND user_id=%s ORDER BY date''', (load_start, uid()))
+            load_acts = cur.fetchall()
 
     # Bygg per-mätare tidsserier (dag-index relativt fönstrets start, för lutningsberäkning)
     def to_day_index(dstr):
@@ -1414,6 +1420,51 @@ def analysis():
                 good = (rising and c['good'] == 'up') or (not rising and c['good'] == 'down')
                 out['direction'] = 'improving' if good else 'declining'
         metrics.append(out)
+
+    daily_load = {}
+    for act_date, raw in load_acts:
+        try:
+            d = date.fromisoformat(str(act_date)[:10])
+        except Exception:
+            continue
+        load = (raw or {}).get('activityTrainingLoad') or 0
+        try:
+            load = float(load)
+        except (TypeError, ValueError):
+            load = 0
+        if load > 0:
+            daily_load[d] = daily_load.get(d, 0) + load
+
+    load_series = []
+    today = date.today()
+    for i in range(window + 1):
+        d = start_date + timedelta(days=i)
+        if d > today:
+            break
+        rolling = sum(daily_load.get(d - timedelta(days=back), 0) for back in range(7))
+        if rolling > 0 or load_series:
+            load_series.append({'t': d.isoformat(), 'v': round(rolling, 1)})
+
+    load_metric = {'key': 'training_load', 'label': '7-day training load', 'unit': 'load',
+                   'good': 'up', 'fmt': 'load', 'series': load_series, 'latest': None,
+                   'first': None, 'slopePerWeek': None, 'pctChange': None,
+                   'direction': 'unknown', 'samples': len(load_series)}
+    if load_series:
+        load_metric['latest'] = load_series[-1]['v']
+        load_metric['first'] = load_series[0]['v']
+        reg = [(to_day_index(p['t']), p['v']) for p in load_series]
+        slope = _linreg_per_week(reg)
+        load_metric['slopePerWeek'] = round(slope, 3) if slope is not None else None
+        if load_series[0]['v']:
+            load_metric['pctChange'] = round((load_series[-1]['v'] - load_series[0]['v']) / abs(load_series[0]['v']) * 100, 1)
+        mean = sum(p['v'] for p in load_series) / len(load_series)
+        if slope is None or mean == 0:
+            load_metric['direction'] = 'stable'
+        elif abs(slope) < abs(mean) * 0.0005:
+            load_metric['direction'] = 'stable'
+        else:
+            load_metric['direction'] = 'improving' if slope > 0 else 'declining'
+    metrics.append(load_metric)
 
     latest_status = next((r[5] for r in reversed(mh) if r[5]), None)
     return jsonify({
