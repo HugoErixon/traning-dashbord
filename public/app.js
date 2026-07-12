@@ -6,56 +6,210 @@
   applyDeviceMode();
   phoneMedia.addEventListener?.('change', applyDeviceMode);
 
-  // Login check - hoppa över lösenord om vi kör lokalt
-const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-const sitePassword = localStorage.getItem('sitePassword');
-const siteUser = localStorage.getItem('site_user');
-if (!isLocal && (!sitePassword || !siteUser)) showLogin();
+const originalFetch = window.fetch.bind(window);
+const dashboardShell = document.querySelector('.shell');
+let csrfToken = '';
+let authResolved = false;
+let sessionExpired = false;
+let resolveAuth;
+const authReady = new Promise(resolve => { resolveAuth = resolve; });
+dashboardShell.style.display = 'none';
 
-function showLogin() {
-  document.querySelector('.shell').style.display = 'none';
+function clearLegacyCredentials() {
+  localStorage.removeItem('sitePassword');
+  localStorage.removeItem('site_user');
+}
+
+function completeAuth(data) {
+  csrfToken = data.csrfToken || '';
+  const screen = document.getElementById('login-screen');
+  if (screen) screen.remove();
+  dashboardShell.style.display = 'flex';
+  if (!authResolved) {
+    authResolved = true;
+    resolveAuth();
+  } else if (sessionExpired) {
+    location.reload();
+  }
+  sessionExpired = false;
+}
+
+function whileAuthenticated(callback) {
+  return () => {
+    if (authResolved && !sessionExpired && !document.getElementById('login-screen')) callback();
+  };
+}
+
+function showLogin(message) {
+  dashboardShell.style.display = 'none';
+  const existing = document.getElementById('login-screen');
+  if (existing) {
+    const error = document.getElementById('login-error');
+    if (message && error) {
+      error.textContent = message;
+      error.style.display = 'block';
+    }
+    return;
+  }
   document.body.insertAdjacentHTML('beforeend', `
     <div id="login-screen" style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;">
       <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:40px;width:320px;text-align:center;">
-        <div style="font-size:22px;margin-bottom:8px;"></div>
-        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Training Dashboard</h2>
-        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Sign in to continue</p>
-        <input id="login-user" type="text" placeholder="Username..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;" />
-        <input id="login-input" type="password" placeholder="Password..." style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
-        <button onclick="tryLogin()" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Log in</button>
-        <p id="login-error" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Wrong username or password</p>
+        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Träningsdashboard</h2>
+        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Logga in för att fortsätta</p>
+        <input id="login-user" type="text" autocomplete="username" placeholder="Användarnamn" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;" />
+        <input id="login-input" type="password" autocomplete="current-password" placeholder="Lösenord" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
+        <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
+        <p id="login-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel användarnamn eller lösenord</p>
       </div>
     </div>
   `);
-  document.getElementById('login-input').addEventListener('keypress', e => { if (e.key === 'Enter') tryLogin(); });
-  document.getElementById('login-user').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('login-input').focus(); });
+  document.getElementById('login-submit').addEventListener('click', tryLogin);
+  document.getElementById('login-input').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryLogin();
+  });
+  document.getElementById('login-user').addEventListener('keydown', event => {
+    if (event.key === 'Enter') document.getElementById('login-input').focus();
+  });
+  document.getElementById('login-user').focus();
+}
+
+async function performLogin(username, password) {
+  const response = await originalFetch('/api/login', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, password}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    const error = new Error(data.error || 'Fel användarnamn eller lösenord.');
+    error.status = response.status;
+    throw error;
+  }
+  completeAuth(data);
 }
 
 async function tryLogin() {
   const username = document.getElementById('login-user').value.trim();
-  const pw = document.getElementById('login-input').value;
-  const res = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ username, password: pw }) });
-  const data = await res.json();
-  if (data.ok) {
-    localStorage.setItem('sitePassword', pw);
-    localStorage.setItem('site_user', data.username || username);
-    document.getElementById('login-screen').remove();
-    document.querySelector('.shell').style.display = 'flex';
-  } else {
-    document.getElementById('login-error').style.display = 'block';
+  const password = document.getElementById('login-input').value;
+  const button = document.getElementById('login-submit');
+  const error = document.getElementById('login-error');
+  button.disabled = true;
+  error.style.display = 'none';
+  try {
+    await performLogin(username, password);
+  } catch (loginError) {
+    error.textContent = loginError.message;
+    error.style.display = 'block';
+    document.getElementById('login-input').value = '';
+    document.getElementById('login-input').focus();
+  } finally {
+    button.disabled = false;
   }
 }
 
-const originalFetch = window.fetch;
-window.fetch = (url, opts = {}) => {
-  if (url.startsWith('/api/')) {
-    opts.headers = { ...opts.headers,
-      'x-site-password': localStorage.getItem('sitePassword') || '',
-      'x-site-user': localStorage.getItem('site_user') || '',
-    };
+window.fetch = async (input, options = {}) => {
+  const url = typeof input === 'string' ? input : input.url;
+  const isApi = url.startsWith('/api/');
+  const isAuthEndpoint = url === '/api/login' || url === '/api/session';
+  if (isApi && !isAuthEndpoint) await authReady;
+
+  const requestOptions = {...options, credentials: 'same-origin'};
+  const method = String(requestOptions.method || 'GET').toUpperCase();
+  if (isApi && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !isAuthEndpoint) {
+    const headers = new Headers(requestOptions.headers || {});
+    headers.set('X-CSRF-Token', csrfToken);
+    requestOptions.headers = headers;
   }
-  return originalFetch(url, opts);
+  const response = await originalFetch(input, requestOptions);
+  if (isApi && !isAuthEndpoint && response.status === 401) {
+    sessionExpired = true;
+    showLogin('Sessionen har gått ut. Logga in igen.');
+  }
+  return response;
 };
+
+async function initializeAuth() {
+  const legacyUsername = localStorage.getItem('site_user') || '';
+  const legacyPassword = localStorage.getItem('sitePassword') || '';
+  clearLegacyCredentials();
+  try {
+    const response = await originalFetch('/api/session', {credentials: 'same-origin'});
+    const data = await response.json();
+    if (response.ok && data.authenticated) {
+      completeAuth(data);
+      return;
+    }
+    if (legacyPassword) {
+      try {
+        await performLogin(legacyUsername, legacyPassword);
+        return;
+      } catch (_) {
+        // The old credential is deliberately discarded even when migration fails.
+      }
+    }
+    showLogin();
+  } catch (_) {
+    showLogin('Servern kunde inte nås. Försök igen om en stund.');
+  }
+}
+
+initializeAuth();
+
+function executeAction(trigger, event) {
+  const action = trigger.dataset.action;
+  if (action === 'goto') goto(trigger.dataset.page);
+  else if (action === 'refresh-data') refreshData();
+  else if (action === 'sync-calendar') syncGcal();
+  else if (action === 'coach-request') sendCoachRequest();
+  else if (action === 'refresh-insights') loadInsights(true);
+  else if (action === 'toggle-ac-loop') toggleAcLoop();
+  else if (action === 'set-ac-setpoint') setAcSetpoint();
+  else if (action === 'save-ac-bedtime') saveAcBedtime();
+  else if (action === 'clear-ac-bedtime') clearAcBedtime();
+  else if (action === 'send-ac-command') sendManualAcCommand();
+  else if (action === 'refresh-sleep-insights') loadSleepInsights(true);
+  else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
+  else if (action === 'strength-tab') strengthTab(trigger.dataset.tab);
+  else if (action === 'save-journal') saveJournalEntry();
+  else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
+  else if (action === 'send-chat') send();
+  else if (action === 'save-note') saveNote();
+  else if (action === 'edit-journal') editJournalDate(trigger.dataset.date);
+  else if (action === 'delete-journal') deleteJournalEntry(event, Number(trigger.dataset.id));
+  else if (action === 'delete-note') deleteNote(Number(trigger.dataset.id));
+  else if (action === 'apply-strength-rx') applyStrengthRecommendation(trigger.dataset.context, Number(trigger.dataset.index));
+  else if (action === 'toggle-session') toggleSession(trigger.dataset.session);
+  else if (action === 'add-exercise') {
+    const context = trigger.dataset.context;
+    context ? addExercise(trigger.dataset.session, context) : addExercise(trigger.dataset.session);
+  } else if (action === 'delete-exercise') {
+    const context = trigger.dataset.context;
+    context
+      ? deleteExercise(Number(trigger.dataset.id), trigger.dataset.session, context)
+      : deleteExercise(Number(trigger.dataset.id), trigger.dataset.session);
+  }
+}
+
+document.addEventListener('click', event => {
+  const trigger = event.target.closest('[data-action]');
+  if (trigger) executeAction(trigger, event);
+});
+
+document.addEventListener('keydown', event => {
+  const trigger = event.target.closest('[data-action][role="button"]');
+  if (trigger && (event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault();
+    executeAction(trigger, event);
+  }
+});
+
+document.getElementById('coach-request-input')?.addEventListener('keydown', event => {
+  if (event.key === 'Enter') sendCoachRequest();
+});
+const acSetpointInput = document.getElementById('ac-setpoint-input');
+acSetpointInput?.addEventListener('input', () => { acSetpointInput.dataset.dirty = '1'; });
+acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset.dirty; });
 
   // Navigation
   function goto(id) {
@@ -63,7 +217,7 @@ window.fetch = (url, opts = {}) => {
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.getElementById('page-' + id).classList.add('active');
     document.querySelectorAll('.nav-item').forEach(n => {
-      if (n.getAttribute('onclick') === "goto('" + id + "')") n.classList.add('active');
+      if (n.dataset.page === id) n.classList.add('active');
     });
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
@@ -1459,11 +1613,11 @@ HEALTH DATA (current):
       const d = new Date(j.date + 'T12:00:00');
       const dateLabel = d.toLocaleDateString('sv-SE', { weekday:'short', day:'numeric', month:'short' });
       const meta = [j.mood, j.energy ? `Energi ${j.energy}/5` : ''].filter(Boolean);
-      return `<article class="journal-entry" onclick="editJournalDate('${escapeHtml(j.date)}')">
+      return `<article class="journal-entry" data-action="edit-journal" data-date="${escapeHtml(j.date)}">
         <div class="journal-entry-top">
           <span class="journal-entry-date">${escapeHtml(dateLabel)}</span>
           ${meta.map(m => `<span class="journal-pill">${escapeHtml(m)}</span>`).join('')}
-          <button class="journal-delete" onclick="deleteJournalEntry(event, ${j.id})">x</button>
+          <button class="journal-delete" data-action="delete-journal" data-id="${Number(j.id)}">x</button>
         </div>
         <div class="journal-entry-text">${escapeHtml(j.text)}</div>
       </article>`;
@@ -1547,11 +1701,11 @@ HEALTH DATA (current):
       const date  = new Date(n.created_at * 1000).toLocaleDateString('sv-SE', {day:'numeric', month:'short'});
       return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 12px;position:relative;">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-          <span style="font-size:11px;color:${col};font-family:'IBM Plex Mono',monospace;font-weight:600;">${emoji} ${label}</span>
-          <span style="font-size:10px;color:var(--muted);margin-left:auto;font-family:'IBM Plex Mono',monospace;">${date}</span>
-          <button onclick="deleteNote(${n.id})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;transition:color 0.15s;" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">x</button>
+          <span style="font-size:11px;color:${col};font-family:'IBM Plex Mono',monospace;font-weight:600;">${escapeHtml(emoji)} ${escapeHtml(label)}</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto;font-family:'IBM Plex Mono',monospace;">${escapeHtml(date)}</span>
+          <button class="note-delete" data-action="delete-note" data-id="${Number(n.id)}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;transition:color 0.15s;">x</button>
         </div>
-        <div style="font-size:13px;color:var(--muted3);line-height:1.5;">${n.text}</div>
+        <div style="font-size:13px;color:var(--muted3);line-height:1.5;">${escapeHtml(n.text)}</div>
       </div>`;
     }).join('');
   }
@@ -1884,7 +2038,7 @@ HEALTH DATA (current):
     }
   }
   loadWeatherStatus();
-  setInterval(loadWeatherStatus, 300000);
+  setInterval(whileAuthenticated(loadWeatherStatus), 300000);
 
   function formatAcNumber(value, digits) {
     return Number(value).toLocaleString('sv-SE', {
@@ -2086,9 +2240,9 @@ HEALTH DATA (current):
   loadHumidityStatus();
   loadAcLoopStatus();
   loadAcBedtime();
-  setInterval(loadAcStatus, 60000);
-  setInterval(loadHumidityStatus, 60000);
-  setInterval(loadAcLoopStatus, 60000);
+  setInterval(whileAuthenticated(loadAcStatus), 60000);
+  setInterval(whileAuthenticated(loadHumidityStatus), 60000);
+  setInterval(whileAuthenticated(loadAcLoopStatus), 60000);
 
   // 24h rumstemperatur-graf (inline SVG, ingen extern lib) — med klockslag + hover/touch
   async function loadAcHistory() {
@@ -2239,7 +2393,7 @@ HEALTH DATA (current):
         let mk = null, md = Infinity;
         for (const m of MK) { const dd = Math.abs(m.x - vbX); if (dd < md) { md = dd; mk = m; } }
         const humidityLabel = (humidity && hd < 12) ? `<br><span style="color:var(--amber);">fukt ${humidity.humidity.toFixed(0)}%${humidity.sensors.length ? ' · ' + humidity.sensors.length + ' sensorer' : ''}</span>` : '';
-        const mkLabel = humidityLabel + ((mk && md < 7) ? `<br><span style="color:var(--amber);">${mk.label}</span>`
+        const mkLabel = humidityLabel + ((mk && md < 7) ? `<br><span style="color:var(--amber);">${escapeHtml(mk.label)}</span>`
           : (inBand(best.ms) ? '<br><span style="color:var(--blue);">kyler</span>' : ''));
         const outsideLabel = outside ? `<br><span style="color:var(--blue);">ute ${outside.temp.toFixed(1)}°C</span>` : '';
         tip.innerHTML = `<strong>inne ${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${outsideLabel}${mkLabel}`;
@@ -2251,7 +2405,7 @@ HEALTH DATA (current):
     } catch(e) { el.textContent = 'Temperaturhistorik otillgänglig.'; }
   }
   loadAcHistory();
-  setInterval(loadAcHistory, 300000);
+  setInterval(whileAuthenticated(loadAcHistory), 300000);
 
   function renderInsightCards(items) {
     if (!items || !items.length) return '<div style="font-size:12px;color:var(--muted3);">Inga mönster hittade ännu.</div>';
@@ -2260,8 +2414,8 @@ HEALTH DATA (current):
       return `<div class="insight-row">
         <span class="insight-dot" style="background:${col}"></span>
         <div>
-          <div class="insight-row-title">${it.title || ''}</div>
-          <div class="insight-row-body">${it.detail || ''}${it.action ? ' <span style="color:var(--accent);font-size:11px;font-weight:700">→ ' + it.action + '</span>' : ''}</div>
+          <div class="insight-row-title">${escapeHtml(it.title || '')}</div>
+          <div class="insight-row-body">${escapeHtml(it.detail || '')}${it.action ? ' <span style="color:var(--accent);font-size:11px;font-weight:700">→ ' + escapeHtml(it.action) + '</span>' : ''}</div>
         </div>
       </div>`;
     }).join('');
@@ -2334,7 +2488,7 @@ HEALTH DATA (current):
     try {
       const res = await fetch('/api/insights' + (force ? '?force=1' : ''));
       const d = await res.json();
-      if (d.error) { list.innerHTML = `<div style="font-size:12px;color:var(--red);">${d.error}</div>`; return; }
+      if (d.error) { list.innerHTML = `<div style="font-size:12px;color:var(--red);">${escapeHtml(d.error)}</div>`; return; }
       if (d.headline && hl) hl.textContent = d.headline;
       const map = { good:['badge-green','GOOD'], watch:['badge-amber','WATCH'], caution:['badge-red','CAUTION'] };
       const m = map[d.status] || ['badge-amber','AI'];
@@ -2352,7 +2506,7 @@ HEALTH DATA (current):
     try {
       const res = await fetch('/api/sleep-insights' + (force ? '?force=1' : ''));
       const d = await res.json();
-      if (d.error) { list.innerHTML = `<div style="font-size:12px;color:var(--red);">${d.error}</div>`; return; }
+      if (d.error) { list.innerHTML = `<div style="font-size:12px;color:var(--red);">${escapeHtml(d.error)}</div>`; return; }
       if (d.headline && hl) hl.textContent = d.headline;
       const map = { good:['badge-green','GOOD'], watch:['badge-amber','WATCH'], caution:['badge-red','CAUTION'] };
       const m = map[d.status] || ['badge-amber','AI'];
@@ -2371,7 +2525,7 @@ HEALTH DATA (current):
     const box = document.getElementById('messages');
     const uDiv = document.createElement('div');
     uDiv.className = 'msg user';
-    uDiv.innerHTML = '<div class="msg-from">DU</div>' + msg;
+    uDiv.innerHTML = '<div class="msg-from">DU</div>' + escapeHtml(msg);
     box.appendChild(uDiv);
     const aDiv = document.createElement('div');
     aDiv.className = 'msg ai';
@@ -2383,13 +2537,13 @@ HEALTH DATA (current):
       const res = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:buildCTX(), history }) });
       const data = await res.json();
       const raw = data.reply || data.error || 'Inget svar.';
-      const reply = raw
+      const reply = escapeHtml(raw)
         .replace(/\*\*(.*?)\*\*/gs, '$1')
         .replace(/\*(.*?)\*/gs, '$1')
         .replace(/#{1,3} (.*)/g, '$1')
         .replace(/\n/g, '<br>');
       aDiv.innerHTML = '<div class="msg-from">COACH</div>' + reply;
-      history.push({ role:'assistant', content:reply });
+      history.push({ role:'assistant', content:raw });
     } catch(e) {
       aDiv.innerHTML = '<div class="msg-from">COACH</div>Kunde inte nå servern.';
     }
@@ -2483,7 +2637,7 @@ HEALTH DATA (current):
         return `
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-              <span style="font-size:12px;font-weight:600;letter-spacing:0.02em;color:var(--muted3);">${m.label}</span>
+              <span style="font-size:12px;font-weight:600;letter-spacing:0.02em;color:var(--muted3);">${escapeHtml(m.label)}</span>
               <span style="font-size:11px;font-weight:700;color:${dm[1]};white-space:nowrap;">${dm[0]} ${dm[2]}</span>
             </div>
             <div style="font-size:26px;font-weight:800;letter-spacing:-0.5px;font-variant-numeric:tabular-nums;">${valStr}${unitStr}</div>
@@ -2500,7 +2654,7 @@ HEALTH DATA (current):
         grid.style.gap = '14px';
       }
     } catch(e) {
-      grid.innerHTML = '<div style="color:var(--red);font-size:13px;">Kunde inte ladda analys: ' + e.message + '</div>';
+      grid.innerHTML = '<div style="color:var(--red);font-size:13px;">Kunde inte ladda analys: ' + escapeHtml(e.message) + '</div>';
     }
   }
 
@@ -2562,7 +2716,7 @@ HEALTH DATA (current):
           <div class="strength-rx-value">${escapeHtml(rec.prescription || '')}</div>
           <div class="strength-rx-last">${escapeHtml(last)}</div>
         </div>
-        <button type="button" class="strength-rx-use" onclick="applyStrengthRecommendation('${contextId}',${index})">Fyll i</button>
+        <button type="button" class="strength-rx-use" data-action="apply-strength-rx" data-context="${escapeHtml(contextId)}" data-index="${index}">Fyll i</button>
       </div>`;
     }).join('');
     return `<div class="strength-rx">
@@ -2745,7 +2899,7 @@ HEALTH DATA (current):
       if (todayAct) { sessionId = String(todayAct.id); linkedActivity = todayAct; }
     } catch(e) {}
     const linkNote = linkedActivity
-      ? `<div style="font-size:11px;color:var(--green);margin-top:8px;">✓ Kopplat till Garmin-aktivitet "${linkedActivity.name}" — övningar sparas på det passet.</div>`
+      ? `<div style="font-size:11px;color:var(--green);margin-top:8px;">✓ Kopplat till Garmin-aktivitet "${escapeHtml(linkedActivity.name)}" — övningar sparas på det passet.</div>`
       : `<div style="font-size:11px;color:var(--muted);margin-top:8px;">Inte synkat från Garmin än. Övningar loggas under dagens datum och kopplas automatiskt när klockan laddar upp passet.</div>`;
 
     const contextId = 'today-' + sessionId;
@@ -2754,17 +2908,17 @@ HEALTH DATA (current):
     if (lift) {
       ctx = `<div style="background:var(--bg2);border:1px solid rgba(245,158,11,0.25);border-left:3px solid var(--amber);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
         <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:var(--amber);margin-bottom:6px;">DAGENS GYMPASS · ${dateLabel}</div>
-        <div style="font-size:16px;font-weight:700;margin-bottom:4px;">${lift.title || 'Styrka'}</div>
-        ${lift.detail ? `<div style="font-size:13px;color:var(--muted2);line-height:1.5;">${lift.detail}</div>` : ''}
+        <div style="font-size:16px;font-weight:700;margin-bottom:4px;">${escapeHtml(lift.title || 'Styrka')}</div>
+        ${lift.detail ? `<div style="font-size:13px;color:var(--muted2);line-height:1.5;">${escapeHtml(lift.detail)}</div>` : ''}
         ${strengthPrescriptionHtml(lift, contextId)}
-        ${lift.ai_note ? `<div style="font-size:12px;color:var(--blue);margin-top:6px;">Coach: ${lift.ai_note}</div>` : ''}
+        ${lift.ai_note ? `<div style="font-size:12px;color:var(--blue);margin-top:6px;">Coach: ${escapeHtml(lift.ai_note)}</div>` : ''}
         ${linkNote}
       </div>`;
     } else {
       const other = todays.find(p => p.type !== 'rest');
       ctx = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
         <div style="font-size:13px;color:var(--text);">Inget gympass planerat idag (${dateLabel}).</div>
-        ${other ? `<div style="font-size:12px;color:var(--muted2);margin-top:4px;">Dagens plan: ${other.title}.</div>` : ''}
+        ${other ? `<div style="font-size:12px;color:var(--muted2);margin-top:4px;">Dagens plan: ${escapeHtml(other.title)}.</div>` : ''}
         ${linkNote}
       </div>`;
     }
@@ -2779,7 +2933,7 @@ HEALTH DATA (current):
           <input class="ex-input-sm" id="ex-weight-${contextId}" type="number" step="0.5" placeholder="kg">
           <input class="ex-input-note" id="ex-note-${contextId}" placeholder="Note (optional)">
         </div>
-        <button class="add-ex-btn" onclick="addExercise('${sessionId}','${contextId}')">+ Add</button>
+        <button class="add-ex-btn" data-action="add-exercise" data-session="${escapeHtml(sessionId)}" data-context="${escapeHtml(contextId)}">+ Add</button>
       </div>
       <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin:18px 0 10px;font-weight:500;">TODAY'S LOG</div>
       <div class="ex-list" id="exlist-${contextId}"></div>`;
@@ -2813,7 +2967,7 @@ HEALTH DATA (current):
       const initialSession = sessions.find(s => (s.date || '').slice(0, 10) === today) || sessions[0];
       container.innerHTML = sessions.map(s => `
         <div class="strength-session ${initialSession && s.id === initialSession.id ? 'open' : ''}" id="sess-${s.id}">
-          <div class="strength-header" onclick="toggleSession('${s.id}')">
+          <div class="strength-header" data-action="toggle-session" data-session="${escapeHtml(s.id)}">
             <div class="strength-header-left">
               <div class="strength-title">${escapeHtml(strengthSessionTitle(s))}</div>
               <div class="strength-meta">${fmtDateStr(s.date)} &nbsp; - &nbsp; ${fmtDur(s.duration)} &nbsp; - &nbsp; ${Math.round(s.calories||0)} kcal${s.avgHR?' &nbsp; - &nbsp;  '+Math.round(s.avgHR)+' bpm':''}</div>
@@ -2831,7 +2985,7 @@ HEALTH DATA (current):
                 <input class="ex-input-sm" id="ex-weight-${s.id}" type="number" step="0.5" placeholder="kg">
                 <input class="ex-input-note" id="ex-note-${s.id}" placeholder="Note (optional)">
               </div>
-              <button class="add-ex-btn" onclick="addExercise('${s.id}')">+ Add</button>
+              <button class="add-ex-btn" data-action="add-exercise" data-session="${escapeHtml(s.id)}">+ Add</button>
             </div>
           </div>
         </div>`).join('');
@@ -2844,7 +2998,7 @@ HEALTH DATA (current):
       }
       if (initialSession) await loadExercises(initialSession.id);
     } catch(e) {
-      container.innerHTML = '<div class="no-sessions">Error: ' + e.message + '</div>';
+      container.innerHTML = '<div class="no-sessions">Error: ' + escapeHtml(e.message) + '</div>';
     }
   }
 
@@ -2875,9 +3029,9 @@ HEALTH DATA (current):
     list.innerHTML = exercises.map(ex => {
       const detail = [ex.sets ? ex.sets+'x' : '', ex.reps || '', ex.weight ? ex.weight+'kg' : '', ex.note || ''].filter(Boolean).join(' ');
       return `<div class="ex-row">
-        <span class="ex-name">${ex.exercise}</span>
-        <span class="ex-detail">${detail}</span>
-        <button class="ex-del" onclick="deleteExercise(${ex.id},'${sessionId}','${contextId}')" title="Ta bort">x</button>
+        <span class="ex-name">${escapeHtml(ex.exercise)}</span>
+        <span class="ex-detail">${escapeHtml(detail)}</span>
+        <button class="ex-del" data-action="delete-exercise" data-id="${Number(ex.id)}" data-session="${escapeHtml(sessionId)}" data-context="${escapeHtml(contextId)}" title="Ta bort">x</button>
       </div>`;
     }).join('');
   }
@@ -3088,7 +3242,7 @@ HEALTH DATA (current):
   // Kalender-pills: visa detalj-text via tipBox
   function showFreeTip(text, rect) {
     clearTimeout(tipTimeout);
-    tipBox.innerHTML = `<div class="tip-desc" style="margin:0">${text}</div>`;
+    tipBox.innerHTML = `<div class="tip-desc" style="margin:0">${escapeHtml(text)}</div>`;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const W  = 240;
@@ -3137,12 +3291,12 @@ HEALTH DATA (current):
       const msg = r.summary || (n ? 'Planen justerad.' : 'Inga ändringar behövdes.');
       out.innerHTML = `
         <div style="font-size:11px;font-weight:700;letter-spacing:0.04em;color:var(--green);margin-bottom:6px;">Planen justerad · ${n} ändring${n === 1 ? '' : 'ar'}</div>
-        <div style="font-size:13px;line-height:1.5;color:var(--text);">${msg}</div>`;
+        <div style="font-size:13px;line-height:1.5;color:var(--text);">${escapeHtml(msg)}</div>`;
       input.value = '';
       // Uppdatera schemat överallt (kalender, dagens pass, cockpit)
       loadPlan();
     } catch(e) {
-      out.innerHTML = `<span style="font-size:12px;color:var(--red);">${e.message}</span>`;
+      out.innerHTML = `<span style="font-size:12px;color:var(--red);">${escapeHtml(e.message)}</span>`;
     } finally {
       btn.disabled = false; btn.textContent = 'Justera plan';
     }
@@ -3678,7 +3832,7 @@ HEALTH DATA (current):
         dayGcal.forEach(ev => {
           const timeStr = ev.allDay ? 'Heldag' : fmtEventTime(ev.start) + '-' + fmtEventTime(ev.end);
           const tip = `${ev.title}  -  ${timeStr}${ev.location ? '  -  ' + ev.location : ''}`;
-          pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${tip.replace(/"/g,'&quot;')}"> ${ev.title}</span>`;
+          pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${escapeHtml(tip)}"> ${escapeHtml(ev.title)}</span>`;
         });
 
         const s = sessionMap[w + '-' + d];
@@ -3689,7 +3843,6 @@ HEALTH DATA (current):
           const strengthDetail = s.type === 'lift'
             ? compactCalendarText(s.strength_recommendation_text, 180)
             : '';
-          const escaped = (strengthDetail || compactDetail).replace(/"/g, '&quot;');
           const isModified = s.ai_note && s.status === 'planned' && s.modified_at;
           const statusNote = s.status === 'missed'      ? ' - Missed'
                            : s.status === 'skipped'     ? ' - Skipped'
@@ -3697,11 +3850,11 @@ HEALTH DATA (current):
                            : s.status === 'rescheduled' ? ' - Rescheduled'
                            : isModified                 ? ' - Adjusted'
                            : '';
-          const tipText = [s.title, escaped, statusNote.trim()].filter(Boolean).join(' - ');
+          const tipText = [s.title, strengthDetail || compactDetail, statusNote.trim()].filter(Boolean).join(' - ');
           const opacity = s.status === 'missed' || s.status === 'skipped' ? 'opacity:0.45;text-decoration:line-through;' : '';
           const modCls  = isModified ? ' csp-modified' : '';
           const doneCls = s.status === 'completed' ? ' csp-done' : '';
-          pillsHtml += `<span class="cal-session-pill ${cls}${modCls}${doneCls}" style="${opacity}" data-freetip="${tipText}">${s.title}${statusNote}</span>`;
+          pillsHtml += `<span class="cal-session-pill ${cls}${modCls}${doneCls}" style="${opacity}" data-freetip="${escapeHtml(tipText)}">${escapeHtml(s.title)}${escapeHtml(statusNote)}</span>`;
         }
 
         dayEl.innerHTML = `

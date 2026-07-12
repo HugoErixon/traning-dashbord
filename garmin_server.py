@@ -1,14 +1,26 @@
-from flask import Flask, request, jsonify, send_from_directory, g as flask_g
+from flask import Flask, request, jsonify, send_from_directory, g as flask_g, session
 from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
-import json, time, requests, psycopg2, psycopg2.extras, subprocess, threading
+import hmac
+import json
+import logging
+import secrets
+import time
+import requests
+import psycopg2
+import psycopg2.extras
+import subprocess
+import threading
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import os
 import yaml
 import re
 from apscheduler.schedulers.background import BackgroundScheduler
+from werkzeug.exceptions import HTTPException
+from security import LoginRateLimiter, parse_users, verify_user
 from strength_progression import (
     build_default_recommendations,
     build_strength_recommendations,
@@ -25,17 +37,70 @@ try:
 except ImportError:
     GCAL_AVAILABLE = False
 
-app = Flask(__name__, static_folder='public')
+def _as_bool(value, default=False):
+    if value is None:
+        return default
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
-config = dotenv_values('.env')
-_raw_users = config.get('USERS', 'hugo:hugo123')
-USERS = {}
-for i, entry in enumerate(_raw_users.split(','), start=1):
-    parts = entry.strip().split(':', 1)
-    if len(parts) == 2:
-        USERS[parts[0].strip()] = {'id': i, 'password': parts[1].strip()}
-# Backward-compat alias: first user's password (or legacy SITE_PASSWORD)
-PASSWORD = config.get('SITE_PASSWORD') or (list(USERS.values())[0]['password'] if USERS else 'hugo123')
+
+class _JsonLogFormatter(logging.Formatter):
+    def format(self, record):
+        payload = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'level': record.levelname,
+            'message': record.getMessage(),
+            'logger': record.name,
+        }
+        for field in ('event', 'request_id', 'method', 'path', 'status', 'duration_ms', 'user_id'):
+            value = getattr(record, field, None)
+            if value is not None:
+                payload[field] = value
+        if record.exc_info:
+            payload['exception'] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+logger = logging.getLogger('training_dashboard')
+if not logger.handlers:
+    _log_handler = logging.StreamHandler()
+    _log_handler.setFormatter(_JsonLogFormatter())
+    logger.addHandler(_log_handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+config = {**dotenv_values('.env'), **os.environ}
+APP_TESTING = _as_bool(config.get('APP_TESTING'))
+SESSION_SECRET = str(config.get('SESSION_SECRET') or '').strip()
+if not SESSION_SECRET and APP_TESTING:
+    SESSION_SECRET = 'test-session-secret-not-for-production'
+if len(SESSION_SECRET) < 32:
+    raise RuntimeError('SESSION_SECRET must be configured with at least 32 characters')
+
+try:
+    USERS = parse_users(config.get('USERS'), config.get('SITE_PASSWORD'))
+except ValueError as exc:
+    raise RuntimeError(str(exc)) from exc
+
+app = Flask(__name__, static_folder='public')
+app.config.update(
+    SECRET_KEY=SESSION_SECRET,
+    SESSION_COOKIE_NAME='training_session',
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=_as_bool(config.get('SESSION_COOKIE_SECURE')),
+    SESSION_COOKIE_SAMESITE='Strict',
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    SESSION_REFRESH_EACH_REQUEST=True,
+    MAX_CONTENT_LENGTH=1024 * 1024,
+    TESTING=APP_TESTING,
+)
+
+for _username, _user in USERS.items():
+    if not _user['password_hashed']:
+        logger.warning('Legacy plaintext credential configured; run the auth migration', extra={
+            'event': 'auth.legacy_password',
+            'user_id': _user['id'],
+        })
+
 ANTHROPIC_KEY = config.get('ANTHROPIC_API_KEY', '')
 TOKEN_DIR     = str(Path.home() / '.garminconnect')
 DATABASE_URL  = config.get('DATABASE_URL', '')
@@ -43,6 +108,11 @@ GCAL_ID       = config.get('GOOGLE_CALENDAR_ID', 'primary')
 GCAL_CREDS    = 'google_credentials.json'
 GCAL_SCOPES   = ['https://www.googleapis.com/auth/calendar.readonly']
 LOCAL_TZ      = ZoneInfo('Europe/Stockholm')
+ENABLE_HSTS   = _as_bool(config.get('ENABLE_HSTS'))
+LOGIN_LIMITER = LoginRateLimiter(
+    max_attempts=int(config.get('LOGIN_MAX_ATTEMPTS', '8')),
+    window_seconds=int(config.get('LOGIN_WINDOW_SECONDS', '900')),
+)
 
 def uid():
     return getattr(flask_g, 'uid', 1)
@@ -58,13 +128,16 @@ AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
 AC_KEEPER_CONFIG = config.get('AC_KEEPER_CONFIG', '/home/hugoerixon/tuya-ac-keeper/config.yaml')
 AC_BEDTIME_OVERRIDE = config.get('AC_BEDTIME_OVERRIDE', 'data/ac_bedtime_override.json')
-WATER_TOKEN = config.get('WATER_TOKEN', 'vatten-byt-mig')  # delad hemlighet för ESP32-vattensensorn
+WATER_TOKEN = config.get('WATER_TOKEN', '')  # delad hemlighet för ESP32-vattensensorn
 AC_BUTTON_TOKEN = config.get('AC_BUTTON_TOKEN', WATER_TOKEN)  # fysisk ESP32-knapp, fallback till vatten-token
 # Lockout-flagga: ligger i samma katalog som AC-flaggan (keeperns data/-katalog).
 WATER_LOCKOUT_FLAG = config.get('WATER_LOCKOUT_FLAG', os.path.join(os.path.dirname(AC_CONTROL_FLAG), 'water_lockout'))
 WEATHER_LAT = float(config.get('WEATHER_LAT', '58.35593'))
 WEATHER_LON = float(config.get('WEATHER_LON', '11.22411'))
 WEATHER_LOCATION = config.get('WEATHER_LOCATION', 'Smögen')
+
+if not APP_TESTING and (len(WATER_TOKEN) < 16 or len(AC_BUTTON_TOKEN) < 16):
+    logger.warning('Hardware API token is missing or too short', extra={'event': 'auth.weak_hardware_token'})
 
 def _valid_clock(value):
     if not isinstance(value, str) or not re.match(r'^\d{2}:\d{2}$', value):
@@ -237,11 +310,12 @@ def migrate_db():
         conn.commit()
     print('Databas: migrering klar')
 
-try:
-    setup_db()
-    migrate_db()
-except Exception as e:
-    print('Databas fel:', e)
+if not APP_TESTING:
+    try:
+        setup_db()
+        migrate_db()
+    except Exception:
+        logger.exception('Database initialization failed', extra={'event': 'database.initialize_failed'})
 
 # --- Garmin ---
 # Token migration note for Pi: if Hugo's existing tokens are at ~/.garminconnect/,
@@ -311,51 +385,208 @@ def clear_cache(*keys, user_id=1):
 
 # --- Auth ---
 @app.before_request
+def begin_request():
+    flask_g.request_id = uuid.uuid4().hex
+    flask_g.request_started = time.perf_counter()
+
+
+def _request_id():
+    return getattr(flask_g, 'request_id', '')
+
+
+def _api_error(code, message, status, extra=None):
+    payload = {'error': message, 'code': code, 'requestId': _request_id()}
+    if extra:
+        payload.update(extra)
+    return jsonify(payload), status
+
+
+def _server_error(error, event, status=500, code='internal_error',
+                  message='Ett oväntat serverfel inträffade.', extra=None):
+    logger.exception('Request failed', extra={
+        'event': event,
+        'request_id': _request_id(),
+        'path': request.path,
+        'method': request.method,
+        'user_id': getattr(flask_g, 'uid', None),
+    })
+    return _api_error(code, message, status, extra=extra)
+
+
+def _configured_session_user():
+    username = session.get('username')
+    user = USERS.get(username)
+    if not user or session.get('user_id') != user['id']:
+        return None, None
+    return username, user
+
+
+def _ensure_csrf_token():
+    token = session.get('csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['csrf_token'] = token
+    return token
+
+
+@app.before_request
 def check_auth():
     if not request.path.startswith('/api/'):
         return
-    if request.path == '/api/login':
+    if request.method == 'OPTIONS':
         return
-    if request.path == '/api/water':
-        return  # ESP32-vattensensorn — autentiseras via egen token i endpointen
-    if request.path in ('/api/ac/button/off', '/api/ac/button/auto-on'):
-        return  # ESP32-knappen — autentiseras via egen token i endpointen
-    if request.host.startswith('localhost') or request.host.startswith('127.0.0.1'):
-        first = list(USERS.keys())[0] if USERS else 'hugo'
-        flask_g.uid = USERS.get(first, {}).get('id', 1)
-        flask_g.uname = first
+    if request.path in ('/api/login', '/api/session', '/api/healthz'):
         return
-    username = request.headers.get('x-site-user', '')
-    password = request.headers.get('x-site-password', '')
-    if username and username in USERS:
-        if USERS[username]['password'] == password:
-            flask_g.uid = USERS[username]['id']
-            flask_g.uname = username
-            return
-    else:
-        # Backward compat: no username header → check against first user
-        first = list(USERS.keys())[0] if USERS else 'hugo'
-        if password == USERS.get(first, {}).get('password', PASSWORD):
-            flask_g.uid = USERS.get(first, {}).get('id', 1)
-            flask_g.uname = first
-            return
-    return jsonify({'error': 'Unauthorized'}), 401
+    if request.method == 'POST' and request.path in (
+        '/api/water', '/api/ac/button/off', '/api/ac/button/auto-on'
+    ):
+        return  # Hardware endpoints authenticate with separate, scoped tokens.
+
+    username, user = _configured_session_user()
+    if not user:
+        session.clear()
+        return _api_error('authentication_required', 'Du behöver logga in igen.', 401)
+
+    flask_g.uid = user['id']
+    flask_g.uname = username
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        expected = session.get('csrf_token') or ''
+        supplied = request.headers.get('X-CSRF-Token', '')
+        if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+            return _api_error('invalid_csrf_token', 'Säkerhetstoken saknas eller är ogiltig.', 403)
+
+
+@app.after_request
+def secure_response(response):
+    request_id = _request_id()
+    response.headers['X-Request-ID'] = request_id
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'same-origin'
+    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=(), payment=()'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; "
+        "script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+        "form-action 'self'"
+    )
+    if request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Vary'] = 'Cookie'
+    elif request.path in ('/', '/index.html', '/app.js', '/styles.css'):
+        response.headers['Cache-Control'] = 'no-cache'
+    if ENABLE_HSTS:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+
+    started = getattr(flask_g, 'request_started', None)
+    duration_ms = round((time.perf_counter() - started) * 1000, 1) if started else None
+    if request.path != '/api/healthz':
+        logger.info('request', extra={
+            'event': 'http.request',
+            'request_id': request_id,
+            'method': request.method,
+            'path': request.path,
+            'status': response.status_code,
+            'duration_ms': duration_ms,
+            'user_id': getattr(flask_g, 'uid', None),
+        })
+    return response
+
+
+@app.errorhandler(Exception)
+def unhandled_error(error):
+    if isinstance(error, HTTPException):
+        return error
+    logger.exception('Unhandled request error', extra={
+        'event': 'http.unhandled_error',
+        'request_id': _request_id(),
+        'method': request.method,
+        'path': request.path,
+        'user_id': getattr(flask_g, 'uid', None),
+    })
+    if request.path.startswith('/api/'):
+        return _api_error('internal_error', 'Ett oväntat serverfel inträffade.', 500)
+    return 'Internal Server Error', 500
+
 
 # --- Endpoints ---
+@app.get('/api/healthz')
+def healthz():
+    return jsonify({'status': 'ok'})
+
+
+@app.get('/api/session')
+def auth_session():
+    username, user = _configured_session_user()
+    if not user:
+        session.clear()
+        return jsonify({'authenticated': False})
+    return jsonify({
+        'authenticated': True,
+        'username': username,
+        'userId': user['id'],
+        'csrfToken': _ensure_csrf_token(),
+    })
+
+
 @app.post('/api/login')
 def login():
-    data = request.json or {}
-    username = data.get('username', '')
-    password = data.get('password', '')
-    if username and username in USERS:
-        if USERS[username]['password'] == password:
-            return jsonify({'ok': True, 'username': username, 'user_id': USERS[username]['id']})
-    else:
-        # Backward compat: no username → check first user
-        first = list(USERS.keys())[0] if USERS else 'hugo'
-        if password == USERS.get(first, {}).get('password', PASSWORD):
-            return jsonify({'ok': True, 'username': first, 'user_id': USERS.get(first, {}).get('id', 1)})
-    return jsonify({'ok': False}), 401
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username') or '').strip()
+    password = data.get('password')
+    if not username:
+        username = next(iter(USERS))
+    if not isinstance(password, str) or not password or len(username) > 64 or len(password) > 1024:
+        return _api_error('invalid_credentials', 'Fel användarnamn eller lösenord.', 401)
+
+    limiter_key = f'{request.remote_addr or "unknown"}:{username.lower()}'
+    allowed, retry_after = LOGIN_LIMITER.check(limiter_key)
+    if not allowed:
+        response, status = _api_error(
+            'too_many_login_attempts',
+            'För många inloggningsförsök. Vänta en stund och försök igen.',
+            429,
+        )
+        response.headers['Retry-After'] = str(retry_after)
+        logger.warning('Login rate limited', extra={
+            'event': 'auth.rate_limited',
+            'request_id': _request_id(),
+        })
+        return response, status
+
+    user = verify_user(USERS, username, password)
+    if not user:
+        LOGIN_LIMITER.record_failure(limiter_key)
+        logger.warning('Invalid login attempt', extra={
+            'event': 'auth.login_failed',
+            'request_id': _request_id(),
+        })
+        return _api_error('invalid_credentials', 'Fel användarnamn eller lösenord.', 401)
+
+    LOGIN_LIMITER.reset(limiter_key)
+    session.clear()
+    session.permanent = True
+    session['username'] = username
+    session['user_id'] = user['id']
+    csrf_token = _ensure_csrf_token()
+    logger.info('Login succeeded', extra={
+        'event': 'auth.login_succeeded',
+        'request_id': _request_id(),
+        'user_id': user['id'],
+    })
+    return jsonify({
+        'ok': True,
+        'username': username,
+        'userId': user['id'],
+        'csrfToken': csrf_token,
+    })
+
+
+@app.post('/api/logout')
+def logout():
+    session.clear()
+    return jsonify({'ok': True})
+
 
 @app.get('/api/status')
 def status():
@@ -491,7 +722,10 @@ def current_weather():
             'units': units,
         })
     except Exception as e:
-        return jsonify({'ok': False, 'source': 'Open-Meteo', 'error': str(e)}), 502
+        return _server_error(
+            e, 'weather.current_failed', status=502, code='weather_unavailable',
+            message='Väderdata kunde inte hämtas.', extra={'ok': False, 'source': 'Open-Meteo'}
+        )
 
 @app.get('/api/ac')
 def ac_proxy():
@@ -502,7 +736,10 @@ def ac_proxy():
         r = requests.get(f'{AC_KEEPER_URL}/api/current', timeout=4)
         return jsonify(r.json())
     except Exception as e:
-        return jsonify({'available': False, 'error': str(e)})
+        return _server_error(
+            e, 'ac.current_failed', status=502, code='ac_unavailable',
+            message='AC-status kunde inte hämtas.', extra={'available': False}
+        )
 
 def _aggregate_humidity_points(readings, bucket_seconds=300):
     buckets = {}
@@ -547,7 +784,10 @@ def ac_history():
         r = requests.get(f'{AC_KEEPER_URL}/api/control-events', params={'hours': 24}, timeout=6)
         events = r.json()
     except Exception as e:
-        return jsonify({'available': False, 'error': str(e), 'points': []})
+        return _server_error(
+            e, 'ac.history_failed', status=502, code='ac_unavailable',
+            message='Klimathistoriken kunde inte hämtas.', extra={'available': False, 'points': []}
+        )
     try:
         rr = requests.get(f'{AC_KEEPER_URL}/api/readings', params={'hours': 24}, timeout=6)
         readings = rr.json()
@@ -645,13 +885,15 @@ def ac_loop_control():
         status['ok'] = True
         return jsonify(status)
     except Exception as e:
-        return jsonify({
-            'ok': False,
-            'available': False,
-            'service': AC_LOOP_SERVICE,
-            'enabled': _read_control_flag(),
-            'error': str(e),
-        }), 500
+        return _server_error(
+            e, 'ac.loop_control_failed', message='AC-styrningen kunde inte uppdateras.',
+            extra={
+                'ok': False,
+                'available': False,
+                'service': AC_LOOP_SERVICE,
+                'enabled': _read_control_flag(),
+            },
+        )
 
 @app.get('/api/ac/bedtime')
 def ac_bedtime_get():
@@ -684,7 +926,10 @@ def ac_bedtime_set():
             json.dump(payload, f)
         return jsonify({'ok': True, 'available': True, **payload, 'source': 'manual' if payload['bedtime'] else 'calculated'})
     except Exception as e:
-        return jsonify({'ok': False, 'available': False, 'error': str(e)}), 500
+        return _server_error(
+            e, 'ac.bedtime_failed', message='Läggtiden kunde inte sparas.',
+            extra={'ok': False, 'available': False}
+        )
 
 @app.post('/api/ac/manual-control')
 def ac_manual_control():
@@ -712,17 +957,23 @@ def ac_manual_control():
         try:
             body = r.json()
         except Exception:
-            body = {'error': r.text}
+            body = {}
         if not r.ok:
-            return jsonify({'ok': False, 'available': False, 'error': body.get('error') or body.get('detail') or 'AC-keeper avvisade kommandot'}), r.status_code
+            return _api_error(
+                'ac_command_rejected', 'AC-keeper avvisade kommandot.', r.status_code,
+                extra={'ok': False, 'available': False}
+            )
         status = _ac_loop_status()
         return jsonify({'ok': True, 'automatic_enabled': status['enabled'], **body})
     except Exception as e:
-        return jsonify({'ok': False, 'available': False, 'error': str(e)}), 500
+        return _server_error(
+            e, 'ac.manual_control_failed', message='AC-kommandot kunde inte skickas.',
+            extra={'ok': False, 'available': False}
+        )
 
 def _check_ac_button_token():
     token = request.headers.get('x-ac-button-token') or request.headers.get('x-water-token') or ''
-    return token == AC_BUTTON_TOKEN
+    return bool(token and AC_BUTTON_TOKEN and hmac.compare_digest(token, AC_BUTTON_TOKEN))
 
 @app.post('/api/ac/button/off')
 def ac_button_off():
@@ -735,12 +986,18 @@ def ac_button_off():
         try:
             body = r.json()
         except Exception:
-            body = {'error': r.text}
+            body = {}
         if not r.ok:
-            return jsonify({'ok': False, 'automatic_enabled': False, 'error': body.get('error') or body.get('detail') or 'AC-keeper avvisade kommandot'}), r.status_code
+            return _api_error(
+                'ac_command_rejected', 'AC-keeper avvisade kommandot.', r.status_code,
+                extra={'ok': False, 'automatic_enabled': False}
+            )
         return jsonify({'ok': True, 'action': 'off', 'automatic_enabled': False, **body})
     except Exception as e:
-        return jsonify({'ok': False, 'automatic_enabled': False, 'error': str(e)}), 500
+        return _server_error(
+            e, 'ac.button_off_failed', message='AC:n kunde inte stängas av.',
+            extra={'ok': False, 'automatic_enabled': False}
+        )
 
 @app.post('/api/ac/button/auto-on')
 def ac_button_auto_on():
@@ -755,7 +1012,10 @@ def ac_button_auto_on():
             pass
         return jsonify({'ok': True, 'action': 'auto-on', 'automatic_enabled': True})
     except Exception as e:
-        return jsonify({'ok': False, 'automatic_enabled': _read_control_flag(), 'error': str(e)}), 500
+        return _server_error(
+            e, 'ac.button_auto_failed', message='Automatisk AC-styrning kunde inte startas.',
+            extra={'ok': False, 'automatic_enabled': _read_control_flag()}
+        )
 
 @app.post('/api/ac/setpoint')
 def ac_setpoint():
@@ -779,10 +1039,15 @@ def ac_setpoint():
             yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
         result = subprocess.run(['sudo', 'systemctl', 'restart', AC_LOOP_SERVICE], timeout=10, capture_output=True)
         if result.returncode != 0:
-            return jsonify({'ok': False, 'error': 'systemctl restart failed: ' + result.stderr.decode()}), 500
+            logger.error('AC service restart failed', extra={
+                'event': 'ac.restart_failed',
+                'request_id': _request_id(),
+                'user_id': uid(),
+            })
+            return _api_error('ac_restart_failed', 'AC-tjänsten kunde inte startas om.', 500, extra={'ok': False})
         return jsonify({'ok': True, 'target_c': cfg['controller']['target_c']})
     except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return _server_error(e, 'ac.setpoint_failed', message='AC-temperaturen kunde inte sparas.', extra={'ok': False})
 
 def _interval_work_laps_for_activity(client, activity_id):
     """Return fast 300-550 m work reps from Garmin splits for calendar labels."""
@@ -854,7 +1119,7 @@ def activities():
         save_activities(acts, uid())
         return jsonify({'activities': acts, 'source': 'garmin'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'activities.load_failed', message='Aktiviteterna kunde inte hämtas.')
 
 # ─────────────────────────────────────────────
 # HRV-LOGIK (Garmin HRV Status + personlig baslinje)
@@ -1116,7 +1381,7 @@ def health_data():
 
         return jsonify(result)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'health.load_failed', message='Hälsodatan kunde inte hämtas.')
 
 
 @app.get('/api/health/spark')
@@ -1525,7 +1790,7 @@ def training_load():
         set_cache('training_load', result, uid())
         return jsonify(result)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'training_load.load_failed', message='Träningsbelastningen kunde inte hämtas.')
 
 @app.post('/api/sync')
 def sync():
@@ -1533,7 +1798,7 @@ def sync():
         n = run_sync(username=uname(), user_id=uid())
         return jsonify({'ok': True, 'count': n})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'sync.failed', message='Garmin-synkningen misslyckades.')
 
 def _get_iso_week(d):
     """Returnera ISO-veckonummer för ett date-objekt."""
@@ -1772,7 +2037,7 @@ def refresh():
         acts = client.get_activities(0, 10)
         save_activities(acts, uid())
     except Exception as e:
-        return jsonify({'error': 'Garmin error: ' + str(e)}), 500
+        return _server_error(e, 'analysis.garmin_failed', message='Garmin-datan kunde inte hämtas.')
 
     if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
         return jsonify({'todayRecommendation': 'Add an Anthropic API key in .env.',
@@ -1785,7 +2050,7 @@ def refresh():
         json={'model': 'claude-sonnet-4-6', 'max_tokens': 600,
               'messages': [{'role': 'user', 'content': prompt}]},
         headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
-                 'content-type': 'application/json'})
+                 'content-type': 'application/json'}, timeout=45)
 
     text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
     analysis = json.loads(text)
@@ -1974,14 +2239,14 @@ def training_review():
             json={'model': 'claude-sonnet-4-6', 'max_tokens': 500,
                   'messages': [{'role': 'user', 'content': prompt}]},
             headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
-                     'content-type': 'application/json'})
+                     'content-type': 'application/json'}, timeout=45)
         text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
         review = json.loads(text)
         review['_review_version'] = 2
         set_cache('training_review', review, uid())
         return jsonify(review)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'training_review.failed', message='Träningsanalysen kunde inte skapas.')
 
 def _build_insights_prompt():
     today = date.today()
@@ -2081,8 +2346,7 @@ def insights():
                 cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
                 n = cur.fetchone()[0]
     except Exception as e:
-        print('insights db error:', e)
-        return jsonify({'error': 'Database error: ' + str(e)}), 500
+        return _server_error(e, 'insights.database_failed', message='Underlaget för insikter kunde inte hämtas.')
 
     if n < 3:
         return jsonify({'status': 'watch', 'headline': 'Gathering your data…',
@@ -2097,19 +2361,22 @@ def insights():
         resp = requests.post('https://api.anthropic.com/v1/messages',
             json={'model': 'claude-sonnet-4-6', 'max_tokens': 2000,
                   'messages': [{'role': 'user', 'content': prompt}]},
-            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
+            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+            timeout=45)
         rj = resp.json()
         if 'error' in rj:
-            err_msg = rj['error'].get('message', str(rj['error']))
-            print('insights anthropic error:', err_msg)
-            return jsonify({'error': 'Anthropic API error: ' + err_msg}), 500
+            logger.error('Insight provider rejected request', extra={
+                'event': 'insights.provider_rejected',
+                'request_id': _request_id(),
+                'user_id': uid(),
+            })
+            return _api_error('ai_provider_error', 'AI-tjänsten kunde inte skapa insikterna.', 502)
         text = rj['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('insights', data, uid())
         return jsonify(data)
     except Exception as e:
-        print('insights error:', e)
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'insights.generation_failed', message='Insikterna kunde inte skapas.')
 
 def _build_sleep_insights_prompt():
     today = date.today()
@@ -2202,7 +2469,7 @@ def sleep_insights():
                 cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
                 n = cur.fetchone()[0]
     except Exception as e:
-        return jsonify({'error': 'Database error: ' + str(e)}), 500
+        return _server_error(e, 'sleep_insights.database_failed', message='Sömnunderlaget kunde inte hämtas.')
 
     if n < 5:
         return jsonify({'status': 'watch', 'headline': 'Collecting sleep data…',
@@ -2217,17 +2484,22 @@ def sleep_insights():
         resp = requests.post('https://api.anthropic.com/v1/messages',
             json={'model': 'claude-sonnet-4-6', 'max_tokens': 2000,
                   'messages': [{'role': 'user', 'content': prompt}]},
-            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'})
+            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+            timeout=45)
         rj = resp.json()
         if 'error' in rj:
-            return jsonify({'error': 'Anthropic: ' + rj['error'].get('message', str(rj['error']))}), 500
+            logger.error('Sleep insight provider rejected request', extra={
+                'event': 'sleep_insights.provider_rejected',
+                'request_id': _request_id(),
+                'user_id': uid(),
+            })
+            return _api_error('ai_provider_error', 'AI-tjänsten kunde inte skapa sömnanalysen.', 502)
         text = rj['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('sleep_insights', data, uid())
         return jsonify(data)
     except Exception as e:
-        print('sleep_insights error:', e)
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'sleep_insights.generation_failed', message='Sömnanalysen kunde inte skapas.')
 
 
 def _parse_calendar_dt(value):
@@ -2273,7 +2545,7 @@ def sleep_coach():
                     FROM health_history WHERE user_id=%s ORDER BY date DESC LIMIT 7''', (uid(),))
                 history = cur.fetchall()
     except Exception as e:
-        return jsonify({'error': 'Database error: ' + str(e)}), 500
+        return _server_error(e, 'sleep_coach.database_failed', message='Sömnhistoriken kunde inte hämtas.')
 
     recent_hours = [float(r[2]) for r in history if r[2] is not None]
     avg_sleep = round(sum(recent_hours) / len(recent_hours), 2) if recent_hours else None
@@ -2384,16 +2656,29 @@ def sleep_coach():
 
 @app.post('/api/chat')
 def chat():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
+    message = str(data.get('message') or '').strip()
+    context = str(data.get('context') or 'You are a personal training coach. Always respond in Swedish (svenska).')
+    if not message:
+        return _api_error('message_required', 'Skriv en fråga först.', 400)
+    if len(message) > 4000 or len(context) > 30000:
+        return _api_error('request_too_large', 'Coachfrågan är för lång.', 400)
     if not ANTHROPIC_KEY:
-        return jsonify({'reply': 'API key missing.'})
-    resp = requests.post('https://api.anthropic.com/v1/messages',
-        json={'model': 'claude-sonnet-4-6', 'max_tokens': 1024,
-              'system': data.get('context', 'You are a personal training coach. Always respond in Swedish (svenska).'),
-              'messages': [{'role': 'user', 'content': data.get('message', '')}]},
-        headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
-                 'content-type': 'application/json'})
-    return jsonify({'reply': resp.json()['content'][0]['text']})
+        return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
+    try:
+        resp = requests.post('https://api.anthropic.com/v1/messages',
+            json={'model': 'claude-sonnet-4-6', 'max_tokens': 1024,
+                  'system': context,
+                  'messages': [{'role': 'user', 'content': message}]},
+            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
+                     'content-type': 'application/json'}, timeout=45)
+        resp.raise_for_status()
+        return jsonify({'reply': resp.json()['content'][0]['text']})
+    except Exception as e:
+        return _server_error(
+            e, 'chat.provider_failed', status=502, code='ai_provider_error',
+            message='Coachen kunde inte svara just nu.'
+        )
 
 # --- Google Calendar ---
 def get_gcal_service():
@@ -3068,10 +3353,11 @@ def reseed_plan():
         conn.commit()
     print(f'Plan omseedad: {len(PLAN_SEED)} nya pass')
 
-try:
-    seed_plan()
-except Exception as e:
-    print('Seed-fel:', e)
+if not APP_TESTING:
+    try:
+        seed_plan()
+    except Exception:
+        logger.exception('Plan seed failed', extra={'event': 'plan.seed_failed'})
 
 
 # ─────────────────────────────────────────────
@@ -3586,7 +3872,7 @@ Return ONLY this JSON, with no comments outside it:
             json={'model': 'claude-sonnet-4-6', 'max_tokens': 3000,
                   'messages': [{'role': 'user', 'content': prompt}]},
             headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
-                     'content-type': 'application/json'})
+                     'content-type': 'application/json'}, timeout=45)
         text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
         result = json.loads(text)
     except Exception as e:
@@ -3740,7 +4026,7 @@ def api_reseed():
         reseed_plan()
         return jsonify({'ok': True, 'sessions': len(PLAN_SEED)})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'plan.reseed_failed', message='Träningsplanen kunde inte återställas.')
 
 def manual_adjust_disabled():
     """Trigga AI-justeringen manuellt (t.ex. för testning)."""
@@ -3764,7 +4050,7 @@ def plan_request():
         row = get_cache('last_plan_adjustment', first_uid)
         return jsonify({'ok': True, 'result': row[0] if row else {}})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _server_error(e, 'plan.request_failed', message='Planändringen kunde inte genomföras.')
 
 @app.get('/api/plan/status')
 def plan_status():
@@ -3810,17 +4096,22 @@ def auto_sync_job():
     except Exception as e:
         print('Auto-sync fel:', e)
 
-scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
-scheduler.add_job(auto_sync_job, 'interval', hours=3)
-scheduler.start()
-print('Scheduler active: data-driven daglig rutin via autosynk var 3:e timme')
+scheduler = None
+if not APP_TESTING:
+    scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
+    scheduler.add_job(auto_sync_job, 'interval', hours=3)
+    scheduler.start()
+    logger.info('Scheduler started', extra={'event': 'scheduler.started'})
 
 # Bootstrappa hälsohistorik + fitness-mätare i bakgrunden (blockerar inte serverstarten)
 def _bootstrap_history():
     first_user = list(USERS.keys())[0] if USERS else 'hugo'
     collect_health_history(14, username=first_user)
     collect_metric_history(45, username=first_user)
-threading.Thread(target=_bootstrap_history, daemon=True).start()
+
+
+if not APP_TESTING:
+    threading.Thread(target=_bootstrap_history, daemon=True).start()
 
 
 # --- Vattensensor (ESP32) ---
@@ -3833,9 +4124,10 @@ def water_alert():
     keepern tvingar AC:n AV varje cykel tills låset släpps manuellt (av/på-knappen).
     Skriver water_lockout=1 + control_enabled=0 (så dashboard-knappen visar AV) och
     ber keepern verkställa direkt så AC:n stängs av med en gång, inte vid nästa poll."""
-    if request.headers.get('x-water-token', '') != WATER_TOKEN:
+    token = request.headers.get('x-water-token', '')
+    if not token or not WATER_TOKEN or not hmac.compare_digest(token, WATER_TOKEN):
         return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     level = data.get('level', '')
     _water_state['level'] = level
     _water_state['ts'] = datetime.now(LOCAL_TZ).isoformat()
@@ -3848,7 +4140,7 @@ def water_alert():
                 f.write('0')
             _water_state['ac_disabled'] = True
         except Exception as e:
-            return jsonify({'ok': False, 'error': str(e)}), 500
+            return _server_error(e, 'water.lockout_failed', extra={'ok': False})
         # Verkställ direkt — vänta inte på keeperns nästa pollcykel.
         try:
             requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=6)
@@ -3873,6 +4165,7 @@ def static_files(path):
     return send_from_directory('public', path)
 
 if __name__ == '__main__':
-    print('Dashboard startar på http://localhost:3000')
-    print('Tryck Ctrl+C för att stänga')
-    app.run(host='0.0.0.0', port=3000, debug=False)
+    bind_host = config.get('BIND_HOST', '0.0.0.0')
+    bind_port = int(config.get('PORT', '3000'))
+    logger.info('Dashboard starting', extra={'event': 'server.starting'})
+    app.run(host=bind_host, port=bind_port, debug=False)

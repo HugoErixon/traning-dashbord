@@ -3034,3 +3034,20 @@
         min-height: 88px;
       }
     }
+    .nav-item:focus-visible,
+    [data-action]:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    #note-input:focus {
+      border-color: var(--blue) !important;
+    }
+
+    .note-save-btn:hover {
+      background: rgba(96, 165, 250, 0.15) !important;
+    }
+
+    .note-delete:hover {
+      color: var(--red) !important;
+    }

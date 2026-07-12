@@ -22,39 +22,39 @@
       </div>
     </div>
     <div class="nav">
-      <div class="nav-item active" onclick="goto('home')">
+      <div class="nav-item active" data-action="goto" data-page="home" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
         <span>Hem</span>
       </div>
-      <div class="nav-item" onclick="goto('health')">
+      <div class="nav-item" data-action="goto" data-page="health" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg></span>
         <span>Hälsa</span>
       </div>
-      <div class="nav-item" onclick="goto('sleep')">
+      <div class="nav-item" data-action="goto" data-page="sleep" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></span>
         <span>Sömn</span>
       </div>
-      <div class="nav-item" onclick="goto('upcoming')">
+      <div class="nav-item" data-action="goto" data-page="upcoming" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
         <span>Kalender</span>
       </div>
-      <div class="nav-item" onclick="goto('analysis')">
+      <div class="nav-item" data-action="goto" data-page="analysis" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
         <span>Analys</span>
       </div>
-      <div class="nav-item" onclick="goto('strength')">
+      <div class="nav-item" data-action="goto" data-page="strength" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5h11M6.5 17.5h11M8 6.5v11M16 6.5v11"/><rect x="4" y="5" width="2.5" height="14" rx="1"/><rect x="17.5" y="5" width="2.5" height="14" rx="1"/></svg></span>
         <span>Styrka</span>
       </div>
-      <div class="nav-item" onclick="goto('climate')">
+      <div class="nav-item" data-action="goto" data-page="climate" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/></svg></span>
         <span>Klimat</span>
       </div>
-      <div class="nav-item" onclick="goto('journal')">
+      <div class="nav-item" data-action="goto" data-page="journal" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></span>
         <span>Dagbok</span>
       </div>
-      <div class="nav-item" onclick="goto('coach')">
+      <div class="nav-item" data-action="goto" data-page="coach" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
         <span>Anteckningar</span>
       </div>
@@ -69,11 +69,11 @@
           </div>
         </div>
       </div>
-      <button class="ghost-btn" id="refresh-btn" onclick="refreshData()">
+      <button class="ghost-btn" id="refresh-btn" data-action="refresh-data">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
         Uppdatera data
       </button>
-      <button class="ghost-btn" id="gcal-sync-btn" onclick="syncGcal()" style="color:var(--accent);">
+      <button class="ghost-btn" id="gcal-sync-btn" data-action="sync-calendar" style="color:var(--accent);">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         Synka kalender
       </button>
@@ -105,8 +105,8 @@
     </div>
     <div class="content">
     <div class="mobile-actions" aria-label="Dashboard actions">
-      <button class="refresh-btn" id="mobile-refresh-btn" onclick="refreshData()">Uppdatera data</button>
-      <button class="refresh-btn" id="mobile-gcal-sync-btn" onclick="syncGcal()">Synka kalender</button>
+      <button class="refresh-btn" id="mobile-refresh-btn" data-action="refresh-data">Uppdatera data</button>
+      <button class="refresh-btn" id="mobile-gcal-sync-btn" data-action="sync-calendar">Synka kalender</button>
     </div>
 
     <!-- HEM -->
@@ -192,9 +192,8 @@
           <div style="display:flex;gap:8px;margin-top:16px;">
             <input id="coach-request-input" type="text" maxlength="500"
               placeholder="Be coachen ändra dagens plan…"
-              style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:10px 13px;color:var(--text);font-size:13px;font-family:inherit;outline:none;"
-              onkeydown="if(event.key==='Enter')sendCoachRequest()">
-            <button id="coach-request-btn" class="refresh-btn" style="margin:0;width:auto;padding:9px 16px;color:var(--accent);" onclick="sendCoachRequest()">Justera</button>
+              style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:10px 13px;color:var(--text);font-size:13px;font-family:inherit;outline:none;">
+            <button id="coach-request-btn" class="refresh-btn" style="margin:0;width:auto;padding:9px 16px;color:var(--accent);" data-action="coach-request">Justera</button>
           </div>
           <div id="coach-request-result" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);"></div>
         </div>
@@ -237,7 +236,7 @@
       <!-- ROW 3: Insikter -->
       <div class="section-header">
         <span class="section-header-label">Kroppen rapporterar</span>
-        <button class="insights-refresh" onclick="loadInsights(true)">↺ Uppdatera</button>
+        <button class="insights-refresh" data-action="refresh-insights">↺ Uppdatera</button>
       </div>
       <div class="bigcard" style="margin-bottom:0;">
         <div class="insights-hl">
@@ -273,12 +272,12 @@
         <p id="ac-body">Läser rumstemperatur…</p>
         <div class="ac-control-row">
           <div class="ac-loop-status" id="ac-loop-status">Styrloop: kollar…</div>
-          <button class="ac-loop-btn" id="ac-loop-toggle" onclick="toggleAcLoop()" disabled>Laddar…</button>
+          <button class="ac-loop-btn" id="ac-loop-toggle" data-action="toggle-ac-loop" disabled>Laddar…</button>
         </div>
         <div class="ac-setpoint-row">
           <span class="ac-setpoint-label">Måltemperatur:</span>
-          <input class="ac-setpoint-input" type="number" id="ac-setpoint-input" min="10" max="35" step="0.5" placeholder="–" oninput="this.dataset.dirty='1'" onblur="delete this.dataset.dirty">
-          <button class="ac-setpoint-btn" id="ac-setpoint-btn" onclick="setAcSetpoint()">Sätt</button>
+          <input class="ac-setpoint-input" type="number" id="ac-setpoint-input" min="10" max="35" step="0.5" placeholder="–">
+          <button class="ac-setpoint-btn" id="ac-setpoint-btn" data-action="set-ac-setpoint">Sätt</button>
           <span class="ac-setpoint-status" id="ac-setpoint-status"></span>
         </div>
       </div>
@@ -293,8 +292,8 @@
           <div class="ac-setpoint-row">
             <span class="ac-setpoint-label">Läggtid:</span>
             <input class="ac-setpoint-input ac-time-input" type="time" id="ac-bedtime-input">
-            <button class="ac-setpoint-btn" id="ac-bedtime-save" onclick="saveAcBedtime()">Spara</button>
-            <button class="ac-setpoint-btn" id="ac-bedtime-clear" onclick="clearAcBedtime()">Auto</button>
+            <button class="ac-setpoint-btn" id="ac-bedtime-save" data-action="save-ac-bedtime">Spara</button>
+            <button class="ac-setpoint-btn" id="ac-bedtime-clear" data-action="clear-ac-bedtime">Auto</button>
             <span class="ac-setpoint-status" id="ac-bedtime-status"></span>
           </div>
         </div>
@@ -320,7 +319,7 @@
                 <option value="off">Av</option>
               </select>
             </label>
-            <button class="ac-loop-btn" id="ac-manual-send" onclick="sendManualAcCommand()">Skicka</button>
+            <button class="ac-loop-btn" id="ac-manual-send" data-action="send-ac-command">Skicka</button>
           </div>
           <div class="ac-setpoint-status" id="ac-manual-status"></div>
         </div>
@@ -632,7 +631,7 @@
             <h3 id="sleep-ai-headline" style="font-size:15px;margin:0;">Sömnmönster</h3>
             <span class="today-badge badge-amber" id="sleep-ai-badge">AI</span>
           </div>
-          <button class="insights-refresh" onclick="loadSleepInsights(true)">↺ Uppdatera</button>
+          <button class="insights-refresh" data-action="refresh-sleep-insights">↺ Uppdatera</button>
         </div>
         <div id="sleep-ai-list">
           <div style="font-size:12px;color:var(--muted3);">Analyserar din sömn…</div>
@@ -665,8 +664,8 @@
         </div>
       </div>
       <div class="cal-tabs" role="tablist" aria-label="Kalendervy">
-        <button class="cal-tab active" id="cal-tab-current" type="button" role="tab" aria-selected="true" onclick="setCalendarView('current')">Denna vecka framåt</button>
-        <button class="cal-tab" id="cal-tab-past" type="button" role="tab" aria-selected="false" onclick="setCalendarView('past')">Tidigare veckor</button>
+        <button class="cal-tab active" id="cal-tab-current" type="button" role="tab" aria-selected="true" data-action="calendar-view" data-view="current">Denna vecka framåt</button>
+        <button class="cal-tab" id="cal-tab-past" type="button" role="tab" aria-selected="false" data-action="calendar-view" data-view="past">Tidigare veckor</button>
       </div>
       <div id="cal-container"></div>
     </div>
@@ -683,9 +682,9 @@
     <div class="page" id="page-strength">
       <div class="page-header"><h2>Styrka</h2><p>Logga dagens gympass live, eller se tidigare pass från Garmin</p></div>
       <div class="strength-tabs">
-        <button class="strength-tab active" id="stab-today" onclick="strengthTab('today')">Dagens pass</button>
-        <button class="strength-tab" id="stab-history" onclick="strengthTab('history')">Historik</button>
-        <button class="strength-tab" id="stab-analysis" onclick="strengthTab('analysis')">Analys</button>
+        <button class="strength-tab active" id="stab-today" data-action="strength-tab" data-tab="today">Dagens pass</button>
+        <button class="strength-tab" id="stab-history" data-action="strength-tab" data-tab="history">Historik</button>
+        <button class="strength-tab" id="stab-analysis" data-action="strength-tab" data-tab="analysis">Analys</button>
       </div>
       <div id="strength-today"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Laddar dagens pass…</div></div>
       <div id="strength-history" style="display:none;">
@@ -737,7 +736,7 @@
           <textarea id="journal-text" class="journal-textarea" rows="10" maxlength="6000" placeholder="Hur har dagen varit? Vad tog energi, vad gav energi, och finns det något du vill bära med dig till imorgon?"></textarea>
           <div class="journal-actions">
             <span id="journal-char-count">0 tecken</span>
-            <button class="refresh-btn" id="journal-save-btn" onclick="saveJournalEntry()">Spara dagbok</button>
+            <button class="refresh-btn" id="journal-save-btn" data-action="save-journal">Spara dagbok</button>
           </div>
         </section>
 
@@ -770,12 +769,12 @@
             <span class="chat-sub">Löpning och styrka</span>
           </div>
           <div class="qprompts">
-            <button class="qp" onclick="qa('Ska jag springa eller köra styrka idag?')">Springa eller styrka?</button>
-            <button class="qp" onclick="qa('Hur kombinerar jag löpning och styrka bäst?')">Kombinera träning</button>
-            <button class="qp" onclick="qa('Vad är mitt nästa kvalitetspass?')">Nästa pass</button>
-            <button class="qp" onclick="qa('Hur ligger jag till för halvmara sub 1:20?')">Halvfart</button>
-            <button class="qp" onclick="qa('Hur bör jag progrediera i styrketräning?')">Styrkeprogress</button>
-            <button class="qp" onclick="qa('Hjälp mig nollställa mentalt inför nästa pass.')">Mental reset</button>
+            <button class="qp" data-action="quick-prompt" data-prompt="Ska jag springa eller köra styrka idag?">Springa eller styrka?</button>
+            <button class="qp" data-action="quick-prompt" data-prompt="Hur kombinerar jag löpning och styrka bäst?">Kombinera träning</button>
+            <button class="qp" data-action="quick-prompt" data-prompt="Vad är mitt nästa kvalitetspass?">Nästa pass</button>
+            <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till för halvmara sub 1:20?">Halvfart</button>
+            <button class="qp" data-action="quick-prompt" data-prompt="Hur bör jag progrediera i styrketräning?">Styrkeprogress</button>
+            <button class="qp" data-action="quick-prompt" data-prompt="Hjälp mig nollställa mentalt inför nästa pass.">Mental reset</button>
           </div>
           <div class="messages" id="messages">
             <div class="msg ai">
@@ -785,7 +784,7 @@
           </div>
           <div class="chat-input">
             <input type="text" id="chat-input" placeholder="Fråga vad du vill…" />
-            <button class="send-btn" onclick="send()">Skicka</button>
+            <button class="send-btn" data-action="send-chat">Skicka</button>
           </div>
         </div>
 
@@ -806,8 +805,8 @@
                   <option value="gear"> Utrustning</option>
                   <option value="general"> Övrigt</option>
                 </select>
-                <textarea id="note-input" rows="3" placeholder="T.ex. spänd höger vad sedan igår…" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;" onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border2)'"></textarea>
-                <button onclick="saveNote()" style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.25);border-radius:8px;padding:8px;color:var(--blue);font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;width:100%;" onmouseover="this.style.background='rgba(96,165,250,0.15)'" onmouseout="this.style.background='var(--blue-dim)'">Spara</button>
+                <textarea id="note-input" rows="3" placeholder="T.ex. spänd höger vad sedan igår…" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;"></textarea>
+                <button data-action="save-note" class="note-save-btn" style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.25);border-radius:8px;padding:8px;color:var(--blue);font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;width:100%;">Spara</button>
               </div>
             </div>
             <div id="notes-list" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;">
@@ -826,6 +825,6 @@
   </main>
 </div>
 
-<script src="app.js"></script>
+<script src="app.js?v=security-1"></script>
 </body>
 </html>
