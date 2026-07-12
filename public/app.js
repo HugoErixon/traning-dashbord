@@ -10,6 +10,8 @@ const originalFetch = window.fetch.bind(window);
 const dashboardShell = document.querySelector('.shell');
 let csrfToken = '';
 let currentUserIsAdmin = false;
+let garminConnected = false;
+let garminMfaStateId = null;
 let authResolved = false;
 let sessionExpired = false;
 let resolveAuth;
@@ -24,8 +26,10 @@ function clearLegacyCredentials() {
 function completeAuth(data) {
   csrfToken = data.csrfToken || '';
   currentUserIsAdmin = !!data.isAdmin;
+  garminConnected = !!data.garminConnected;
   const usersBtn = document.getElementById('users-btn');
   if (usersBtn) usersBtn.style.display = currentUserIsAdmin ? '' : 'none';
+  updateGarminSidebar();
   const screen = document.getElementById('login-screen');
   if (screen) screen.remove();
   dashboardShell.style.display = 'flex';
@@ -160,6 +164,171 @@ async function initializeAuth() {
 
 initializeAuth();
 
+// --- Garmin-koppling ---
+function updateGarminSidebar() {
+  const row = document.querySelector('.garmin-sync-row');
+  const label = document.getElementById('garmin-sync-time');
+  if (!row || !label) return;
+  if (garminConnected) {
+    row.removeAttribute('data-action');
+    row.removeAttribute('role');
+    row.style.cursor = '';
+    row.title = '';
+  } else {
+    label.textContent = 'Ej kopplad — klicka här';
+    row.dataset.action = 'open-garmin-connect';
+    row.setAttribute('role', 'button');
+    row.style.cursor = 'pointer';
+    row.title = 'Koppla ditt Garmin-konto';
+  }
+}
+
+function closeGarminConnectModal() {
+  garminMfaStateId = null;
+  document.getElementById('garmin-modal')?.remove();
+}
+
+function openGarminConnectModal() {
+  if (garminConnected || document.getElementById('garmin-modal')) return;
+  garminMfaStateId = null;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="garmin-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:998;">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:28px;width:400px;max-width:92vw;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <h2 style="font-size:16px;font-weight:800;">Koppla Garmin Connect</h2>
+          <button type="button" data-action="close-garmin-connect" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:4px;">✕</button>
+        </div>
+        <div id="garmin-step-credentials">
+          <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Logga in med ditt Garmin-konto. Lösenordet används en gång för att skapa en nyckel och sparas aldrig.</p>
+          <input id="garmin-email" type="email" autocomplete="off" placeholder="E-post (Garmin)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:8px;box-sizing:border-box;" />
+          <input id="garmin-password" type="password" autocomplete="off" placeholder="Lösenord (Garmin)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:10px;box-sizing:border-box;" />
+          <button type="button" data-action="garmin-connect-submit" id="garmin-connect-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Anslut</button>
+        </div>
+        <div id="garmin-step-mfa" style="display:none;">
+          <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Garmin har skickat en engångskod till din e-post. Ange den här.</p>
+          <input id="garmin-mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Engångskod" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:15px;letter-spacing:0.2em;text-align:center;outline:none;margin-bottom:10px;box-sizing:border-box;" />
+          <button type="button" data-action="garmin-mfa-submit" id="garmin-mfa-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Verifiera</button>
+        </div>
+        <div id="garmin-step-done" style="display:none;text-align:center;">
+          <p style="font-size:14px;font-weight:700;margin-bottom:8px;">Garmin kopplat! ✓</p>
+          <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Din träningsdata hämtas nu i bakgrunden — sidan laddas om automatiskt om en stund.</p>
+          <button type="button" data-action="garmin-reload-now" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Ladda om nu</button>
+        </div>
+        <p id="garmin-modal-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;"></p>
+      </div>
+    </div>
+  `);
+  const overlay = document.getElementById('garmin-modal');
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) closeGarminConnectModal();
+  });
+  document.getElementById('garmin-password').addEventListener('keydown', event => {
+    if (event.key === 'Enter') submitGarminCredentials();
+  });
+  document.getElementById('garmin-mfa-code').addEventListener('keydown', event => {
+    if (event.key === 'Enter') submitGarminMfaCode();
+  });
+  document.getElementById('garmin-email').focus();
+}
+
+function showGarminModalMessage(text, isError) {
+  const msg = document.getElementById('garmin-modal-msg');
+  if (!msg) return;
+  msg.textContent = text;
+  msg.style.color = isError ? 'var(--red)' : 'var(--muted2)';
+  msg.style.display = text ? 'block' : 'none';
+}
+
+function garminModalShowStep(step) {
+  for (const name of ['credentials', 'mfa', 'done']) {
+    const el = document.getElementById(`garmin-step-${name}`);
+    if (el) el.style.display = name === step ? '' : 'none';
+  }
+}
+
+function garminConnectSucceeded() {
+  garminConnected = true;
+  garminMfaStateId = null;
+  updateGarminSidebar();
+  const label = document.getElementById('garmin-sync-time');
+  if (label) label.textContent = 'Hämtar din data…';
+  garminModalShowStep('done');
+  showGarminModalMessage('', false);
+  setTimeout(() => { if (document.getElementById('garmin-modal')) location.reload(); }, 25000);
+}
+
+async function submitGarminCredentials() {
+  const email = document.getElementById('garmin-email').value.trim();
+  const password = document.getElementById('garmin-password').value;
+  const button = document.getElementById('garmin-connect-btn');
+  if (!email || !password) {
+    showGarminModalMessage('Fyll i både e-post och lösenord.', true);
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Kontaktar Garmin…';
+  showGarminModalMessage('Detta kan ta upp till en minut.', false);
+  try {
+    const res = await fetch('/api/garmin/connect', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, password}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showGarminModalMessage(data.error || 'Kopplingen misslyckades. Försök igen.', true);
+      return;
+    }
+    document.getElementById('garmin-password').value = '';
+    if (data.mfaRequired) {
+      garminMfaStateId = data.stateId;
+      garminModalShowStep('mfa');
+      showGarminModalMessage('', false);
+      document.getElementById('garmin-mfa-code').focus();
+      return;
+    }
+    garminConnectSucceeded();
+  } catch (error) {
+    showGarminModalMessage('Servern kunde inte nås. Försök igen.', true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Anslut';
+  }
+}
+
+async function submitGarminMfaCode() {
+  const code = document.getElementById('garmin-mfa-code').value.trim();
+  const button = document.getElementById('garmin-mfa-btn');
+  if (!code) {
+    showGarminModalMessage('Ange engångskoden från Garmin.', true);
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Verifierar…';
+  try {
+    const res = await fetch('/api/garmin/mfa', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({stateId: garminMfaStateId, code}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showGarminModalMessage(data.error || 'Verifieringen misslyckades.', true);
+      if (res.status === 410 || data.code === 'invalid_mfa_code') {
+        garminMfaStateId = null;
+        garminModalShowStep('credentials');
+      }
+      return;
+    }
+    garminConnectSucceeded();
+  } catch (error) {
+    showGarminModalMessage('Servern kunde inte nås. Försök igen.', true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Verifiera';
+  }
+}
+
 // --- Användarhantering (admin) ---
 function closeUsersPanel() {
   document.getElementById('users-panel')?.remove();
@@ -290,6 +459,11 @@ function executeAction(trigger, event) {
   else if (action === 'create-user') createUserFromForm();
   else if (action === 'delete-user') deleteUser(Number(trigger.dataset.id), trigger.dataset.username);
   else if (action === 'random-password') fillRandomPassword();
+  else if (action === 'open-garmin-connect') openGarminConnectModal();
+  else if (action === 'close-garmin-connect') closeGarminConnectModal();
+  else if (action === 'garmin-connect-submit') submitGarminCredentials();
+  else if (action === 'garmin-mfa-submit') submitGarminMfaCode();
+  else if (action === 'garmin-reload-now') location.reload();
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'coach-request') sendCoachRequest();

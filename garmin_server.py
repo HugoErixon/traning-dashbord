@@ -6,6 +6,7 @@ import hmac
 import json
 import logging
 import secrets
+import shutil
 import time
 import requests
 import psycopg2
@@ -551,6 +552,7 @@ def auth_session():
         'username': username,
         'userId': user['id'],
         'isAdmin': bool(user.get('is_admin')),
+        'garminConnected': _garmin_connected(username),
         'csrfToken': _ensure_csrf_token(),
     })
 
@@ -605,6 +607,7 @@ def login():
         'username': username,
         'userId': user['id'],
         'isAdmin': bool(user.get('is_admin')),
+        'garminConnected': _garmin_connected(username),
         'csrfToken': csrf_token,
     })
 
@@ -621,12 +624,25 @@ def _current_is_admin():
     return bool(user and user.get('is_admin'))
 
 
+def _garmin_token_dir(username):
+    return Path.home() / '.garminconnect' / username
+
+
 def _garmin_connected(username):
-    token_dir = Path.home() / '.garminconnect' / username
+    token_dir = _garmin_token_dir(username)
     try:
-        return token_dir.is_dir() and any(token_dir.iterdir())
+        if token_dir.is_dir() and any(token_dir.iterdir()):
+            return True
     except OSError:
-        return False
+        pass
+    # Första användarens tokens kan ligga kvar på legacy-platsen (rotkatalogen),
+    # samma fallback som get_garmin använder.
+    if username == next(iter(USERS), None):
+        try:
+            return (Path(TOKEN_DIR) / 'garmin_tokens.json').is_file()
+        except OSError:
+            return False
+    return False
 
 
 @app.get('/api/users')
@@ -687,6 +703,157 @@ def delete_user(user_id):
         'deleted_user_id': user_id,
     })
     return jsonify({'ok': True})
+
+
+# --- Garmin-koppling (per användare) ---
+# Inloggningen sker med return_on_mfa=True: kräver Garmin en engångskod ligger
+# MFA-tillståndet kvar på klientobjektet, som parkeras här tills koden kommer in.
+GARMIN_CONNECT_LIMITER = LoginRateLimiter(max_attempts=5, window_seconds=900)
+GARMIN_MFA_TTL_SECONDS = 300
+_pending_garmin_mfa = {}
+_pending_garmin_lock = threading.Lock()
+
+
+def _prune_pending_garmin(now=None):
+    now = time.time() if now is None else now
+    for state_id in list(_pending_garmin_mfa):
+        if now - _pending_garmin_mfa[state_id]['created'] > GARMIN_MFA_TTL_SECONDS:
+            del _pending_garmin_mfa[state_id]
+
+
+def _save_garmin_tokens(garmin_client, username):
+    garmin_client.client.dump(str(_garmin_token_dir(username)))
+    _garmin_clients.pop(username, None)
+    if not APP_TESTING:
+        threading.Thread(target=_initial_garmin_sync, args=(username,), daemon=True).start()
+
+
+def _initial_garmin_sync(username):
+    """Första hämtningen efter koppling — aktiviteter + historik i bakgrunden."""
+    user_id = USERS.get(username, {}).get('id')
+    if user_id is None:
+        return
+    try:
+        run_sync(username=username, user_id=user_id)
+    except Exception as e:
+        print(f'Initial Garmin-synk ({username}) aktiviteter:', e)
+    try:
+        collect_health_history(14, username=username)
+        collect_metric_history(45, username=username)
+    except Exception as e:
+        print(f'Initial Garmin-synk ({username}) historik:', e)
+
+
+@app.post('/api/garmin/connect')
+def garmin_connect():
+    data = request.get_json(silent=True) or {}
+    email = str(data.get('email') or '').strip()
+    password = data.get('password')
+    if not email or '@' not in email or len(email) > 254 \
+            or not isinstance(password, str) or not password or len(password) > 1024:
+        return _api_error('invalid_garmin_credentials', 'Ange e-post och lösenord för Garmin Connect.', 400)
+
+    limiter_key = f'garmin-connect:{uid()}'
+    allowed, retry_after = GARMIN_CONNECT_LIMITER.check(limiter_key)
+    if not allowed:
+        response, status = _api_error(
+            'too_many_attempts', 'För många försök. Vänta en stund och försök igen.', 429)
+        response.headers['Retry-After'] = str(retry_after)
+        return response, status
+
+    garmin_client = Garmin(email=email, password=password, return_on_mfa=True)
+    try:
+        status_flag, _ = garmin_client.login()
+    except Exception:
+        GARMIN_CONNECT_LIMITER.record_failure(limiter_key)
+        logger.warning('Garmin connect failed', extra={
+            'event': 'garmin.connect_failed',
+            'request_id': _request_id(),
+            'user_id': uid(),
+        })
+        # 400, inte 401 — frontendens fetch-interceptor tolkar 401 som utgången session.
+        return _api_error(
+            'garmin_login_failed',
+            'Garmin godkände inte inloggningen. Kontrollera e-post och lösenord.', 400)
+
+    if status_flag == 'needs_mfa':
+        state_id = secrets.token_urlsafe(24)
+        with _pending_garmin_lock:
+            _prune_pending_garmin()
+            _pending_garmin_mfa[state_id] = {
+                'garmin': garmin_client,
+                'username': uname(),
+                'created': time.time(),
+            }
+        logger.info('Garmin MFA required', extra={
+            'event': 'garmin.mfa_required',
+            'request_id': _request_id(),
+            'user_id': uid(),
+        })
+        return jsonify({'ok': True, 'mfaRequired': True, 'stateId': state_id})
+
+    GARMIN_CONNECT_LIMITER.reset(limiter_key)
+    _save_garmin_tokens(garmin_client, uname())
+    logger.info('Garmin connected', extra={
+        'event': 'garmin.connected',
+        'request_id': _request_id(),
+        'user_id': uid(),
+    })
+    return jsonify({'ok': True, 'mfaRequired': False, 'connected': True})
+
+
+@app.post('/api/garmin/mfa')
+def garmin_mfa():
+    data = request.get_json(silent=True) or {}
+    state_id = str(data.get('stateId') or '')
+    code = str(data.get('code') or '').strip()
+    if not state_id or not code or len(code) > 16:
+        return _api_error('invalid_mfa_request', 'Ange engångskoden från Garmin.', 400)
+    with _pending_garmin_lock:
+        _prune_pending_garmin()
+        entry = _pending_garmin_mfa.get(state_id)
+        if entry and entry['username'] == uname():
+            del _pending_garmin_mfa[state_id]
+        else:
+            entry = None
+    if not entry:
+        return _api_error(
+            'mfa_state_expired',
+            'Kopplingsförsöket har gått ut — börja om med e-post och lösenord.', 410)
+    try:
+        entry['garmin'].resume_login(None, code)
+    except Exception:
+        logger.warning('Garmin MFA failed', extra={
+            'event': 'garmin.mfa_failed',
+            'request_id': _request_id(),
+            'user_id': uid(),
+        })
+        return _api_error(
+            'invalid_mfa_code',
+            'Garmin godkände inte koden — börja om med e-post och lösenord.', 400)
+    GARMIN_CONNECT_LIMITER.reset(f'garmin-connect:{uid()}')
+    _save_garmin_tokens(entry['garmin'], uname())
+    logger.info('Garmin connected', extra={
+        'event': 'garmin.connected',
+        'request_id': _request_id(),
+        'user_id': uid(),
+    })
+    return jsonify({'ok': True, 'connected': True})
+
+
+@app.post('/api/garmin/disconnect')
+def garmin_disconnect():
+    username = uname()
+    token_dir = _garmin_token_dir(username)
+    if token_dir.is_dir():
+        shutil.rmtree(token_dir, ignore_errors=True)
+    _garmin_clients.pop(username, None)
+    logger.info('Garmin disconnected', extra={
+        'event': 'garmin.disconnected',
+        'request_id': _request_id(),
+        'user_id': uid(),
+    })
+    return jsonify({'ok': True, 'connected': False})
 
 
 @app.get('/api/status')
@@ -4191,11 +4358,22 @@ def maybe_run_daily_routine():
     set_cache('last_daily_history', {'date': today}, first_uid)
 
 def auto_sync_job():
-    try:
-        n = run_sync()
-        print(f'[{datetime.now().strftime("%H:%M")}] Auto-sync klar: {n} aktiviteter')
-    except Exception as e:
-        print('Auto-sync fel:', e)
+    first = next(iter(USERS), None)
+    for username, rec in list(USERS.items()):
+        if not _garmin_connected(username):
+            continue
+        try:
+            n = run_sync(username=username, user_id=rec['id'])
+            print(f'[{datetime.now().strftime("%H:%M")}] Auto-sync klar ({username}): {n} aktiviteter')
+        except Exception as e:
+            print(f'Auto-sync fel ({username}):', e)
+        if username != first:
+            # Ägarens historik sköts av den dagliga rutinen; övriga backfillas här.
+            try:
+                collect_health_history(3, username=username)
+                collect_metric_history(3, username=username)
+            except Exception as e:
+                print(f'Auto-sync historik-fel ({username}):', e)
 
 scheduler = None
 if not APP_TESTING:
