@@ -3,6 +3,7 @@ from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
 import hmac
+import hashlib
 import json
 import logging
 import secrets
@@ -455,6 +456,26 @@ def _ensure_csrf_token():
     return token
 
 
+def _widget_token_hash(token):
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def _widget_token_from_request():
+    authorization = request.headers.get('Authorization', '')
+    if authorization.lower().startswith('bearer '):
+        return authorization[7:].strip()
+    return request.headers.get('X-Widget-Token', '').strip()
+
+
+def _widget_token_user():
+    token = _widget_token_from_request()
+    if not token:
+        return None, False
+    if len(token) > 256 or not token.startswith('tdw_'):
+        return None, True
+    return USER_STORE.user_for_widget_token_hash(_widget_token_hash(token)), True
+
+
 @app.before_request
 def check_auth():
     if not request.path.startswith('/api/'):
@@ -467,6 +488,16 @@ def check_auth():
         '/api/water', '/api/ac/button/off', '/api/ac/button/auto-on'
     ):
         return  # Hardware endpoints authenticate with separate, scoped tokens.
+
+    if request.method == 'GET' and request.path == '/api/widget/mobile':
+        widget_user, token_supplied = _widget_token_user()
+        if token_supplied:
+            if not widget_user:
+                return _api_error('invalid_widget_token', 'Widgettoken är ogiltig eller återkallad.', 401)
+            flask_g.uid = widget_user['id']
+            flask_g.uname = widget_user['username']
+            flask_g.widget_auth = True
+            return
 
     username, user = _configured_session_user()
     if not user:
@@ -615,6 +646,31 @@ def login():
 @app.post('/api/logout')
 def logout():
     session.clear()
+    return jsonify({'ok': True})
+
+
+@app.post('/api/widget/token')
+def create_widget_token():
+    token = 'tdw_' + secrets.token_urlsafe(32)
+    if not USER_STORE.set_widget_token_hash(uid(), _widget_token_hash(token)):
+        return _api_error('user_not_found', 'Användaren kunde inte hittas.', 404)
+    logger.info('Widget token rotated', extra={
+        'event': 'widget.token_rotated',
+        'request_id': _request_id(),
+        'user_id': uid(),
+    })
+    return jsonify({'ok': True, 'token': token})
+
+
+@app.delete('/api/widget/token')
+def revoke_widget_token():
+    if not USER_STORE.set_widget_token_hash(uid(), None):
+        return _api_error('user_not_found', 'Användaren kunde inte hittas.', 404)
+    logger.info('Widget token revoked', extra={
+        'event': 'widget.token_revoked',
+        'request_id': _request_id(),
+        'user_id': uid(),
+    })
     return jsonify({'ok': True})
 
 

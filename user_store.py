@@ -9,6 +9,7 @@ DB-varianten seedas från .env-användarna vid första start (tom tabell) med
 bevarade user-id:n, eftersom befintliga rader i activities/journal m.fl. redan
 pekar på dem. Därefter är databasen källan; .env USERS läses aldrig igen.
 """
+import hmac
 import time
 
 from werkzeug.security import generate_password_hash
@@ -50,10 +51,14 @@ class MemoryUserStore:
                 'password': rec['password'],
                 'password_hashed': rec['password_hashed'],
                 'is_admin': len(self._users) == 0,
+                'widget_token_hash': None,
             }
 
     def all(self):
-        return {u: dict(rec) for u, rec in self._users.items()}
+        return {
+            username: {key: value for key, value in rec.items() if key != 'widget_token_hash'}
+            for username, rec in self._users.items()
+        }
 
     def create(self, username, password, is_admin=False):
         _validate_new_user(username, password)
@@ -65,6 +70,7 @@ class MemoryUserStore:
             'password': _ensure_hashed(password),
             'password_hashed': True,
             'is_admin': bool(is_admin),
+            'widget_token_hash': None,
         }
         return new_id
 
@@ -74,6 +80,23 @@ class MemoryUserStore:
                 del self._users[username]
                 return True
         return False
+
+    def set_widget_token_hash(self, user_id, token_hash):
+        for rec in self._users.values():
+            if rec['id'] == user_id:
+                rec['widget_token_hash'] = token_hash
+                return True
+        return False
+
+    def user_for_widget_token_hash(self, token_hash):
+        for username, rec in self._users.items():
+            stored = rec.get('widget_token_hash') or ''
+            if stored and hmac.compare_digest(stored, token_hash):
+                return {
+                    'username': username,
+                    **{key: value for key, value in rec.items() if key != 'widget_token_hash'},
+                }
+        return None
 
 
 class DbUserStore:
@@ -90,7 +113,13 @@ class DbUserStore:
                     username TEXT UNIQUE NOT NULL,
                     password_hash TEXT NOT NULL,
                     is_admin BOOLEAN NOT NULL DEFAULT FALSE,
-                    created_at REAL)''')
+                    created_at REAL,
+                    widget_token_hash TEXT,
+                    widget_token_created_at REAL)''')
+                cur.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS widget_token_hash TEXT')
+                cur.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS widget_token_created_at REAL')
+                cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS users_widget_token_hash_idx
+                    ON users (widget_token_hash) WHERE widget_token_hash IS NOT NULL''')
             conn.commit()
 
     def seed_from_env(self, env_users):
@@ -145,3 +174,30 @@ class DbUserStore:
                 deleted = cur.rowcount > 0
             conn.commit()
         return deleted
+
+    def set_widget_token_hash(self, user_id, token_hash):
+        with self._db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''UPDATE users
+                    SET widget_token_hash=%s, widget_token_created_at=%s
+                    WHERE id=%s''', (token_hash, time.time(), user_id))
+                updated = cur.rowcount > 0
+            conn.commit()
+        return updated
+
+    def user_for_widget_token_hash(self, token_hash):
+        with self._db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT id, username, password_hash, is_admin
+                    FROM users WHERE widget_token_hash=%s''', (token_hash,))
+                row = cur.fetchone()
+        if not row:
+            return None
+        user_id, username, password_hash, is_admin = row
+        return {
+            'id': user_id,
+            'username': username,
+            'password': password_hash,
+            'password_hashed': True,
+            'is_admin': bool(is_admin),
+        }
