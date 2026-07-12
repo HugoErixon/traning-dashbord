@@ -21,6 +21,7 @@ import re
 from apscheduler.schedulers.background import BackgroundScheduler
 from werkzeug.exceptions import HTTPException
 from security import LoginRateLimiter, parse_users, verify_user
+from user_store import MemoryUserStore, DbUserStore, DuplicateUserError, UserStoreError
 from strength_progression import (
     build_default_recommendations,
     build_strength_recommendations,
@@ -317,6 +318,30 @@ if not APP_TESTING:
     except Exception:
         logger.exception('Database initialization failed', extra={'event': 'database.initialize_failed'})
 
+# --- Användarlager ---
+# I drift bor användarna i databasen (seedas från .env första gången); .env USERS
+# är därefter bara bootstrap-reserv. I tester (APP_TESTING) rörs aldrig databasen.
+USER_STORE = None
+if not APP_TESTING:
+    try:
+        USER_STORE = DbUserStore(db)
+        USER_STORE.ensure_schema()
+        if USER_STORE.seed_from_env(USERS):
+            logger.info('Seeded users table from .env', extra={'event': 'users.seeded'})
+    except Exception:
+        USER_STORE = None
+        logger.exception('User store unavailable, falling back to .env users',
+                         extra={'event': 'users.store_failed'})
+if USER_STORE is None:
+    USER_STORE = MemoryUserStore(USERS)
+
+def refresh_users():
+    """Ladda om USERS-snapshotten från lagret (anropas efter varje ändring)."""
+    global USERS
+    USERS = USER_STORE.all()
+
+refresh_users()
+
 # --- Garmin ---
 # Token migration note for Pi: if Hugo's existing tokens are at ~/.garminconnect/,
 # run: mv ~/.garminconnect ~/.garminconnect_bak && mkdir ~/.garminconnect && mv ~/.garminconnect_bak ~/.garminconnect/hugo
@@ -525,6 +550,7 @@ def auth_session():
         'authenticated': True,
         'username': username,
         'userId': user['id'],
+        'isAdmin': bool(user.get('is_admin')),
         'csrfToken': _ensure_csrf_token(),
     })
 
@@ -578,6 +604,7 @@ def login():
         'ok': True,
         'username': username,
         'userId': user['id'],
+        'isAdmin': bool(user.get('is_admin')),
         'csrfToken': csrf_token,
     })
 
@@ -585,6 +612,80 @@ def login():
 @app.post('/api/logout')
 def logout():
     session.clear()
+    return jsonify({'ok': True})
+
+
+# --- Användarhantering (admin) ---
+def _current_is_admin():
+    user = USERS.get(uname())
+    return bool(user and user.get('is_admin'))
+
+
+def _garmin_connected(username):
+    token_dir = Path.home() / '.garminconnect' / username
+    try:
+        return token_dir.is_dir() and any(token_dir.iterdir())
+    except OSError:
+        return False
+
+
+@app.get('/api/users')
+def list_users():
+    if not _current_is_admin():
+        return _api_error('forbidden', 'Endast administratören kan hantera användare.', 403)
+    return jsonify({'users': [
+        {
+            'id': rec['id'],
+            'username': username,
+            'isAdmin': bool(rec.get('is_admin')),
+            'garminConnected': _garmin_connected(username),
+        }
+        for username, rec in sorted(USERS.items(), key=lambda item: item[1]['id'])
+    ]})
+
+
+@app.post('/api/users')
+def create_user():
+    if not _current_is_admin():
+        return _api_error('forbidden', 'Endast administratören kan hantera användare.', 403)
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username') or '').strip()
+    password = data.get('password')
+    try:
+        new_id = USER_STORE.create(username, password)
+    except DuplicateUserError as exc:
+        return _api_error('duplicate_username', str(exc), 409)
+    except UserStoreError as exc:
+        return _api_error('invalid_user', str(exc), 400)
+    refresh_users()
+    logger.info('User created', extra={
+        'event': 'users.created',
+        'request_id': _request_id(),
+        'user_id': uid(),
+        'created_user_id': new_id,
+    })
+    return jsonify({'ok': True, 'id': new_id, 'username': username}), 201
+
+
+@app.delete('/api/users/<int:user_id>')
+def delete_user(user_id):
+    if not _current_is_admin():
+        return _api_error('forbidden', 'Endast administratören kan hantera användare.', 403)
+    if user_id == uid():
+        return _api_error('cannot_delete_self', 'Du kan inte ta bort ditt eget konto.', 400)
+    target = next((rec for rec in USERS.values() if rec['id'] == user_id), None)
+    if not target:
+        return _api_error('user_not_found', 'Användaren finns inte.', 404)
+    if target.get('is_admin'):
+        return _api_error('cannot_delete_admin', 'Administratörskontot kan inte tas bort.', 400)
+    USER_STORE.delete(user_id)
+    refresh_users()
+    logger.info('User deleted', extra={
+        'event': 'users.deleted',
+        'request_id': _request_id(),
+        'user_id': uid(),
+        'deleted_user_id': user_id,
+    })
     return jsonify({'ok': True})
 
 

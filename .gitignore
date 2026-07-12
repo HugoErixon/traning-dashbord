@@ -1,5 +1,6 @@
 node_modules/
 venv/
+.claude/worktrees/
 .env
 dashboard.db
 data/

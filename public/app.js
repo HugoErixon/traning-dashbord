@@ -9,6 +9,7 @@
 const originalFetch = window.fetch.bind(window);
 const dashboardShell = document.querySelector('.shell');
 let csrfToken = '';
+let currentUserIsAdmin = false;
 let authResolved = false;
 let sessionExpired = false;
 let resolveAuth;
@@ -22,6 +23,9 @@ function clearLegacyCredentials() {
 
 function completeAuth(data) {
   csrfToken = data.csrfToken || '';
+  currentUserIsAdmin = !!data.isAdmin;
+  const usersBtn = document.getElementById('users-btn');
+  if (usersBtn) usersBtn.style.display = currentUserIsAdmin ? '' : 'none';
   const screen = document.getElementById('login-screen');
   if (screen) screen.remove();
   dashboardShell.style.display = 'flex';
@@ -156,9 +160,136 @@ async function initializeAuth() {
 
 initializeAuth();
 
+// --- Användarhantering (admin) ---
+function closeUsersPanel() {
+  document.getElementById('users-panel')?.remove();
+}
+
+async function openUsersPanel() {
+  if (document.getElementById('users-panel')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="users-panel" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:998;">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:28px;width:420px;max-width:92vw;max-height:85vh;overflow-y:auto;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <h2 style="font-size:16px;font-weight:800;">Användare</h2>
+          <button type="button" data-action="close-users" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:4px;">✕</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;">Konton för dashboarden. Garmin kopplas separat per konto.</p>
+        <div id="users-list" style="margin-bottom:20px;"><p style="font-size:12.5px;color:var(--muted2);">Laddar…</p></div>
+        <div style="border-top:1px solid var(--border2);padding-top:16px;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;color:var(--muted2);text-transform:uppercase;margin-bottom:10px;font-family:'IBM Plex Mono',monospace;">Lägg till användare</div>
+          <input id="new-user-name" type="text" autocomplete="off" placeholder="Användarnamn" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:8px;box-sizing:border-box;" />
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <input id="new-user-password" type="text" autocomplete="off" placeholder="Lösenord (minst 8 tecken)" style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;box-sizing:border-box;" />
+            <button type="button" data-action="random-password" title="Slumpa ett starkt lösenord" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:0 12px;color:var(--text);cursor:pointer;font-size:14px;">🎲</button>
+          </div>
+          <button type="button" data-action="create-user" id="create-user-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Skapa användare</button>
+          <p id="users-panel-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;"></p>
+        </div>
+      </div>
+    </div>
+  `);
+  const overlay = document.getElementById('users-panel');
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) closeUsersPanel();
+  });
+  await loadUsersList();
+}
+
+async function loadUsersList() {
+  const list = document.getElementById('users-list');
+  if (!list) return;
+  try {
+    const res = await fetch('/api/users');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Kunde inte hämta användare');
+    list.innerHTML = data.users.map(u => `
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--border2);">
+        <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${u.garminConnected ? 'var(--accent)' : 'var(--border2)'};" title="${u.garminConnected ? 'Garmin kopplad' : 'Garmin ej kopplad'}"></span>
+        <span style="font-size:13.5px;font-weight:600;flex:1;">${escapeHtml(u.username)}</span>
+        ${u.isAdmin ? '<span style="font-size:10px;font-weight:700;letter-spacing:0.05em;color:var(--accent);font-family:\'IBM Plex Mono\',monospace;">ADMIN</span>' : ''}
+        <span style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">${u.garminConnected ? 'Garmin ✓' : 'Ingen Garmin'}</span>
+        ${u.isAdmin ? '' : `<button type="button" data-action="delete-user" data-id="${Number(u.id)}" data-username="${escapeHtml(u.username)}" title="Ta bort" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 4px;">✕</button>`}
+      </div>
+    `).join('') || '<p style="font-size:12.5px;color:var(--muted2);">Inga användare.</p>';
+  } catch (error) {
+    list.innerHTML = `<p style="font-size:12.5px;color:var(--red);">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function showUsersPanelMessage(text, isError) {
+  const msg = document.getElementById('users-panel-msg');
+  if (!msg) return;
+  msg.textContent = text;
+  msg.style.color = isError ? 'var(--red)' : 'var(--accent)';
+  msg.style.display = 'block';
+}
+
+function fillRandomPassword() {
+  const input = document.getElementById('new-user-password');
+  if (!input) return;
+  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(14);
+  crypto.getRandomValues(bytes);
+  input.value = Array.from(bytes, b => alphabet[b % alphabet.length]).join('');
+}
+
+async function createUserFromForm() {
+  const nameInput = document.getElementById('new-user-name');
+  const passwordInput = document.getElementById('new-user-password');
+  const button = document.getElementById('create-user-btn');
+  const username = nameInput.value.trim();
+  const password = passwordInput.value;
+  if (!username || !password) {
+    showUsersPanelMessage('Fyll i både användarnamn och lösenord.', true);
+    return;
+  }
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showUsersPanelMessage(data.error || 'Kunde inte skapa användaren.', true);
+      return;
+    }
+    showUsersPanelMessage(`${username} skapad. Dela lösenordet på ett säkert sätt — det visas inte igen.`, false);
+    nameInput.value = '';
+    passwordInput.value = '';
+    await loadUsersList();
+  } catch (error) {
+    showUsersPanelMessage('Servern kunde inte nås.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteUser(userId, username) {
+  if (!confirm(`Ta bort användaren "${username}"? Kontot försvinner men träningsdatan ligger kvar i databasen.`)) return;
+  try {
+    const res = await fetch(`/api/users/${userId}`, {method: 'DELETE'});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showUsersPanelMessage(data.error || 'Kunde inte ta bort användaren.', true);
+      return;
+    }
+    await loadUsersList();
+  } catch (error) {
+    showUsersPanelMessage('Servern kunde inte nås.', true);
+  }
+}
+
 function executeAction(trigger, event) {
   const action = trigger.dataset.action;
   if (action === 'goto') goto(trigger.dataset.page);
+  else if (action === 'open-users') openUsersPanel();
+  else if (action === 'close-users') closeUsersPanel();
+  else if (action === 'create-user') createUserFromForm();
+  else if (action === 'delete-user') deleteUser(Number(trigger.dataset.id), trigger.dataset.username);
+  else if (action === 'random-password') fillRandomPassword();
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'coach-request') sendCoachRequest();
