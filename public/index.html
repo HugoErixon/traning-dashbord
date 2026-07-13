@@ -148,7 +148,7 @@
             <div style="min-width:0;">
               <div style="font-size:13px;color:var(--muted2);">Din CNS-beredskap idag</div>
               <div id="snap-readiness-sub" style="font-size:19px;font-weight:700;margin-top:3px;">Laddar…</div>
-              <div style="font-size:12px;color:var(--muted);margin-top:12px;"><span id="days-left" style="color:var(--accent);font-weight:700;font-family:var(--font-num);">-</span> dagar till mål · 10 okt</div>
+              <div id="goal-days-row" data-action="open-goal-modal" role="button" tabindex="0" title="Klicka för att ändra ditt mål" style="font-size:12px;color:var(--muted);margin-top:12px;cursor:pointer;"><span id="goal-days-text">Laddar mål…</span></div>
               <div class="bar" style="margin-top:8px;max-width:170px;"><div class="bar-fill" id="days-bar" style="background:var(--accent)"></div></div>
             </div>
           </div>
@@ -648,7 +648,7 @@
 
     <!-- PLAN -->
     <div class="page" id="page-upcoming">
-      <div class="page-header"><h2>Kalender</h2><p>Löpning + styrka – halvmara sub 1:20 – 10 okt 2026</p></div>
+      <div class="page-header"><h2>Kalender</h2><p id="calendar-goal-sub">Träningsplan och kalender</p></div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;align-items:center;">
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--green);opacity:0.7;"></span>
@@ -776,7 +776,7 @@
             <button class="qp" data-action="quick-prompt" data-prompt="Ska jag springa eller köra styrka idag?">Springa eller styrka?</button>
             <button class="qp" data-action="quick-prompt" data-prompt="Hur kombinerar jag löpning och styrka bäst?">Kombinera träning</button>
             <button class="qp" data-action="quick-prompt" data-prompt="Vad är mitt nästa kvalitetspass?">Nästa pass</button>
-            <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till för halvmara sub 1:20?">Halvfart</button>
+            <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till mot mitt mål?">Målläget?</button>
             <button class="qp" data-action="quick-prompt" data-prompt="Hur bör jag progrediera i styrketräning?">Styrkeprogress</button>
             <button class="qp" data-action="quick-prompt" data-prompt="Hjälp mig nollställa mentalt inför nästa pass.">Mental reset</button>
           </div>

@@ -12,6 +12,8 @@ let csrfToken = '';
 let currentUserIsAdmin = false;
 let garminConnected = false;
 let garminMfaStateId = null;
+let userGoal = null;
+let goalPromptShownThisLoad = false;
 let authResolved = false;
 let sessionExpired = false;
 let resolveAuth;
@@ -30,6 +32,7 @@ function completeAuth(data) {
   const usersBtn = document.getElementById('users-btn');
   if (usersBtn) usersBtn.style.display = currentUserIsAdmin ? '' : 'none';
   updateGarminSidebar();
+  loadUserGoal();
   const screen = document.getElementById('login-screen');
   if (screen) screen.remove();
   dashboardShell.style.display = 'flex';
@@ -163,6 +166,135 @@ async function initializeAuth() {
 }
 
 initializeAuth();
+
+// --- Träningsmål per användare ---
+async function loadUserGoal() {
+  try {
+    const res = await fetch('/api/goals');
+    const data = await res.json();
+    if (res.ok) userGoal = data.goal;
+  } catch (_) {
+    userGoal = null;
+  }
+  renderGoalUi();
+  if (!userGoal && !goalPromptShownThisLoad) {
+    goalPromptShownThisLoad = true;
+    openGoalModal(true);
+  }
+}
+
+function formatGoalDate(iso) {
+  try {
+    return new Date(iso + 'T00:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short', year: 'numeric'});
+  } catch (_) {
+    return iso;
+  }
+}
+
+function renderGoalUi() {
+  const text = document.getElementById('goal-days-text');
+  const bar = document.getElementById('days-bar');
+  const calSub = document.getElementById('calendar-goal-sub');
+  if (!userGoal) {
+    if (text) text.textContent = 'Sätt ditt träningsmål →';
+    if (bar) bar.style.width = '0%';
+    if (calSub) calSub.textContent = 'Träningsplan och kalender';
+    return;
+  }
+  const g = userGoal;
+  if (text) {
+    if (g.goal_deadline) {
+      const left = Math.max(0, Math.ceil((new Date(g.goal_deadline + 'T00:00:00') - new Date()) / 86400000));
+      text.innerHTML = `<span style="color:var(--accent);font-weight:700;font-family:var(--font-num);">${left}</span> dagar till mål · ${escapeHtml(formatGoalDate(g.goal_deadline))}`;
+      if (bar && g.start_date) {
+        const total = Math.ceil((new Date(g.goal_deadline + 'T00:00:00') - new Date(g.start_date + 'T00:00:00')) / 86400000);
+        bar.style.width = total > 0 ? Math.min(100, Math.max(0, (1 - left / total) * 100)) + '%' : '0%';
+      }
+    } else {
+      text.textContent = `Mål: ${g.goal_title}`;
+      if (bar) bar.style.width = '0%';
+    }
+  }
+  if (calSub) calSub.textContent = g.goal_title + (g.goal_deadline ? ' – ' + formatGoalDate(g.goal_deadline) : '');
+}
+
+function closeGoalModal() {
+  document.getElementById('goal-modal')?.remove();
+}
+
+function openGoalModal(isOnboarding) {
+  if (document.getElementById('goal-modal')) return;
+  const g = userGoal || {};
+  const heading = isOnboarding ? 'Välkommen! Vad tränar du mot?' : 'Ditt träningsmål';
+  const intro = isOnboarding
+    ? 'Sätt ditt eget träningsmål — det styr vad coachen och dashboarden fokuserar på. Du kan ändra det när som helst.'
+    : 'Målet styr coachens råd och nedräkningen på startsidan.';
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="goal-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:998;">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:28px;width:420px;max-width:92vw;max-height:85vh;overflow-y:auto;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <h2 style="font-size:16px;font-weight:800;">${heading}</h2>
+          <button type="button" data-action="close-goal-modal" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:4px;">✕</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">${intro}</p>
+        <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Mål *</label>
+        <input id="goal-title-input" type="text" maxlength="200" placeholder="t.ex. Milen under 45 min" value="${escapeHtml(g.goal_title || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
+        <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Deadline (valfritt)</label>
+        <input id="goal-deadline-input" type="date" value="${escapeHtml(g.goal_deadline || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
+        <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Nuvarande bästa (valfritt)</label>
+        <input id="goal-best-input" type="text" maxlength="200" placeholder="t.ex. 48:30 (Vårruset)" value="${escapeHtml(g.current_best || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
+        <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Sekundärt mål (valfritt)</label>
+        <input id="goal-secondary-input" type="text" maxlength="300" placeholder="t.ex. Styrka 2 pass/vecka" value="${escapeHtml(g.secondary_goal || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:16px;box-sizing:border-box;" />
+        <button type="button" data-action="save-goal" id="goal-save-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Spara mål</button>
+        ${isOnboarding ? '<button type="button" data-action="close-goal-modal" style="width:100%;background:none;border:none;color:var(--muted2);font-size:12px;margin-top:10px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace;">Hoppa över — jag sätter det senare</button>' : ''}
+        <p id="goal-modal-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;color:var(--red);"></p>
+      </div>
+    </div>
+  `);
+  const overlay = document.getElementById('goal-modal');
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) closeGoalModal();
+  });
+  document.getElementById('goal-title-input').focus();
+}
+
+async function saveGoalFromForm() {
+  const title = document.getElementById('goal-title-input').value.trim();
+  const msg = document.getElementById('goal-modal-msg');
+  const button = document.getElementById('goal-save-btn');
+  if (!title) {
+    msg.textContent = 'Skriv in ett mål först.';
+    msg.style.display = 'block';
+    return;
+  }
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/goals', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        goalTitle: title,
+        goalDeadline: document.getElementById('goal-deadline-input').value,
+        currentBest: document.getElementById('goal-best-input').value.trim(),
+        secondaryGoal: document.getElementById('goal-secondary-input').value.trim(),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      msg.textContent = data.error || 'Kunde inte spara målet.';
+      msg.style.display = 'block';
+      return;
+    }
+    userGoal = data.goal;
+    renderGoalUi();
+    closeGoalModal();
+  } catch (error) {
+    msg.textContent = 'Servern kunde inte nås. Försök igen.';
+    msg.style.display = 'block';
+  } finally {
+    button.disabled = false;
+  }
+}
 
 // --- Garmin-koppling ---
 function updateGarminSidebar() {
@@ -464,6 +596,9 @@ function executeAction(trigger, event) {
   else if (action === 'garmin-connect-submit') submitGarminCredentials();
   else if (action === 'garmin-mfa-submit') submitGarminMfaCode();
   else if (action === 'garmin-reload-now') location.reload();
+  else if (action === 'open-goal-modal') openGoalModal(false);
+  else if (action === 'close-goal-modal') closeGoalModal();
+  else if (action === 'save-goal') saveGoalFromForm();
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'coach-request') sendCoachRequest();
@@ -535,20 +670,7 @@ acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset
     if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcBedtime(); loadHumidityStatus(); loadAcHistory(); }
   }
 
-  // Days left + goal bars
-  const target = new Date('2026-08-31');
-  const start  = new Date('2026-05-27');
-  const total  = Math.ceil((target - start) / 86400000);
-  const left   = Math.max(0, Math.ceil((target - new Date()) / 86400000));
-  document.getElementById('days-left').textContent = left;
-  document.getElementById('days-bar').style.width = Math.max(0,(1-left/total)*100) + '%';
-  setTimeout(() => {
-    const goalBarRun = document.getElementById('goal-bar-run');
-    const goalBarLift = document.getElementById('goal-bar-lift');
-    if (goalBarRun) goalBarRun.style.width = '97%';
-    // Styrka-bar baseras på veckor tränade - statisk placeholder
-    if (goalBarLift) goalBarLift.style.width = '45%';
-  }, 500);
+  // Nedräkning och målrad ritas av renderGoalUi() när målet laddats.
   loadHealth();
 
 
@@ -1670,25 +1792,28 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   let userNotes = [];
   let userJournal = [];
 
-  const BASE_CTX = `Du är en personlig träningscoach för en löpare med dubbelt fokus. Svara alltid på svenska.
+  function baseCtx() {
+    let goalLines;
+    if (userGoal) {
+      goalLines = `GOAL: ${userGoal.goal_title}`;
+      if (userGoal.goal_deadline) goalLines += `  -  Deadline: ${userGoal.goal_deadline}`;
+      if (userGoal.current_best) goalLines += `  -  Current best: ${userGoal.current_best}`;
+      if (userGoal.secondary_goal) goalLines += `\nSECONDARY GOAL: ${userGoal.secondary_goal}`;
+    } else {
+      goalLines = 'GOAL: Inget uttalat mål ännu - coacha för allmän form, hälsa och kontinuitet.';
+    }
+    return `Du är en personlig träningscoach. Svara alltid på svenska.
 
-GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026  -  Current best: 1:26:19 (Gothenburg Half Marathon)  -  Gap: 6:20
-SECONDARY GOAL: Build a strong body in all areas - running strength, upper body, core, mobility
-- VO2max: 59  -  Garmin predictions: 5K 17:56, 10K 37:30, half marathon 1:23:30
-- Recent: Gothenburg Half Marathon 1:26:19 (May 23)
-- Training plan: W23-41  -  phases: recovery -> base building -> threshold/tempo -> race-specific -> taper
+${goalLines}
 
-STRENGTH GOAL: Progress every week - 2-3 strength sessions per week
-- Main lifts: squat, deadlift, bench press, overhead press
-- Principle: progressive overload - increase weight or reps each week
-- Strength supports running: builds core, reduces injury risk, improves power output
+STRENGTH PRINCIPLE: progressive overload - strength training supports running, reduces injury risk.
 
 HEALTH DATA (current):
-- Training readiness: 50/100, HRV low (22%), sleep 91/100, body battery 40
 (Updated dynamically below with current values and CNS score)`;
+  }
 
   function buildCTX() {
-    let ctx = BASE_CTX;
+    let ctx = baseCtx();
 
     // Lägg in arbetsschema för kommande 7 dagar
     if (gcalEvents.length > 0) {

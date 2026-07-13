@@ -280,6 +280,14 @@ def setup_db():
                 vo2max REAL, endurance_score INTEGER,
                 lactate_hr INTEGER, lactate_pace REAL,
                 hrv_status TEXT, created_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS user_goals (
+                user_id INTEGER PRIMARY KEY,
+                goal_title TEXT NOT NULL,
+                goal_deadline TEXT,
+                current_best TEXT,
+                secondary_goal TEXT,
+                start_date TEXT,
+                updated_at REAL)''')
         conn.commit()
     print('Databas: klar')
 
@@ -310,6 +318,18 @@ def migrate_db():
                 cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_date_user_idx ON journal_entries (entry_date, user_id)')
             except Exception as e:
                 print('migrate_db journal_entries unique:', e)
+            # Engångsflytt av det tidigare hårdkodade målet till user_goals (ägaren).
+            try:
+                cur.execute('SELECT 1 FROM user_goals WHERE user_id=1')
+                if not cur.fetchone():
+                    cur.execute('''INSERT INTO user_goals
+                        (user_id, goal_title, goal_deadline, current_best, secondary_goal, start_date, updated_at)
+                        VALUES (1,%s,%s,%s,%s,%s,%s)''',
+                        ('Halvmara under 1:20', '2026-10-10', '1:26:19 (Göteborgsvarvet)',
+                         'Bygg en stark kropp — löpstyrka, överkropp, core, rörlighet',
+                         '2026-05-27', time.time()))
+            except Exception as e:
+                print('migrate_db user_goals seed:', e)
         conn.commit()
     print('Databas: migrering klar')
 
@@ -895,6 +915,99 @@ def garmin_mfa():
         'user_id': uid(),
     })
     return jsonify({'ok': True, 'connected': True})
+
+
+# --- Mål per användare ---
+# I tester (APP_TESTING) bor målen i minnet, i drift i user_goals-tabellen.
+_TESTING_GOALS = {}
+
+
+def get_user_goal(user_id):
+    if APP_TESTING:
+        goal = _TESTING_GOALS.get(user_id)
+        return dict(goal) if goal else None
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('SELECT * FROM user_goals WHERE user_id=%s', (user_id,))
+            row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def save_user_goal(user_id, goal):
+    if APP_TESTING:
+        _TESTING_GOALS[user_id] = dict(goal)
+        return
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''INSERT INTO user_goals
+                (user_id, goal_title, goal_deadline, current_best, secondary_goal, start_date, updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    goal_title=EXCLUDED.goal_title, goal_deadline=EXCLUDED.goal_deadline,
+                    current_best=EXCLUDED.current_best, secondary_goal=EXCLUDED.secondary_goal,
+                    start_date=EXCLUDED.start_date, updated_at=EXCLUDED.updated_at''',
+                (user_id, goal['goal_title'], goal.get('goal_deadline'), goal.get('current_best'),
+                 goal.get('secondary_goal'), goal.get('start_date'), time.time()))
+        conn.commit()
+
+
+def _goal_prompt_block(user_id):
+    """Målrader för AI-prompterna, byggda från användarens eget mål."""
+    goal = None
+    try:
+        goal = get_user_goal(user_id)
+    except Exception as e:
+        print('goal prompt fetch:', e)
+    if not goal:
+        return 'GOAL: No explicit goal set yet — coach for general fitness, consistency and health.'
+    line = f"GOAL: {goal['goal_title']}"
+    if goal.get('goal_deadline'):
+        line += f" · Deadline: {goal['goal_deadline']}"
+    if goal.get('current_best'):
+        line += f" · Current best: {goal['current_best']}"
+    lines = [line]
+    if goal.get('secondary_goal'):
+        lines.append(f"SECONDARY GOAL: {goal['secondary_goal']}")
+    return '\n'.join(lines)
+
+
+@app.get('/api/goals')
+def get_goals():
+    try:
+        goal = get_user_goal(uid())
+    except Exception as e:
+        return _server_error(e, 'goals.load_failed', message='Kunde inte hämta målet.')
+    return jsonify({'goal': goal})
+
+
+@app.put('/api/goals')
+def put_goals():
+    data = request.get_json(silent=True) or {}
+    title = str(data.get('goalTitle') or '').strip()
+    if not title or len(title) > 200:
+        return _api_error('invalid_goal', 'Skriv ett mål på max 200 tecken.', 400)
+    deadline = str(data.get('goalDeadline') or '').strip()
+    if deadline and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', deadline):
+        return _api_error('invalid_goal_deadline', 'Deadline måste vara ett datum (ÅÅÅÅ-MM-DD).', 400)
+    try:
+        existing = get_user_goal(uid()) or {}
+        goal = {
+            'goal_title': title,
+            'goal_deadline': deadline or None,
+            'current_best': str(data.get('currentBest') or '').strip()[:200] or None,
+            'secondary_goal': str(data.get('secondaryGoal') or '').strip()[:300] or None,
+            'start_date': existing.get('start_date') or date.today().isoformat(),
+        }
+        save_user_goal(uid(), goal)
+        saved = get_user_goal(uid())
+    except Exception as e:
+        return _server_error(e, 'goals.save_failed', message='Kunde inte spara målet.')
+    logger.info('Goal saved', extra={
+        'event': 'goals.saved',
+        'request_id': _request_id(),
+        'user_id': uid(),
+    })
+    return jsonify({'ok': True, 'goal': saved})
 
 
 @app.post('/api/garmin/disconnect')
@@ -2259,9 +2372,8 @@ def _build_refresh_prompt(acts):
 
     prompt = f"""You are a personal training coach. Analyze ALL data below and respond ONLY with JSON. All text fields in the JSON must be written in Swedish (svenska).
 
-GOAL: Half marathon under 1:20 (3:47/km) on October 10, 2026 · Current best: 1:26:19
-SECONDARY GOAL: Build a strong body in all areas — running strength, upper body, core, mobility
-VO2max: 59 · Plan: W23–41 · Current phase: {phase} (W{iso_week})
+{_goal_prompt_block(uid())}
+Current phase: {phase} (W{iso_week})
 
 TODAY'S SCHEDULED SESSION (from training plan):
 {today_session_str}
@@ -2523,7 +2635,7 @@ def _build_review_prompt():
 
     return f"""You are a personal running coach. Look ONLY at TODAY and tell the athlete how today's planned session is going right now.
 
-GOAL: Half marathon under 1:20 on October 10, 2026.
+{_goal_prompt_block(uid())}
 Current date & time: {now.strftime('%A %d %b, %H:%M')}
 
 TODAY'S PLANNED SESSION:
@@ -2630,7 +2742,7 @@ def _build_insights_prompt():
 
     return f"""You are a brutal, data-driven performance analyst like WHOOP. 3 weeks of data below. Surface the 3-4 most important patterns — ONLY what the numbers support.
 
-GOAL: Half marathon sub 1:20, October 10 2026.
+{_goal_prompt_block(uid())}
 
 DATA (date: sleep score, hours, deep%, REM%, HRV, RHR | training | calendar):
 {log}
