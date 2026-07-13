@@ -296,6 +296,15 @@ async function saveGoalFromForm() {
   }
 }
 
+async function performLogout() {
+  try {
+    await fetch('/api/logout', {method: 'POST'});
+  } catch (_) {
+    // Sessionen rensas ändå lokalt via omladdningen.
+  }
+  location.reload();
+}
+
 // --- Garmin-koppling ---
 function updateGarminSidebar() {
   const row = document.querySelector('.garmin-sync-row');
@@ -599,6 +608,7 @@ function executeAction(trigger, event) {
   else if (action === 'open-goal-modal') openGoalModal(false);
   else if (action === 'close-goal-modal') closeGoalModal();
   else if (action === 'save-goal') saveGoalFromForm();
+  else if (action === 'logout') performLogout();
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'coach-request') sendCoachRequest();
