@@ -1550,6 +1550,8 @@ def activities():
         if request.args.get('calendar') == '1':
             activities_out = _add_calendar_activity_summaries(activities_out)
         return jsonify({'activities': activities_out, 'source': 'database'})
+    if not _garmin_connected(uname()):
+        return jsonify({'activities': [], 'source': 'not_connected', 'notConnected': True})
     try:
         client = get_garmin(uname())
         acts = client.get_activities(0, 50)
@@ -1702,6 +1704,26 @@ def health_data():
     row = get_cache('health', uid())
     if row and (time.time() - row[1]) < 10 * 60 and has_health_payload(row[0]) and (not row[0].get('fallback') or has_sleep_levels(row[0])):
         return jsonify(row[0])
+
+    if not _garmin_connected(uname()):
+        snapshot = latest_health_snapshot(uid(), today)
+        if snapshot:
+            snapshot['notConnected'] = True
+            return jsonify(snapshot)
+        return jsonify({
+            'date': today, 'fallback': True, 'notConnected': True,
+            'readiness': {'score': None, 'level': None, 'feedback': None},
+            'hrv': {'lastNightAvg': None, 'weeklyAvg': None, 'status': None, 'pct': None,
+                    'balancedLow': None, 'balancedUpper': None, 'lowUpper': None,
+                    'component': None, 'light': 'amber', 'verdict': 'Koppla ditt Garmin-konto'},
+            'restingHR': {'value': None, 'sevenDayAvg': None, 'min': None},
+            'sleep': {'totalSec': None, 'deepSec': None, 'remSec': None, 'score': None,
+                      'deepPct': 0, 'remPct': 0, 'levels': [], 'startGMT': None, 'endGMT': None},
+            'bodyBattery': {'current': None, 'max': None, 'charged': None, 'drained': None},
+            'stress': {'avg': None, 'max': None},
+            'respiration': {'avg': None, 'sleepAvg': None},
+            'spo2': {'avg': None, 'min': None},
+        })
 
     try:
         client = get_garmin(uname())
@@ -2188,6 +2210,17 @@ def training_load():
     row = get_cache('training_load', uid())
     if row and (time.time() - row[1]) < 30 * 60:
         return jsonify(row[0])
+    if not _garmin_connected(uname()):
+        return jsonify({
+            'notConnected': True,
+            'acute': None, 'chronic': None, 'ratio': None,
+            'acwrStatus': None, 'statusPhrase': '',
+            'monthlyAerobicLow': 0, 'monthlyAerobicHigh': 0, 'monthlyAnaerobic': 0,
+            'aerobicLowMin': None, 'aerobicLowMax': None,
+            'aerobicHighMin': None, 'aerobicHighMax': None,
+            'anaerobicMin': None, 'anaerobicMax': None,
+            'loadBalanceFeedback': None,
+        })
     try:
         client = get_garmin(uname())
         today  = date.today().isoformat()
@@ -2231,6 +2264,9 @@ def training_load():
 
 @app.post('/api/sync')
 def sync():
+    if not _garmin_connected(uname()):
+        return _api_error('garmin_not_connected',
+                          'Koppla ditt Garmin-konto först — klicka på "Ej kopplad" längst ner i menyn.', 400)
     try:
         n = run_sync(username=uname(), user_id=uid())
         return jsonify({'ok': True, 'count': n})
