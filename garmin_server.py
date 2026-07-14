@@ -2224,10 +2224,11 @@ def training_load():
     try:
         client = get_garmin(uname())
         today  = date.today().isoformat()
-        status = client.get_training_status(today)
+        # Garmin ger None för konton utan träningsstatus ännu (nykopplade/klockor utan load-stöd)
+        status = client.get_training_status(today) or {}
 
         # Plocka ut data från primär enhet
-        dev_map  = status.get('mostRecentTrainingStatus', {}).get('latestTrainingStatusData', {})
+        dev_map  = (status.get('mostRecentTrainingStatus') or {}).get('latestTrainingStatusData') or {}
         dev      = next(iter(dev_map.values()), {}) if dev_map else {}
         acwr_dto = dev.get('acuteTrainingLoadDTO', {})
 
@@ -2237,7 +2238,7 @@ def training_load():
         status_phrase = dev.get('trainingStatusFeedbackPhrase', '')
 
         # Belastningsbalans per månad
-        lb_map  = status.get('mostRecentTrainingLoadBalance', {}).get('metricsTrainingLoadBalanceDTOMap', {})
+        lb_map  = (status.get('mostRecentTrainingLoadBalance') or {}).get('metricsTrainingLoadBalanceDTOMap') or {}
         lb      = next(iter(lb_map.values()), {}) if lb_map else {}
 
         result = {
