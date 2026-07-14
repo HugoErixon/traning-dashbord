@@ -3387,7 +3387,7 @@ STRENGTH_TYPES = ('strength_training', 'fitness_equipment', 'gym', 'indoor_cardi
 @app.get('/api/strength')
 def strength_sessions():
     try:
-        link_manual_exercises_to_activities()
+        link_manual_exercises_to_activities(uid())
     except Exception as e:
         print('Strength-länkning fel:', e)
     with db() as conn:
@@ -3412,7 +3412,7 @@ def strength_sessions():
 @app.get('/api/strength/<session_id>/exercises')
 def get_exercises(session_id):
     try:
-        link_manual_exercises_to_activity(session_id)
+        link_manual_exercises_to_activity(session_id, uid())
     except Exception as e:
         print('Strength-passlänkning fel:', e)
     with db() as conn:
@@ -3963,18 +3963,21 @@ def _activity_start_epoch(raw):
     )
 
 
-def link_manual_exercises_to_activity(session_id):
-    """Attach date-keyed exercises to one concrete Garmin strength activity."""
+def link_manual_exercises_to_activity(session_id, user_id):
+    """Attach date-keyed exercises to one concrete Garmin strength activity.
+    Strikt per användare — både aktiviteten och övningarna måste ägas av user_id."""
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT raw FROM activities WHERE id=%s AND type = ANY(%s)", (session_id, list(STRENGTH_TYPES)))
+            cur.execute("SELECT raw FROM activities WHERE id=%s AND type = ANY(%s) AND user_id=%s",
+                        (session_id, list(STRENGTH_TYPES), user_id))
             row = cur.fetchone()
             if not row:
                 return 0
             local = _activity_local_date(row[0])
             if not local:
                 return 0
-            cur.execute("UPDATE strength_exercises SET session_id=%s WHERE session_id=%s", (str(session_id), local))
+            cur.execute("UPDATE strength_exercises SET session_id=%s WHERE session_id=%s AND user_id=%s",
+                        (str(session_id), local, user_id))
             linked = cur.rowcount
         conn.commit()
     if linked:
@@ -3982,24 +3985,26 @@ def link_manual_exercises_to_activity(session_id):
     return linked
 
 
-def link_manual_exercises_to_activities():
+def link_manual_exercises_to_activities(user_id):
     """Koppla manuellt loggade övningar (sparade under datum-nyckel 'YYYY-MM-DD' i
     Today's workout) till Garmin-styrkepasset som laddats upp samma dag, så de hamnar
     på rätt aktivitet i historiken. Vid flera pass samma dag väljs det som ligger
-    närmast övningarnas loggtid. Idempotent — när raderna fått aktivitets-id rörs de ej."""
+    närmast övningarnas loggtid. Idempotent — när raderna fått aktivitets-id rörs de ej.
+    Strikt per användare så att en användares loggar aldrig länkas till en annans pass."""
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(r"""
                 SELECT session_id, avg(created_at)
                 FROM strength_exercises
-                WHERE session_id ~ '^\d{4}-\d{2}-\d{2}$'
+                WHERE session_id ~ '^\d{4}-\d{2}-\d{2}$' AND user_id = %s
                 GROUP BY session_id
-            """)
+            """, (user_id,))
             date_rows = cur.fetchall()
             date_keys = [r[0] for r in date_rows]
             if not date_keys:
                 return
-            cur.execute("SELECT id, raw FROM activities WHERE type = ANY(%s)", (list(STRENGTH_TYPES),))
+            cur.execute("SELECT id, raw FROM activities WHERE type = ANY(%s) AND user_id=%s",
+                        (list(STRENGTH_TYPES), user_id))
             strength = cur.fetchall()
     if not strength:
         return
@@ -4021,7 +4026,8 @@ def link_manual_exercises_to_activities():
                     best = min(cands, key=lambda c: abs((c[1] or 0) - float(avg_created)) if c[1] else float('inf'))
                 else:
                     best = cands[0]
-                cur.execute("UPDATE strength_exercises SET session_id=%s WHERE session_id=%s", (best[0], dk))
+                cur.execute("UPDATE strength_exercises SET session_id=%s WHERE session_id=%s AND user_id=%s",
+                            (best[0], dk, user_id))
                 linked += cur.rowcount
         conn.commit()
     if linked:
@@ -4037,7 +4043,7 @@ def run_sync(count=50, username=None, user_id=1):
     acts = client.get_activities(0, count)
     save_activities(acts, user_id)
     try:
-        link_manual_exercises_to_activities()
+        link_manual_exercises_to_activities(user_id)
     except Exception as e:
         print('Strength-länkning fel:', e)
     clear_cache('health', 'analysis', 'training_review', user_id=user_id)
