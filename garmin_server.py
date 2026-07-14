@@ -2283,26 +2283,20 @@ def _build_refresh_prompt(acts):
     iso_week  = _get_iso_week(today)
     weekday   = today.weekday()  # 0=mån
 
-    # Fas baserat på vecka
-    if iso_week <= 23:   phase = 'återhämtning'
-    elif iso_week <= 25: phase = 'återhämtning/bas'
-    elif iso_week <= 29: phase = 'basbygge'
-    elif iso_week <= 33: phase = 'tröskel/tempo'
-    elif iso_week <= 37: phase = 'tävlingsspecifik'
-    elif iso_week <= 39: phase = 'avtrappning'
-    elif iso_week <= 40: phase = 'taper'
-    else:                phase = 'tävlingsvecka'
-
-    # Planerat km per vecka (från träningsplanen)
-    weekly_km_plan = {
-        23:35, 24:40, 25:45,
-        26:50, 27:55, 28:55, 29:58,
-        30:62, 31:65, 32:65, 33:60,
-        34:68, 35:70, 36:68, 37:65,
-        38:55, 39:50,
-        40:35, 41:15
-    }
-    planned_km = weekly_km_plan.get(iso_week, 40)
+    # Plan- och veckovolym härleds från användarens egen plan i databasen
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT COALESCE(SUM(km),0) FROM plan_sessions WHERE user_id=%s AND week=%s',
+                        (uid(), iso_week))
+            planned_km = float(cur.fetchone()[0] or 0)
+            cur.execute('SELECT COUNT(*), MIN(week), MAX(week) FROM plan_sessions WHERE user_id=%s', (uid(),))
+            plan_count, plan_first_week, plan_last_week = cur.fetchone()
+    if plan_count:
+        plan_line = (f"Training plan: W{plan_first_week}–W{plan_last_week} "
+                     f"· This week (W{iso_week}): {planned_km:.0f} km planned")
+    else:
+        plan_line = ("Training plan: none set up yet — base guidance on recovery, "
+                     "recent training load and the athlete's goal")
 
     # Senaste löppass med load-data
     recent_runs = [
@@ -2409,7 +2403,7 @@ def _build_refresh_prompt(acts):
     prompt = f"""You are a personal training coach. Analyze ALL data below and respond ONLY with JSON. All text fields in the JSON must be written in Swedish (svenska).
 
 {_goal_prompt_block(uid())}
-Current phase: {phase} (W{iso_week})
+{plan_line}
 
 TODAY'S SCHEDULED SESSION (from training plan):
 {today_session_str}
@@ -2422,7 +2416,7 @@ RECENT RUNS:
 {json.dumps(recent_runs, ensure_ascii=False, indent=2)}
 
 WEEK STATUS W{iso_week}:
-- Planned: {planned_km} km · Completed: {completed_km:.1f} km · Remaining: {remaining_km:.1f} km
+- {f'Planned: {planned_km:.0f} km · Completed: {completed_km:.1f} km · Remaining: {remaining_km:.1f} km' if plan_count else f'No plan — Completed: {completed_km:.1f} km'}
 - Training load this week: {round(completed_load)}
 
 HEALTH DATA (today):

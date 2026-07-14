@@ -1914,7 +1914,11 @@ HEALTH DATA (current):
     const remainingKm = Math.max(0, plannedKmWeek - completedKmWeek);
     const weekCap = Math.round(plannedKmWeek * 1.1); // max 10% över plan
 
-    ctx += `\n\nWEEKLY VOLUME W${isoWeek}: Planned ${plannedKmWeek} km  -  Completed ${completedKmWeek.toFixed(1)} km  -  Remaining by plan ${remainingKm.toFixed(1)} km  -  Weekly cap ${weekCap} km. If a missed session is suggested for rescheduling, ensure total weekly distance does not exceed ${weekCap} km - otherwise recommend rest or move the session to next week.`;
+    if (PLAN_SESSIONS.length === 0) {
+      ctx += `\n\nWEEKLY VOLUME W${isoWeek}: No training plan set up  -  Completed ${completedKmWeek.toFixed(1)} km this week. Base advice on recovery, recent load and the athlete's goal.`;
+    } else {
+      ctx += `\n\nWEEKLY VOLUME W${isoWeek}: Planned ${plannedKmWeek} km  -  Completed ${completedKmWeek.toFixed(1)} km  -  Remaining by plan ${remainingKm.toFixed(1)} km  -  Weekly cap ${weekCap} km. If a missed session is suggested for rescheduling, ensure total weekly distance does not exceed ${weekCap} km - otherwise recommend rest or move the session to next week.`;
+    }
 
     // Training load (ACWR) - estimera load för planerade kvarvarande pass
     if (trainingLoadData && trainingLoadData.acute != null) {
@@ -3957,119 +3961,10 @@ HEALTH DATA (current):
         safeRenderTrainingCockpit();
       }
     } catch(e) {
-      console.warn('Plan fetch failed, using fallback', e);
+      console.warn('Plan fetch failed', e);
     }
   }
   loadPlan();
-
-  // Fallback-data (används om DB är otillgänglig)
-  const PLAN_SESSIONS_FALLBACK = [
-
-    // ── V.23  -  Recovery  -  mål ~28 km ──────────────────
-    { week:23, dow:1, type:'run',  km:6,  title:'Recoverysjogg',       detail:'Z2  -  6 km  -  4:45-5:15/km  -  Rest efter GöteborgsVarvet' },
-    { week:23, dow:2, type:'easy', km:7,  title:'Lätt Z2  -  7 km',          detail:'Z2  -  Lugnt tempo  -  5:00-5:20/km  -  Aktiv återhämtning' },
-    { week:23, dow:3, type:'lift', km:0,  title:'Helkropp - intro',         detail:'Knäböj, marklyft, bänkpress, latsdrag  -  3×8  -  60-70% av max' },
-    { week:23, dow:4, type:'easy', km:5,  title:'Lätt Z2  -  5 km',          detail:'Z2  -  Kort och lätt  -  Spola ur benen' },
-    { week:23, dow:6, type:'easy', km:10, title:'Söndagsjogg  -  10 km',      detail:'Z2  -  5:00-5:20/km  -  Veckoavslutet  -  Lugnt och långsamt' },
-
-    // ── V.24  -  Bas  -  mål ~44 km ────────────────────────────
-    { week:24, dow:0, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Aktivering inför veckans kvalitetspass' },
-    { week:24, dow:1, type:'run',  km:8,  title:'4×1000m intervaller',      detail:'Z3-Z4  -  3:35/km  -  3 min vila  -  ~8 km totalt inkl uppvärmning' },
-    { week:24, dow:2, type:'easy', km:9,  title:'Lätt Z2  -  9 km',          detail:'Z2  -  5:00-5:15/km  -  Aktivt vilodygn  -  Håll pulsen låg' },
-    { week:24, dow:3, type:'lift', km:0,  title:'Underkropp + core',        detail:'Knäböj, RDL, benpress, split-squat, plankan  -  3-4 set  -  Progressiv' },
-    { week:24, dow:4, type:'easy', km:7,  title:'Lätt Z2  -  7 km',          detail:'Z2  -  Inför lördagets bansprint  -  Lugnt' },
-    { week:24, dow:5, type:'run',  km:6,  title:'6×400m snabba drag',       detail:'Z5  -  3:10/km  -  90 sek vila  -  Bana  -  Anaerob stimulans' },
-    { week:24, dow:6, type:'easy', km:10, title:'Söndagsjogg  -  10 km',      detail:'Z2  -  Aktiv återhämtning efter banpasset' },
-
-    // ── V.25  -  Bas  -  mål ~47 km ────────────────────────────
-    { week:25, dow:0, type:'easy', km:5,  title:'Lätt Z2  -  5 km',          detail:'Z2  -  Kort aktivering inför veckans tröskelpass' },
-    { week:25, dow:1, type:'easy', km:9,  title:'Medium Z2  -  9 km',        detail:'Z2  -  5:00/km  -  Aerob bas  -  Bekvämt tempo hela vägen' },
-    { week:25, dow:2, type:'run',  km:10, title:'5×1000m tröskel',          detail:'Z3-Z4  -  3:35/km  -  2:30 min vila  -  ~10 km totalt' },
-    { week:25, dow:3, type:'lift', km:0,  title:'Överkropp',                detail:'Bänkpress, axelpress, latsdrag, rodd  -  3-4 set  -  Progressiv' },
-    { week:25, dow:4, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Recovery efter tröskelpasset' },
-    { week:25, dow:5, type:'run',  km:12, title:'Långpass  -  12 km',         detail:'Z2  -  5:00-5:20/km  -  Viktigaste aeroba passet i veckan' },
-    { week:25, dow:6, type:'easy', km:5,  title:'Lätt avslutning  -  5 km',  detail:'Z2  -  Söndagsjogg  -  Håll benen igång' },
-
-    // ── V.26  -  Tröskel  -  mål ~48 km ───────────────────────
-    { week:26, dow:0, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Aktivering inför tröskeldagen' },
-    { week:26, dow:1, type:'run',  km:10, title:'3×2000m tröskel',          detail:'Z4  -  3:35/km  -  3 min vila  -  ~10 km inkl uppvärm.' },
-    { week:26, dow:2, type:'easy', km:9,  title:'Medium Z2  -  9 km',        detail:'Z2  -  Aerob bas  -  5:00-5:10/km  -  Jämnt och lugnt' },
-    { week:26, dow:3, type:'lift', km:0,  title:'Underkropp - tung',        detail:'Knäböj, marklyft, bulgarska  -  4×6-8  -  80% av max' },
-    { week:26, dow:4, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Inför lördagets fartlekpass' },
-    { week:26, dow:5, type:'run',  km:8,  title:'8×400m fartlek',           detail:'Z4-Z5  -  90 sek vila  -  Varierande tempo  -  ~8 km' },
-    { week:26, dow:6, type:'easy', km:10, title:'Söndagsjogg  -  10 km',      detail:'Z2  -  Aerob avslutning på veckan' },
-
-    // ── V.27  -  Tröskel  -  mål ~49 km ───────────────────────
-    { week:27, dow:0, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Inför veckans längsta tröskeldag' },
-    { week:27, dow:1, type:'run',  km:10, title:'2×3000m @ 3:35/km',       detail:'Z4  -  4 min vila  -  Längsta tröskeldraget hittills  -  ~10 km' },
-    { week:27, dow:2, type:'easy', km:9,  title:'Medium Z2  -  9 km',        detail:'Z2  -  Aktiv återhämtning  -  Håll pulsen under 140' },
-    { week:27, dow:3, type:'lift', km:0,  title:'Överkropp - tung',         detail:'Bänkpress, axelpress, dips, chins  -  4×6  -  80% av max' },
-    { week:27, dow:4, type:'easy', km:7,  title:'Lätt Z2  -  7 km',          detail:'Z2  -  Lugnt inför lördagets långpass' },
-    { week:27, dow:5, type:'run',  km:12, title:'Långpass  -  12 km',         detail:'Z2  -  5:00/km  -  Veckans höjdpunkt aerob bas' },
-    { week:27, dow:6, type:'easy', km:6,  title:'Lätt avslutning  -  6 km',  detail:'Z2  -  Söndagsjogg  -  Inga krav' },
-
-    // ── V.28  -  Tröskel  -  mål ~48 km ───────────────────────
-    { week:28, dow:0, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Inför veckans tröskelpass' },
-    { week:28, dow:1, type:'run',  km:10, title:'5×1000m tröskel',          detail:'Z4  -  3:33/km  -  Ökad intensitet vs V26  -  ~10 km' },
-    { week:28, dow:2, type:'easy', km:9,  title:'Medium Z2  -  9 km',        detail:'Z2  -  5:00/km  -  Aerob bas  -  Aktiv återhämtning' },
-    { week:28, dow:3, type:'lift', km:0,  title:'Underkropp - tung',        detail:'Knäböj, RDL, benpress  -  4×5  -  82% av max' },
-    { week:28, dow:4, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Inför lördagets speedpass' },
-    { week:28, dow:5, type:'run',  km:7,  title:'6×500m sharpening',        detail:'Z5  -  3:12/km  -  90 sek vila  -  ~7 km totalt' },
-    { week:28, dow:6, type:'easy', km:10, title:'Söndagsjogg  -  10 km',      detail:'Z2  -  Sista långa aeroba passet innan testperioden' },
-
-    // ── V.29  -  Kontrolltest  -  mål ~38 km ──────────────────
-    { week:29, dow:0, type:'easy', km:5,  title:'Lätt Z2  -  5 km',          detail:'Z2  -  Lätt aktivering  -  Spara benen inför testet' },
-    { week:29, dow:1, type:'run',  km:8,  title:'Lätt tröskelpass',         detail:'2×2000m  -  Z4  -  3 min vila  -  Håll dig frisk  -  ~8 km' },
-    { week:29, dow:2, type:'easy', km:7,  title:'Medium Z2  -  7 km',        detail:'Z2  -  Sista längre passet innan testet' },
-    { week:29, dow:3, type:'lift', km:0,  title:'Lätt styrka',              detail:'3 övningar  -  3×6  -  75%  -  Spara energi inför testet' },
-    { week:29, dow:4, type:'easy', km:5,  title:'Lätt jogg  -  5 km',        detail:'Z2  -  Aktivering dagen innan test  -  Lugnt' },
-    { week:29, dow:5, type:'race', km:7,  title:' 3 km KONTROLLTEST',    detail:'Uppvärmning 2 km + 3 km test (mål <10:10) + nedvarvning 2 km' },
-    { week:29, dow:6, type:'easy', km:6,  title:'Recoverysjogg  -  6 km',detail:'Z2  -  Lätt efter gårdagens test  -  Spola ut mjölksyra' },
-
-    // ── V.30  -  Spetsning  -  mål ~46 km ─────────────────────
-    { week:30, dow:0, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Inför veckans speedpass' },
-    { week:30, dow:1, type:'run',  km:7,  title:'6×500m sharpening',        detail:'Z5  -  3:10/km  -  2 min vila  -  ~7 km totalt' },
-    { week:30, dow:2, type:'easy', km:9,  title:'Medium Z2  -  9 km',        detail:'Z2  -  Aerob bas  -  5:00/km  -  Bekvämt' },
-    { week:30, dow:3, type:'lift', km:0,  title:'Underhållsstyrka',         detail:'3 övningar  -  3×5  -  85% av max  -  Kortare session' },
-    { week:30, dow:4, type:'easy', km:7,  title:'Lätt Z2  -  7 km',          detail:'Z2  -  Inför lördagets fartlek' },
-    { week:30, dow:5, type:'run',  km:8,  title:'Lätt fartlek',             detail:'Z2 med 4×1 min snabba drag  -  ~8 km totalt' },
-    { week:30, dow:6, type:'easy', km:9,  title:'Söndagsjogg  -  9 km',       detail:'Z2  -  Aerob avslutning  -  Lugnt och stabilt' },
-
-    // ── V.31  -  Spetsning  -  mål ~43 km ─────────────────────
-    { week:31, dow:0, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Aktivering inför veckans speedpass' },
-    { week:31, dow:1, type:'run',  km:7,  title:'6×500m sharpening',        detail:'Z5  -  3:08/km  -  Lite snabbare än V30  -  ~7 km' },
-    { week:31, dow:2, type:'easy', km:8,  title:'Medium Z2  -  8 km',        detail:'Z2  -  5:00/km  -  Aerob bas  -  Bekvämt tempo' },
-    { week:31, dow:3, type:'lift', km:0,  title:'Underhållsstyrka',         detail:'3 övningar  -  3×5  -  85% av max' },
-    { week:31, dow:4, type:'easy', km:6,  title:'Lätt Z2  -  6 km',          detail:'Z2  -  Inför helgens löpning' },
-    { week:31, dow:5, type:'easy', km:8,  title:'Mellanlångt Z2  -  8 km',   detail:'Z2  -  5:00-5:15/km  -  Sista längre pass i spetsningsfasen' },
-    { week:31, dow:6, type:'easy', km:8,  title:'Söndagsjogg  -  8 km',       detail:'Z2  -  Lätt avslutning på veckan' },
-
-    // ── V.32  -  Avtrappning  -  mål ~40 km ───────────────────
-    { week:32, dow:0, type:'easy', km:5,  title:'Lätt Z2  -  5 km',          detail:'Z2  -  Inför veckans tävlingsfartpass' },
-    { week:32, dow:1, type:'run',  km:8,  title:'4×1000m tävlingsfart',     detail:'Z4-Z5  -  3:19/km  -  3 min vila  -  Känn tävlingstemot  -  ~8 km' },
-    { week:32, dow:2, type:'easy', km:8,  title:'Medium Z2  -  8 km',        detail:'Z2  -  Aktiv återhämtning  -  Lugnt och stabilt' },
-    { week:32, dow:3, type:'lift', km:0,  title:'Underhållsstyrka',         detail:'3 övningar  -  3×5  -  85% av max' },
-    { week:32, dow:4, type:'easy', km:5,  title:'Lätt Z2  -  5 km',          detail:'Z2  -  Inför lördagets strides' },
-    { week:32, dow:5, type:'run',  km:6,  title:'Lätt jogg + strides',      detail:'25 min Z2 + 6×80m strides  -  Håll snabbheten vass' },
-    { week:32, dow:6, type:'easy', km:8,  title:'Söndagsjogg  -  8 km',       detail:'Z2  -  Sista lite längre passet' },
-
-    // ── V.33  -  Nedtrapning  -  mål ~30 km ───────────────────
-    { week:33, dow:0, type:'easy', km:5,  title:'Lätt Z2  -  5 km',          detail:'Z2  -  Lätt aktivering  -  Spara benen' },
-    { week:33, dow:1, type:'run',  km:7,  title:'3×1000m tävlingsfart',     detail:'Z5  -  3:15-3:19/km  -  4 min vila  -  Spetsning  -  ~7 km' },
-    { week:33, dow:2, type:'easy', km:7,  title:'Lätt Z2  -  7 km',          detail:'Z2  -  Bekvämt  -  Spola ut mjölksyran efter tisdagens pass' },
-    { week:33, dow:3, type:'lift', km:0,  title:'Kort underhållsstyrka',    detail:'2 övningar  -  2×5  -  80%  -  Håll kroppen aktiv' },
-    { week:33, dow:4, type:'easy', km:5,  title:'Lätt jogg  -  5 km',        detail:'Z2  -  20 min  -  Sista kvalitetsdagen  -  Muskler spänstiga' },
-    { week:33, dow:6, type:'easy', km:6,  title:'Söndagsjogg  -  6 km',       detail:'Z2  -  Lugn avslutning  -  Sista söndag inför tävlingsveckan' },
-
-    // ── V.34  -  Tävlingsvecka  -  mål ~20 km ─────────────────
-    { week:34, dow:0, type:'easy', km:5,  title:'Lätt aktivering  -  5 km',  detail:'Z2  -  15-20 min  -  Håll benen spänstiga' },
-    { week:34, dow:1, type:'easy', km:5,  title:'Strides  -  5 km',          detail:'10 min Z2 + 4×80m strides  -  Deux dagar kvar' },
-    { week:34, dow:2, type:'rest', km:0,  title:'Rest',                     detail:'Fullständig vila. Ät bra, sov länge, visualisera loppet.' },
-    { week:34, dow:3, type:'race', km:10, title:' 3 KM - SUB 10:00',     detail:'Uppvärm 3 km  -  UT: 3:22/km  -  Km 2: 3:20  -  Km 3: 3:15  -  MÅL: 9:59!' },
-  ];
-
-  // Använd fallback om DB-laddningen ännu inte är klar
-  if (PLAN_SESSIONS.length === 0) PLAN_SESSIONS = PLAN_SESSIONS_FALLBACK.map(normalizePlanSession);
 
   function getISOWeek(date) {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -4107,17 +4002,14 @@ HEALTH DATA (current):
     const dayNames = ['Mån','Tis','Ons','Tor','Fre','Lör','Sön'];
     const monthNames = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
-    // Fas-rubriker
-    const phases = {
-      23: 'Fas 1 – Aerob bas & återhämtning',
-      26: 'Fas 2 – Tröskel & styrkebygge',
-      30: 'Fas 3 – Spetsning',
-    };
-
-    const START_WEEK = 23;
-    const END_WEEK   = 34;
-    const YEAR       = 2026;
-    const currentWeek = Math.min(Math.max(getISOWeek(today), START_WEEK), END_WEEK);
+    // Veckospann härleds från användarens egen plan; utan plan visas veckorna
+    // runt dagens datum (Garmin-aktiviteter och kalenderhändelser syns ändå).
+    const planWeeks = PLAN_SESSIONS.map(s => s.week);
+    const isoNow = getISOWeek(today);
+    const START_WEEK = planWeeks.length ? Math.min(...planWeeks) : Math.max(1, isoNow - 2);
+    const END_WEEK   = planWeeks.length ? Math.max(...planWeeks) : Math.min(52, isoNow + 4);
+    const YEAR       = today.getFullYear();
+    const currentWeek = Math.min(Math.max(isoNow, START_WEEK), END_WEEK);
     const currentTab = document.getElementById('cal-tab-current');
     const pastTab = document.getElementById('cal-tab-past');
 
@@ -4170,16 +4062,6 @@ HEALTH DATA (current):
     });
 
     visibleWeeks.forEach((w, idx) => {
-      // Fas-rubrik?
-      if (phases[w]) {
-        const ph = document.createElement('div');
-        ph.className = 'sl';
-        ph.style.marginTop = idx === 0 ? '0' : '28px';
-        ph.style.marginBottom = '12px';
-        ph.textContent = phases[w];
-        container.appendChild(ph);
-      }
-
       const monday = getMondayOfISOWeek(w, YEAR);
 
       // Indexera Google Calendar-events per datum för denna vecka
