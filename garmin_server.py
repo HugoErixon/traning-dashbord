@@ -105,6 +105,56 @@ for _username, _user in USERS.items():
         })
 
 ANTHROPIC_KEY = config.get('ANTHROPIC_API_KEY', '')
+
+# --- AI-leverantör: gemini (gratis via aistudio.google.com) eller anthropic ---
+GEMINI_API_KEY  = config.get('GEMINI_API_KEY', '')
+GEMINI_MODEL    = config.get('GEMINI_MODEL', 'gemini-flash-latest')
+ANTHROPIC_MODEL = config.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
+LLM_PROVIDER    = (config.get('LLM_PROVIDER') or ('gemini' if GEMINI_API_KEY else 'anthropic')).strip().lower()
+
+
+def llm_available():
+    if LLM_PROVIDER == 'gemini':
+        return bool(GEMINI_API_KEY)
+    return bool(ANTHROPIC_KEY) and not ANTHROPIC_KEY.startswith('sk-ant-placeholder')
+
+
+def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
+    """Skicka en prompt till den konfigurerade AI-leverantören och returnera svarstexten.
+
+    Samma gränssnitt oavsett leverantör så att alla anropsställen är oberoende av
+    vilken tjänst som används. Kastar RuntimeError när leverantören svarar med fel
+    eller tomt svar; anropsställenas befintliga except-hantering tar hand om det."""
+    if LLM_PROVIDER == 'gemini':
+        body = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}
+        if system:
+            body['system_instruction'] = {'parts': [{'text': system}]}
+        resp = requests.post(
+            f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent',
+            json=body,
+            headers={'x-goog-api-key': GEMINI_API_KEY, 'Content-Type': 'application/json'},
+            timeout=timeout)
+        rj = resp.json()
+        if 'error' in rj:
+            raise RuntimeError(f"Gemini {rj['error'].get('code')}: {rj['error'].get('message')}")
+        try:
+            return rj['candidates'][0]['content']['parts'][0]['text']
+        except (KeyError, IndexError, TypeError) as exc:
+            finish = ((rj.get('candidates') or [{}])[0]).get('finishReason', 'okänt')
+            raise RuntimeError(f'Gemini gav tomt svar (finishReason: {finish})') from exc
+
+    payload = {'model': ANTHROPIC_MODEL, 'max_tokens': max_tokens,
+               'messages': [{'role': 'user', 'content': prompt}]}
+    if system:
+        payload['system'] = system
+    resp = requests.post('https://api.anthropic.com/v1/messages',
+        json=payload,
+        headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
+                 'content-type': 'application/json'}, timeout=timeout)
+    rj = resp.json()
+    if 'error' in rj:
+        raise RuntimeError(f"Anthropic: {rj['error'].get('message')}")
+    return rj['content'][0]['text']
 TOKEN_DIR     = str(Path.home() / '.garminconnect')
 DATABASE_URL  = config.get('DATABASE_URL', '')
 GCAL_ID       = config.get('GOOGLE_CALENDAR_ID', 'primary')
@@ -2506,20 +2556,14 @@ def refresh():
     except Exception as e:
         return _server_error(e, 'analysis.garmin_failed', message='Garmin-datan kunde inte hämtas.')
 
-    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
-        return jsonify({'todayRecommendation': 'Add an Anthropic API key in .env.',
+    if not llm_available():
+        return jsonify({'todayRecommendation': 'Lägg till en AI-nyckel (GEMINI_API_KEY) i .env.',
                         'todayType': 'easy',
                         'nextSession': {'title': 'Easy jog', 'desc': 'Z2, 30-40 min', 'tempo': '4:45-5:15 /km', 'distance': '~6 km'},
-                        'prediction3k': '10:27', 'insight': 'AI insights require an API key.'})
+                        'prediction3k': '10:27', 'insight': 'AI-insikter kräver en API-nyckel.'})
 
     prompt = _build_refresh_prompt(acts)
-    resp = requests.post('https://api.anthropic.com/v1/messages',
-        json={'model': 'claude-sonnet-4-6', 'max_tokens': 600,
-              'messages': [{'role': 'user', 'content': prompt}]},
-        headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
-                 'content-type': 'application/json'}, timeout=45)
-
-    text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
+    text = call_llm(prompt, max_tokens=600).strip().replace('```json','').replace('```','').strip()
     analysis = json.loads(text)
     set_cache('analysis', analysis, uid())
     return jsonify(analysis)
@@ -2697,17 +2741,12 @@ def training_review():
     row = get_cache('training_review', uid())
     if row and row[0].get('_review_version') == 2 and not force and (time.time() - row[1]) < 30 * 60:
         return jsonify(row[0])
-    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
-        return jsonify({'status': 'pending', 'headline': 'AI key required',
-                        'body': 'Add an Anthropic API key in .env to enable today\'s session check.'})
+    if not llm_available():
+        return jsonify({'status': 'pending', 'headline': 'AI-nyckel krävs',
+                        'body': 'Lägg till en AI-nyckel (GEMINI_API_KEY) i .env för dagens passkoll.'})
     try:
         prompt = _build_review_prompt()
-        resp = requests.post('https://api.anthropic.com/v1/messages',
-            json={'model': 'claude-sonnet-4-6', 'max_tokens': 500,
-                  'messages': [{'role': 'user', 'content': prompt}]},
-            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
-                     'content-type': 'application/json'}, timeout=45)
-        text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
+        text = call_llm(prompt, max_tokens=500).strip().replace('```json','').replace('```','').strip()
         review = json.loads(text)
         review['_review_version'] = 2
         set_cache('training_review', review, uid())
@@ -2820,25 +2859,12 @@ def insights():
                         'insights': [{'title': 'Building history',
                                       'detail': f'Collected {n} day(s) so far. Insights sharpen as more sleep/HRV/training history accumulates.',
                                       'action': 'Check back soon — history backfills automatically.'}]})
-    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
-        return jsonify({'status': 'watch', 'headline': 'AI key required',
-                        'insights': [{'title': 'No API key', 'detail': 'Add ANTHROPIC_API_KEY to .env to enable AI insights.', 'action': ''}]})
+    if not llm_available():
+        return jsonify({'status': 'watch', 'headline': 'AI-nyckel krävs',
+                        'insights': [{'title': 'Ingen API-nyckel', 'detail': 'Lägg till GEMINI_API_KEY i .env för AI-insikter.', 'action': ''}]})
     try:
         prompt = _build_insights_prompt()
-        resp = requests.post('https://api.anthropic.com/v1/messages',
-            json={'model': 'claude-sonnet-4-6', 'max_tokens': 2000,
-                  'messages': [{'role': 'user', 'content': prompt}]},
-            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
-            timeout=45)
-        rj = resp.json()
-        if 'error' in rj:
-            logger.error('Insight provider rejected request', extra={
-                'event': 'insights.provider_rejected',
-                'request_id': _request_id(),
-                'user_id': uid(),
-            })
-            return _api_error('ai_provider_error', 'AI-tjänsten kunde inte skapa insikterna.', 502)
-        text = rj['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
+        text = call_llm(prompt, max_tokens=2000).strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('insights', data, uid())
         return jsonify(data)
@@ -2943,25 +2969,12 @@ def sleep_insights():
                         'insights': [{'title': 'Need more history',
                                       'detail': f'Have {n} night(s) so far — need at least 5 to find patterns.',
                                       'action': 'Check back in a few days.'}]})
-    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
-        return jsonify({'status': 'watch', 'headline': 'AI key required',
-                        'insights': [{'title': 'No API key', 'detail': 'Add ANTHROPIC_API_KEY to .env.', 'action': ''}]})
+    if not llm_available():
+        return jsonify({'status': 'watch', 'headline': 'AI-nyckel krävs',
+                        'insights': [{'title': 'Ingen API-nyckel', 'detail': 'Lägg till GEMINI_API_KEY i .env.', 'action': ''}]})
     try:
         prompt = _build_sleep_insights_prompt()
-        resp = requests.post('https://api.anthropic.com/v1/messages',
-            json={'model': 'claude-sonnet-4-6', 'max_tokens': 2000,
-                  'messages': [{'role': 'user', 'content': prompt}]},
-            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
-            timeout=45)
-        rj = resp.json()
-        if 'error' in rj:
-            logger.error('Sleep insight provider rejected request', extra={
-                'event': 'sleep_insights.provider_rejected',
-                'request_id': _request_id(),
-                'user_id': uid(),
-            })
-            return _api_error('ai_provider_error', 'AI-tjänsten kunde inte skapa sömnanalysen.', 502)
-        text = rj['content'][0]['text'].strip().replace('```json', '').replace('```', '').strip()
+        text = call_llm(prompt, max_tokens=2000).strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('sleep_insights', data, uid())
         return jsonify(data)
@@ -3130,17 +3143,10 @@ def chat():
         return _api_error('message_required', 'Skriv en fråga först.', 400)
     if len(message) > 4000 or len(context) > 30000:
         return _api_error('request_too_large', 'Coachfrågan är för lång.', 400)
-    if not ANTHROPIC_KEY:
+    if not llm_available():
         return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
     try:
-        resp = requests.post('https://api.anthropic.com/v1/messages',
-            json={'model': 'claude-sonnet-4-6', 'max_tokens': 1024,
-                  'system': context,
-                  'messages': [{'role': 'user', 'content': message}]},
-            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
-                     'content-type': 'application/json'}, timeout=45)
-        resp.raise_for_status()
-        return jsonify({'reply': resp.json()['content'][0]['text']})
+        return jsonify({'reply': call_llm(message, max_tokens=1024, system=context)})
     except Exception as e:
         return _server_error(
             e, 'chat.provider_failed', status=502, code='ai_provider_error',
@@ -4068,7 +4074,7 @@ def ai_adjust_plan(user_request=None):
     user_request: valfri fritext från användaren (t.ex. "jag vill gymma idag
     istället för att springa") som prioriteras högt i coachens beslut.
     """
-    if not ANTHROPIC_KEY:
+    if not llm_available():
         print('AI adjustment: API key missing')
         return
 
@@ -4339,17 +4345,12 @@ Return ONLY this JSON, with no comments outside it:
   "summary": "<one Swedish sentence summarizing today's adjustments>"
 }}"""
 
-    # 6. Anropa Claude
+    # 6. Anropa AI-coachen
     try:
-        resp = requests.post('https://api.anthropic.com/v1/messages',
-            json={'model': 'claude-sonnet-4-6', 'max_tokens': 3000,
-                  'messages': [{'role': 'user', 'content': prompt}]},
-            headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
-                     'content-type': 'application/json'}, timeout=45)
-        text = resp.json()['content'][0]['text'].strip().replace('```json','').replace('```','').strip()
+        text = call_llm(prompt, max_tokens=3000).strip().replace('```json','').replace('```','').strip()
         result = json.loads(text)
     except Exception as e:
-        print('AI adjustment: Claude error', e)
+        print('AI adjustment: LLM error', e)
         return
 
     tomorrow_rest_request = explicit_tomorrow_request and explicit_rest_request
@@ -4514,8 +4515,8 @@ def plan_request():
         return jsonify({'error': 'Skriv vad du vill ändra först.'}), 400
     if len(text) > 500:
         return jsonify({'error': 'Keep the request under 500 characters.'}), 400
-    if not ANTHROPIC_KEY or ANTHROPIC_KEY.startswith('sk-ant-placeholder'):
-        return jsonify({'error': 'AI key required'}), 503
+    if not llm_available():
+        return jsonify({'error': 'AI-nyckel krävs'}), 503
     try:
         match_activities_to_plan(user_id=uid())
         ai_adjust_plan(user_request=text)
