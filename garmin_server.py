@@ -3487,6 +3487,14 @@ def _plan_session_date(session, reference_day=None):
     return date.fromisocalendar(iso_year, int(session['week']), int(session['dow']) + 1)
 
 
+PLAN_SESSION_TYPES = ('run', 'easy', 'lift', 'race', 'rest')
+
+
+def _valid_session_type(value):
+    value = str(value or '').strip().lower()
+    return value if value in PLAN_SESSION_TYPES else None
+
+
 def _enrich_strength_plan(sessions, user_id, history=None):
     """Attach calculated prescriptions without mutating the saved plan text."""
     history = history if history is not None else _strength_progression_history(user_id)
@@ -3500,6 +3508,13 @@ def _enrich_strength_plan(sessions, user_id, history=None):
             recommendations = build_strength_recommendations(
                 session.get('detail', ''), history, before_date=session_day
             )
+            if not recommendations:
+                # Gympass utan igenkända övningar i detaljtexten (t.ex. ett löppass
+                # som coachen gjort om till "Gympass · helkropp") får ändå vikter
+                # utifrån användarens egen träningshistorik.
+                recommendations = build_default_recommendations(
+                    history, before_date=session_day, limit=6
+                )
             session['strength_recommendations'] = recommendations
             session['strength_recommendation_text'] = recommendation_summary(recommendations)
         except (TypeError, ValueError) as exc:
@@ -3852,8 +3867,13 @@ def get_plan():
 @app.patch('/api/plan/<int:session_id>')
 def update_session(session_id):
     data = request.json or {}
-    allowed = {'status','week','dow','title','detail','km','ai_note'}
+    allowed = {'status','week','dow','title','detail','km','ai_note','type'}
     fields = {k: v for k, v in data.items() if k in allowed}
+    if 'type' in fields:
+        session_type = _valid_session_type(fields['type'])
+        if not session_type:
+            return jsonify({'error': f"Ogiltig passtyp — tillåtna: {', '.join(PLAN_SESSION_TYPES)}"}), 400
+        fields['type'] = session_type
     if not fields:
         return jsonify({'error': 'No valid fields'}), 400
     fields['modified_at'] = time.time()
@@ -4281,6 +4301,7 @@ The prescriptions below are calculated deterministically from completed exercise
 Strength rules:
 - For an existing lift session, preserve the supplied sets, reps and exact weight recommendation for recognized exercises.
 - For a newly added lift session, choose exercises from exercise_library_for_new_sessions when suitable and use those prescriptions.
+- When you convert an existing session into a different kind of workout (e.g. a run day becomes a strength day), you MUST set "type" accordingly ("lift" for strength) — the weight recommendation engine only attaches weights to sessions with type "lift". Leave "type" null when the kind of workout is unchanged.
 - A null weight means there is no comparable history, a pain warning, or no external weight is needed. Never replace null with a guessed number.
 - The dashboard renders these prescriptions in a separate compact block, so do not repeat a long strength history in summary, coaching_notes or reason.
 
@@ -4335,7 +4356,7 @@ Return ONLY this JSON, with no comments outside it:
       "action": "add|reschedule|skip|keep|modify",
       "new_week": <int or null>,
       "new_dow": <int 0-6 or null>,
-      "type": "run|easy|race|lift|rest|null",
+      "type": "<run|easy|race|lift|rest, or null when the kind of workout is unchanged>",
       "new_km": <float or null>,
       "new_title": "<Swedish string or null>",
       "new_detail": "<concise workout instructions only, max 140 characters; for lift sessions include exercise + sets x reps but omit unverified kg; put reasoning in coaching_notes/reason, or null if unchanged>",
@@ -4444,6 +4465,9 @@ Return ONLY this JSON, with no comments outside it:
                             extra_sets.append('title=%s'); extra_vals.append(change['new_title'])
                         if change.get('new_detail'):
                             extra_sets.append('detail=%s'); extra_vals.append(change['new_detail'])
+                        new_type = _valid_session_type(change.get('type'))
+                        if new_type:
+                            extra_sets.append('type=%s'); extra_vals.append(new_type)
                         extra_sql = (',' + ','.join(extra_sets)) if extra_sets else ''
                         cur.execute(f'''UPDATE plan_sessions
                             SET status='planned', week=%s, dow=%s,
@@ -4461,6 +4485,9 @@ Return ONLY this JSON, with no comments outside it:
                         mod_sets.append('title=%s'); mod_vals.append(change['new_title'])
                     if change.get('new_detail'):
                         mod_sets.append('detail=%s'); mod_vals.append(change['new_detail'])
+                    new_type = _valid_session_type(change.get('type'))
+                    if new_type:
+                        mod_sets.append('type=%s'); mod_vals.append(new_type)
                     if change.get('new_week') is not None and change.get('new_dow') is not None:
                         mod_sets.append('week=%s'); mod_vals.append(change['new_week'])
                         mod_sets.append('dow=%s'); mod_vals.append(change['new_dow'])
