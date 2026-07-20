@@ -246,6 +246,7 @@ function openGoalModal(isOnboarding) {
         <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Sekundärt mål (valfritt)</label>
         <input id="goal-secondary-input" type="text" maxlength="300" placeholder="t.ex. Styrka 2 pass/vecka" value="${escapeHtml(g.secondary_goal || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:16px;box-sizing:border-box;" />
         <button type="button" data-action="save-goal" id="goal-save-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Spara mål</button>
+        <button type="button" data-action="save-goal-rebuild" id="goal-rebuild-btn" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;margin-top:8px;">Spara mål & bygg om schemat</button>
         ${isOnboarding ? '<button type="button" data-action="close-goal-modal" style="width:100%;background:none;border:none;color:var(--muted2);font-size:12px;margin-top:10px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace;">Hoppa över — jag sätter det senare</button>' : ''}
         <p id="goal-modal-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;color:var(--red);"></p>
       </div>
@@ -258,14 +259,20 @@ function openGoalModal(isOnboarding) {
   document.getElementById('goal-title-input').focus();
 }
 
-async function saveGoalFromForm() {
-  const title = document.getElementById('goal-title-input').value.trim();
+function showGoalModalMessage(text, color) {
   const msg = document.getElementById('goal-modal-msg');
+  if (!msg) return;
+  msg.textContent = text;
+  msg.style.color = color || 'var(--red)';
+  msg.style.display = text ? 'block' : 'none';
+}
+
+async function saveGoalFromForm(keepOpen = false) {
+  const title = document.getElementById('goal-title-input').value.trim();
   const button = document.getElementById('goal-save-btn');
   if (!title) {
-    msg.textContent = 'Skriv in ett mål först.';
-    msg.style.display = 'block';
-    return;
+    showGoalModalMessage('Skriv in ett mål först.');
+    return false;
   }
   button.disabled = true;
   try {
@@ -281,18 +288,47 @@ async function saveGoalFromForm() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      msg.textContent = data.error || 'Kunde inte spara målet.';
-      msg.style.display = 'block';
-      return;
+      showGoalModalMessage(data.error || 'Kunde inte spara målet.');
+      return false;
     }
     userGoal = data.goal;
     renderGoalUi();
-    closeGoalModal();
+    if (!keepOpen) closeGoalModal();
+    return true;
   } catch (error) {
-    msg.textContent = 'Servern kunde inte nås. Försök igen.';
-    msg.style.display = 'block';
+    showGoalModalMessage('Servern kunde inte nås. Försök igen.');
+    return false;
   } finally {
     button.disabled = false;
+  }
+}
+
+async function saveGoalAndRebuildPlan() {
+  const saved = await saveGoalFromForm(true);
+  if (!saved) return;
+  if (!confirm('Bygga om hela schemat utifrån målet?\n\nKommande planerade pass ersätts av en ny plan från coachen. Genomförda och missade pass behålls som historik.')) {
+    closeGoalModal();
+    return;
+  }
+  const rebuildBtn = document.getElementById('goal-rebuild-btn');
+  const saveBtn = document.getElementById('goal-save-btn');
+  if (rebuildBtn) { rebuildBtn.disabled = true; rebuildBtn.textContent = 'Coachen bygger din plan…'; }
+  if (saveBtn) saveBtn.disabled = true;
+  showGoalModalMessage('Coachen bygger din nya plan utifrån målet och din nuvarande form — det kan ta upp till en minut…', 'var(--muted2)');
+  try {
+    const res = await fetch('/api/plan/generate', {method: 'POST'});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showGoalModalMessage(data.error || 'Planen kunde inte skapas. Försök igen.');
+      return;
+    }
+    showGoalModalMessage(`Klart! ${data.sessions} pass inlagda t.o.m. vecka ${data.endWeek}. Sidan laddas om…`, 'var(--accent)');
+    setTimeout(() => location.reload(), 2000);
+  } catch (error) {
+    showGoalModalMessage('Servern kunde inte nås. Försök igen.');
+  } finally {
+    if (rebuildBtn) { rebuildBtn.disabled = false; rebuildBtn.textContent = 'Spara mål & bygg om schemat'; }
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
@@ -608,6 +644,7 @@ function executeAction(trigger, event) {
   else if (action === 'open-goal-modal') openGoalModal(false);
   else if (action === 'close-goal-modal') closeGoalModal();
   else if (action === 'save-goal') saveGoalFromForm();
+  else if (action === 'save-goal-rebuild') saveGoalAndRebuildPlan();
   else if (action === 'logout') performLogout();
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();

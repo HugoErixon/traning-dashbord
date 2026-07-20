@@ -3887,6 +3887,190 @@ def update_session(session_id):
 
 
 # ─────────────────────────────────────────────
+# GENERERA NYTT SCHEMA FRÅN MÅLET
+# ─────────────────────────────────────────────
+def _sanitize_generated_sessions(raw_sessions, start_week, start_dow, end_week):
+    """Validera AI-genererade pass: bara dagar från idag t.o.m. end_week,
+    max ett pass per dag, kända typer och rimliga värden."""
+    out = {}
+    for s in raw_sessions or []:
+        if not isinstance(s, dict):
+            continue
+        try:
+            week = int(s.get('week'))
+            dow = int(s.get('dow'))
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= week <= 53 and 0 <= dow <= 6):
+            continue
+        if week < start_week or (week == start_week and dow < start_dow) or week > end_week:
+            continue
+        session_type = _valid_session_type(s.get('type'))
+        title = str(s.get('title') or '').strip()[:80]
+        if not session_type or not title:
+            continue
+        try:
+            km = max(0.0, min(60.0, float(s.get('km') or 0)))
+        except (TypeError, ValueError):
+            km = 0.0
+        out.setdefault((week, dow), {
+            'week': week, 'dow': dow, 'type': session_type, 'km': km,
+            'title': title, 'detail': str(s.get('detail') or '').strip()[:200],
+        })
+    return [out[key] for key in sorted(out)]
+
+
+def _recent_training_summary(user_id):
+    """Volym och frekvens senaste 4 veckorna — tål saknad data (nya användare)."""
+    summary = {'weekly_km': [], 'sessions_per_week': 0, 'longest_run_km': 0, 'vo2max': None}
+    try:
+        start = (date.today() - timedelta(days=28)).isoformat()
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT date, type, distance FROM activities
+                               WHERE user_id=%s AND date >= %s''', (user_id, start))
+                rows = cur.fetchall()
+                cur.execute('''SELECT vo2max FROM metric_history
+                               WHERE user_id=%s AND vo2max IS NOT NULL
+                               ORDER BY date DESC LIMIT 1''', (user_id,))
+                vo2 = cur.fetchone()
+        run_types = {'running', 'track_running', 'treadmill_running', 'trail_running'}
+        weeks = {}
+        count = 0
+        longest = 0.0
+        for raw_date, act_type, distance in rows:
+            count += 1
+            if (act_type or '') not in run_types:
+                continue
+            km = (distance or 0) / 1000
+            wk = datetime.fromisoformat(str(raw_date)[:10]).date().isocalendar()[1]
+            weeks[wk] = weeks.get(wk, 0) + km
+            longest = max(longest, km)
+        summary['weekly_km'] = [round(weeks[w], 1) for w in sorted(weeks)]
+        summary['sessions_per_week'] = round(count / 4, 1)
+        summary['longest_run_km'] = round(longest, 1)
+        summary['vo2max'] = vo2[0] if vo2 else None
+    except Exception as exc:
+        print('plan generate: training summary unavailable', exc)
+    return summary
+
+
+@app.post('/api/plan/generate')
+def generate_plan_from_goal():
+    """Bygg om hela träningsschemat utifrån användarens mål. Historiken
+    (completed/missed/skipped) behålls — endast planerade pass från idag
+    och framåt ersätts."""
+    if not llm_available():
+        return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
+    try:
+        goal = get_user_goal(uid())
+    except Exception as e:
+        return _server_error(e, 'plan_generate.goal_failed', message='Målet kunde inte hämtas.')
+    if not goal:
+        return _api_error('goal_required', 'Sätt ditt träningsmål först — schemat byggs utifrån det.', 400)
+
+    today = date.today()
+    cur_week = today.isocalendar()[1]
+    cur_dow = today.weekday()
+    deadline = None
+    if goal.get('goal_deadline'):
+        try:
+            deadline = date.fromisoformat(str(goal['goal_deadline']))
+        except ValueError:
+            deadline = None
+    if deadline and deadline > today:
+        weeks_ahead = max(4, min(16, round((deadline - today).days / 7)))
+    else:
+        weeks_ahead = 10
+    end_week = min(52, cur_week + weeks_ahead)  # årsskifte: planen kapas vid v52
+
+    fitness = _recent_training_summary(uid())
+    try:
+        library = build_default_recommendations(_strength_progression_history(uid()), limit=8)
+    except Exception:
+        library = []
+    library_json = json.dumps([
+        {'exercise': r.get('exercise'), 'prescription': r.get('prescription')}
+        for r in library
+    ], ensure_ascii=False)
+
+    goal_line = goal['goal_title']
+    if goal.get('goal_deadline'):
+        goal_line += f" · deadline {goal['goal_deadline']}"
+    if goal.get('current_best'):
+        goal_line += f" · nuvarande bästa {goal['current_best']}"
+
+    prompt = f"""You are a personal running and strength coach. Build a complete training plan as JSON. All text values must be in Swedish.
+
+GOAL: {goal_line}
+SECONDARY GOAL: {goal.get('secondary_goal') or 'none stated'}
+
+TODAY: {today.isoformat()} · ISO week {cur_week}, weekday {cur_dow} (0=Monday)
+PLAN WINDOW: from today through ISO week {end_week} ({end_week - cur_week} weeks ahead)
+
+CURRENT FITNESS:
+- Running volume per ISO week, last 4 weeks: {fitness['weekly_km'] or 'no data'} km
+- Activities per week: {fitness['sessions_per_week']} · Longest recent run: {fitness['longest_run_km']} km
+- VO2max: {fitness['vo2max'] or 'unknown'}
+- Strength exercises with verified working prescriptions: {library_json or 'none logged'}
+
+RULES:
+- "week" is the ISO week number, "dow" is 0-6 (0=Monday). Use only weeks {cur_week}-{end_week}, and in week {cur_week} only days >= {cur_dow}.
+- At most one session per day. Days without a session are rest days automatically — only add an explicit "rest" session when the rest itself matters (e.g. race week).
+- Types: "run" (quality/intervals/tempo), "easy" (Z2/recovery), "lift" (strength), "race", "rest".
+- Start from the athlete's CURRENT weekly volume and build gradually, max ~10% per week, with a lighter recovery week roughly every fourth week.
+- If the goal is a race with a deadline, add a taper and place a "race" session on the goal date.
+- Include about 2 "lift" sessions per week unless the goal clearly says otherwise. In their detail, name concrete exercises with sets×reps (e.g. "Knäböj 5×5 · Bänkpress 4×6") so the weight engine can attach loads. Do NOT write kg values.
+- "detail" is concise workout instructions, max 140 characters, in Swedish.
+
+Return ONLY this JSON, no other text:
+{{"coaching_notes": "<3-5 Swedish sentences about how the plan is structured>",
+  "sessions": [{{"week": <int>, "dow": <int>, "type": "<run|easy|lift|race|rest>", "km": <float>, "title": "<Swedish>", "detail": "<Swedish>"}}]}}"""
+
+    try:
+        text = call_llm(prompt, max_tokens=8000, timeout=120).strip().replace('```json', '').replace('```', '').strip()
+        result = json.loads(text)
+    except Exception as e:
+        return _server_error(e, 'plan_generate.llm_failed', status=502, code='ai_provider_error',
+                             message='Coachen kunde inte generera planen. Försök igen.')
+
+    sessions = _sanitize_generated_sessions(result.get('sessions'), cur_week, cur_dow, end_week)
+    if len(sessions) < 5:
+        return _server_error(ValueError(f'only {len(sessions)} valid sessions'),
+                             'plan_generate.invalid_plan', status=502, code='ai_plan_invalid',
+                             message='Coachen gav en ogiltig plan. Försök igen.')
+
+    coaching_notes = str(result.get('coaching_notes') or '')[:1000]
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''DELETE FROM plan_sessions
+                               WHERE user_id=%s AND status='planned'
+                                 AND (week > %s OR (week = %s AND dow >= %s))''',
+                            (uid(), cur_week, cur_week, cur_dow))
+                removed = cur.rowcount
+                for s in sessions:
+                    cur.execute('''INSERT INTO plan_sessions
+                        (week, dow, type, km, title, detail, status, original_week, original_dow, ai_note, modified_at, user_id)
+                        VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s,%s,%s,%s)''',
+                        (s['week'], s['dow'], s['type'], s['km'], s['title'], s['detail'],
+                         s['week'], s['dow'], 'Genererad från ditt mål', time.time(), uid()))
+            conn.commit()
+    except Exception as e:
+        return _server_error(e, 'plan_generate.apply_failed', message='Planen kunde inte sparas.')
+
+    logger.info('Plan generated from goal', extra={
+        'event': 'plan.generated',
+        'request_id': _request_id(),
+        'user_id': uid(),
+        'sessions': len(sessions),
+        'replaced': removed,
+    })
+    return jsonify({'ok': True, 'sessions': len(sessions), 'replaced': removed,
+                    'coachingNotes': coaching_notes, 'endWeek': end_week})
+
+
+# ─────────────────────────────────────────────
 # AKTIVITETSMATCHNING
 # ─────────────────────────────────────────────
 def _iso_week_dow(d):
