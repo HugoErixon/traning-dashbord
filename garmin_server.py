@@ -1494,10 +1494,38 @@ def ac_button_auto_on():
     try:
         _write_control_flag(True)
         try:
-            requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=6)
-        except Exception:
-            pass
-        return jsonify({'ok': True, 'action': 'auto-on', 'automatic_enabled': True})
+            r = requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=10)
+            try:
+                control_once = r.json()
+            except Exception:
+                control_once = {'error': r.text}
+            if not r.ok:
+                return _api_error(
+                    'ac_control_once_failed',
+                    'Automatiken startades, men direktkörningen av AC-styrningen misslyckades.',
+                    r.status_code,
+                    extra={
+                        'ok': False,
+                        'action': 'auto-on',
+                        'automatic_enabled': True,
+                        'control_once': control_once,
+                    }
+                )
+        except Exception as e:
+            return _server_error(
+                e,
+                'ac.control_once_failed',
+                status=502,
+                code='ac_control_once_failed',
+                message='Automatiken startades, men AC-keeper kunde inte direktköras.',
+                extra={'ok': False, 'action': 'auto-on', 'automatic_enabled': True}
+            )
+        return jsonify({
+            'ok': True,
+            'action': 'auto-on',
+            'automatic_enabled': True,
+            'control_once': control_once,
+        })
     except Exception as e:
         return _server_error(
             e, 'ac.button_auto_failed', message='Automatisk AC-styrning kunde inte startas.',
