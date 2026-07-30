@@ -610,7 +610,7 @@ def check_auth():
         return  # Hardware endpoints authenticate with separate, scoped tokens.
 
     if request.method == 'GET' and request.path in (
-        '/api/sleep-coach', '/api/ac/bedtime', '/api/weather/current'
+        '/api/ac/bedtime', '/api/weather/current'
     ) and request.remote_addr in ('127.0.0.1', '::1'):
         return  # ac-keeper (same host) polls these for pre-cool scheduling.
 
@@ -3103,9 +3103,7 @@ Respond ONLY with this JSON:
 3-4 insights, most impactful first."""
 
 
-@app.get('/api/sleep-insights')
-def sleep_insights():
-    force = request.args.get('force') == '1'
+def _get_sleep_insights(force=False):
     try:
         row = get_cache('sleep_insights', uid())
         if row and not force and (time.time() - row[1]) < 12 * 3600:
@@ -3115,24 +3113,24 @@ def sleep_insights():
                 cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
                 n = cur.fetchone()[0]
     except Exception as e:
-        return _server_error(e, 'sleep_insights.database_failed', message='Sömnunderlaget kunde inte hämtas.')
+        raise RuntimeError('Sömnunderlaget kunde inte hämtas.') from e
 
     if n < 5:
-        return jsonify({'status': 'watch', 'headline': 'Collecting sleep data…',
+        return {'status': 'watch', 'headline': 'Samlar sömndata…',
                         'insights': [{'title': 'Need more history',
                                       'detail': f'Have {n} night(s) so far — need at least 5 to find patterns.',
-                                      'action': 'Check back in a few days.'}]})
+                                      'action': 'Återkom om några dagar.'}]}
     if not llm_available():
-        return jsonify({'status': 'watch', 'headline': 'AI-nyckel krävs',
-                        'insights': [{'title': 'Ingen API-nyckel', 'detail': 'Lägg till GEMINI_API_KEY i .env.', 'action': ''}]})
+        return {'status': 'watch', 'headline': 'AI-nyckel krävs',
+                        'insights': [{'title': 'Ingen API-nyckel', 'detail': 'Lägg till GEMINI_API_KEY i .env.', 'action': ''}]}
     try:
         prompt = _build_sleep_insights_prompt()
         text = call_llm(prompt, max_tokens=2000).strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('sleep_insights', data, uid())
-        return jsonify(data)
+        return data
     except Exception as e:
-        return _server_error(e, 'sleep_insights.generation_failed', message='Sömnanalysen kunde inte skapas.')
+        raise RuntimeError('Sömnanalysen kunde inte skapas.') from e
 
 
 def _parse_calendar_dt(value):
@@ -3164,8 +3162,7 @@ def _event_kind(title):
     return 'calendar'
 
 
-@app.get('/api/sleep-coach')
-def sleep_coach():
+def _build_sleep_coach():
     """Sömncoach: bygg kommande sömnschema från kalender + senaste sömn."""
     """Build one practical recommendation for tonight from sleep history + tomorrow calendar."""
     target_base_h = 7.5
@@ -3178,7 +3175,7 @@ def sleep_coach():
                     FROM health_history WHERE user_id=%s ORDER BY date DESC LIMIT 7''', (uid(),))
                 history = cur.fetchall()
     except Exception as e:
-        return _server_error(e, 'sleep_coach.database_failed', message='Sömnhistoriken kunde inte hämtas.')
+        raise RuntimeError('Sömnhistoriken kunde inte hämtas.') from e
 
     recent_hours = [float(r[2]) for r in history if r[2] is not None]
     avg_sleep = round(sum(recent_hours) / len(recent_hours), 2) if recent_hours else None
@@ -3270,7 +3267,7 @@ def sleep_coach():
         reason_bits.append(f"imorgon börjar med {anchor['title']} kl {anchor['time']}")
     basis = ', '.join(reason_bits) if reason_bits else 'din normala vakentid'
 
-    return jsonify({
+    return {
         'ok': True,
         'headline': headline,
         'targetHours': target_h,
@@ -3284,25 +3281,50 @@ def sleep_coach():
         ),
         'night': night,
         'nights': [night],
-    })
+    }
 
 
-@app.post('/api/chat')
-def chat():
+def _is_plan_change_request(message):
+    """Only apply a plan change when the user clearly asks for one."""
+    text = message.lower()
+    actions = ('justera', 'ändra', 'flytta', 'schemalägg', 'planera in', 'lägg in', 'ta bort', 'byt ut')
+    plan_words = ('plan', 'pass', 'träning', 'vilodag', 'löpning', 'styrka', 'intervall')
+    return any(action in text for action in actions) and any(word in text for word in plan_words)
+
+
+def _is_sleep_request(message):
+    return any(word in message.lower() for word in ('sömn', 'sov', 'läggdags', 'lägga mig', 'vakna', 'natt'))
+
+
+@app.post('/api/assistant')
+def assistant_chat():
     data = request.get_json(silent=True) or {}
     message = str(data.get('message') or '').strip()
     context = str(data.get('context') or 'You are a personal training coach. Always respond in Swedish (svenska).')
     if not message:
         return _api_error('message_required', 'Skriv en fråga först.', 400)
-    if len(message) > 4000 or len(context) > 30000:
+    if len(message) > 500 or len(context) > 30000:
         return _api_error('request_too_large', 'Coachfrågan är för lång.', 400)
     if not llm_available():
         return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
     try:
+        if _is_plan_change_request(message):
+            result = _apply_plan_request(message)
+            changes = result.get('changes', 0)
+            summary = result.get('summary') or ('Planen justerad.' if changes else 'Inga ändringar behövdes.')
+            notes = result.get('coaching_notes') or ''
+            reply = f"{summary}\n\n{notes}".strip()
+            return jsonify({'reply': reply, 'planAdjusted': True})
+
+        if _is_sleep_request(message):
+            sleep = _build_sleep_coach()
+            insights = _get_sleep_insights()
+            context += "\n\nSÖMNSCHEMA (hämta från aktuell Garmin- och kalenderdata):\n" + json.dumps(sleep, ensure_ascii=False)
+            context += "\n\nSÖMNINSIKTER (presentera bara det som är relevant för frågan):\n" + json.dumps(insights, ensure_ascii=False)
         return jsonify({'reply': call_llm(message, max_tokens=1024, system=context)})
     except Exception as e:
         return _server_error(
-            e, 'chat.provider_failed', status=502, code='ai_provider_error',
+            e, 'assistant.provider_failed', status=502, code='ai_provider_error',
             message='Coachen kunde inte svara just nu.'
         )
 
@@ -4870,25 +4892,16 @@ def manual_adjust_disabled():
     """Trigga AI-justeringen manuellt (t.ex. för testning)."""
     return jsonify({'error': 'Automatic plan coach is disabled'}), 410
 
-@app.post('/api/plan/request')
-def plan_request():
-    """Fritext-önskemål från användaren → AI:n bygger om schemat efter det."""
-    data = request.get_json(silent=True) or {}
-    text = (data.get('text') or '').strip()
-    if not text:
-        return jsonify({'error': 'Skriv vad du vill ändra först.'}), 400
-    if len(text) > 500:
-        return jsonify({'error': 'Keep the request under 500 characters.'}), 400
-    if not llm_available():
-        return jsonify({'error': 'AI-nyckel krävs'}), 503
+def _apply_plan_request(text):
+    """Apply a user-requested plan adjustment for the unified assistant."""
     try:
         match_activities_to_plan(user_id=uid())
         ai_adjust_plan(user_request=text)
         first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
         row = get_cache('last_plan_adjustment', first_uid)
-        return jsonify({'ok': True, 'result': row[0] if row else {}})
+        return row[0] if row else {}
     except Exception as e:
-        return _server_error(e, 'plan.request_failed', message='Planändringen kunde inte genomföras.')
+        raise RuntimeError('Planändringen kunde inte genomföras.') from e
 
 @app.get('/api/plan/status')
 def plan_status():

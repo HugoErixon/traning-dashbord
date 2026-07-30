@@ -1885,12 +1885,7 @@
 
     /* ─── CHAT ─── */
     .chat-wrap { background: var(--card-grad), var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-card); }
-    .coach-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
-      gap: 16px;
-      align-items: start;
-    }
+    .home-assistant { margin: 0 0 16px; }
     .chat-top {
       padding: 18px 22px;
       border-bottom: 1px solid var(--border);
@@ -2309,11 +2304,6 @@
     .tip-range-label { color: var(--muted2); }
     .tip-range-val   { font-weight: 600; }
 
-    /* ─── COACH LAYOUT ─── */
-    @media (max-width: 900px) {
-      .coach-layout { grid-template-columns: 1fr; }
-    }
-
     /* ─── KALENDER ─── */
     .cal-tabs {
       display: inline-flex;
@@ -2677,8 +2667,7 @@
       }
       #ac-graph { overflow-x: auto; }
       #ac-graph svg { min-width: 500px; }
-      .hg-row,
-      .coach-layout {
+      .hg-row {
         grid-template-columns: 1fr;
         gap: 12px;
       }
@@ -3038,16 +3027,4 @@
     [data-action]:focus-visible {
       outline: 2px solid var(--blue);
       outline-offset: 2px;
-    }
-
-    #note-input:focus {
-      border-color: var(--blue) !important;
-    }
-
-    .note-save-btn:hover {
-      background: rgba(96, 165, 250, 0.15) !important;
-    }
-
-    .note-delete:hover {
-      color: var(--red) !important;
     }
