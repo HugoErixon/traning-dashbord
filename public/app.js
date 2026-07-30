@@ -31,6 +31,8 @@ function completeAuth(data) {
   garminConnected = !!data.garminConnected;
   const usersBtn = document.getElementById('users-btn');
   if (usersBtn) usersBtn.style.display = currentUserIsAdmin ? '' : 'none';
+  const navClimate = document.getElementById('nav-climate');
+  if (navClimate) navClimate.style.display = currentUserIsAdmin ? '' : 'none';
   updateGarminSidebar();
   loadUserGoal();
   const screen = document.getElementById('login-screen');
@@ -62,15 +64,34 @@ function showLogin(message) {
     }
     return;
   }
+  const inputStyle = "width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;";
   document.body.insertAdjacentHTML('beforeend', `
     <div id="login-screen" style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;">
       <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:40px;width:320px;text-align:center;">
-        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Träningsdashboard</h2>
-        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Logga in för att fortsätta</p>
-        <input id="login-user" type="text" autocomplete="username" placeholder="Användarnamn" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;" />
-        <input id="login-input" type="password" autocomplete="current-password" placeholder="Lösenord" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
-        <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
-        <p id="login-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel användarnamn eller lösenord</p>
+        <div id="login-view">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Träningsdashboard</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Logga in för att fortsätta</p>
+          <input id="login-user" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Användarnamn" style="${inputStyle}" />
+          <input id="login-input" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord" style="${inputStyle}margin-bottom:12px;" />
+          <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
+          <p id="login-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel användarnamn eller lösenord</p>
+          <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
+            Inget konto? <a id="show-register-link" href="#" style="color:var(--blue);">Registrera dig</a>
+          </p>
+        </div>
+        <div id="register-view" style="display:none;">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Skapa konto</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Registrera dig med e-post</p>
+          <input id="register-user" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Användarnamn" style="${inputStyle}" />
+          <input id="register-email" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="E-postadress" style="${inputStyle}" />
+          <input id="register-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord (minst 8 tecken)" style="${inputStyle}margin-bottom:12px;" />
+          <button id="register-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Registrera dig</button>
+          <p id="register-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
+          <p id="register-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
+          <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
+            Har du redan ett konto? <a id="show-login-link" href="#" style="color:var(--blue);">Logga in</a>
+          </p>
+        </div>
       </div>
     </div>
   `);
@@ -81,7 +102,67 @@ function showLogin(message) {
   document.getElementById('login-user').addEventListener('keydown', event => {
     if (event.key === 'Enter') document.getElementById('login-input').focus();
   });
+  document.getElementById('register-submit').addEventListener('click', tryRegister);
+  document.getElementById('register-password').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryRegister();
+  });
+  document.getElementById('show-register-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('register-view').style.display = 'block';
+    document.getElementById('register-user').focus();
+  });
+  document.getElementById('show-login-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('register-view').style.display = 'none';
+    document.getElementById('login-view').style.display = 'block';
+    document.getElementById('login-user').focus();
+  });
   document.getElementById('login-user').focus();
+}
+
+async function performRegister(username, email, password) {
+  const response = await originalFetch('/api/register', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, email, password}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Registreringen misslyckades.');
+  }
+  return data;
+}
+
+async function tryRegister() {
+  const username = document.getElementById('register-user').value.trim();
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value;
+  const button = document.getElementById('register-submit');
+  const error = document.getElementById('register-error');
+  const success = document.getElementById('register-success');
+  error.style.display = 'none';
+  success.style.display = 'none';
+  if (!username || !email || !password) {
+    error.textContent = 'Fyll i alla fält.';
+    error.style.display = 'block';
+    return;
+  }
+  button.disabled = true;
+  try {
+    const data = await performRegister(username, email, password);
+    success.textContent = data.message || 'Kolla din inkorg för en verifieringslänk.';
+    success.style.display = 'block';
+    document.getElementById('register-user').value = '';
+    document.getElementById('register-email').value = '';
+    document.getElementById('register-password').value = '';
+  } catch (registerError) {
+    error.textContent = registerError.message;
+    error.style.display = 'block';
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function performLogin(username, password) {

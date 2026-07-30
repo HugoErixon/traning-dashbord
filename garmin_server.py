@@ -166,6 +166,19 @@ LOGIN_LIMITER = LoginRateLimiter(
     max_attempts=int(config.get('LOGIN_MAX_ATTEMPTS', '8')),
     window_seconds=int(config.get('LOGIN_WINDOW_SECONDS', '900')),
 )
+# Andra skiktet: begränsar totala inloggningsförsök per IP oavsett användarnamn,
+# så att en angripare inte kan spraya olika konton från samma adress obehindrat.
+LOGIN_IP_LIMITER = LoginRateLimiter(
+    max_attempts=int(config.get('LOGIN_IP_MAX_ATTEMPTS', '20')),
+    window_seconds=int(config.get('LOGIN_WINDOW_SECONDS', '900')),
+)
+REGISTER_LIMITER = LoginRateLimiter(
+    max_attempts=int(config.get('REGISTER_MAX_ATTEMPTS', '3')),
+    window_seconds=int(config.get('REGISTER_WINDOW_SECONDS', '3600')),
+)
+RESEND_API_KEY = config.get('RESEND_API_KEY', '')
+MAIL_FROM = config.get('MAIL_FROM', 'Trainyze <noreply@trainyze.com>')
+PUBLIC_BASE_URL = config.get('PUBLIC_BASE_URL', 'https://trainyze.com')
 
 def uid():
     return getattr(flask_g, 'uid', 1)
@@ -191,6 +204,41 @@ WEATHER_LOCATION = config.get('WEATHER_LOCATION', 'Smögen')
 
 if not APP_TESTING and (len(WATER_TOKEN) < 16 or len(AC_BUTTON_TOKEN) < 16):
     logger.warning('Hardware API token is missing or too short', extra={'event': 'auth.weak_hardware_token'})
+
+def _send_verification_email(to_email, username, token):
+    """Skickar verifieringslänk via Resend. Returnerar True/False (loggar fel, kastar aldrig)."""
+    if not RESEND_API_KEY:
+        logger.error('Cannot send verification email: RESEND_API_KEY not configured',
+                      extra={'event': 'mail.no_api_key'})
+        return False
+    link = f"{PUBLIC_BASE_URL.rstrip('/')}/api/verify-email?token={token}"
+    html = f'''<div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+      <h2 style="color:#111;">Välkommen till Trainyze, {username}!</h2>
+      <p>Klicka på länken nedan för att verifiera din e-postadress och aktivera ditt konto:</p>
+      <p><a href="{link}" style="display:inline-block;background:#C8F135;color:#1a2200;
+         padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">
+         Verifiera e-postadress</a></p>
+      <p style="color:#666;font-size:13px;">Länken är giltig i 24 timmar. Om du inte skapade
+      det här kontot kan du ignorera mejlet.</p>
+    </div>'''
+    try:
+        r = requests.post(
+            'https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {RESEND_API_KEY}', 'Content-Type': 'application/json'},
+            json={'from': MAIL_FROM, 'to': [to_email], 'subject': 'Verifiera din e-postadress',
+                  'html': html},
+            timeout=8,
+        )
+        if not r.ok:
+            logger.error('Verification email rejected by Resend', extra={
+                'event': 'mail.send_failed', 'status': r.status_code, 'body': r.text[:300],
+            })
+            return False
+        return True
+    except Exception as e:
+        logger.exception('Verification email send failed', extra={'event': 'mail.send_exception'})
+        return False
+
 
 def _valid_clock(value):
     if not isinstance(value, str) or not re.match(r'^\d{2}:\d{2}$', value):
@@ -552,12 +600,19 @@ def check_auth():
         return
     if request.method == 'OPTIONS':
         return
-    if request.path in ('/api/login', '/api/session', '/api/healthz'):
+    if request.path in ('/api/login', '/api/session', '/api/healthz', '/api/register'):
+        return
+    if request.method == 'GET' and request.path == '/api/verify-email':
         return
     if request.method == 'POST' and request.path in (
         '/api/water', '/api/ac/button/off', '/api/ac/button/auto-on'
     ):
         return  # Hardware endpoints authenticate with separate, scoped tokens.
+
+    if request.method == 'GET' and request.path in (
+        '/api/sleep-coach', '/api/ac/bedtime', '/api/weather/current'
+    ) and request.remote_addr in ('127.0.0.1', '::1'):
+        return  # ac-keeper (same host) polls these for pre-cool scheduling.
 
     if request.method == 'GET' and request.path == '/api/widget/mobile':
         widget_user, token_supplied = _widget_token_user()
@@ -668,6 +723,21 @@ def login():
     if not isinstance(password, str) or not password or len(username) > 64 or len(password) > 1024:
         return _api_error('invalid_credentials', 'Fel användarnamn eller lösenord.', 401)
 
+    ip_key = request.remote_addr or 'unknown'
+    ip_allowed, ip_retry_after = LOGIN_IP_LIMITER.check(ip_key)
+    if not ip_allowed:
+        response, status = _api_error(
+            'too_many_login_attempts',
+            'För många inloggningsförsök från din adress. Vänta en stund och försök igen.',
+            429,
+        )
+        response.headers['Retry-After'] = str(ip_retry_after)
+        logger.warning('Login rate limited (IP-wide)', extra={
+            'event': 'auth.rate_limited_ip',
+            'request_id': _request_id(),
+        })
+        return response, status
+
     limiter_key = f'{request.remote_addr or "unknown"}:{username.lower()}'
     allowed, retry_after = LOGIN_LIMITER.check(limiter_key)
     if not allowed:
@@ -685,6 +755,7 @@ def login():
 
     user = verify_user(USERS, username, password)
     if not user:
+        LOGIN_IP_LIMITER.record_failure(ip_key)
         LOGIN_LIMITER.record_failure(limiter_key)
         logger.warning('Invalid login attempt', extra={
             'event': 'auth.login_failed',
@@ -692,6 +763,16 @@ def login():
         })
         return _api_error('invalid_credentials', 'Fel användarnamn eller lösenord.', 401)
 
+    if user.get('email') and not user.get('email_verified'):
+        LOGIN_IP_LIMITER.record_failure(ip_key)
+        LOGIN_LIMITER.record_failure(limiter_key)
+        return _api_error(
+            'email_not_verified',
+            'Du behöver verifiera din e-postadress innan du kan logga in. Kolla din inkorg.',
+            403,
+        )
+
+    LOGIN_IP_LIMITER.reset(ip_key)
     LOGIN_LIMITER.reset(limiter_key)
     session.clear()
     session.permanent = True
@@ -711,6 +792,78 @@ def login():
         'garminConnected': _garmin_connected(username),
         'csrfToken': csrf_token,
     })
+
+
+@app.post('/api/register')
+def register():
+    if USER_STORE is None:
+        return _api_error('registration_unavailable', 'Registrering är inte tillgänglig just nu.', 503)
+
+    ip_key = f'register:{request.remote_addr or "unknown"}'
+    allowed, retry_after = REGISTER_LIMITER.check(ip_key)
+    if not allowed:
+        response, status = _api_error(
+            'too_many_registrations',
+            'För många registreringsförsök från din adress. Vänta en stund och försök igen.',
+            429,
+        )
+        response.headers['Retry-After'] = str(retry_after)
+        return response, status
+
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username') or '').strip()
+    email = str(data.get('email') or '').strip()
+    password = data.get('password')
+    if not isinstance(password, str):
+        password = ''
+
+    try:
+        new_id, token = USER_STORE.create_pending(username, email, password)
+    except DuplicateUserError as e:
+        REGISTER_LIMITER.record_failure(ip_key)
+        return _api_error('duplicate_user', str(e), 409)
+    except UserStoreError as e:
+        REGISTER_LIMITER.record_failure(ip_key)
+        return _api_error('invalid_registration', str(e), 400)
+
+    refresh_users()
+    sent = _send_verification_email(email, username, token)
+    logger.info('User registered', extra={
+        'event': 'auth.registered', 'request_id': _request_id(),
+        'user_id': new_id, 'mail_sent': sent,
+    })
+    if not sent:
+        return _api_error(
+            'mail_send_failed',
+            'Kontot skapades men verifieringsmejlet kunde inte skickas. Kontakta ägaren.',
+            502,
+        )
+    return jsonify({'ok': True, 'message': 'Kolla din inkorg för en verifieringslänk.'})
+
+
+@app.get('/api/verify-email')
+def verify_email():
+    token = request.args.get('token', '')
+    username = USER_STORE.verify_email_token(token) if USER_STORE else None
+    if username:
+        refresh_users()
+    ok = bool(username)
+    title = 'E-post verifierad' if ok else 'Länken är ogiltig eller har gått ut'
+    body = (
+        f'Ditt konto <strong>{username}</strong> är nu aktiverat. Du kan logga in.'
+        if ok else
+        'Länken har redan använts, gått ut, eller är felaktig. Registrera dig igen om det behövs.'
+    )
+    html = f'''<!doctype html><html lang="sv"><head><meta charset="utf-8">
+      <title>{title}</title>
+      <style>body{{font-family:sans-serif;background:#0D0F14;color:#E5E7EB;
+        display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}}
+        .card{{background:#161A22;border:1px solid rgba(255,255,255,0.08);border-radius:16px;
+        padding:32px;max-width:420px;text-align:center;}}
+        a{{color:#C8F135;}}</style></head>
+      <body><div class="card"><h2>{title}</h2><p>{body}</p>
+      <p><a href="{PUBLIC_BASE_URL}">Gå till Trainyze</a></p></div></body></html>'''
+    return html, 200 if ok else 400
 
 
 @app.post('/api/logout')
@@ -1494,38 +1647,10 @@ def ac_button_auto_on():
     try:
         _write_control_flag(True)
         try:
-            r = requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=10)
-            try:
-                control_once = r.json()
-            except Exception:
-                control_once = {'error': r.text}
-            if not r.ok:
-                return _api_error(
-                    'ac_control_once_failed',
-                    'Automatiken startades, men direktkörningen av AC-styrningen misslyckades.',
-                    r.status_code,
-                    extra={
-                        'ok': False,
-                        'action': 'auto-on',
-                        'automatic_enabled': True,
-                        'control_once': control_once,
-                    }
-                )
-        except Exception as e:
-            return _server_error(
-                e,
-                'ac.control_once_failed',
-                status=502,
-                code='ac_control_once_failed',
-                message='Automatiken startades, men AC-keeper kunde inte direktköras.',
-                extra={'ok': False, 'action': 'auto-on', 'automatic_enabled': True}
-            )
-        return jsonify({
-            'ok': True,
-            'action': 'auto-on',
-            'automatic_enabled': True,
-            'control_once': control_once,
-        })
+            requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=6)
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'action': 'auto-on', 'automatic_enabled': True})
     except Exception as e:
         return _server_error(
             e, 'ac.button_auto_failed', message='Automatisk AC-styrning kunde inte startas.',
