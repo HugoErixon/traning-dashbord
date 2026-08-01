@@ -3980,7 +3980,7 @@ HEALTH DATA (current):
 
   // Planerat pass för ett visst datum. Ett genomfört pass bär utvärderingen
   // i .execution, så både startsidan och kalendern går via den här.
-  function findPlanSessionForDate(dateKey, planYear = 2026) {
+  function findPlanSessionForDate(dateKey, planYear = new Date().getFullYear()) {
     let found = null;
     for (const session of PLAN_SESSIONS) {
       const monday = getMondayOfISOWeek(session.week, planYear);
