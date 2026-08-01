@@ -511,7 +511,15 @@ def describe_run(analysis, name=None):
         parts.append(f"  work reps (rest excluded, verified from Garmin laps): {rep_lines}")
         target = analysis.get('repTarget') or {}
         if target.get('paceSec'):
-            line = f"  rep target: {target.get('count')}×{int(target['distanceM'])}m @ {format_pace(target['paceSec'])}"
+            # Planen anger repen antingen i meter eller i tid — båda förekommer.
+            if target.get('distanceM'):
+                size = f"{int(target['distanceM'])}m"
+            elif target.get('durationSec'):
+                seconds = int(target['durationSec'])
+                size = f"{seconds // 60} min" if seconds >= 60 and seconds % 60 == 0 else f"{seconds} s"
+            else:
+                size = 'reps'
+            line = f"  rep target: {target.get('count')}×{size} @ {format_pace(target['paceSec'])}"
             if analysis.get('repVerdict'):
                 line += f" → {analysis['repVerdict']} ({analysis['repDeltaPct']:+.1f}%)"
             parts.append(line)

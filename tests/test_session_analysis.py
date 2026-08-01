@@ -166,6 +166,15 @@ class RunAnalysisTests(unittest.TestCase):
         self.assertEqual(result['distanceVerdict'], 'short')
         self.assertIn('cut_session_short', result['flags'])
 
+    def test_prompt_description_handles_time_based_rep_targets(self):
+        # Time reps carry no distance; rendering must not assume one.
+        planned = {'type': 'run', 'title': 'Tröskelintervaller',
+                   'detail': '6×6 min @ 3:50/km'}
+        laps = normalize_laps({'lapDTOs': [lap(1500, 362), lap(1500, 365)]})
+        text = describe_run(analyze_run({'distance': 12000, 'duration': 4200}, laps, planned))
+
+        self.assertIn('rep target: 6×6 min @ 3:50/km', text)
+
     def test_prompt_description_includes_reps_and_target(self):
         planned = {'type': 'run', 'title': 'Intervaller', 'detail': '5×1000m @ 3:30/km'}
         laps = normalize_laps({'lapDTOs': [lap(1000, 225), lap(1000, 226)]})
