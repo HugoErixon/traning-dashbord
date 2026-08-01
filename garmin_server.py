@@ -2502,7 +2502,7 @@ def _recent_execution_block(user_id, days=14, limit=6):
     try:
         with db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute('''SELECT week, dow, title, type, km, detail, execution
+                cur.execute('''SELECT id, week, dow, title, type, km, detail, execution
                     FROM plan_sessions
                     WHERE user_id = %s AND status = 'completed'
                       AND execution IS NOT NULL AND week = ANY(%s)
@@ -2517,15 +2517,20 @@ def _recent_execution_block(user_id, days=14, limit=6):
     for row in rows:
         execution = row['execution'] or {}
         label = row['title'] or row['type'] or 'session'
+        # Datumet måste med — annars kan modellen inte svara på "i förrgår".
+        try:
+            session_day = _plan_session_date(row).strftime('%A %Y-%m-%d')
+        except Exception:
+            session_day = f"week {row['week']} day {row['dow']}"
         if execution.get('discipline') == 'strength':
             body = session_analysis.describe_strength(execution)
-            header = f"{label} (strength, planned: {row['detail'] or '—'})"
+            header = f"{session_day} — {label} (strength, planned: {row['detail'] or '—'})"
         else:
             body = session_analysis.describe_run(execution, name=label)
-            header = None
+            header = f"{session_day} — planned: {row['detail'] or '—'}"
         if not body:
             continue
-        blocks.append(f"- {header}\n{body}" if header else f"- {body}")
+        blocks.append(f"- {header}\n{body}")
 
     if not blocks:
         return ''
@@ -3405,6 +3410,18 @@ def assistant_chat():
             insights = _get_sleep_insights()
             context += "\n\nSÖMNSCHEMA (hämta från aktuell Garmin- och kalenderdata):\n" + json.dumps(sleep, ensure_ascii=False)
             context += "\n\nSÖMNINSIKTER (presentera bara det som är relevant för frågan):\n" + json.dumps(insights, ensure_ascii=False)
+
+        # Frågor om ett specifikt pass ("hur såg 6×6 min ut i förrgår?") kräver
+        # de faktiska varv- och pulssiffrorna, annars blir svaret allmänt beröm.
+        execution_context = _recent_execution_block(uid(), days=21, limit=10)
+        if execution_context:
+            context += execution_context + (
+                "\n\nWhen the athlete asks how a specific session went, answer with the "
+                "measured numbers above — rep paces, heart rate, drift, and how they compare "
+                "to the target. Name what was off. Never invent paces, rep counts or heart "
+                "rates that are not listed, and if the session they ask about is not in the "
+                "list above, say plainly that you do not have the details for it."
+            )
         return jsonify({'reply': call_llm(message, max_tokens=1024, system=context)})
     except Exception as e:
         return _server_error(
