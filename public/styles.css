@@ -2122,6 +2122,7 @@
       font-weight: 700;
       letter-spacing: 0.06em;
       display: inline-block;
+      white-space: nowrap;
     }
     .hs-great  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(0,229,160,0.2); }
     .hs-ok     { background: var(--amber-dim);  color: var(--amber);  border: 1px solid rgba(245,166,35,0.2); }
@@ -2150,6 +2151,22 @@
     .hg-card.c-energy   .hg-bar-fill { background: linear-gradient(90deg, var(--amber), var(--green)); }
     .hg-card.c-stress   .hg-bar-fill { background: linear-gradient(90deg, var(--green), var(--amber), var(--red)); }
     .hg-card.c-daily    .hg-bar-fill { background: linear-gradient(90deg, var(--accent), var(--green)); }
+
+    /* Stegräkningen är femsiffrig — poängsiffran är dimensionerad för två.
+       Utan egen storlek trängs badgen ihop och radbryts. */
+    .hg-card.c-daily .hg-score {
+      font-size: clamp(32px, 5.2vw, 46px);
+      letter-spacing: -2px;
+    }
+    .hg-card.c-daily .hg-score-row { gap: 10px; }
+    .hg-card.c-daily .hg-score-right { flex-shrink: 0; }
+    .hg-daily-unit {
+      color: var(--muted);
+      font: 600 12px 'IBM Plex Mono', monospace;
+      padding-bottom: 5px;
+      margin-left: -2px;
+      flex-shrink: 0;
+    }
 
     /* Detaljer */
     .hg-toggle {
