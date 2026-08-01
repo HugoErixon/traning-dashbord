@@ -986,7 +986,7 @@ acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset
     });
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
-    if (id === 'sleep')    { loadHealth(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
+    if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') loadAnalysis();
     if (id === 'strength') loadStrengthPage();
     if (id === 'journal')  loadJournal();
@@ -1029,74 +1029,262 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (s) { s.textContent = statusText || unit || ''; s.style.color = col || ''; }
   }
 
-  // Hälsodata
+  // ─── SÖMNSIDAN ──────────────────────────────────────────────
+  // Nattens siffror kommer från /api/health, historik och härledda mått
+  // från /api/sleep (se sleep_analysis.py).
+  const SL_STAGES = [
+    {key: 'deep',  label: 'Djup',  color: '#EC4899', target: '15–25%'},
+    {key: 'rem',   label: 'REM',   color: '#38BDF8', target: '20–25%'},
+    {key: 'light', label: 'Lätt',  color: '#10B981', target: ''},
+    {key: 'awake', label: 'Vaken', color: '#EF4444', target: ''},
+  ];
+
+  function slFmtHours(seconds) {
+    if (!seconds) return '–';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return h + ' h ' + String(m).padStart(2, '0') + ' min';
+  }
+
+  function slClock(value) {
+    if (!value) return null;
+    const text = String(value);
+    const match = text.match(/(\d{1,2}):(\d{2})/);
+    return match ? match[1].padStart(2, '0') + ':' + match[2] : null;
+  }
+
   function renderSleepPage(h) {
     const sleep = h.sleep || {};
     const totalSec = sleep.totalSec || 0;
     const score = sleep.score || 0;
     const deep = sleep.deepPct || 0;
     const rem = sleep.remPct || 0;
-    const fmt = s => {
-      const hours = Math.floor(s / 3600);
-      const minutes = Math.floor((s % 3600) / 60);
-      return hours + 'h ' + minutes + 'm';
-    };
     const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
-    const setWidth = (id, value) => { const el = document.getElementById(id); if (el) el.style.width = Math.max(0, Math.min(100, value)) + '%'; };
 
-    if (!totalSec) {
-      ['sleep-page-score', 'sleep-page-total', 'sleep-page-deep', 'sleep-page-rem'].forEach(id => setText(id, '–'));
-      setText('sleep-page-score-sub', 'Ingen sömn registrerad i natt');
-      setText('sleep-page-total-sub', 'Ingen data');
-      setText('sleep-page-deep-sub', 'Ingen data');
-      setText('sleep-page-rem-sub', 'Ingen data');
-      ['sleep-page-score-bar', 'sleep-page-total-bar', 'sleep-page-deep-bar', 'sleep-page-rem-bar'].forEach(id => setWidth(id, 0));
+    // Poängring
+    const ring = document.getElementById('sl-score-ring');
+    const circumference = 2 * Math.PI * 57;
+    const colour = score >= 80 ? 'var(--accent)' : score >= 60 ? 'var(--amber)' : 'var(--red)';
+    if (ring) {
+      ring.style.strokeDasharray = circumference.toFixed(1);
+      ring.style.strokeDashoffset = (circumference * (1 - Math.min(1, score / 100))).toFixed(1);
+      ring.style.stroke = colour;
+    }
+    const scoreEl = document.getElementById('sl-score');
+    if (scoreEl) { scoreEl.textContent = score || '–'; scoreEl.style.color = colour; }
+
+    setText('sl-verdict', !totalSec ? 'Ingen sömn registrerad i natt'
+      : score >= 80 ? 'God återhämtning'
+      : score >= 60 ? 'Godkänt, men det finns mer att hämta'
+      : 'Prioritera sömnen i natt');
+
+    // Total sömn mot mål
+    const targetSec = 7.5 * 3600;
+    setText('sl-total', slFmtHours(totalSec));
+    setText('sl-total-sub', !totalSec ? 'Ingen data'
+      : totalSec >= targetSec ? 'Mål uppnått'
+      : 'Saknar ' + slFmtHours(targetSec - totalSec));
+    const totalBar = document.getElementById('sl-total-bar');
+    if (totalBar) totalBar.style.width = Math.min(100, totalSec / targetSec * 100) + '%';
+
+    renderSleepStages(sleep);
+    renderSleepStageChart(sleep.levels || [], sleep.startGMT, sleep.endGMT);
+  }
+
+  function renderSleepStages(sleep) {
+    const bar = document.getElementById('sl-stagebar');
+    const legend = document.getElementById('sl-stage-legend');
+    const note = document.getElementById('sl-stage-note');
+    if (!bar || !legend) return;
+
+    const total = sleep.totalSec || 0;
+    const values = {
+      deep: sleep.deepPct || 0,
+      rem: sleep.remPct || 0,
+      light: sleep.lightPct != null ? sleep.lightPct : null,
+      awake: sleep.awakePct != null ? sleep.awakePct : null,
+    };
+    // Garmin skickar inte alltid lätt sömn — räkna ut resten så stapeln går ihop.
+    if (values.light === null) {
+      values.light = Math.max(0, 100 - values.deep - values.rem - (values.awake || 0));
+    }
+
+    if (!total) {
+      bar.innerHTML = '';
+      legend.innerHTML = '<p class="sl-empty">Ingen stadiedata för i natt.</p>';
+      if (note) note.textContent = '';
       return;
     }
 
-    const targetSleepSec = 7.5 * 3600;
-    const debtSec = Math.max(0, targetSleepSec - totalSec);
+    bar.innerHTML = SL_STAGES
+      .filter(stage => values[stage.key])
+      .map(stage => `<span class="sl-stage-seg" style="width:${values[stage.key]}%;background:${stage.color}"`
+        + ` data-freetip="${escapeHtml(stage.label + ' ' + values[stage.key] + '%')}"></span>`)
+      .join('');
 
-    setText('sleep-page-score', score || '-');
-    setText('sleep-page-score-sub', score >= 80 ? 'God återhämtning' : score >= 60 ? 'Okej, men kan bli bättre' : 'Prioritera sömn i natt');
-    setWidth('sleep-page-score-bar', score || 0);
+    legend.innerHTML = SL_STAGES.map(stage => {
+      const value = values[stage.key];
+      if (value === null || value === undefined) return '';
+      const low = stage.key === 'deep' ? value < 15 : stage.key === 'rem' ? value < 20 : false;
+      return `<div class="sl-stage-item">
+        <span class="sl-stage-dot" style="background:${stage.color}"></span>
+        <span class="sl-stage-name">${escapeHtml(stage.label)}</span>
+        <strong class="sl-stage-val${low ? ' sl-low' : ''}">${value}%</strong>
+        ${stage.target ? `<span class="sl-stage-target">mål ${escapeHtml(stage.target)}</span>` : ''}
+      </div>`;
+    }).join('');
 
-    setText('sleep-page-total', fmt(totalSec));
-    setText('sleep-page-total-sub', debtSec < 900 ? 'Mål uppnått' : 'Saknar ' + fmt(debtSec));
-    setWidth('sleep-page-total-bar', totalSec / targetSleepSec * 100);
+    const shortfalls = [];
+    if (values.deep < 15) shortfalls.push('djupsömnen under 15%');
+    if (values.rem < 20) shortfalls.push('REM under 20%');
+    if (note) note.textContent = shortfalls.length ? shortfalls.join(' · ') : 'Fördelningen ser bra ut';
+  }
 
-    setText('sleep-page-deep', deep + '%');
-    setText('sleep-page-deep-sub', deep >= 15 ? 'Inom målintervall' : 'Under mål 15–25%');
-    setWidth('sleep-page-deep-bar', deep / 25 * 100);
+  // ─── Historik, läggdags och regelbundenhet ───
+  async function loadSleepOverview() {
+    try {
+      const res = await fetch('/api/sleep?days=21');
+      if (!res.ok) return;
+      const data = await res.json();
+      renderSleepTonight(data.tonight);
+      renderSleepHistory(data.nights || [], data.summary || {});
+      renderSleepSummary(data.summary || {}, data.nights || []);
+    } catch (_) {
+      // Sidan fungerar ändå med nattens siffror.
+    }
+  }
 
-    setText('sleep-page-rem', rem + '%');
-    setText('sleep-page-rem-sub', rem >= 20 ? 'Inom målintervall' : 'Under mål 20–25%');
-    setWidth('sleep-page-rem-bar', rem / 25 * 100);
+  function renderSleepTonight(tonight) {
+    const panel = document.getElementById('sl-tonight');
+    if (!panel) return;
+    const night = tonight && tonight.night;
+    if (!night || !night.bedtime) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
 
-    // Update arc gauge for score
-    const scoreArc = document.getElementById('sleep-score-arc');
-    if (scoreArc) {
-      const total = 175.9;
-      const col = score >= 80 ? '#C8F135' : score >= 60 ? '#F59E0B' : '#FF6B6B';
-      scoreArc.style.strokeDashoffset = (total * (1 - Math.min(1, (score || 0) / 100))).toFixed(1);
-      scoreArc.style.stroke = col;
-      const scoreVal = document.getElementById('sleep-page-score');
-      if (scoreVal) scoreVal.style.fill = col;
+    document.getElementById('sl-tonight-eyebrow').textContent =
+      (tonight.headline || 'I kväll').toUpperCase();
+    document.getElementById('sl-tonight-bed').textContent = night.bedtime;
+    document.getElementById('sl-tonight-wake').textContent =
+      night.wake ? `för att vakna ${night.wake}` : '';
+    document.getElementById('sl-tonight-why').textContent =
+      night.reason || tonight.summary || '';
+
+    const steps = [];
+    if (night.windDown) steps.push(['Varva ner', night.windDown]);
+    if (night.acPrecool) steps.push(['Kyl sovrummet', night.acPrecool]);
+    if (night.targetHours) steps.push(['Mål i natt', night.targetHours + ' h']);
+    document.getElementById('sl-tonight-steps').innerHTML = steps
+      .map(([label, value]) => `<div class="sl-step"><span>${escapeHtml(label)}</span>`
+        + `<strong>${escapeHtml(String(value))}</strong></div>`)
+      .join('');
+  }
+
+  function renderSleepHistory(nights, summary) {
+    const container = document.getElementById('sl-history');
+    if (!container) return;
+    const withHours = nights.filter(n => n.sleep_hours != null);
+    if (!withHours.length) {
+      container.innerHTML = '<p class="sl-empty">Ingen historik ännu.</p>';
+      return;
     }
 
-    // Update radial rings
-    const deepRing = document.getElementById('sleep-deep-ring');
-    if (deepRing) {
-      const circ = 188.5;
-      deepRing.style.strokeDashoffset = (circ * (1 - Math.min(1, (deep || 0) / 25))).toFixed(1);
-    }
-    const remRing = document.getElementById('sleep-rem-ring');
-    if (remRing) {
-      const circ = 188.5;
-      remRing.style.strokeDashoffset = (circ * (1 - Math.min(1, (rem || 0) / 25))).toFixed(1);
+    const target = summary.targetH || 7.5;
+    const peak = Math.max(target + 1.5, ...withHours.map(n => n.sleep_hours));
+    // Äldst till vänst så tiden löper åt höger.
+    const ordered = withHours.slice().reverse();
+
+    container.innerHTML = `<div class="sl-bars" style="--target:${(target / peak * 100).toFixed(1)}%">`
+      + ordered.map(n => {
+        const height = Math.max(3, n.sleep_hours / peak * 100);
+        const score = n.sleep_score;
+        const tone = score == null ? 'sl-bar-none'
+          : score >= 80 ? 'sl-bar-good' : score >= 60 ? 'sl-bar-ok' : 'sl-bar-low';
+        const day = new Date(n.date + 'T00:00:00');
+        const tip = `${n.date} · ${n.sleep_hours.toFixed(1)} h`
+          + (score != null ? ` · poäng ${score}` : '');
+        return `<span class="sl-bar ${tone}" style="height:${height.toFixed(1)}%"`
+          + ` data-freetip="${escapeHtml(tip)}">`
+          + `<i>${day.getDate()}</i></span>`;
+      }).join('')
+      + '</div>';
+  }
+
+  function renderSleepSummary(summary, nights) {
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+
+    // Sömnskuld
+    const debt = summary.debt;
+    if (debt) {
+      const owed = debt.debtH > 0;
+      setText('sl-debt', owed ? '-' + debt.debtH.toFixed(1) + ' h' : '+' + debt.surplusH.toFixed(1) + ' h');
+      setText('sl-debt-sub', `${debt.nights} nätter · snitt ${debt.averageH.toFixed(1)} h`);
+      const bar = document.getElementById('sl-debt-bar');
+      if (bar) {
+        bar.style.width = Math.min(100, (debt.debtH / (debt.targetH || 1)) * 100 * 2) + '%';
+        bar.className = owed ? 'sl-meter-amber' : 'sl-meter-good';
+      }
+      const el = document.getElementById('sl-debt');
+      if (el) el.style.color = owed ? 'var(--amber)' : 'var(--green)';
     }
 
-    renderSleepStageChart(sleep.levels || [], sleep.startGMT, sleep.endGMT);
+    // Streck
+    setText('sl-streak', summary.streak != null ? summary.streak : '–');
+    setText('sl-streak-sub', summary.streak === 1 ? 'natt i rad på 7,5 h' : 'nätter i rad på 7,5 h');
+
+    // Sänggående i natt som gick
+    const latest = (nights || []).find(n => n.sleep_start);
+    if (latest) {
+      const bed = slClock(latest.sleep_start);
+      const wake = slClock(latest.sleep_end);
+      setText('sl-window', bed && wake ? `${bed} – ${wake}` : (bed || '–'));
+      setText('sl-window-sub', 'sänggående och uppstigning');
+    }
+
+    // Trendchips
+    const trendsEl = document.getElementById('sl-trends');
+    if (trendsEl) {
+      const labels = {sleep_score: 'Poäng', sleep_hours: 'Timmar', deep_pct: 'Djup', rem_pct: 'REM'};
+      const arrows = {improving: '↑', declining: '↓', stable: '→'};
+      trendsEl.innerHTML = Object.entries(summary.trends || {})
+        .filter(([, t]) => t)
+        .map(([field, t]) => `<span class="sl-trend sl-trend-${t.direction}">`
+          + `${arrows[t.direction] || ''} ${escapeHtml(labels[field] || field)}</span>`)
+        .join('');
+    }
+
+    // Läggdagsrytm
+    const consistency = summary.consistency;
+    const consistencyEl = document.getElementById('sl-consistency');
+    const pill = document.getElementById('sl-consistency-pill');
+    if (consistency && consistencyEl) {
+      const words = {steady: 'Jämn', drifting: 'Vandrar', irregular: 'Oregelbunden'};
+      if (pill) {
+        pill.textContent = words[consistency.verdict] || '';
+        pill.className = 'sl-pill sl-pill-' + consistency.verdict;
+      }
+      consistencyEl.innerHTML = `
+        <div class="sl-con-main"><strong>${escapeHtml(consistency.averageBedtime || '–')}</strong>
+          <span>snittid för sänggående</span></div>
+        <div class="sl-con-range">
+          <span>Tidigast <b>${escapeHtml(consistency.earliest || '–')}</b></span>
+          <span>Senast <b>${escapeHtml(consistency.latest || '–')}</b></span>
+        </div>
+        <p class="sl-con-note">Spridning ±${consistency.spreadMin} min över ${consistency.nights} nätter.
+          ${consistency.verdict === 'steady'
+            ? 'Kroppen vet när den ska sova — behåll det.'
+            : 'Jämnare tider ger djupare sömn även vid samma antal timmar.'}</p>`;
+    }
+
+    // Bästa och sämsta natt
+    const extremes = document.getElementById('sl-extremes');
+    if (extremes && summary.best) {
+      const row = (item, label, tone) => `<div class="sl-extreme">
+        <span class="sl-extreme-label">${label}</span>
+        <strong class="${tone}">${item.score}</strong>
+        <span class="sl-extreme-date">${escapeHtml(item.date)}</span></div>`;
+      extremes.innerHTML = row(summary.best, 'Bäst', 'sl-good')
+        + (summary.worst ? row(summary.worst, 'Sämst', 'sl-low') : '');
+    }
   }
 
   function renderSleepStageChart(levels, startGMT, endGMT) {

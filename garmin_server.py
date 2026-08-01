@@ -31,6 +31,7 @@ from strength_progression import (
 )
 import session_analysis
 import pace_progression
+import sleep_analysis
 
 # Google Calendar (valfritt — kräver google_credentials.json)
 try:
@@ -482,6 +483,14 @@ def migrate_db():
                 cur.execute('ALTER TABLE health_history ADD COLUMN IF NOT EXISTS stress_avg INTEGER')
             except Exception as e:
                 print('migrate_db health_history stress_avg:', e)
+            try:
+                # När natten började och slutade, plus resten av stadiefördelningen.
+                # Utan tiderna går läggdagsregelbundenhet inte att mäta alls.
+                for column, kind in (('sleep_start', 'TEXT'), ('sleep_end', 'TEXT'),
+                                     ('light_pct', 'INTEGER'), ('awake_pct', 'INTEGER')):
+                    cur.execute(f'ALTER TABLE health_history ADD COLUMN IF NOT EXISTS {column} {kind}')
+            except Exception as e:
+                print('migrate_db health_history sleep timing:', e)
             for tbl in ('health_history', 'metric_history'):
                 try:
                     cur.execute(f'ALTER TABLE {tbl} DROP CONSTRAINT IF EXISTS {tbl}_pkey')
@@ -2138,6 +2147,8 @@ def health_data():
             'sleep':       {'totalSec': total_sleep_sec, 'deepSec': deep_sec, 'remSec': rem_sec, 'score': sleep_score_val,
                             'deepPct': round(deep_sec/total_sleep_sec*100) if total_sleep_sec else 0,
                             'remPct':  round(rem_sec/total_sleep_sec*100)  if total_sleep_sec else 0,
+                            'lightPct': round((s.get('lightSleepSeconds') or 0)/total_sleep_sec*100) if total_sleep_sec else 0,
+                            'awakePct': round((s.get('awakeSleepSeconds') or 0)/total_sleep_sec*100) if total_sleep_sec else 0,
                             'levels': (sleep.get('sleepLevels') or sleep.get('sleepMovement') or []),
                             'sourceDate': sleep_source_date,
                             'fallback': sleep_source_date != today,
@@ -2222,6 +2233,19 @@ def health_stress_history():
     return jsonify({'days': days, 'avg': avg, 'values': values})
 
 
+def _local_sleep_stamp(dto, key):
+    """Garmins lokala sömntider kommer som millisekunder — spara som 'YYYY-MM-DD HH:MM'."""
+    value = dto.get(key)
+    if not value:
+        return None
+    try:
+        seconds = float(value) / 1000.0 if float(value) > 100000000000 else float(value)
+        # Tidsstämpeln är redan lokal tid uttryckt som epok, så den ska läsas som UTC.
+        return datetime.fromtimestamp(seconds, timezone.utc).strftime('%Y-%m-%d %H:%M')
+    except (TypeError, ValueError, OSError):
+        return None
+
+
 def _fetch_day_health(client, day_str):
     sleep = client.get_sleep_data(day_str) or {}
     s = sleep.get('dailySleepDTO', {}) or {}
@@ -2249,10 +2273,16 @@ def _fetch_day_health(client, day_str):
         bb_max = max((v[1] for v in vals if v and v[1] is not None), default=None)
     except Exception:
         pass
+    light = s.get('lightSleepSeconds') or 0
+    awake = s.get('awakeSleepSeconds') or 0
     return {'date': day_str, 'sleep_score': sleep_score,
             'sleep_hours': round(total / 3600, 2) if total else None,
             'deep_pct': round(deep / total * 100) if total else None,
             'rem_pct':  round(rem / total * 100)  if total else None,
+            'light_pct': round(light / total * 100) if total else None,
+            'awake_pct': round(awake / total * 100) if total else None,
+            'sleep_start': _local_sleep_stamp(s, 'sleepStartTimestampLocal'),
+            'sleep_end': _local_sleep_stamp(s, 'sleepEndTimestampLocal'),
             'hrv_avg': hrv_avg, 'resting_hr': rhr, 'body_battery': bb_max,
             'stress_avg': stress_avg}
 
@@ -2272,7 +2302,11 @@ def collect_health_history(days=14, username=None):
         with conn.cursor() as cur:
             # Treat a day as "have" only when newer history columns are filled too,
             # so older sparse rows get re-fetched once and backfilled.
-            cur.execute('SELECT date FROM health_history WHERE user_id=%s AND body_battery IS NOT NULL AND stress_avg IS NOT NULL', (user_id,))
+            # Nätter som saknar de nya tidskolumnerna hämtas om en gång. Nätter
+            # helt utan sömndata undantas — där finns inget att fylla i.
+            cur.execute('''SELECT date FROM health_history
+                WHERE user_id=%s AND body_battery IS NOT NULL AND stress_avg IS NOT NULL
+                  AND (sleep_start IS NOT NULL OR sleep_hours IS NULL)''', (user_id,))
             have = {r[0] for r in cur.fetchall()}
     added = 0
     for i in range(1, days + 1):
@@ -2287,14 +2321,20 @@ def collect_health_history(days=14, username=None):
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute('''INSERT INTO health_history
-                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, stress_avg, created_at, user_id)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, light_pct, awake_pct,
+                     sleep_start, sleep_end, hrv_avg, resting_hr, body_battery, stress_avg, created_at, user_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (date, user_id) DO UPDATE SET sleep_score=EXCLUDED.sleep_score,
                         sleep_hours=EXCLUDED.sleep_hours, deep_pct=EXCLUDED.deep_pct,
-                        rem_pct=EXCLUDED.rem_pct, hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr,
+                        rem_pct=EXCLUDED.rem_pct, light_pct=EXCLUDED.light_pct,
+                        awake_pct=EXCLUDED.awake_pct, sleep_start=EXCLUDED.sleep_start,
+                        sleep_end=EXCLUDED.sleep_end, hrv_avg=EXCLUDED.hrv_avg,
+                        resting_hr=EXCLUDED.resting_hr,
                         body_battery=EXCLUDED.body_battery, stress_avg=EXCLUDED.stress_avg''',
                     (rec['date'], rec['sleep_score'], rec['sleep_hours'], rec['deep_pct'],
-                     rec['rem_pct'], rec['hrv_avg'], rec['resting_hr'], rec['body_battery'],
+                     rec['rem_pct'], rec.get('light_pct'), rec.get('awake_pct'),
+                     rec.get('sleep_start'), rec.get('sleep_end'),
+                     rec['hrv_avg'], rec['resting_hr'], rec['body_battery'],
                      rec['stress_avg'], time.time(), user_id))
             conn.commit()
         added += 1
@@ -3387,6 +3427,66 @@ def _event_kind(title):
     if any(w in t for w in work_words):
         return 'work'
     return 'calendar'
+
+
+@app.get('/api/sleep')
+def sleep_overview():
+    """Allt sömnsidan behöver: nattens siffror, historik och härledda mått.
+
+    Kvällens läggdagsrekommendation har funnits i koden hela tiden men bara
+    varit synlig för chatten — här blir den en del av sidan.
+    """
+    days = max(7, min(int(request.args.get('days', 21) or 21), 60))
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT date, sleep_score, sleep_hours, deep_pct, rem_pct,
+                        light_pct, awake_pct, sleep_start, sleep_end, hrv_avg, resting_hr, body_battery
+                    FROM health_history WHERE user_id=%s
+                    ORDER BY date DESC LIMIT %s''', (uid(), days))
+                nights = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        return _server_error(e, 'sleep.history_failed', message='Sömnhistoriken kunde inte hämtas.')
+
+    for item in nights:
+        if item.get('sleep_hours') is not None:
+            item['sleep_hours'] = float(item['sleep_hours'])
+
+    summary = sleep_analysis.summarize(nights)
+
+    tonight = None
+    try:
+        tonight = _build_sleep_coach()
+    except Exception as e:
+        print('Sömncoach kunde inte byggas:', e)
+
+    # Nattens hypnogram ligger i hälso-cachen och behöver inte hämtas om.
+    last_night = None
+    row = get_cache('health', uid())
+    if row and row[0]:
+        sleep = (row[0] or {}).get('sleep') or {}
+        last_night = {
+            'score': sleep.get('score'),
+            'levels': sleep.get('levels') or [],
+            'startGMT': sleep.get('startGMT'),
+            'endGMT': sleep.get('endGMT'),
+        }
+
+    return jsonify({
+        'nights': nights,
+        'summary': summary,
+        'tonight': tonight,
+        'lastNight': last_night,
+    })
+
+
+@app.get('/api/sleep/insights')
+def sleep_insights_endpoint():
+    try:
+        data = _get_sleep_insights(force=request.args.get('force') == '1')
+        return data if hasattr(data, 'status_code') else jsonify(data)
+    except Exception as e:
+        return _server_error(e, 'sleep.insights_failed', message='Sömnanalysen kunde inte skapas.')
 
 
 def _build_sleep_coach():

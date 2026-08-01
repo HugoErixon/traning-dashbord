@@ -555,82 +555,116 @@
 
     <!-- SLEEP -->
     <div class="page" id="page-sleep">
-      <div class="page-header"><h2>Sömn</h2><p>Återhämtning, läggdags och förkylning av rummet</p></div>
+      <div class="page-header"><h2>Sömn</h2><p>Natten som gick, kvällens läggdags och hur sömnen rör sig över tid</p></div>
 
-      <!-- Metric cards: 2×2 premium grid -->
-      <div class="sleep-metrics-grid">
-
-        <!-- Sömnpoäng — arc gauge -->
-        <div class="sleep-metric-card sleep-metric-score-card">
-          <div class="sleep-metric-label">Sömnpoäng</div>
-          <div class="sleep-gauge-wrap">
-            <svg id="sleep-score-gauge" viewBox="0 0 120 72" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-              <path class="sleep-gauge-track" d="M4,62 A56,56 0 0,1 116,62" fill="none" stroke-width="8" stroke-linecap="round"/>
-              <path id="sleep-score-arc" class="sleep-gauge-fill" d="M4,62 A56,56 0 0,1 116,62" fill="none" stroke-width="8" stroke-linecap="round" stroke-dasharray="175.9" stroke-dashoffset="175.9"/>
-              <text id="sleep-page-score" class="sleep-gauge-num" x="60" y="60" text-anchor="middle">-</text>
+      <!-- I NATT ─ hero -->
+      <section class="sl-hero">
+        <div class="sl-hero-score">
+          <div class="sl-ring">
+            <svg viewBox="0 0 132 132" aria-hidden="true">
+              <circle class="sl-ring-track" cx="66" cy="66" r="57" fill="none" stroke-width="10"/>
+              <circle id="sl-score-ring" class="sl-ring-fill" cx="66" cy="66" r="57" fill="none"
+                      stroke-width="10" stroke-linecap="round" transform="rotate(-90 66 66)"/>
             </svg>
+            <div class="sl-ring-center">
+              <strong id="sl-score">–</strong>
+              <span>SÖMNPOÄNG</span>
+            </div>
           </div>
-          <div style="display:none"><span id="sleep-page-score-sub"></span><div id="sleep-page-score-bar" style="width:0%"></div></div>
+          <div class="sl-hero-verdict" id="sl-verdict">Laddar…</div>
         </div>
 
-        <!-- Total sömn — big number + progress bar -->
-        <div class="sleep-metric-card">
-          <div class="sleep-metric-label">Total sömn</div>
-          <div id="sleep-page-total" class="sleep-metric-val sleep-metric-val-total">-</div>
-          <div id="sleep-page-total-sub" class="sleep-metric-sub">Mål 7,5 h</div>
-          <div class="sleep-progress-bar">
-            <div id="sleep-page-total-bar" class="sleep-progress-fill sleep-fill-green"></div>
+        <div class="sl-hero-facts">
+          <div class="sl-fact">
+            <span class="sl-fact-label">Total sömn</span>
+            <strong class="sl-fact-val" id="sl-total">–</strong>
+            <span class="sl-fact-sub" id="sl-total-sub">Mål 7,5 h</span>
+            <span class="sl-meter"><i id="sl-total-bar"></i></span>
+          </div>
+          <div class="sl-fact">
+            <span class="sl-fact-label">Sänggående</span>
+            <strong class="sl-fact-val" id="sl-window">–</strong>
+            <span class="sl-fact-sub" id="sl-window-sub">Ingen tid registrerad</span>
+          </div>
+          <div class="sl-fact">
+            <span class="sl-fact-label">Sömnskuld · 7 dygn</span>
+            <strong class="sl-fact-val" id="sl-debt">–</strong>
+            <span class="sl-fact-sub" id="sl-debt-sub">Samlar data</span>
+            <span class="sl-meter"><i id="sl-debt-bar" class="sl-meter-amber"></i></span>
+          </div>
+          <div class="sl-fact">
+            <span class="sl-fact-label">Nätter på mål</span>
+            <strong class="sl-fact-val" id="sl-streak">–</strong>
+            <span class="sl-fact-sub" id="sl-streak-sub">i rad</span>
           </div>
         </div>
+      </section>
 
-        <!-- Djupsömn — radial ring -->
-        <div class="sleep-metric-card sleep-metric-ring-card">
-          <div class="sleep-metric-label">Djupsömn</div>
-          <div class="sleep-ring-wrap">
-            <svg viewBox="0 0 80 80" width="80" height="80" aria-hidden="true">
-              <circle class="sleep-ring-track" cx="40" cy="40" r="30" fill="none" stroke-width="9"/>
-              <circle id="sleep-deep-ring" class="sleep-ring-fill" cx="40" cy="40" r="30" fill="none" stroke-width="9" stroke-dasharray="188.5" stroke-dashoffset="188.5" stroke-linecap="round" transform="rotate(-90 40 40)"/>
-            </svg>
-            <div id="sleep-page-deep" class="sleep-ring-val">-</div>
-          </div>
-          <div id="sleep-page-deep-sub" class="sleep-metric-sub sleep-metric-sub-center">Mål 15–25%</div>
-          <div style="display:none"><div id="sleep-page-deep-bar" style="width:0%"></div></div>
+      <!-- I KVÄLL -->
+      <section class="sl-tonight" id="sl-tonight" style="display:none;">
+        <div class="sl-tonight-main">
+          <span class="sl-tonight-eyebrow" id="sl-tonight-eyebrow">I KVÄLL</span>
+          <div class="sl-tonight-time"><strong id="sl-tonight-bed">–</strong><span id="sl-tonight-wake"></span></div>
+          <p class="sl-tonight-why" id="sl-tonight-why"></p>
         </div>
+        <div class="sl-tonight-steps" id="sl-tonight-steps"></div>
+      </section>
 
-        <!-- REM-sömn — radial ring -->
-        <div class="sleep-metric-card sleep-metric-ring-card">
-          <div class="sleep-metric-label">REM-sömn</div>
-          <div class="sleep-ring-wrap">
-            <svg viewBox="0 0 80 80" width="80" height="80" aria-hidden="true">
-              <circle class="sleep-ring-track" cx="40" cy="40" r="30" fill="none" stroke-width="9"/>
-              <circle id="sleep-rem-ring" class="sleep-ring-fill sleep-ring-rem" cx="40" cy="40" r="30" fill="none" stroke-width="9" stroke-dasharray="188.5" stroke-dashoffset="188.5" stroke-linecap="round" transform="rotate(-90 40 40)"/>
-            </svg>
-            <div id="sleep-page-rem" class="sleep-ring-val">-</div>
-          </div>
-          <div id="sleep-page-rem-sub" class="sleep-metric-sub sleep-metric-sub-center">Mål 20–25%</div>
-          <div style="display:none"><div id="sleep-page-rem-bar" style="width:0%"></div></div>
+      <!-- STADIER -->
+      <section class="sl-card">
+        <div class="sl-card-head">
+          <span class="sl-card-title">Sömnstadier i natt</span>
+          <span class="sl-card-note" id="sl-stage-note"></span>
         </div>
+        <div class="sl-stagebar" id="sl-stagebar"></div>
+        <div class="sl-stage-legend" id="sl-stage-legend"></div>
+      </section>
 
-      </div>
-
-      <!-- Sleep stage chart — SVG container -->
-      <div class="bigcard" style="margin-bottom:24px;padding:18px 16px 14px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted2);">Sömnstadier</span>
-          <div style="display:flex;gap:14px;align-items:center;" id="sleep-chart-legend">
-            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#EC4899;"></span>Djup</span>
-            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#38BDF8;"></span>REM</span>
-            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#10B981;"></span>Lätt</span>
-            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted2);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#EF4444;"></span>Vaken</span>
+      <!-- HYPNOGRAM -->
+      <section class="sl-card">
+        <div class="sl-card-head">
+          <span class="sl-card-title">Nattens förlopp</span>
+          <div class="sl-chart-legend">
+            <span><i style="background:#EC4899"></i>Djup</span>
+            <span><i style="background:#38BDF8"></i>REM</span>
+            <span><i style="background:#10B981"></i>Lätt</span>
+            <span><i style="background:#EF4444"></i>Vaken</span>
           </div>
         </div>
-        <div id="sleep-stage-canvas" style="width:100%;min-height:0;display:block;"></div>
-        <div style="display:flex;justify-content:space-between;margin-top:6px;" id="sleep-chart-times">
-          <span style="font-size:11px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;" id="sleep-chart-t-start"></span>
-          <span style="font-size:11px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;" id="sleep-chart-t-end"></span>
+        <div id="sleep-stage-canvas"></div>
+        <div class="sl-chart-times">
+          <span id="sleep-chart-t-start"></span>
+          <span id="sleep-chart-t-end"></span>
         </div>
-        <p id="sleep-chart-empty" style="font-size:13px;color:var(--muted3);margin:8px 0 0;display:none;">Ingen stadiedata för i natt.</p>
-      </div>
+        <p id="sleep-chart-empty" class="sl-empty" style="display:none;">Ingen stadiedata för i natt.</p>
+      </section>
+
+      <!-- TREND -->
+      <section class="sl-card">
+        <div class="sl-card-head">
+          <span class="sl-card-title">Senaste veckorna</span>
+          <div class="sl-trends" id="sl-trends"></div>
+        </div>
+        <div class="sl-history" id="sl-history"></div>
+        <div class="sl-history-axis"><span>Mål 7,5 h</span></div>
+      </section>
+
+      <!-- REGELBUNDENHET -->
+      <section class="sl-grid-2">
+        <div class="sl-card">
+          <div class="sl-card-head"><span class="sl-card-title">Läggdagsrytm</span>
+            <span class="sl-pill" id="sl-consistency-pill"></span></div>
+          <div class="sl-consistency" id="sl-consistency">
+            <p class="sl-empty">Behöver några nätter med registrerad sänggåendetid.</p>
+          </div>
+        </div>
+        <div class="sl-card">
+          <div class="sl-card-head"><span class="sl-card-title">Bästa och sämsta natten</span></div>
+          <div class="sl-extremes" id="sl-extremes">
+            <p class="sl-empty">Samlar data…</p>
+          </div>
+        </div>
+      </section>
 
     </div>
 
