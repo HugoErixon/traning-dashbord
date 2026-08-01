@@ -2089,6 +2089,7 @@
     .hg-card.c-sleep    .hg-top::after { background: linear-gradient(90deg, var(--blue) 0%, transparent 55%); }
     .hg-card.c-energy   .hg-top::after { background: linear-gradient(90deg, var(--amber)  0%, transparent 55%); }
     .hg-card.c-stress   .hg-top::after { background: linear-gradient(90deg, var(--red)  0%, transparent 55%); }
+    .hg-card.c-daily    .hg-top::after { background: linear-gradient(90deg, var(--accent) 0%, transparent 55%); }
 
     .hg-cat {
       font-size: 10px;
@@ -2148,6 +2149,7 @@
     .hg-card.c-sleep    .hg-bar-fill { background: linear-gradient(90deg, var(--blue), var(--green)); }
     .hg-card.c-energy   .hg-bar-fill { background: linear-gradient(90deg, var(--amber), var(--green)); }
     .hg-card.c-stress   .hg-bar-fill { background: linear-gradient(90deg, var(--green), var(--amber), var(--red)); }
+    .hg-card.c-daily    .hg-bar-fill { background: linear-gradient(90deg, var(--accent), var(--green)); }
 
     /* Detaljer */
     .hg-toggle {

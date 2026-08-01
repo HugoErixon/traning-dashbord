@@ -1024,6 +1024,61 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     }
   }
 
+  // Dagens rörelse: steg, kalorier, sträcka och intensitetsminuter från
+  // Garmins dygnssammanfattning. Kortet döljs helt när dagen saknar data.
+  function renderDailyActivity(daily) {
+    const card = document.getElementById('hg-daily');
+    if (!card) return;
+    if (daily.steps == null && daily.caloriesActive == null) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = '';
+
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    const nf = value => (value == null ? '-' : value.toLocaleString('sv-SE'));
+
+    const pct = daily.stepPct;
+    const reached = pct != null && pct >= 100;
+    const colour = reached ? 'var(--accent)' : pct != null && pct >= 70 ? 'var(--amber)' : 'var(--muted2)';
+
+    const score = document.getElementById('hg-daily-score');
+    if (score) { score.textContent = nf(daily.steps); score.style.color = colour; }
+
+    const badge = document.getElementById('hg-daily-badge');
+    if (badge) {
+      badge.textContent = pct == null ? 'Inget stegmål' : reached ? 'Mål uppnått' : pct + '% av målet';
+      badge.className = 'hg-status ' + (reached ? 'hs-great' : pct != null && pct >= 70 ? 'hs-ok' : 'hs-low');
+    }
+
+    setText('hg-daily-summary', daily.stepGoal ? 'Mål ' + nf(daily.stepGoal) : '');
+
+    const bar = document.getElementById('hg-daily-bar');
+    if (bar) bar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+
+    setText('hg-daily-desc', daily.steps == null
+      ? 'Ingen stegdata från Garmin ännu.'
+      : reached
+        ? `Stegmålet är passerat med ${nf(daily.steps - daily.stepGoal)} steg.`
+        : daily.stepGoal
+          ? `${nf(daily.stepGoal - daily.steps)} steg kvar till dagens mål.`
+          : 'Steg registrerade, men inget mål är satt i Garmin.');
+
+    setMetric('hd-cal-active', 'hd-cal-active-status', nf(daily.caloriesActive), 'kcal', 'kcal', 'var(--accent)');
+    setMetric('hd-cal-total', 'hd-cal-total-status', nf(daily.caloriesTotal), 'kcal', 'kcal', '');
+    setText('hd-cal-total-desc', daily.caloriesBmr != null
+      ? `Varav ${nf(daily.caloriesBmr)} kcal basalomsättning`
+      : 'Inklusive basalomsättning');
+
+    setText('hd-daily-dist', daily.distanceM != null ? (daily.distanceM / 1000).toFixed(1) : '-');
+
+    const goal = daily.intensityGoal;
+    setMetric('hd-intensity', 'hd-intensity-status',
+      daily.intensityMinutes != null ? daily.intensityMinutes : '-',
+      '', goal ? '/ ' + goal + ' i veckan' : '',
+      goal && daily.intensityMinutes >= goal ? 'var(--accent)' : '');
+  }
+
   function setMetric(valId, statusId, value, unit, statusText, col) {
     const v = document.getElementById(valId);
     const s = document.getElementById(statusId);
@@ -2069,6 +2124,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           : `Kroppsbatteri ${bb}/100 – kroppen är trött. Prioritera vila och återhämtning.`;
         setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
       }
+
+      renderDailyActivity(h.daily || {});
 
       const healthStressAvg = h.stress?.avg;
       const healthStressInfo = stressMeta(healthStressAvg);

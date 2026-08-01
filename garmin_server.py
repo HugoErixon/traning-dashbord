@@ -2105,6 +2105,7 @@ def health_data():
         hr        = safe_health_fetch('heart rates', {}, lambda: client.get_heart_rates(today))
         resp      = safe_health_fetch('respiration', {}, lambda: client.get_respiration_data(today))
         spo2      = safe_health_fetch('spo2', {}, lambda: client.get_spo2_data(today))
+        summary   = safe_health_fetch('daily summary', {}, lambda: client.get_user_summary(today))
 
         sleep = sleep if isinstance(sleep, dict) else {}
         hrv = hrv if isinstance(hrv, dict) else {}
@@ -2173,6 +2174,7 @@ def health_data():
             'stress':      {'avg': stress.get('avgStressLevel'), 'max': stress.get('maxStressLevel')},
             'respiration': {'avg': round(avg_resp) if avg_resp else None, 'sleepAvg': round(sleep_resp) if sleep_resp else None},
             'spo2':        {'avg': avg_spo2, 'min': spo2.get('lowestSpO2')},
+            'daily':       _daily_activity(summary),
         }
         has_payload = has_health_payload(result)
         if not has_payload:
@@ -2259,6 +2261,42 @@ def _local_sleep_stamp(dto, key):
         return datetime.fromtimestamp(seconds, timezone.utc).strftime('%Y-%m-%d %H:%M')
     except (TypeError, ValueError, OSError):
         return None
+
+
+def _daily_activity(summary):
+    """Steg, kalorier och rörelse för dagen ur Garmins dygnssammanfattning.
+
+    Kalorierna delas upp: aktiva kalorier är det träningen kostat, medan
+    totalen även innehåller basalomsättningen — det är den uppdelningen som
+    säger något, inte totalsiffran.
+    """
+    summary = summary if isinstance(summary, dict) else {}
+
+    def num(key):
+        value = summary.get(key)
+        try:
+            return round(float(value)) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    steps, goal = num('totalSteps'), num('dailyStepGoal')
+    moderate, vigorous = num('moderateIntensityMinutes'), num('vigorousIntensityMinutes')
+    # Garmin räknar hård intensitet dubbelt mot veckomålet.
+    intensity = (moderate or 0) + 2 * (vigorous or 0) if (moderate or vigorous) else None
+
+    return {
+        'steps': steps,
+        'stepGoal': goal,
+        'stepPct': round(steps / goal * 100) if steps and goal else None,
+        'distanceM': num('totalDistanceMeters'),
+        'caloriesTotal': num('totalKilocalories'),
+        'caloriesActive': num('activeKilocalories'),
+        'caloriesBmr': num('bmrKilocalories'),
+        'floors': num('floorsAscended'),
+        'floorGoal': num('userFloorsAscendedGoal'),
+        'intensityMinutes': intensity,
+        'intensityGoal': num('intensityMinutesGoal'),
+    }
 
 
 def _fetch_day_health(client, day_str):
