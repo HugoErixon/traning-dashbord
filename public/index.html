@@ -46,17 +46,13 @@
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5h11M6.5 17.5h11M8 6.5v11M16 6.5v11"/><rect x="4" y="5" width="2.5" height="14" rx="1"/><rect x="17.5" y="5" width="2.5" height="14" rx="1"/></svg></span>
         <span>Styrka</span>
       </div>
-      <div class="nav-item" data-action="goto" data-page="climate" role="button" tabindex="0">
+      <div class="nav-item" id="nav-climate" data-action="goto" data-page="climate" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/></svg></span>
         <span>Klimat</span>
       </div>
       <div class="nav-item" data-action="goto" data-page="journal" role="button" tabindex="0">
         <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></span>
         <span>Dagbok</span>
-      </div>
-      <div class="nav-item" data-action="goto" data-page="coach" role="button" tabindex="0">
-        <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
-        <span>Anteckningar</span>
       </div>
     </div>
     <div class="sidebar-bottom">
@@ -197,15 +193,29 @@
           </div>
           <h3 id="review-headline" style="font-size:16px;font-weight:700;margin:0 0 6px;">Kollar dagens pass…</h3>
           <p id="review-body" style="font-size:13px;color:var(--muted3);line-height:1.55;margin:0;flex:1;">Laddar…</p>
-          <div style="display:flex;gap:8px;margin-top:16px;">
-            <input id="coach-request-input" type="text" maxlength="500"
-              placeholder="Be coachen ändra dagens plan…"
-              style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border2);border-radius:10px;padding:10px 13px;color:var(--text);font-size:13px;font-family:inherit;outline:none;">
-            <button id="coach-request-btn" class="refresh-btn" style="margin:0;width:auto;padding:9px 16px;color:var(--accent);" data-action="coach-request">Justera</button>
-          </div>
-          <div id="coach-request-result" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);"></div>
         </div>
       </div>
+
+      <section class="chat-wrap home-assistant" aria-label="Träningsassistent">
+        <div class="chat-top">
+          <div class="chat-dot"></div>
+          <span class="chat-title">Träningsassistent</span>
+          <span class="chat-sub">Träning, plan och sömn</span>
+        </div>
+        <div class="qprompts">
+          <button class="qp" data-action="quick-prompt" data-prompt="Ska jag springa eller köra styrka idag?">Springa eller styrka?</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Justera dagens plan: jag vill köra styrka i stället för löpning.">Justera dagens plan</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="När bör jag lägga mig i kväll och varför?">Sömnschema i kväll</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Vilka sömnmönster ser du i min data?">Mina sömnmönster</button>
+        </div>
+        <div class="messages" id="messages">
+          <div class="msg ai"><div class="msg-from">COACH</div><span>Fråga om träning, ändra eller schemalägg pass, eller be mig tolka ditt sömnschema och dina sömnmönster.</span></div>
+        </div>
+        <div class="chat-input">
+          <input type="text" id="chat-input" maxlength="500" placeholder="Fråga eller be mig ändra din plan…" />
+          <button class="send-btn" data-action="send-chat">Skicka</button>
+        </div>
+      </section>
 
       <!-- ROW 2: Träningsbeslut + Kommande 7 dagar -->
       <div class="home-cols">
@@ -620,32 +630,6 @@
         <p id="sleep-chart-empty" style="font-size:13px;color:var(--muted3);margin:8px 0 0;display:none;">Ingen stadiedata för i natt.</p>
       </div>
 
-      <div class="bigcard accent-blue" style="margin-bottom:24px;">
-        <div class="today-header">
-          <h3 id="sleep-coach-title">Sömncoach</h3>
-          <span class="today-badge badge-amber" id="sleep-coach-badge">SCHEMA</span>
-        </div>
-        <p id="sleep-coach-summary">Bygger ett sömnschema från din kalender…</p>
-        <div id="sleep-coach-meta" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 4px;"></div>
-        <div id="sleep-coach-list" style="display:flex;flex-direction:column;gap:10px;margin-top:14px;">
-          <div style="font-size:12px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;">Laddar schema…</div>
-        </div>
-      </div>
-
-      <!-- Sleep AI analysis -->
-      <div class="bigcard" style="margin-bottom:24px;">
-        <div class="insights-hl">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <h3 id="sleep-ai-headline" style="font-size:15px;margin:0;">Sömnmönster</h3>
-            <span class="today-badge badge-amber" id="sleep-ai-badge">AI</span>
-          </div>
-          <button class="insights-refresh" data-action="refresh-sleep-insights">↺ Uppdatera</button>
-        </div>
-        <div id="sleep-ai-list">
-          <div style="font-size:12px;color:var(--muted3);">Analyserar din sömn…</div>
-        </div>
-      </div>
-
     </div>
 
     <!-- HISTORIK -->
@@ -763,76 +747,10 @@
       </div>
     </div>
 
-    <!-- COACH -->
-    <div class="page" id="page-coach">
-      <div class="page-header"><h2>Anteckningar</h2><p>Frågor, sammanhang och sparade anteckningar</p></div>
-
-      <div class="coach-layout">
-
-        <!-- Chat -->
-        <div class="chat-wrap">
-          <div class="chat-top">
-            <div class="chat-dot"></div>
-            <span class="chat-title">Träningsassistent</span>
-            <span class="chat-sub">Löpning och styrka</span>
-          </div>
-          <div class="qprompts">
-            <button class="qp" data-action="quick-prompt" data-prompt="Ska jag springa eller köra styrka idag?">Springa eller styrka?</button>
-            <button class="qp" data-action="quick-prompt" data-prompt="Hur kombinerar jag löpning och styrka bäst?">Kombinera träning</button>
-            <button class="qp" data-action="quick-prompt" data-prompt="Vad är mitt nästa kvalitetspass?">Nästa pass</button>
-            <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till mot mitt mål?">Målläget?</button>
-            <button class="qp" data-action="quick-prompt" data-prompt="Hur bör jag progrediera i styrketräning?">Styrkeprogress</button>
-            <button class="qp" data-action="quick-prompt" data-prompt="Hjälp mig nollställa mentalt inför nästa pass.">Mental reset</button>
-          </div>
-          <div class="messages" id="messages">
-            <div class="msg ai">
-              <div class="msg-from">COACH</div>
-              <span>Din plan, aktuell återhämtning och sparade anteckningar finns laddade här. Fråga om träning, schemaläggning, sömn eller hur du justerar de kommande dagarna.</span>
-            </div>
-          </div>
-          <div class="chat-input">
-            <input type="text" id="chat-input" placeholder="Fråga vad du vill…" />
-            <button class="send-btn" data-action="send-chat">Skicka</button>
-          </div>
-        </div>
-
-        <!-- Minne / Noteringar -->
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
-            <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
-              <span style="font-size:13px;font-weight:700;">Sparade anteckningar</span>
-              <span id="notes-count" style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);margin-left:auto;">0 anteckningar</span>
-            </div>
-            <div style="padding:10px 14px;border-bottom:1px solid var(--border);">
-              <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);margin-bottom:8px;">Lägg till</div>
-              <div style="display:flex;flex-direction:column;gap:8px;">
-                <select id="note-category" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:8px 10px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;font-size:11px;outline:none;">
-                  <option value="body"> Kropp & skador</option>
-                  <option value="nutrition"> Kost & återhämtning</option>
-                  <option value="goals"> Mål & fokus</option>
-                  <option value="gear"> Utrustning</option>
-                  <option value="general"> Övrigt</option>
-                </select>
-                <textarea id="note-input" rows="3" placeholder="T.ex. spänd höger vad sedan igår…" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13px;outline:none;resize:none;transition:border-color 0.2s;width:100%;"></textarea>
-                <button data-action="save-note" class="note-save-btn" style="background:var(--blue-dim);border:1px solid rgba(96,165,250,0.25);border-radius:8px;padding:8px;color:var(--blue);font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;width:100%;">Spara</button>
-              </div>
-            </div>
-            <div id="notes-list" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;">
-              <div style="color:var(--muted);font-size:12px;font-family:'IBM Plex Mono',monospace;">Laddar…</div>
-            </div>
-          </div>
-          <div style="font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;padding:0 4px;line-height:1.6;">
-            <span>Sparade anteckningar tas med automatiskt när du ber om råd.</span>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
     </div><!-- /.content -->
   </main>
 </div>
 
-<script src="app.js?v=security-1"></script>
+<script src="app.js?v=assistant-1"></script>
 </body>
 </html>

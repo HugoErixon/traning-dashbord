@@ -166,6 +166,19 @@ LOGIN_LIMITER = LoginRateLimiter(
     max_attempts=int(config.get('LOGIN_MAX_ATTEMPTS', '8')),
     window_seconds=int(config.get('LOGIN_WINDOW_SECONDS', '900')),
 )
+# Andra skiktet: begränsar totala inloggningsförsök per IP oavsett användarnamn,
+# så att en angripare inte kan spraya olika konton från samma adress obehindrat.
+LOGIN_IP_LIMITER = LoginRateLimiter(
+    max_attempts=int(config.get('LOGIN_IP_MAX_ATTEMPTS', '20')),
+    window_seconds=int(config.get('LOGIN_WINDOW_SECONDS', '900')),
+)
+REGISTER_LIMITER = LoginRateLimiter(
+    max_attempts=int(config.get('REGISTER_MAX_ATTEMPTS', '3')),
+    window_seconds=int(config.get('REGISTER_WINDOW_SECONDS', '3600')),
+)
+RESEND_API_KEY = config.get('RESEND_API_KEY', '')
+MAIL_FROM = config.get('MAIL_FROM', 'Trainyze <noreply@trainyze.com>')
+PUBLIC_BASE_URL = config.get('PUBLIC_BASE_URL', 'https://trainyze.com')
 
 def uid():
     return getattr(flask_g, 'uid', 1)
@@ -191,6 +204,41 @@ WEATHER_LOCATION = config.get('WEATHER_LOCATION', 'Smögen')
 
 if not APP_TESTING and (len(WATER_TOKEN) < 16 or len(AC_BUTTON_TOKEN) < 16):
     logger.warning('Hardware API token is missing or too short', extra={'event': 'auth.weak_hardware_token'})
+
+def _send_verification_email(to_email, username, token):
+    """Skickar verifieringslänk via Resend. Returnerar True/False (loggar fel, kastar aldrig)."""
+    if not RESEND_API_KEY:
+        logger.error('Cannot send verification email: RESEND_API_KEY not configured',
+                      extra={'event': 'mail.no_api_key'})
+        return False
+    link = f"{PUBLIC_BASE_URL.rstrip('/')}/api/verify-email?token={token}"
+    html = f'''<div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+      <h2 style="color:#111;">Välkommen till Trainyze, {username}!</h2>
+      <p>Klicka på länken nedan för att verifiera din e-postadress och aktivera ditt konto:</p>
+      <p><a href="{link}" style="display:inline-block;background:#C8F135;color:#1a2200;
+         padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">
+         Verifiera e-postadress</a></p>
+      <p style="color:#666;font-size:13px;">Länken är giltig i 24 timmar. Om du inte skapade
+      det här kontot kan du ignorera mejlet.</p>
+    </div>'''
+    try:
+        r = requests.post(
+            'https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {RESEND_API_KEY}', 'Content-Type': 'application/json'},
+            json={'from': MAIL_FROM, 'to': [to_email], 'subject': 'Verifiera din e-postadress',
+                  'html': html},
+            timeout=8,
+        )
+        if not r.ok:
+            logger.error('Verification email rejected by Resend', extra={
+                'event': 'mail.send_failed', 'status': r.status_code, 'body': r.text[:300],
+            })
+            return False
+        return True
+    except Exception as e:
+        logger.exception('Verification email send failed', extra={'event': 'mail.send_exception'})
+        return False
+
 
 def _valid_clock(value):
     if not isinstance(value, str) or not re.match(r'^\d{2}:\d{2}$', value):
@@ -552,12 +600,19 @@ def check_auth():
         return
     if request.method == 'OPTIONS':
         return
-    if request.path in ('/api/login', '/api/session', '/api/healthz'):
+    if request.path in ('/api/login', '/api/session', '/api/healthz', '/api/register'):
+        return
+    if request.method == 'GET' and request.path == '/api/verify-email':
         return
     if request.method == 'POST' and request.path in (
         '/api/water', '/api/ac/button/off', '/api/ac/button/auto-on'
     ):
         return  # Hardware endpoints authenticate with separate, scoped tokens.
+
+    if request.method == 'GET' and request.path in (
+        '/api/ac/bedtime', '/api/weather/current'
+    ) and request.remote_addr in ('127.0.0.1', '::1'):
+        return  # ac-keeper (same host) polls these for pre-cool scheduling.
 
     if request.method == 'GET' and request.path == '/api/widget/mobile':
         widget_user, token_supplied = _widget_token_user()
@@ -668,6 +723,21 @@ def login():
     if not isinstance(password, str) or not password or len(username) > 64 or len(password) > 1024:
         return _api_error('invalid_credentials', 'Fel användarnamn eller lösenord.', 401)
 
+    ip_key = request.remote_addr or 'unknown'
+    ip_allowed, ip_retry_after = LOGIN_IP_LIMITER.check(ip_key)
+    if not ip_allowed:
+        response, status = _api_error(
+            'too_many_login_attempts',
+            'För många inloggningsförsök från din adress. Vänta en stund och försök igen.',
+            429,
+        )
+        response.headers['Retry-After'] = str(ip_retry_after)
+        logger.warning('Login rate limited (IP-wide)', extra={
+            'event': 'auth.rate_limited_ip',
+            'request_id': _request_id(),
+        })
+        return response, status
+
     limiter_key = f'{request.remote_addr or "unknown"}:{username.lower()}'
     allowed, retry_after = LOGIN_LIMITER.check(limiter_key)
     if not allowed:
@@ -685,6 +755,7 @@ def login():
 
     user = verify_user(USERS, username, password)
     if not user:
+        LOGIN_IP_LIMITER.record_failure(ip_key)
         LOGIN_LIMITER.record_failure(limiter_key)
         logger.warning('Invalid login attempt', extra={
             'event': 'auth.login_failed',
@@ -692,6 +763,16 @@ def login():
         })
         return _api_error('invalid_credentials', 'Fel användarnamn eller lösenord.', 401)
 
+    if user.get('email') and not user.get('email_verified'):
+        LOGIN_IP_LIMITER.record_failure(ip_key)
+        LOGIN_LIMITER.record_failure(limiter_key)
+        return _api_error(
+            'email_not_verified',
+            'Du behöver verifiera din e-postadress innan du kan logga in. Kolla din inkorg.',
+            403,
+        )
+
+    LOGIN_IP_LIMITER.reset(ip_key)
     LOGIN_LIMITER.reset(limiter_key)
     session.clear()
     session.permanent = True
@@ -711,6 +792,78 @@ def login():
         'garminConnected': _garmin_connected(username),
         'csrfToken': csrf_token,
     })
+
+
+@app.post('/api/register')
+def register():
+    if USER_STORE is None:
+        return _api_error('registration_unavailable', 'Registrering är inte tillgänglig just nu.', 503)
+
+    ip_key = f'register:{request.remote_addr or "unknown"}'
+    allowed, retry_after = REGISTER_LIMITER.check(ip_key)
+    if not allowed:
+        response, status = _api_error(
+            'too_many_registrations',
+            'För många registreringsförsök från din adress. Vänta en stund och försök igen.',
+            429,
+        )
+        response.headers['Retry-After'] = str(retry_after)
+        return response, status
+
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username') or '').strip()
+    email = str(data.get('email') or '').strip()
+    password = data.get('password')
+    if not isinstance(password, str):
+        password = ''
+
+    try:
+        new_id, token = USER_STORE.create_pending(username, email, password)
+    except DuplicateUserError as e:
+        REGISTER_LIMITER.record_failure(ip_key)
+        return _api_error('duplicate_user', str(e), 409)
+    except UserStoreError as e:
+        REGISTER_LIMITER.record_failure(ip_key)
+        return _api_error('invalid_registration', str(e), 400)
+
+    refresh_users()
+    sent = _send_verification_email(email, username, token)
+    logger.info('User registered', extra={
+        'event': 'auth.registered', 'request_id': _request_id(),
+        'user_id': new_id, 'mail_sent': sent,
+    })
+    if not sent:
+        return _api_error(
+            'mail_send_failed',
+            'Kontot skapades men verifieringsmejlet kunde inte skickas. Kontakta ägaren.',
+            502,
+        )
+    return jsonify({'ok': True, 'message': 'Kolla din inkorg för en verifieringslänk.'})
+
+
+@app.get('/api/verify-email')
+def verify_email():
+    token = request.args.get('token', '')
+    username = USER_STORE.verify_email_token(token) if USER_STORE else None
+    if username:
+        refresh_users()
+    ok = bool(username)
+    title = 'E-post verifierad' if ok else 'Länken är ogiltig eller har gått ut'
+    body = (
+        f'Ditt konto <strong>{username}</strong> är nu aktiverat. Du kan logga in.'
+        if ok else
+        'Länken har redan använts, gått ut, eller är felaktig. Registrera dig igen om det behövs.'
+    )
+    html = f'''<!doctype html><html lang="sv"><head><meta charset="utf-8">
+      <title>{title}</title>
+      <style>body{{font-family:sans-serif;background:#0D0F14;color:#E5E7EB;
+        display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}}
+        .card{{background:#161A22;border:1px solid rgba(255,255,255,0.08);border-radius:16px;
+        padding:32px;max-width:420px;text-align:center;}}
+        a{{color:#C8F135;}}</style></head>
+      <body><div class="card"><h2>{title}</h2><p>{body}</p>
+      <p><a href="{PUBLIC_BASE_URL}">Gå till Trainyze</a></p></div></body></html>'''
+    return html, 200 if ok else 400
 
 
 @app.post('/api/logout')
@@ -1494,38 +1647,10 @@ def ac_button_auto_on():
     try:
         _write_control_flag(True)
         try:
-            r = requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=10)
-            try:
-                control_once = r.json()
-            except Exception:
-                control_once = {'error': r.text}
-            if not r.ok:
-                return _api_error(
-                    'ac_control_once_failed',
-                    'Automatiken startades, men direktkörningen av AC-styrningen misslyckades.',
-                    r.status_code,
-                    extra={
-                        'ok': False,
-                        'action': 'auto-on',
-                        'automatic_enabled': True,
-                        'control_once': control_once,
-                    }
-                )
-        except Exception as e:
-            return _server_error(
-                e,
-                'ac.control_once_failed',
-                status=502,
-                code='ac_control_once_failed',
-                message='Automatiken startades, men AC-keeper kunde inte direktköras.',
-                extra={'ok': False, 'action': 'auto-on', 'automatic_enabled': True}
-            )
-        return jsonify({
-            'ok': True,
-            'action': 'auto-on',
-            'automatic_enabled': True,
-            'control_once': control_once,
-        })
+            requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=6)
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'action': 'auto-on', 'automatic_enabled': True})
     except Exception as e:
         return _server_error(
             e, 'ac.button_auto_failed', message='Automatisk AC-styrning kunde inte startas.',
@@ -2978,9 +3103,7 @@ Respond ONLY with this JSON:
 3-4 insights, most impactful first."""
 
 
-@app.get('/api/sleep-insights')
-def sleep_insights():
-    force = request.args.get('force') == '1'
+def _get_sleep_insights(force=False):
     try:
         row = get_cache('sleep_insights', uid())
         if row and not force and (time.time() - row[1]) < 12 * 3600:
@@ -2990,24 +3113,24 @@ def sleep_insights():
                 cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
                 n = cur.fetchone()[0]
     except Exception as e:
-        return _server_error(e, 'sleep_insights.database_failed', message='Sömnunderlaget kunde inte hämtas.')
+        raise RuntimeError('Sömnunderlaget kunde inte hämtas.') from e
 
     if n < 5:
-        return jsonify({'status': 'watch', 'headline': 'Collecting sleep data…',
+        return {'status': 'watch', 'headline': 'Samlar sömndata…',
                         'insights': [{'title': 'Need more history',
                                       'detail': f'Have {n} night(s) so far — need at least 5 to find patterns.',
-                                      'action': 'Check back in a few days.'}]})
+                                      'action': 'Återkom om några dagar.'}]}
     if not llm_available():
-        return jsonify({'status': 'watch', 'headline': 'AI-nyckel krävs',
-                        'insights': [{'title': 'Ingen API-nyckel', 'detail': 'Lägg till GEMINI_API_KEY i .env.', 'action': ''}]})
+        return {'status': 'watch', 'headline': 'AI-nyckel krävs',
+                        'insights': [{'title': 'Ingen API-nyckel', 'detail': 'Lägg till GEMINI_API_KEY i .env.', 'action': ''}]}
     try:
         prompt = _build_sleep_insights_prompt()
         text = call_llm(prompt, max_tokens=2000).strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('sleep_insights', data, uid())
-        return jsonify(data)
+        return data
     except Exception as e:
-        return _server_error(e, 'sleep_insights.generation_failed', message='Sömnanalysen kunde inte skapas.')
+        raise RuntimeError('Sömnanalysen kunde inte skapas.') from e
 
 
 def _parse_calendar_dt(value):
@@ -3039,8 +3162,7 @@ def _event_kind(title):
     return 'calendar'
 
 
-@app.get('/api/sleep-coach')
-def sleep_coach():
+def _build_sleep_coach():
     """Sömncoach: bygg kommande sömnschema från kalender + senaste sömn."""
     """Build one practical recommendation for tonight from sleep history + tomorrow calendar."""
     target_base_h = 7.5
@@ -3053,7 +3175,7 @@ def sleep_coach():
                     FROM health_history WHERE user_id=%s ORDER BY date DESC LIMIT 7''', (uid(),))
                 history = cur.fetchall()
     except Exception as e:
-        return _server_error(e, 'sleep_coach.database_failed', message='Sömnhistoriken kunde inte hämtas.')
+        raise RuntimeError('Sömnhistoriken kunde inte hämtas.') from e
 
     recent_hours = [float(r[2]) for r in history if r[2] is not None]
     avg_sleep = round(sum(recent_hours) / len(recent_hours), 2) if recent_hours else None
@@ -3145,7 +3267,7 @@ def sleep_coach():
         reason_bits.append(f"imorgon börjar med {anchor['title']} kl {anchor['time']}")
     basis = ', '.join(reason_bits) if reason_bits else 'din normala vakentid'
 
-    return jsonify({
+    return {
         'ok': True,
         'headline': headline,
         'targetHours': target_h,
@@ -3159,25 +3281,50 @@ def sleep_coach():
         ),
         'night': night,
         'nights': [night],
-    })
+    }
 
 
-@app.post('/api/chat')
-def chat():
+def _is_plan_change_request(message):
+    """Only apply a plan change when the user clearly asks for one."""
+    text = message.lower()
+    actions = ('justera', 'ändra', 'flytta', 'schemalägg', 'planera in', 'lägg in', 'ta bort', 'byt ut')
+    plan_words = ('plan', 'pass', 'träning', 'vilodag', 'löpning', 'styrka', 'intervall')
+    return any(action in text for action in actions) and any(word in text for word in plan_words)
+
+
+def _is_sleep_request(message):
+    return any(word in message.lower() for word in ('sömn', 'sov', 'läggdags', 'lägga mig', 'vakna', 'natt'))
+
+
+@app.post('/api/assistant')
+def assistant_chat():
     data = request.get_json(silent=True) or {}
     message = str(data.get('message') or '').strip()
     context = str(data.get('context') or 'You are a personal training coach. Always respond in Swedish (svenska).')
     if not message:
         return _api_error('message_required', 'Skriv en fråga först.', 400)
-    if len(message) > 4000 or len(context) > 30000:
+    if len(message) > 500 or len(context) > 30000:
         return _api_error('request_too_large', 'Coachfrågan är för lång.', 400)
     if not llm_available():
         return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
     try:
+        if _is_plan_change_request(message):
+            result = _apply_plan_request(message)
+            changes = result.get('changes', 0)
+            summary = result.get('summary') or ('Planen justerad.' if changes else 'Inga ändringar behövdes.')
+            notes = result.get('coaching_notes') or ''
+            reply = f"{summary}\n\n{notes}".strip()
+            return jsonify({'reply': reply, 'planAdjusted': True})
+
+        if _is_sleep_request(message):
+            sleep = _build_sleep_coach()
+            insights = _get_sleep_insights()
+            context += "\n\nSÖMNSCHEMA (hämta från aktuell Garmin- och kalenderdata):\n" + json.dumps(sleep, ensure_ascii=False)
+            context += "\n\nSÖMNINSIKTER (presentera bara det som är relevant för frågan):\n" + json.dumps(insights, ensure_ascii=False)
         return jsonify({'reply': call_llm(message, max_tokens=1024, system=context)})
     except Exception as e:
         return _server_error(
-            e, 'chat.provider_failed', status=502, code='ai_provider_error',
+            e, 'assistant.provider_failed', status=502, code='ai_provider_error',
             message='Coachen kunde inte svara just nu.'
         )
 
@@ -4745,25 +4892,16 @@ def manual_adjust_disabled():
     """Trigga AI-justeringen manuellt (t.ex. för testning)."""
     return jsonify({'error': 'Automatic plan coach is disabled'}), 410
 
-@app.post('/api/plan/request')
-def plan_request():
-    """Fritext-önskemål från användaren → AI:n bygger om schemat efter det."""
-    data = request.get_json(silent=True) or {}
-    text = (data.get('text') or '').strip()
-    if not text:
-        return jsonify({'error': 'Skriv vad du vill ändra först.'}), 400
-    if len(text) > 500:
-        return jsonify({'error': 'Keep the request under 500 characters.'}), 400
-    if not llm_available():
-        return jsonify({'error': 'AI-nyckel krävs'}), 503
+def _apply_plan_request(text):
+    """Apply a user-requested plan adjustment for the unified assistant."""
     try:
         match_activities_to_plan(user_id=uid())
         ai_adjust_plan(user_request=text)
         first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
         row = get_cache('last_plan_adjustment', first_uid)
-        return jsonify({'ok': True, 'result': row[0] if row else {}})
+        return row[0] if row else {}
     except Exception as e:
-        return _server_error(e, 'plan.request_failed', message='Planändringen kunde inte genomföras.')
+        raise RuntimeError('Planändringen kunde inte genomföras.') from e
 
 @app.get('/api/plan/status')
 def plan_status():

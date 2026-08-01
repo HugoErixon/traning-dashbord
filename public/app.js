@@ -31,6 +31,8 @@ function completeAuth(data) {
   garminConnected = !!data.garminConnected;
   const usersBtn = document.getElementById('users-btn');
   if (usersBtn) usersBtn.style.display = currentUserIsAdmin ? '' : 'none';
+  const navClimate = document.getElementById('nav-climate');
+  if (navClimate) navClimate.style.display = currentUserIsAdmin ? '' : 'none';
   updateGarminSidebar();
   loadUserGoal();
   const screen = document.getElementById('login-screen');
@@ -62,15 +64,34 @@ function showLogin(message) {
     }
     return;
   }
+  const inputStyle = "width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;";
   document.body.insertAdjacentHTML('beforeend', `
     <div id="login-screen" style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;">
       <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:40px;width:320px;text-align:center;">
-        <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Träningsdashboard</h2>
-        <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Logga in för att fortsätta</p>
-        <input id="login-user" type="text" autocomplete="username" placeholder="Användarnamn" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;" />
-        <input id="login-input" type="password" autocomplete="current-password" placeholder="Lösenord" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
-        <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
-        <p id="login-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel användarnamn eller lösenord</p>
+        <div id="login-view">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Träningsdashboard</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Logga in för att fortsätta</p>
+          <input id="login-user" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Användarnamn" style="${inputStyle}" />
+          <input id="login-input" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord" style="${inputStyle}margin-bottom:12px;" />
+          <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
+          <p id="login-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel användarnamn eller lösenord</p>
+          <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
+            Inget konto? <a id="show-register-link" href="#" style="color:var(--blue);">Registrera dig</a>
+          </p>
+        </div>
+        <div id="register-view" style="display:none;">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Skapa konto</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Registrera dig med e-post</p>
+          <input id="register-user" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Användarnamn" style="${inputStyle}" />
+          <input id="register-email" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="E-postadress" style="${inputStyle}" />
+          <input id="register-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord (minst 8 tecken)" style="${inputStyle}margin-bottom:12px;" />
+          <button id="register-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Registrera dig</button>
+          <p id="register-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
+          <p id="register-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
+          <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
+            Har du redan ett konto? <a id="show-login-link" href="#" style="color:var(--blue);">Logga in</a>
+          </p>
+        </div>
       </div>
     </div>
   `);
@@ -81,7 +102,67 @@ function showLogin(message) {
   document.getElementById('login-user').addEventListener('keydown', event => {
     if (event.key === 'Enter') document.getElementById('login-input').focus();
   });
+  document.getElementById('register-submit').addEventListener('click', tryRegister);
+  document.getElementById('register-password').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryRegister();
+  });
+  document.getElementById('show-register-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('register-view').style.display = 'block';
+    document.getElementById('register-user').focus();
+  });
+  document.getElementById('show-login-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('register-view').style.display = 'none';
+    document.getElementById('login-view').style.display = 'block';
+    document.getElementById('login-user').focus();
+  });
   document.getElementById('login-user').focus();
+}
+
+async function performRegister(username, email, password) {
+  const response = await originalFetch('/api/register', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, email, password}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Registreringen misslyckades.');
+  }
+  return data;
+}
+
+async function tryRegister() {
+  const username = document.getElementById('register-user').value.trim();
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value;
+  const button = document.getElementById('register-submit');
+  const error = document.getElementById('register-error');
+  const success = document.getElementById('register-success');
+  error.style.display = 'none';
+  success.style.display = 'none';
+  if (!username || !email || !password) {
+    error.textContent = 'Fyll i alla fält.';
+    error.style.display = 'block';
+    return;
+  }
+  button.disabled = true;
+  try {
+    const data = await performRegister(username, email, password);
+    success.textContent = data.message || 'Kolla din inkorg för en verifieringslänk.';
+    success.style.display = 'block';
+    document.getElementById('register-user').value = '';
+    document.getElementById('register-email').value = '';
+    document.getElementById('register-password').value = '';
+  } catch (registerError) {
+    error.textContent = registerError.message;
+    error.style.display = 'block';
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function performLogin(username, password) {
@@ -648,23 +729,19 @@ function executeAction(trigger, event) {
   else if (action === 'logout') performLogout();
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
-  else if (action === 'coach-request') sendCoachRequest();
   else if (action === 'refresh-insights') loadInsights(true);
   else if (action === 'toggle-ac-loop') toggleAcLoop();
   else if (action === 'set-ac-setpoint') setAcSetpoint();
   else if (action === 'save-ac-bedtime') saveAcBedtime();
   else if (action === 'clear-ac-bedtime') clearAcBedtime();
   else if (action === 'send-ac-command') sendManualAcCommand();
-  else if (action === 'refresh-sleep-insights') loadSleepInsights(true);
   else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
   else if (action === 'strength-tab') strengthTab(trigger.dataset.tab);
   else if (action === 'save-journal') saveJournalEntry();
   else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
   else if (action === 'send-chat') send();
-  else if (action === 'save-note') saveNote();
   else if (action === 'edit-journal') editJournalDate(trigger.dataset.date);
   else if (action === 'delete-journal') deleteJournalEntry(event, Number(trigger.dataset.id));
-  else if (action === 'delete-note') deleteNote(Number(trigger.dataset.id));
   else if (action === 'apply-strength-rx') applyStrengthRecommendation(trigger.dataset.context, Number(trigger.dataset.index));
   else if (action === 'toggle-session') toggleSession(trigger.dataset.session);
   else if (action === 'add-exercise') {
@@ -691,9 +768,6 @@ document.addEventListener('keydown', event => {
   }
 });
 
-document.getElementById('coach-request-input')?.addEventListener('keydown', event => {
-  if (event.key === 'Enter') sendCoachRequest();
-});
 const acSetpointInput = document.getElementById('ac-setpoint-input');
 acSetpointInput?.addEventListener('input', () => { acSetpointInput.dataset.dirty = '1'; });
 acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset.dirty; });
@@ -708,11 +782,10 @@ acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset
     });
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
-    if (id === 'sleep')    { loadHealth(); loadSleepCoach(); loadSleepInsights(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
+    if (id === 'sleep')    { loadHealth(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') loadAnalysis();
     if (id === 'strength') loadStrengthPage();
     if (id === 'journal')  loadJournal();
-    if (id === 'coach')    loadNotes();
     if (id === 'upcoming') checkGcalStatus();
     if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcBedtime(); loadHumidityStatus(); loadAcHistory(); }
   }
@@ -820,93 +893,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     }
 
     renderSleepStageChart(sleep.levels || [], sleep.startGMT, sleep.endGMT);
-  }
-
-  function renderSleepCoach(data) {
-    const title = document.getElementById('sleep-coach-title');
-    const badge = document.getElementById('sleep-coach-badge');
-    const summary = document.getElementById('sleep-coach-summary');
-    const meta = document.getElementById('sleep-coach-meta');
-    const list = document.getElementById('sleep-coach-list');
-    if (!title || !summary || !meta || !list) return;
-
-    if (!data || data.error) {
-      title.textContent = 'Sömncoach otillgänglig';
-      badge.textContent = 'FEL';
-      badge.className = 'today-badge badge-amber';
-      summary.textContent = data?.error || 'Kunde inte bygga ett sömnschema just nu.';
-      meta.innerHTML = '';
-      list.innerHTML = '';
-      return;
-    }
-
-    title.textContent = data.headline || 'Sömncoach';
-    badge.textContent = data.calendarSynced ? 'KALENDER' : 'INGEN KALENDER';
-    badge.className = data.calendarSynced ? 'today-badge badge-green' : 'today-badge badge-amber';
-    summary.textContent = data.summary || 'Rekommenderad läggdags i natt.';
-
-    const fmtHours = h => h == null ? '-' : Number(h).toFixed(1).replace('.0', '') + 'h';
-    meta.innerHTML = [
-      { label: 'Mål', value: fmtHours(data.targetHours) },
-      { label: 'Senaste sömn', value: fmtHours(data.lastSleepHours) },
-      { label: '7-dagars snitt', value: fmtHours(data.avgSleepHours) },
-      { label: 'Kalender', value: data.calendarSynced ? 'Synkad' : 'Synk behövs' },
-    ].map(m => `
-      <span style="display:inline-flex;gap:6px;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:999px;padding:6px 9px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted2);">
-        <span style="color:var(--muted);">${escapeHtml(m.label)}</span>
-        <strong style="color:var(--text);font-weight:700;">${escapeHtml(m.value)}</strong>
-      </span>`).join('');
-
-    const night = data.night || (data.nights || [])[0];
-    if (!night) {
-      list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">Ingen läggdags kunde beräknas.</div>';
-      return;
-    }
-
-    const anchor = night.anchor
-      ? `${escapeHtml(night.anchor.title)} kl ${escapeHtml(night.anchor.time)}`
-      : 'Inga tidiga kalenderhändelser ändrar morgondagen';
-    list.innerHTML = `
-      <div style="display:grid;grid-template-columns:120px 1fr;gap:16px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:10px;padding:15px 16px;">
-        <div>
-          <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;">I natt</div>
-          <div style="font-size:28px;font-weight:800;margin-top:4px;color:var(--text);">${escapeHtml(night.bedtime)}</div>
-          <div style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">lägg dig</div>
-        </div>
-        <div style="min-width:0;">
-          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
-            <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--green);">Varva ner</strong> ${escapeHtml(night.windDown)}</span>
-            <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--blue);">Vakna</strong> ${escapeHtml(night.wake)}</span>
-            <span style="font-size:12px;color:var(--muted2);"><strong style="color:var(--amber);">AC</strong> ${escapeHtml(night.acPrecool)}</span>
-          </div>
-          <div style="font-size:13px;color:var(--text);line-height:1.45;">${escapeHtml(night.reason)}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:'IBM Plex Mono',monospace;">${anchor}</div>
-        </div>
-      </div>`;
-  }
-
-  async function loadSleepCoach() {
-    const title = document.getElementById('sleep-coach-title');
-    const summary = document.getElementById('sleep-coach-summary');
-    const list = document.getElementById('sleep-coach-list');
-    if (title) title.textContent = 'Sömncoach';
-    if (summary) summary.textContent = 'Bygger ett sömnschema från din kalender…';
-    if (list) list.innerHTML = '<div style="font-size:12px;color:var(--muted3);font-family:\'IBM Plex Mono\',monospace;">Laddar schema…</div>';
-    try {
-      const res = await fetch('/api/sleep-coach');
-      const contentType = res.headers.get('content-type') || '';
-      if (!res.ok) {
-        throw new Error(res.status === 404
-          ? 'Sleep coach API saknas på servern. Kör git pull och starta om dashboarden på Pi:n.'
-          : 'Sleep coach API svarade med felkod ' + res.status + '.');
-      }
-      if (!contentType.includes('application/json')) {
-        throw new Error('Servern svarade inte med JSON. Starta om Flask-dashboarden efter git pull.');
-      }
-      renderSleepCoach(await res.json());
-    } catch (e) {
-      renderSleepCoach({ error: e.message });
-    }
   }
 
   function renderSleepStageChart(levels, startGMT, endGMT) {
@@ -1809,7 +1795,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadSleepCoach(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2158,56 +2144,7 @@ HEALTH DATA (current):
       const res = await fetch('/api/notes');
       const data = await res.json();
       userNotes = data.notes || [];
-      renderNotes();
     } catch(e) { console.error('Notes error:', e); }
-  }
-
-  const catEmoji = { body:'', nutrition:'', goals:'', gear:'', kropp:'', kost:'', ['m\u00e5l']:'', utrustning:'', general:'' };
-  const catLabel = { body:'Kropp & skador', nutrition:'Kost & återhämtning', goals:'Mål & fokus', gear:'Utrustning', kropp:'Kropp & skador', kost:'Kost & återhämtning', ['m\u00e5l']:'Mål & fokus', utrustning:'Utrustning', general:'Övrigt' };
-  const catColor = { body:'var(--red)', nutrition:'var(--green)', goals:'var(--blue)', gear:'var(--amber)', kropp:'var(--red)', kost:'var(--green)', ['m\u00e5l']:'var(--blue)', utrustning:'var(--amber)', general:'var(--muted2)' };
-
-  function renderNotes() {
-    const list = document.getElementById('notes-list');
-    const count = document.getElementById('notes-count');
-    if (!list) return;
-    count.textContent = userNotes.length + (userNotes.length === 1 ? ' anteckning' : ' anteckningar');
-    if (!userNotes.length) {
-      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'IBM Plex Mono\',monospace;padding:4px 0;">Inga anteckningar än. Lägg till sådant coachen bör veta.</div>';
-      return;
-    }
-    list.innerHTML = userNotes.map(n => {
-      const emoji = catEmoji[n.category] || '';
-      const col   = catColor[n.category]  || 'var(--muted2)';
-      const label = catLabel[n.category]  || n.category;
-      const date  = new Date(n.created_at * 1000).toLocaleDateString('sv-SE', {day:'numeric', month:'short'});
-      return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 12px;position:relative;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
-          <span style="font-size:11px;color:${col};font-family:'IBM Plex Mono',monospace;font-weight:600;">${escapeHtml(emoji)} ${escapeHtml(label)}</span>
-          <span style="font-size:10px;color:var(--muted);margin-left:auto;font-family:'IBM Plex Mono',monospace;">${escapeHtml(date)}</span>
-          <button class="note-delete" data-action="delete-note" data-id="${Number(n.id)}" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;transition:color 0.15s;">x</button>
-        </div>
-        <div style="font-size:13px;color:var(--muted3);line-height:1.5;">${escapeHtml(n.text)}</div>
-      </div>`;
-    }).join('');
-  }
-
-  async function saveNote() {
-    const input = document.getElementById('note-input');
-    const category = document.getElementById('note-category').value;
-    const text = input.value.trim();
-    if (!text) { input.focus(); return; }
-    await fetch('/api/notes', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ text, category })
-    });
-    input.value = '';
-    await loadNotes();
-  }
-
-  async function deleteNote(id) {
-    await fetch('/api/notes/' + id, { method: 'DELETE' });
-    await loadNotes();
   }
 
   // Ladda notes direkt vid start
@@ -2979,23 +2916,6 @@ HEALTH DATA (current):
   }
   loadInsights();
 
-  async function loadSleepInsights(force) {
-    const list  = document.getElementById('sleep-ai-list');
-    const hl    = document.getElementById('sleep-ai-headline');
-    const badge = document.getElementById('sleep-ai-badge');
-    if (!list) return;
-    try {
-      const res = await fetch('/api/sleep-insights' + (force ? '?force=1' : ''));
-      const d = await res.json();
-      if (d.error) { list.innerHTML = `<div style="font-size:12px;color:var(--red);">${escapeHtml(d.error)}</div>`; return; }
-      if (d.headline && hl) hl.textContent = d.headline;
-      const map = { good:['badge-green','GOOD'], watch:['badge-amber','WATCH'], caution:['badge-red','CAUTION'] };
-      const m = map[d.status] || ['badge-amber','AI'];
-      if (badge) { badge.className = 'today-badge ' + m[0]; badge.textContent = m[1]; }
-      list.innerHTML = renderInsightCards(d.insights);
-    } catch(e) { list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">Could not load sleep analysis.</div>'; }
-  }
-
   const history = [];
 
   async function send(txt) {
@@ -3015,7 +2935,7 @@ HEALTH DATA (current):
     box.scrollTop = box.scrollHeight;
     history.push({ role:'user', content:msg });
     try {
-      const res = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:buildCTX(), history }) });
+      const res = await fetch('/api/assistant', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:buildCTX(), history }) });
       const data = await res.json();
       const raw = data.reply || data.error || 'Inget svar.';
       const reply = escapeHtml(raw)
@@ -3025,13 +2945,14 @@ HEALTH DATA (current):
         .replace(/\n/g, '<br>');
       aDiv.innerHTML = '<div class="msg-from">COACH</div>' + reply;
       history.push({ role:'assistant', content:raw });
+      if (data.planAdjusted) loadPlan();
     } catch(e) {
       aDiv.innerHTML = '<div class="msg-from">COACH</div>Kunde inte nå servern.';
     }
     box.scrollTop = box.scrollHeight;
   }
 
-  function qa(t) { goto('coach'); setTimeout(() => send(t), 100); }
+  function qa(t) { send(t); }
 
   // --- Styrka ---
   const SUGGESTIONS = ['Bänkpress','Marklyft','Knäböj','Axelpress','Latsdrag','Rodd','Dips','Chins','Bicepscurl','Tricepspress','Benpress','Vadpress','Planka','Situps','Rumänsk marklyft','Frontböj','Bulgarisk utfall','Bröststödd rodd','Flyes','Tricepspushdown','Hammarcurl','Face pull','Bål','Ryggresning'];
@@ -3540,7 +3461,7 @@ HEALTH DATA (current):
     await loadExercises(sessionId, contextId);
     await loadPlan();
   }
-  document.getElementById('chat-input').addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
+  document.getElementById('chat-input')?.addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
 
   // ─── TOOLTIPS ───────────────────────────────────────────────
   const TIPS = {
@@ -3750,38 +3671,6 @@ HEALTH DATA (current):
   // PLAN_SESSIONS laddas dynamiskt från DB via /api/plan
   // Fallback till hårdkodad array om API-anropet misslyckas
   let PLAN_SESSIONS = [];
-
-  async function sendCoachRequest() {
-    const input = document.getElementById('coach-request-input');
-    const btn = document.getElementById('coach-request-btn');
-    const out = document.getElementById('coach-request-result');
-    const text = (input.value || '').trim();
-    if (!text) { input.focus(); return; }
-    btn.disabled = true; btn.textContent = 'Tänker…';
-    out.style.display = 'block';
-    out.innerHTML = '<span style="font-size:12px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;">Coachen bygger om ditt schema…</span>';
-    try {
-      const res = await fetch('/api/plan/request', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
-      });
-      const d = await res.json();
-      if (!res.ok || d.error) throw new Error(d.error || 'Kunde inte justera planen');
-      const r = d.result || {};
-      const n = r.changes || 0;
-      const msg = r.summary || (n ? 'Planen justerad.' : 'Inga ändringar behövdes.');
-      out.innerHTML = `
-        <div style="font-size:11px;font-weight:700;letter-spacing:0.04em;color:var(--green);margin-bottom:6px;">Planen justerad · ${n} ändring${n === 1 ? '' : 'ar'}</div>
-        <div style="font-size:13px;line-height:1.5;color:var(--text);">${escapeHtml(msg)}</div>`;
-      input.value = '';
-      // Uppdatera schemat överallt (kalender, dagens pass, cockpit)
-      loadPlan();
-    } catch(e) {
-      out.innerHTML = `<span style="font-size:12px;color:var(--red);">${escapeHtml(e.message)}</span>`;
-    } finally {
-      btn.disabled = false; btn.textContent = 'Justera plan';
-    }
-  }
 
 
   function translatePlanText(value) {
@@ -4271,7 +4160,6 @@ HEALTH DATA (current):
       setTimeout(() => setButtons(syncIds, 'Synka kalender', '', false), 2500);
       buildCalendar();
       renderTodaySession();
-      if (document.getElementById('page-sleep').classList.contains('active')) loadSleepCoach();
     } catch(e) {
       setButtons(syncIds, 'Försök igen', 'var(--red)', false);
     }
