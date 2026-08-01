@@ -655,7 +655,10 @@ def secure_response(response):
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Vary'] = 'Cookie'
-    elif request.path in ('/', '/index.html', '/landing.html', '/app.js', '/styles.css'):
+    elif request.path in (
+        '/', '/index.html', '/landing.html', '/app.js', '/styles.css',
+        '/landing.css', '/landing.js',
+    ):
         response.headers['Cache-Control'] = 'no-cache'
     if ENABLE_HSTS:
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'

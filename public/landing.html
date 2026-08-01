@@ -3,88 +3,370 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Trainyze samlar tränings- och hälsodata i en personlig dashboard.">
-  <title>Trainyze – träning med bättre överblick</title>
+  <meta name="description" content="Trainyze samlar Garmin, sömn, HRV och din träningsplan på ett ställe – och ger dig ett tydligt svar på vad kroppen klarar idag.">
+  <meta name="theme-color" content="#0D0F14">
+  <title>Trainyze – all din träningsdata, ett tydligt svar</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="landing.css">
 </head>
 <body class="landing-body">
-  <main class="landing-shell">
-    <nav class="landing-nav" aria-label="Huvudnavigation">
-      <a class="landing-brand" href="/" aria-label="Trainyze startsida">
-        <span class="landing-brand-mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 28 28" fill="none"><path d="M4 14h4l3-7 4 14 3-8h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <span>Trainyze</span>
+  <div class="lp-aurora" aria-hidden="true">
+    <span class="lp-blob lp-blob-1"></span>
+    <span class="lp-blob lp-blob-2"></span>
+    <span class="lp-blob lp-blob-3"></span>
+    <span class="lp-grid"></span>
+  </div>
+
+  <header class="lp-nav" id="lp-nav">
+    <div class="lp-nav-inner">
+      <a class="lp-brand" href="/" aria-label="Trainyze startsida">
+        <span class="lp-brand-mark" aria-hidden="true">
+          <svg width="19" height="19" viewBox="0 0 28 28" fill="none"><path d="M3 15.5h4.2l2.9-8.2 4.1 15 3-9.4 2.4 4.3H25" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="lp-brand-name">Trainyze</span>
       </a>
-      <a class="landing-login" href="/index.html">Logga in</a>
-    </nav>
-
-    <section class="landing-hero" aria-labelledby="landing-title">
-      <div class="landing-copy">
-        <span class="landing-kicker">DIN TRÄNING, I SAMMANHANG</span>
-        <h1 class="landing-title" id="landing-title">Träna med <em>överblick.</em></h1>
-        <p class="landing-lead">Trainyze samlar din träning, hälsa och återhämtning i en personlig dashboard. Se hur kroppen mår idag, följ din utveckling och håll planen nära till hands.</p>
-        <div class="landing-actions">
-          <a class="landing-button landing-button-primary" href="/index.html?auth=register">Skapa konto</a>
-          <a class="landing-button landing-button-secondary" href="/index.html">Logga in</a>
-        </div>
-        <p class="landing-note">Registrering sker med e-postverifiering.</p>
+      <nav class="lp-nav-links" aria-label="Sidnavigation">
+        <a href="#funktioner">Funktioner</a>
+        <a href="#sa-funkar-det">Så funkar det</a>
+        <a href="#coachen">AI-coachen</a>
+      </nav>
+      <div class="lp-nav-actions">
+        <a class="lp-nav-login" href="/index.html">Logga in</a>
+        <a class="lp-btn lp-btn-primary lp-btn-sm" href="/index.html?auth=register">Kom igång</a>
       </div>
+    </div>
+  </header>
 
-      <aside class="landing-preview" aria-label="Exempel på dashboardens återhämtningskort">
-        <div class="landing-preview-bar">
-          <span class="landing-preview-label">Dagens överblick</span>
-          <span class="landing-live">EXEMPELVY</span>
+  <main>
+    <!-- ─────────── HERO ─────────── -->
+    <section class="lp-hero">
+      <div class="lp-shell lp-hero-grid">
+        <div class="lp-hero-copy lp-reveal">
+          <span class="lp-kicker">Personlig tränings&shy;dashboard</span>
+          <h1 class="lp-h1">All din träningsdata.<br><em>Ett tydligt svar.</em></h1>
+          <p class="lp-lead">
+            Trainyze hämtar din träning, sömn och återhämtning från Garmin, väger ihop den
+            mot din plan – och säger vad kroppen faktiskt klarar idag. Inte fler siffror att
+            tolka själv. Bara riktning.
+          </p>
+          <div class="lp-actions">
+            <a class="lp-btn lp-btn-primary" href="/index.html?auth=register">
+              Skapa konto
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9m0 0L8.5 4.5M12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+            <a class="lp-btn lp-btn-ghost" href="/index.html">Logga in</a>
+          </div>
+          <ul class="lp-trust">
+            <li><span class="lp-check" aria-hidden="true"></span>Synkar automatiskt med Garmin</li>
+            <li><span class="lp-check" aria-hidden="true"></span>Gratis konto</li>
+            <li><span class="lp-check" aria-hidden="true"></span>Din data stannar hos dig</li>
+          </ul>
         </div>
-        <div class="panel landing-dashboard-panel">
-          <span class="panel-accent-bar" aria-hidden="true"></span>
-          <div class="panel-eyebrow">CNS <span class="tag good">ÅTERHÄMTNING</span></div>
-          <div class="recovery-wrap">
-            <div class="landing-readiness-ring" aria-hidden="true">
-              <div class="landing-ring-glow"></div>
-              <svg viewBox="0 0 88 88" width="112" height="112">
+
+        <div class="lp-hero-visual lp-reveal" aria-label="Exempelvy av dashboarden">
+          <div class="lp-mock">
+            <div class="lp-mock-top">
+              <span class="lp-mock-day">Tisdag 4 aug</span>
+              <span class="lp-mock-live">SYNKAD</span>
+            </div>
+
+            <div class="lp-mock-hero">
+              <div class="lp-ring" data-ring="78">
+                <svg viewBox="0 0 96 96" width="118" height="118" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="lp-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#C8F135"/>
+                      <stop offset="100%" stop-color="#2dd4bf"/>
+                    </linearGradient>
+                  </defs>
+                  <circle class="lp-ring-track" cx="48" cy="48" r="41" fill="none" stroke-width="7"/>
+                  <circle class="lp-ring-value" cx="48" cy="48" r="41" fill="none" stroke="url(#lp-ring-grad)" stroke-width="7" stroke-linecap="round" transform="rotate(-90 48 48)"/>
+                </svg>
+                <div class="lp-ring-label">
+                  <strong data-count="78">0</strong>
+                  <span>CNS</span>
+                </div>
+              </div>
+              <div class="lp-mock-verdict">
+                <span class="lp-pill lp-pill-good">Redo för kvalitet</span>
+                <strong>Kör intervallpasset</strong>
+                <p>HRV över veckosnittet och sömnen höll. Kroppen tål belastningen idag.</p>
+              </div>
+            </div>
+
+            <div class="lp-mock-tiles">
+              <div class="lp-tile">
+                <span class="lp-tile-label">Sömn</span>
+                <span class="lp-tile-val" data-count="87">0</span>
+                <span class="lp-tile-sub">7 h 42 min</span>
+                <span class="lp-bar"><i style="--w:87%"></i></span>
+              </div>
+              <div class="lp-tile">
+                <span class="lp-tile-label">HRV natt</span>
+                <span class="lp-tile-val lp-up">+6%</span>
+                <span class="lp-tile-sub">mot snittet</span>
+                <span class="lp-bar"><i style="--w:71%"></i></span>
+              </div>
+              <div class="lp-tile">
+                <span class="lp-tile-label">Belastning</span>
+                <span class="lp-tile-val">1.08</span>
+                <span class="lp-tile-sub">ACWR balans</span>
+                <span class="lp-bar"><i class="lp-bar-amber" style="--w:54%"></i></span>
+              </div>
+            </div>
+
+            <div class="lp-mock-trend">
+              <div class="lp-mock-trend-head">
+                <span>Form senaste 6 veckorna</span>
+                <span class="lp-up">VO₂max 59</span>
+              </div>
+              <svg class="lp-spark" viewBox="0 0 320 56" preserveAspectRatio="none" aria-hidden="true">
                 <defs>
-                  <linearGradient id="landing-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stop-color="#c2f04a"/>
-                    <stop offset="100%" stop-color="#7fd6c4"/>
+                  <linearGradient id="lp-spark-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="rgba(200,241,53,.28)"/>
+                    <stop offset="100%" stop-color="rgba(200,241,53,0)"/>
                   </linearGradient>
                 </defs>
-                <circle cx="44" cy="44" r="38" fill="none" stroke="var(--border2)" stroke-width="7"></circle>
-                <circle cx="44" cy="44" r="38" fill="none" stroke="url(#landing-ring-grad)" stroke-width="7" stroke-linecap="round" stroke-dasharray="239" stroke-dashoffset="54" transform="rotate(-90 44 44)" style="filter:drop-shadow(0 0 5px rgba(194,240,74,0.4))"></circle>
+                <path class="lp-spark-area" d="M0,44 L28,40 L56,42 L84,33 L112,35 L140,26 L168,29 L196,20 L224,22 L252,14 L280,16 L320,8 L320,56 L0,56 Z" fill="url(#lp-spark-fill)"/>
+                <path class="lp-spark-line" d="M0,44 L28,40 L56,42 L84,33 L112,35 L140,26 L168,29 L196,20 L224,22 L252,14 L280,16 L320,8" fill="none" stroke="#C8F135" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <div class="landing-ring-value"><strong>—</strong><span>CNS</span></div>
-            </div>
-            <div class="landing-recovery-copy">
-              <span>Din CNS-beredskap idag</span>
-              <strong>Se när data är synkad</strong>
-              <div class="bar"><div class="bar-fill"></div></div>
             </div>
           </div>
-          <div class="contrib-row landing-contrib-row">
-            <div class="contrib contrib-cell"><div class="contrib-label">SÖMN</div><div class="contrib-val">—</div><div class="contrib-sub">Nattens data</div><div class="bar"><div class="bar-fill landing-fill-green"></div></div></div>
-            <div class="contrib contrib-cell"><div class="contrib-label">RHR</div><div class="contrib-val">—</div><div class="contrib-sub">Vilopuls</div><div class="bar"><div class="bar-fill landing-fill-green"></div></div></div>
-            <div class="contrib contrib-cell"><div class="contrib-label">HRV NATT</div><div class="contrib-val">—</div><div class="contrib-sub">Återhämtning</div><div class="bar"><div class="bar-fill landing-fill-amber"></div></div></div>
+
+          <div class="lp-float lp-float-a" aria-hidden="true">
+            <span class="lp-float-dot"></span>
+            <div><strong>Pass flyttat</strong><span>Tröskel → torsdag</span></div>
+          </div>
+          <div class="lp-float lp-float-b" aria-hidden="true">
+            <span class="lp-float-icon">↑</span>
+            <div><strong>+2.4 VO₂max</strong><span>senaste 8 v</span></div>
           </div>
         </div>
-        <p class="landing-preview-caption">Ett av korten som samlar sömn, vilopuls och HRV i din dagliga överblick.</p>
-      </aside>
+      </div>
+
+      <div class="lp-shell">
+        <div class="lp-integrations lp-reveal">
+          <span class="lp-integrations-label">Bygger på data du redan samlar</span>
+          <ul>
+            <li>Garmin Connect</li>
+            <li>Sömn &amp; HRV</li>
+            <li>Google Calendar</li>
+            <li>Styrkelogg</li>
+            <li>VO₂max &amp; tröskel</li>
+          </ul>
+        </div>
+      </div>
     </section>
 
-    <section class="landing-section" aria-labelledby="how-it-works">
-      <div class="landing-section-head">
-        <span class="landing-kicker">SÅ FUNGERAR DET</span>
-        <h2 id="how-it-works">Från data till nästa pass</h2>
-        <p>Trainyze är byggt för att göra träningsinformationen lättare att använda i vardagen.</p>
-      </div>
-      <div class="landing-steps">
-        <article class="landing-step"><span class="landing-step-no">01 / KOM IGÅNG</span><h3>Skapa ditt konto</h3><p>Registrera dig med e-post och verifiera kontot innan du loggar in.</p></article>
-        <article class="landing-step"><span class="landing-step-no">02 / SYNKA</span><h3>Anslut Garmin</h3><p>Hämta aktiviteter och hälsodata från Garmin Connect till din personliga vy.</p></article>
-        <article class="landing-step"><span class="landing-step-no">03 / FÖLJ UPP</span><h3>Planera och reflektera</h3><p>Följ hälsa och trender, se kalendern, logga styrka och använd dina data som underlag för träningen.</p></article>
+    <!-- ─────────── BENTO / FUNKTIONER ─────────── -->
+    <section class="lp-section" id="funktioner">
+      <div class="lp-shell">
+        <div class="lp-section-head lp-reveal">
+          <span class="lp-kicker">Funktioner</span>
+          <h2>Allt som avgör nästa pass –<br>samlat på ett ställe</h2>
+          <p>Trainyze läser samman återhämtning, belastning och kalender så att du slipper göra bedömningen i huvudet varje morgon.</p>
+        </div>
+
+        <div class="lp-bento">
+          <article class="lp-card lp-card-wide lp-reveal">
+            <div class="lp-card-body">
+              <span class="lp-card-tag">Återhämtning</span>
+              <h3>CNS-score istället för magkänsla</h3>
+              <p>En sammanvägd beredskapssiffra av HRV, sömnkvalitet, Garmins readiness och stress – med tydlig färgkod för om dagen tål kvalitet, normalt pass eller vila.</p>
+            </div>
+            <div class="lp-card-viz lp-viz-cns" aria-hidden="true">
+              <div class="lp-legend"><span class="lp-dot lp-dot-good"></span>Grön ≥ 70 · kör hårt</div>
+              <div class="lp-legend"><span class="lp-dot lp-dot-warn"></span>Gul 45–69 · normalt</div>
+              <div class="lp-legend"><span class="lp-dot lp-dot-bad"></span>Röd &lt; 45 · vila</div>
+              <div class="lp-meter"><i style="--w:78%"></i><span class="lp-meter-knob" style="--w:78%"></span></div>
+            </div>
+          </article>
+
+          <article class="lp-card lp-reveal">
+            <div class="lp-card-body">
+              <span class="lp-card-tag">Planering</span>
+              <h3>Ett schema som rör sig med dig</h3>
+              <p>Missade du gårdagens pass? Planen skrivs om automatiskt utifrån belastning, kalender och form.</p>
+            </div>
+            <div class="lp-card-viz lp-viz-week" aria-hidden="true">
+              <span class="lp-day lp-day-done">M</span>
+              <span class="lp-day lp-day-done">T</span>
+              <span class="lp-day lp-day-moved">O</span>
+              <span class="lp-day lp-day-today">T</span>
+              <span class="lp-day">F</span>
+              <span class="lp-day">L</span>
+              <span class="lp-day lp-day-rest">S</span>
+            </div>
+          </article>
+
+          <article class="lp-card lp-reveal">
+            <div class="lp-card-body">
+              <span class="lp-card-tag">Sömn &amp; HRV</span>
+              <h3>Se trenden, inte bruset</h3>
+              <p>Djupsömn, REM och nattlig HRV följs över tid med riktning och förändringstakt per vecka.</p>
+            </div>
+            <div class="lp-card-viz lp-viz-bars" aria-hidden="true">
+              <i style="--h:42%"></i><i style="--h:58%"></i><i style="--h:36%"></i>
+              <i style="--h:70%"></i><i style="--h:64%"></i><i style="--h:82%"></i><i style="--h:76%"></i>
+            </div>
+          </article>
+
+          <article class="lp-card lp-reveal">
+            <div class="lp-card-body">
+              <span class="lp-card-tag">Belastning</span>
+              <h3>Håll dig under skaderisken</h3>
+              <p>ACWR visar akut mot kronisk belastning så att uppbyggnaden sker i takt kroppen hinner med.</p>
+            </div>
+            <div class="lp-card-viz lp-viz-gauge" aria-hidden="true">
+              <div class="lp-gauge">
+                <span class="lp-gauge-zone lp-zone-low"></span>
+                <span class="lp-gauge-zone lp-zone-ok"></span>
+                <span class="lp-gauge-zone lp-zone-high"></span>
+                <span class="lp-gauge-needle" style="--p:52%"></span>
+              </div>
+              <span class="lp-gauge-caption">1.08 · optimal zon</span>
+            </div>
+          </article>
+
+          <article class="lp-card lp-reveal">
+            <div class="lp-card-body">
+              <span class="lp-card-tag">Styrka</span>
+              <h3>Logga passet medan du kör</h3>
+              <p>Set, reps och vikt direkt i mobilen – loggen kopplas ihop med rätt Garmin-pass automatiskt.</p>
+            </div>
+            <div class="lp-card-viz lp-viz-lift" aria-hidden="true">
+              <div class="lp-lift-row"><span>Knäböj</span><b>4 × 6</b><em>92,5 kg</em></div>
+              <div class="lp-lift-row"><span>Marklyft</span><b>3 × 5</b><em>120 kg</em></div>
+              <div class="lp-lift-row lp-lift-pr"><span>Bänkpress</span><b>5 × 5</b><em>72,5 kg</em></div>
+            </div>
+          </article>
+        </div>
       </div>
     </section>
 
-    <footer class="landing-footer">Trainyze · personlig tränings- och hälsodashboard</footer>
+    <!-- ─────────── AI-COACHEN ─────────── -->
+    <section class="lp-section lp-section-coach" id="coachen">
+      <div class="lp-shell lp-coach-grid">
+        <div class="lp-coach-copy lp-reveal">
+          <span class="lp-kicker">AI-coachen</span>
+          <h2>Varje morgon kl 07:30 gör den jobbet åt dig</h2>
+          <p class="lp-lead lp-lead-sm">
+            Trainyze synkar natten som gick, matchar gårdagens planerade pass mot vad du
+            faktiskt gjorde, och justerar veckan framåt. Missade pass flyttas dit de får
+            plats – eller stryks när veckans tak redan är nått.
+          </p>
+          <ul class="lp-checklist">
+            <li>Väger in sömn, HRV, belastning och kalender</li>
+            <li>Flyttar aldrig ett kvalitetspass till en redan tung dag</li>
+            <li>Motiverar varje ändring i klartext</li>
+            <li>Fråga coachen direkt – den ser hela din historik</li>
+          </ul>
+          <a class="lp-btn lp-btn-primary" href="/index.html?auth=register">
+            Testa själv
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9m0 0L8.5 4.5M12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+        </div>
+
+        <div class="lp-coach-visual lp-reveal" aria-hidden="true">
+          <div class="lp-chat">
+            <div class="lp-chat-head">
+              <span class="lp-chat-avatar">T</span>
+              <div><strong>Trainyze coach</strong><span>justerade planen 07:31</span></div>
+            </div>
+            <div class="lp-bubble lp-bubble-in">
+              <p>Djupsömnen låg på 8% i natt och HRV är 11% under ditt snitt. Jag flyttar tröskelpasset från idag till torsdag och lägger ett lugnt Z2 istället.</p>
+              <span class="lp-bubble-meta">Belastning kvar i veckan: 34 km</span>
+            </div>
+            <div class="lp-bubble lp-bubble-out"><p>Hinner jag ändå med långpasset på söndag?</p></div>
+            <div class="lp-bubble lp-bubble-in">
+              <p>Ja. Med torsdagens flytt landar veckan på 1.12 i ACWR – inom din trygga zon. Söndagens 18 km ligger kvar.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── SÅ FUNKAR DET ─────────── -->
+    <section class="lp-section" id="sa-funkar-det">
+      <div class="lp-shell">
+        <div class="lp-section-head lp-reveal">
+          <span class="lp-kicker">Så funkar det</span>
+          <h2>Igång på under fem minuter</h2>
+          <p>Ingen ny klocka, inget nytt bälte. Trainyze bygger vidare på det du redan tränar med.</p>
+        </div>
+        <ol class="lp-steps">
+          <li class="lp-step lp-reveal">
+            <span class="lp-step-no">01</span>
+            <h3>Skapa ditt konto</h3>
+            <p>Registrera med e-post och bekräfta via länken du får i inkorgen.</p>
+          </li>
+          <li class="lp-step lp-reveal">
+            <span class="lp-step-no">02</span>
+            <h3>Koppla Garmin</h3>
+            <p>Logga in en gång, så hämtas aktiviteter, sömn och hälsodata automatiskt varje dag.</p>
+          </li>
+          <li class="lp-step lp-reveal">
+            <span class="lp-step-no">03</span>
+            <h3>Sätt ditt mål</h3>
+            <p>Berätta vad du siktar på och när – Trainyze bygger en plan hela vägen fram.</p>
+          </li>
+          <li class="lp-step lp-reveal">
+            <span class="lp-step-no">04</span>
+            <h3>Öppna varje morgon</h3>
+            <p>Dagens rekommendation väntar redan när du vaknar.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ─────────── CTA ─────────── -->
+    <section class="lp-section lp-section-cta">
+      <div class="lp-shell">
+        <div class="lp-cta lp-reveal">
+          <div class="lp-cta-glow" aria-hidden="true"></div>
+          <span class="lp-kicker">Kom igång</span>
+          <h2>Sluta gissa vad kroppen orkar</h2>
+          <p>Skapa ett konto, koppla Garmin och låt datan du redan samlar börja säga något.</p>
+          <div class="lp-actions lp-actions-center">
+            <a class="lp-btn lp-btn-primary lp-btn-lg" href="/index.html?auth=register">
+              Skapa konto
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8h9m0 0L8.5 4.5M12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+            <a class="lp-btn lp-btn-ghost lp-btn-lg" href="/index.html">Jag har redan konto</a>
+          </div>
+          <span class="lp-cta-note">Registrering sker med e-postverifiering.</span>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <footer class="lp-footer">
+    <div class="lp-shell lp-footer-inner">
+      <div class="lp-footer-brand">
+        <a class="lp-brand" href="/">
+          <span class="lp-brand-mark" aria-hidden="true">
+            <svg width="19" height="19" viewBox="0 0 28 28" fill="none"><path d="M3 15.5h4.2l2.9-8.2 4.1 15 3-9.4 2.4 4.3H25" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="lp-brand-name">Trainyze</span>
+        </a>
+        <p>Personlig tränings- och hälsodashboard som gör din Garmin-data begriplig.</p>
+      </div>
+      <nav class="lp-footer-links" aria-label="Sidfotsnavigation">
+        <a href="#funktioner">Funktioner</a>
+        <a href="#sa-funkar-det">Så funkar det</a>
+        <a href="#coachen">AI-coachen</a>
+        <a href="/index.html">Logga in</a>
+      </nav>
+    </div>
+    <div class="lp-shell lp-footer-bottom">
+      <span>© 2026 Trainyze</span>
+      <span>Byggd för egen träning – och delad med några vänner.</span>
+    </div>
+  </footer>
+
+  <script src="landing.js"></script>
 </body>
 </html>
