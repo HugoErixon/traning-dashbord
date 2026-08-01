@@ -27,10 +27,30 @@ _REPS_TIME_RE = re.compile(r'(\d{1,2})\s*[×x*]\s*(\d{1,3})\s*(min|sek|s)\b', re
 
 # Session kinds we can judge differently. `easy` is the one where running too
 # fast is the actual mistake, so it gets its own bucket.
-EASY_WORDS = ('z2', 'lugn', 'lätt', 'återhämt', 'jogg', 'aktiv återhämtning')
+#
+# Matching is prefix-anchored on a word boundary, which matters in Swedish:
+# "tröskel" must still catch "tröskelintervaller", while "lopp" must NOT fire
+# inside "koordinationslopp". Bare "tempo" is deliberately absent — it simply
+# means "pace" in everyday Swedish ("i bekvämt tempo") and is not a threshold
+# session; only the compounds are.
+EASY_WORDS = ('z2', 'zon 2', 'lugn', 'lätt', 'återhämt', 'jogg')
 INTERVAL_WORDS = ('interval', 'intervall', 'track', 'fartlek', 'repeat', 'x400', 'x1000')
-THRESHOLD_WORDS = ('tröskel', 'threshold', 'tempo')
-LONG_WORDS = ('långpass', 'long run', 'distans')
+THRESHOLD_WORDS = ('tröskel', 'threshold', 'tempopass', 'tempolopp', 'temposkift')
+LONG_WORDS = ('långpass', 'långdistans', 'long run')
+# "lopp" is deliberately not here: it is a race on its own but sits inside
+# harmless compounds too ("koordinationslopp" are strides), and the two cannot
+# be told apart lexically. The plan's own `type` field is the reliable signal.
+RACE_WORDS = ('race', 'tävling')
+
+# Sessions run as repetitions, where the session average is meaningless
+# because the recovery jogs drag it down. Threshold work is just as often
+# prescribed as reps ("6×6 min tröskel") as continuous.
+REP_KINDS = ('interval', 'threshold')
+
+
+def _has_word(words, text):
+    """Prefix match anchored on a word boundary, so compounds behave."""
+    return any(re.search(r'\b' + re.escape(word), text) for word in words)
 
 
 def pace_to_seconds(minutes, seconds):
@@ -133,22 +153,39 @@ def replace_pace(detail, new_pace_sec, band_high_sec=None):
 
 
 def classify_session(planned, activity=None):
-    """Decide which yardstick applies: easy, interval, threshold, long or race."""
-    planned = planned or {}
-    blob = ' '.join(str(planned.get(field) or '') for field in ('type', 'title', 'detail')).lower()
-    if activity:
-        blob += ' ' + str(activity.get('activityName') or '').lower()
-        blob += ' ' + str((activity.get('activityType') or {}).get('typeKey') or '').lower()
+    """Decide which yardstick applies: easy, interval, threshold, long or race.
 
-    if planned.get('type') == 'race' or 'race' in blob or 'lopp' in blob:
+    The title is the coach's own label for the session and outranks the prose
+    in `detail`, which describes execution and often mentions paces or drills
+    that would otherwise be mistaken for the session's purpose.
+    """
+    planned = planned or {}
+    type_field = str(planned.get('type') or '').lower()
+    title = str(planned.get('title') or '').lower()
+    detail = str(planned.get('detail') or '').lower()
+    extra = ''
+    if activity:
+        extra = (str(activity.get('activityName') or '') + ' '
+                 + str((activity.get('activityType') or {}).get('typeKey') or '')).lower()
+
+    if type_field == 'race' or _has_word(RACE_WORDS, title):
         return 'race'
-    if any(word in blob for word in INTERVAL_WORDS):
-        return 'interval'
-    if any(word in blob for word in THRESHOLD_WORDS):
-        return 'threshold'
-    if planned.get('type') == 'easy' or any(word in blob for word in EASY_WORDS):
+
+    # Threshold is checked before interval: "tröskelintervaller" is a threshold
+    # session that happens to be run as reps, and must be paced as one.
+    for kind, words in (('threshold', THRESHOLD_WORDS),
+                        ('interval', INTERVAL_WORDS),
+                        ('long', LONG_WORDS)):
+        if _has_word(words, title):
+            return kind
+
+    body = ' '.join((title, detail, extra))
+    for kind, words in (('threshold', THRESHOLD_WORDS), ('interval', INTERVAL_WORDS)):
+        if _has_word(words, body):
+            return kind
+    if type_field == 'easy' or _has_word(EASY_WORDS, body):
         return 'easy'
-    if any(word in blob for word in LONG_WORDS) or (planned.get('km') or 0) >= 15:
+    if _has_word(LONG_WORDS, body) or (planned.get('km') or 0) >= 15:
         return 'long'
     return 'run'
 
@@ -302,7 +339,7 @@ def analyze_run(activity, laps=None, planned=None, lactate_hr=None):
 
     # Reps carry the real story for interval work — the session average is
     # dragged down by the recovery jogs and says nothing about execution.
-    work_laps = split_work_laps(laps) if result['kind'] == 'interval' else []
+    work_laps = split_work_laps(laps) if result['kind'] in REP_KINDS else []
     for number, lap in enumerate(work_laps, 1):
         pace_sec = speed_to_pace_seconds(lap['speed'])
         result['reps'].append({
@@ -315,7 +352,7 @@ def analyze_run(activity, laps=None, planned=None, lactate_hr=None):
 
     rep_paces = [rep['paceSec'] for rep in result['reps'] if rep['paceSec']]
 
-    if result['kind'] == 'interval' and rep_paces:
+    if result['kind'] in REP_KINDS and rep_paces:
         # The rep pace is the yardstick; when the plan only states an overall
         # target pace, that is what the reps were meant to hit.
         rep_band = None

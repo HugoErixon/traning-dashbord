@@ -60,6 +60,29 @@ class ClassificationTests(unittest.TestCase):
             classify_session({'type': 'run', 'title': '5×1000m intervaller', 'detail': '@ 3:30/km'}),
             'interval')
 
+    def test_swedish_word_for_pace_is_not_a_threshold_session(self):
+        # "i bekvämt tempo" just means "at a comfortable pace".
+        self.assertEqual(classify_session({
+            'type': 'easy', 'km': 14, 'title': 'Långpass · 14 km',
+            'detail': 'Totalt 14 km i jämnt och bekvämt tempo @ 4:40-4:55/km.'}), 'long')
+
+    def test_lopp_inside_a_compound_is_not_a_race(self):
+        # "koordinationslopp" are strides at the end of a recovery run.
+        self.assertEqual(classify_session({
+            'type': 'easy', 'km': 8, 'title': 'Återhämtningspass · 8 km',
+            'detail': 'Mycket lugn löpning. Lägg in 4x80m koordinationslopp på slutet.'}), 'easy')
+
+    def test_threshold_reps_are_paced_as_threshold_not_intervals(self):
+        self.assertEqual(classify_session({
+            'type': 'run', 'km': 13, 'title': 'Tröskelintervaller · 6×6 min',
+            'detail': '6×6 min tröskel @ 3:50/km'}), 'threshold')
+
+    def test_a_race_is_recognised_from_its_type(self):
+        # A bare "-lopp" compound cannot be told from an innocuous one, so the
+        # plan's own type is what marks a race.
+        self.assertEqual(classify_session({'type': 'race', 'title': 'Göteborgsvarvet'}), 'race')
+        self.assertEqual(classify_session({'type': 'run', 'title': 'Tävlingsfart 5 km'}), 'race')
+
 
 class LapTests(unittest.TestCase):
     def test_track_reps_are_separated_from_rest_jogs(self):
@@ -143,7 +166,7 @@ class RunAnalysisTests(unittest.TestCase):
         laps = normalize_laps({'lapDTOs': [lap(1500, 362), lap(1500, 365), lap(1500, 368)]})
         result = analyze_run({'distance': 12000, 'duration': 4200}, laps, planned)
 
-        self.assertEqual(result['kind'], 'interval')
+        self.assertEqual(result['kind'], 'threshold')
         self.assertEqual(result['repVerdict'], 'too_slow')
         self.assertIn('reps_below_target_pace', result['flags'])
 
