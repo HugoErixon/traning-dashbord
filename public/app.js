@@ -31,6 +31,8 @@ function completeAuth(data) {
   garminConnected = !!data.garminConnected;
   const usersBtn = document.getElementById('users-btn');
   if (usersBtn) usersBtn.style.display = currentUserIsAdmin ? '' : 'none';
+  const mobileUsersBtn = document.getElementById('mobile-users-btn');
+  if (mobileUsersBtn) mobileUsersBtn.style.display = currentUserIsAdmin ? '' : 'none';
   const navClimate = document.getElementById('nav-climate');
   if (navClimate) navClimate.style.display = currentUserIsAdmin ? '' : 'none';
   updateGarminSidebar();

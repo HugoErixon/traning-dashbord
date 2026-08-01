@@ -2563,17 +2563,31 @@
       .sidebar-bottom { display:none; }
       .main { margin-left:0; max-width:100vw; width:100%; }
       .content { padding:20px 14px 20px; }
+      /* Flex istället för grid: sista knappen fyller raden själv när
+         "Hantera användare" är dold för icke-admins. */
       .mobile-actions {
-        display:grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        display:flex;
+        flex-wrap: wrap;
         gap: 8px;
         margin: 0 0 18px;
       }
       .mobile-actions .refresh-btn {
+        flex: 1 1 calc(50% - 4px);
+        min-width: 0;
         min-height: 42px;
         padding: 10px 8px;
         font-size: 11px;
         border-radius: 8px;
+      }
+      .mobile-actions .mobile-logout-btn {
+        color: var(--muted2);
+        border-color: var(--border2);
+      }
+      .mobile-actions .mobile-logout-btn:hover {
+        color: var(--red);
+        border-color: rgba(255,107,107,0.35);
+        background: var(--red-dim);
+        box-shadow: none;
       }
       .page-header { margin-bottom: 22px; }
       .page-header h2 { font-size: 22px; }
