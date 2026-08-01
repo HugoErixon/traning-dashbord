@@ -4439,8 +4439,12 @@ def match_activities_to_plan(days_back=7, user_id=1, username=None):
             day = today - timedelta(days=i)
             wk, dw = _iso_week_dow(day)
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                # Redan genomförda pass tas med när de saknar utvärdering, så
+                # att analysen kan fyllas i i efterhand. Statusen rörs inte.
                 cur.execute('''SELECT * FROM plan_sessions
-                    WHERE week = %s AND dow = %s AND status IN ('planned','missed','skipped') AND user_id = %s''',
+                    WHERE week = %s AND dow = %s AND user_id = %s
+                      AND (status IN ('planned','missed','skipped')
+                           OR (status = 'completed' AND execution IS NULL))''',
                     (wk, dw, user_id))
                 planned = cur.fetchall()
                 if not planned:
@@ -4455,22 +4459,27 @@ def match_activities_to_plan(days_back=7, user_id=1, username=None):
 
             with conn.cursor() as cur:
                 for p in planned:
-                    if p['type'] in ('run','easy','race'):
-                        completed = did_run
-                    elif p['type'] == 'lift':
-                        completed = did_lift
-                    elif p['type'] == 'rest':
-                        completed = True  # vilodag räknas alltid som genomförd
-                    else:
-                        completed = False
-                    if completed:
+                    if p['status'] == 'completed':
+                        # Hämtat enbart för att fylla i utvärderingen — ett
+                        # genomfört pass ska aldrig kunna nedgraderas här.
                         new_status = 'completed'
-                    elif i == 0:
-                        continue
-                    elif p['status'] == 'skipped':
-                        continue
                     else:
-                        new_status = 'missed'
+                        if p['type'] in ('run','easy','race'):
+                            completed = did_run
+                        elif p['type'] == 'lift':
+                            completed = did_lift
+                        elif p['type'] == 'rest':
+                            completed = True  # vilodag räknas alltid som genomförd
+                        else:
+                            completed = False
+                        if completed:
+                            new_status = 'completed'
+                        elif i == 0:
+                            continue
+                        elif p['status'] == 'skipped':
+                            continue
+                        else:
+                            new_status = 'missed'
                     if new_status != p['status']:
                         cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
                             WHERE id = %s AND user_id = %s''', (new_status, time.time(), p['id'], user_id))
