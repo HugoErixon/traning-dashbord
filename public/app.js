@@ -750,23 +750,38 @@ function closeUsersPanel() {
 async function openUsersPanel() {
   if (document.getElementById('users-panel')) return;
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="users-panel" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:998;">
-      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:28px;width:420px;max-width:92vw;max-height:85vh;overflow-y:auto;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-          <h2 style="font-size:16px;font-weight:800;">Användare</h2>
-          <button type="button" data-action="close-users" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:4px;">✕</button>
-        </div>
-        <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;">Konton för dashboarden. Garmin kopplas separat per konto.</p>
-        <div id="users-list" style="margin-bottom:20px;"><p style="font-size:12.5px;color:var(--muted2);">Laddar…</p></div>
-        <div style="border-top:1px solid var(--border2);padding-top:16px;">
-          <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;color:var(--muted2);text-transform:uppercase;margin-bottom:10px;font-family:'IBM Plex Mono',monospace;">Lägg till användare</div>
-          <input id="new-user-name" type="text" autocomplete="off" placeholder="Användarnamn" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:8px;box-sizing:border-box;" />
-          <div style="display:flex;gap:8px;margin-bottom:10px;">
-            <input id="new-user-password" type="text" autocomplete="off" placeholder="Lösenord (minst 8 tecken)" style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;box-sizing:border-box;" />
-            <button type="button" data-action="random-password" title="Slumpa ett starkt lösenord" style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:0 12px;color:var(--text);cursor:pointer;font-size:14px;">🎲</button>
+    <div id="users-panel" class="users-overlay" role="presentation">
+      <div class="users-modal" role="dialog" aria-modal="true" aria-labelledby="users-title">
+        <div class="users-modal-header">
+          <div>
+            <div class="panel-eyebrow">ADMINISTRATION</div>
+            <h2 id="users-title">Hantera användare</h2>
           </div>
-          <button type="button" data-action="create-user" id="create-user-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Skapa användare</button>
-          <p id="users-panel-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;"></p>
+          <button type="button" data-action="close-users" class="users-close" aria-label="Stäng">✕</button>
+        </div>
+        <p class="users-modal-intro">Skapa och överblicka konton. Garmin kopplas separat av varje användare.</p>
+        <div class="users-summary" id="users-summary" aria-live="polite">Laddar användare…</div>
+        <div class="users-list-toolbar">
+          <label class="users-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="users-search" type="search" placeholder="Sök användare" autocomplete="off" aria-label="Sök användare" />
+          </label>
+        </div>
+        <div id="users-list" class="users-list"><p class="users-empty">Laddar…</p></div>
+        <div class="users-create">
+          <div class="users-section-heading">
+            <div>
+              <div class="panel-eyebrow">NYTT KONTO</div>
+              <h3>Lägg till användare</h3>
+            </div>
+            <span class="users-section-hint">Lösenordet visas bara nu</span>
+          </div>
+          <div class="users-form-grid">
+            <label class="users-field">Användarnamn<input id="new-user-name" type="text" autocomplete="off" placeholder="t.ex. anna" /></label>
+            <label class="users-field">Temporärt lösenord<div class="users-password-field"><input id="new-user-password" type="text" autocomplete="off" placeholder="Minst 8 tecken" /><button type="button" data-action="random-password" title="Slumpa ett starkt lösenord" aria-label="Slumpa lösenord">✦</button></div></label>
+          </div>
+          <button type="button" data-action="create-user" id="create-user-btn" class="users-create-btn">Skapa användare <span aria-hidden="true">→</span></button>
+          <p id="users-panel-msg" role="status" class="users-panel-msg"></p>
         </div>
       </div>
     </div>
@@ -775,8 +790,18 @@ async function openUsersPanel() {
   overlay.addEventListener('click', event => {
     if (event.target === overlay) closeUsersPanel();
   });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeUsersPanel();
+  });
+  document.getElementById('users-search').addEventListener('input', filterUsersList);
+  document.getElementById('new-user-password').addEventListener('keydown', event => {
+    if (event.key === 'Enter') createUserFromForm();
+  });
+  document.getElementById('users-search').focus();
   await loadUsersList();
 }
+
+let usersPanelData = [];
 
 async function loadUsersList() {
   const list = document.getElementById('users-list');
@@ -785,18 +810,39 @@ async function loadUsersList() {
     const res = await fetch('/api/users');
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Kunde inte hämta användare');
-    list.innerHTML = data.users.map(u => `
-      <div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--border2);">
-        <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${u.garminConnected ? 'var(--accent)' : 'var(--border2)'};" title="${u.garminConnected ? 'Garmin kopplad' : 'Garmin ej kopplad'}"></span>
-        <span style="font-size:13.5px;font-weight:600;flex:1;">${escapeHtml(u.username)}</span>
-        ${u.isAdmin ? '<span style="font-size:10px;font-weight:700;letter-spacing:0.05em;color:var(--accent);font-family:\'IBM Plex Mono\',monospace;">ADMIN</span>' : ''}
-        <span style="font-size:11px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;">${u.garminConnected ? 'Garmin ✓' : 'Ingen Garmin'}</span>
-        ${u.isAdmin ? '' : `<button type="button" data-action="delete-user" data-id="${Number(u.id)}" data-username="${escapeHtml(u.username)}" title="Ta bort" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 4px;">✕</button>`}
-      </div>
-    `).join('') || '<p style="font-size:12.5px;color:var(--muted2);">Inga användare.</p>';
+    usersPanelData = data.users;
+    updateUsersSummary();
+    renderUsersList(usersPanelData);
   } catch (error) {
-    list.innerHTML = `<p style="font-size:12.5px;color:var(--red);">${escapeHtml(error.message)}</p>`;
+    list.innerHTML = `<p class="users-empty users-error">${escapeHtml(error.message)}</p>`;
   }
+}
+
+function updateUsersSummary() {
+  const summary = document.getElementById('users-summary');
+  if (!summary) return;
+  const connected = usersPanelData.filter(u => u.garminConnected).length;
+  summary.innerHTML = `<span><strong>${usersPanelData.length}</strong> ${usersPanelData.length === 1 ? 'konto' : 'konton'}</span><span><i class="users-summary-dot connected"></i>${connected} med Garmin</span>`;
+}
+
+function renderUsersList(users) {
+  const list = document.getElementById('users-list');
+  if (!list) return;
+  list.innerHTML = users.map(u => {
+    const initial = escapeHtml(u.username.slice(0, 1).toUpperCase());
+    return `
+      <div class="user-row">
+        <div class="user-avatar">${initial}</div>
+        <div class="user-main"><strong>${escapeHtml(u.username)}</strong><span class="user-status ${u.garminConnected ? 'is-connected' : ''}"><i></i>${u.garminConnected ? 'Garmin ansluten' : 'Garmin ej ansluten'}</span></div>
+        ${u.isAdmin ? '<span class="user-role">ADMIN</span>' : '<span class="user-role user-role-muted">ANVÄNDARE</span>'}
+        ${u.isAdmin ? '' : `<button type="button" data-action="delete-user" data-id="${Number(u.id)}" data-username="${escapeHtml(u.username)}" class="user-delete" title="Ta bort ${escapeHtml(u.username)}" aria-label="Ta bort ${escapeHtml(u.username)}">✕</button>`}
+      </div>`;
+  }).join('') || '<p class="users-empty">Ingen användare matchar sökningen.</p>';
+}
+
+function filterUsersList(event) {
+  const query = event.target.value.trim().toLowerCase();
+  renderUsersList(usersPanelData.filter(u => u.username.toLowerCase().includes(query)));
 }
 
 function showUsersPanelMessage(text, isError) {
@@ -842,6 +888,7 @@ async function createUserFromForm() {
     nameInput.value = '';
     passwordInput.value = '';
     await loadUsersList();
+    document.getElementById('users-search')?.focus();
   } catch (error) {
     showUsersPanelMessage('Servern kunde inte nås.', true);
   } finally {
