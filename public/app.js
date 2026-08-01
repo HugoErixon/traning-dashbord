@@ -118,6 +118,12 @@ function showLogin(message) {
     document.getElementById('login-view').style.display = 'block';
     document.getElementById('login-user').focus();
   });
+  if (new URLSearchParams(window.location.search).get('auth') === 'register') {
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('register-view').style.display = 'block';
+    document.getElementById('register-user').focus();
+    return;
+  }
   document.getElementById('login-user').focus();
 }
 

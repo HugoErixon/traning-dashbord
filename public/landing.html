@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Trainyze samlar tränings- och hälsodata i en personlig dashboard.">
+  <title>Trainyze – träning med bättre överblick</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="landing-body">
+  <main class="landing-shell">
+    <nav class="landing-nav" aria-label="Huvudnavigation">
+      <a class="landing-brand" href="/" aria-label="Trainyze startsida">
+        <span class="landing-brand-mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 28 28" fill="none"><path d="M4 14h4l3-7 4 14 3-8h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span>Trainyze</span>
+      </a>
+      <a class="landing-login" href="/index.html">Logga in</a>
+    </nav>
+
+    <section class="landing-hero" aria-labelledby="landing-title">
+      <div class="landing-copy">
+        <span class="landing-kicker">DIN TRÄNING, I SAMMANHANG</span>
+        <h1 class="landing-title" id="landing-title">Träna med <em>överblick.</em></h1>
+        <p class="landing-lead">Trainyze samlar din träning, hälsa och återhämtning i en personlig dashboard. Se hur kroppen mår idag, följ din utveckling och håll planen nära till hands.</p>
+        <div class="landing-actions">
+          <a class="landing-button landing-button-primary" href="/index.html?auth=register">Skapa konto</a>
+          <a class="landing-button landing-button-secondary" href="/index.html">Logga in</a>
+        </div>
+        <p class="landing-note">Registrering sker med e-postverifiering.</p>
+      </div>
+
+      <aside class="landing-preview" aria-label="Exempel på vad dashboarden samlar">
+        <div class="landing-preview-top"><span class="landing-preview-label">Dagens överblick</span><span class="landing-live">DIN DATA</span></div>
+        <div class="landing-score"><div><span class="landing-mini-label">Återhämtning</span><div class="landing-score-value">—</div></div><span class="landing-score-copy">Sömn, vilopuls,<br>HRV och träningsbelastning</span></div>
+        <div class="landing-preview-grid"><div class="landing-mini"><span class="landing-mini-label">Träning</span><span class="landing-mini-value">Aktiviteter</span></div><div class="landing-mini"><span class="landing-mini-label">Plan</span><span class="landing-mini-value">Kommande pass</span></div><div class="landing-mini"><span class="landing-mini-label">Styrka</span><span class="landing-mini-value">Progression</span></div></div>
+        <div class="landing-plan"><span class="landing-plan-dot" aria-hidden="true"></span><div><strong>Allt samlat på ett ställe</strong><span>Från dagens status till din träningshistorik.</span></div></div>
+      </aside>
+    </section>
+
+    <section class="landing-section" aria-labelledby="how-it-works">
+      <div class="landing-section-head">
+        <span class="landing-kicker">SÅ FUNGERAR DET</span>
+        <h2 id="how-it-works">Från data till nästa pass</h2>
+        <p>Trainyze är byggt för att göra träningsinformationen lättare att använda i vardagen.</p>
+      </div>
+      <div class="landing-steps">
+        <article class="landing-step"><span class="landing-step-no">01 / KOM IGÅNG</span><h3>Skapa ditt konto</h3><p>Registrera dig med e-post och verifiera kontot innan du loggar in.</p></article>
+        <article class="landing-step"><span class="landing-step-no">02 / SYNKA</span><h3>Anslut Garmin</h3><p>Hämta aktiviteter och hälsodata från Garmin Connect till din personliga vy.</p></article>
+        <article class="landing-step"><span class="landing-step-no">03 / FÖLJ UPP</span><h3>Planera och reflektera</h3><p>Följ hälsa och trender, se kalendern, logga styrka och använd dina data som underlag för träningen.</p></article>
+      </div>
+    </section>
+
+    <footer class="landing-footer">Trainyze · personlig tränings- och hälsodashboard</footer>
+  </main>
+</body>
+</html>

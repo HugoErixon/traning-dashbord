@@ -655,7 +655,7 @@ def secure_response(response):
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-store'
         response.headers['Vary'] = 'Cookie'
-    elif request.path in ('/', '/index.html', '/app.js', '/styles.css'):
+    elif request.path in ('/', '/index.html', '/landing.html', '/app.js', '/styles.css'):
         response.headers['Cache-Control'] = 'no-cache'
     if ENABLE_HSTS:
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
@@ -5020,6 +5020,9 @@ def water_status():
 
 @app.get('/')
 def index():
+    _, user = _configured_session_user()
+    if not user:
+        return send_from_directory('public', 'landing.html')
     return send_from_directory('public', 'index.html')
 
 @app.get('/<path:path>')
