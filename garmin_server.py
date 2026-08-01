@@ -29,6 +29,7 @@ from strength_progression import (
     build_strength_recommendations,
     recommendation_summary,
 )
+import session_analysis
 
 # Google Calendar (valfritt — kräver google_credentials.json)
 try:
@@ -402,6 +403,12 @@ def migrate_db():
                 cur.execute('ALTER TABLE health_history ADD COLUMN IF NOT EXISTS body_battery INTEGER')
             except Exception as e:
                 print('migrate_db health_history body_battery:', e)
+            try:
+                # Hur passet faktiskt genomfördes (tempo, varv, puls, vikter)
+                # jämfört med vad som var planerat — se session_analysis.py.
+                cur.execute('ALTER TABLE plan_sessions ADD COLUMN IF NOT EXISTS execution JSONB')
+            except Exception as e:
+                print('migrate_db plan_sessions execution:', e)
             try:
                 cur.execute('ALTER TABLE health_history ADD COLUMN IF NOT EXISTS stress_avg INTEGER')
             except Exception as e:
@@ -2484,6 +2491,53 @@ def _get_iso_week(d):
     """Returnera ISO-veckonummer för ett date-objekt."""
     return d.isocalendar()[1]
 
+def _recent_execution_block(user_id, days=14, limit=6):
+    """Rendera hur de senaste passen faktiskt genomfördes, för AI-prompterna.
+
+    Utan det här ser modellen bara att ett pass blev av — inte om tempot,
+    pulsen eller vikterna låg där planen bad om.
+    """
+    today = date.today()
+    weeks = {_get_iso_week(today - timedelta(days=offset)) for offset in range(0, days + 1)}
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT week, dow, title, type, km, detail, execution
+                    FROM plan_sessions
+                    WHERE user_id = %s AND status = 'completed'
+                      AND execution IS NOT NULL AND week = ANY(%s)
+                    ORDER BY week DESC, dow DESC LIMIT %s''',
+                    (user_id, list(weeks), limit))
+                rows = cur.fetchall()
+    except Exception as e:
+        print('Kunde inte läsa passutvärderingar:', e)
+        return ''
+
+    blocks = []
+    for row in rows:
+        execution = row['execution'] or {}
+        label = row['title'] or row['type'] or 'session'
+        if execution.get('discipline') == 'strength':
+            body = session_analysis.describe_strength(execution)
+            header = f"{label} (strength, planned: {row['detail'] or '—'})"
+        else:
+            body = session_analysis.describe_run(execution, name=label)
+            header = None
+        if not body:
+            continue
+        blocks.append(f"- {header}\n{body}" if header else f"- {body}")
+
+    if not blocks:
+        return ''
+    return (
+        "\n\nHOW RECENT SESSIONS WERE ACTUALLY EXECUTED "
+        "(measured against what the plan asked for — use this to give specific "
+        "feedback such as running easy days too fast, fading across reps, or "
+        "lifting below the calculated target, instead of generic praise):\n"
+        + '\n'.join(blocks)
+    )
+
+
 def _build_refresh_prompt(acts):
     """Bygg en fullständig prompt för startsidans AI-rekommendation."""
     today     = date.today()
@@ -2621,6 +2675,7 @@ NEXT SCHEDULED SESSION:
 
 RECENT RUNS:
 {json.dumps(recent_runs, ensure_ascii=False, indent=2)}
+{_recent_execution_block(uid())}
 
 WEEK STATUS W{iso_week}:
 - {f'Planned: {planned_km:.0f} km · Completed: {completed_km:.1f} km · Remaining: {remaining_km:.1f} km' if plan_count else f'No plan — Completed: {completed_km:.1f} km'}
@@ -2695,7 +2750,7 @@ Respond ONLY with this JSON (no explanation outside JSON):
   "todayType": "easy|quality|rest",
   "nextSession": {"title": "session name", "desc": "description", "tempo": "e.g. 3:35 /km", "distance": "e.g. ~8 km"},
   "prediction3k": "e.g. 10:15",
-  "insight": "one concrete insight based on training load or health data"
+  "insight": "one concrete insight — prefer a specific observation from HOW RECENT SESSIONS WERE ACTUALLY EXECUTED (e.g. easy runs consistently run too fast, reps fading, lifting under target weight) over a generic training-load remark"
 }"""
     return prompt
 
@@ -2850,6 +2905,32 @@ def _build_review_prompt():
                      'interval performance against the target pace in the plan. The rep count above '
                      'is verified from Garmin laps; do not invent or round it.')
 
+    # Mät dagens pass mot planens måltempo så bedömningen blir konkret
+    # ("4% snabbare än Z2-bandet") i stället för ett allmänt beröm.
+    execution_block = ''
+    main_run = None
+    for row in act_rows:
+        if 'running' in (row[2] or '').lower() and (row[3] or 0) > (main_run[3] if main_run else 0):
+            main_run = row
+    if main_run and planned:
+        act_id, name, typ, dist, dur, hr = main_run
+        activity = {'activityId': act_id, 'activityName': name,
+                    'activityType': {'typeKey': typ}, 'distance': dist,
+                    'duration': dur, 'averageHR': hr}
+        target_session = next((p for p in planned if p['type'] in ('run', 'easy', 'race')), planned[0])
+        try:
+            kind = session_analysis.classify_session(target_session, activity)
+            laps = _run_activity_laps(activity, uname()) if kind in ('interval', 'long', 'threshold') else []
+            analysis = session_analysis.analyze_run(
+                activity, laps, target_session, lactate_hr=_latest_lactate_hr(uid()))
+            described = session_analysis.describe_run(analysis, name=name or 'today')
+            if described:
+                execution_block = (
+                    "\n\nEXECUTION VS PLAN (measured — pace deltas are negative when faster "
+                    "than target):\n" + described)
+        except Exception as e:
+            print('training review: execution analysis failed', e)
+
     # Dagens kalender (jobb/åtaganden) så "har du tid" blir smart
     cal_row = get_cache('gcal_events', uid())
     today_events = []
@@ -2873,13 +2954,13 @@ TODAY'S PLANNED SESSION:
 {planned_str}
 
 ACTIVITIES LOGGED TODAY (from Garmin):
-{acts_str}
+{acts_str}{execution_block}
 
 TODAY'S CALENDAR (work / commitments):
 {events_str}
 
 Decide which single case applies and write accordingly:
-- DONE: an activity matching the planned session was completed today. Praise it. For interval/track sessions, use the individual REP PACES listed above (not the average pace) to compare against the target pace in the plan.
+- DONE: an activity matching the planned session was completed today. Say specifically HOW it was executed, not just that it happened — use the EXECUTION VS PLAN numbers above. If an easy day was run faster than its target band, say so plainly and explain the cost (it steals from the week's quality sessions). If reps came in under target pace, faded towards the end, or the session was cut short, name it. Only give plain praise when the numbers actually match the plan. For interval/track sessions, use the individual REP PACES (not the average pace).
 - PENDING: the session has not been done yet. Use the current time AND the calendar to judge if there is still time today — if so, reassure ("you still have time, fit it in before/after work"); if it's late evening with no window left, gently note the day is nearly over.
 - OTHER: the athlete did something different than planned today — acknowledge it.
 - REST: it's a rest day — confirm that resting is the right call.
@@ -4256,16 +4337,102 @@ def _iso_week_dow(d):
     iso = d.isocalendar()
     return iso[1], iso[2] - 1  # dow: 0=mån
 
-def match_activities_to_plan(days_back=7, user_id=1):
+def _latest_lactate_hr(user_id):
+    """Senast kända tröskelpuls — används för att fånga för hårda lugna pass."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT lactate_hr FROM metric_history
+                    WHERE user_id=%s AND lactate_hr IS NOT NULL
+                    ORDER BY date DESC LIMIT 1''', (user_id,))
+                row = cur.fetchone()
+        return int(row[0]) if row and row[0] else None
+    except Exception:
+        return None
+
+
+def _run_activity_laps(activity, username):
+    """Hämta varvdata för ett löppass. Nätverksanrop — bara när det behövs."""
+    activity_id = activity.get('activityId') or activity.get('id')
+    if not activity_id or not username:
+        return []
+    try:
+        client = get_garmin(username)
+        return session_analysis.normalize_laps(client.get_activity_splits(activity_id))
+    except Exception as e:
+        print('Varvhämtning misslyckades:', e)
+        return []
+
+
+def _build_session_execution(planned, acts, day, user_id, username=None,
+                             strength_history=None, lactate_hr=None):
+    """Analysera HUR ett genomfört pass kördes, inte bara ATT det gjordes.
+
+    Returnerar ett dict som sparas i plan_sessions.execution och matas både
+    till AI-prompterna och till gränssnittet.
+    """
+    run_types = {'running', 'track_running', 'treadmill_running', 'trail_running'}
+
+    if planned['type'] in ('run', 'easy', 'race'):
+        runs = [a for a in acts
+                if (a.get('activityType') or {}).get('typeKey', '') in run_types]
+        if not runs:
+            return None
+        # Dagens huvudpass = det längsta; uppvärmningsjoggar ska inte vinna.
+        activity = max(runs, key=lambda a: a.get('distance') or 0)
+        kind = session_analysis.classify_session(planned, activity)
+        # Varvdata kostar ett extra API-anrop, så den hämtas bara när den
+        # faktiskt tillför något (intervaller) eller för pulsdrift på långpass.
+        laps = _run_activity_laps(activity, username) if kind in ('interval', 'long', 'threshold') else []
+        analysis = session_analysis.analyze_run(activity, laps, planned, lactate_hr=lactate_hr)
+        analysis['activityId'] = activity.get('activityId') or activity.get('id')
+        analysis['activityName'] = activity.get('activityName')
+        analysis['discipline'] = 'run'
+        analysis['headline'] = session_analysis.headline_for(analysis)
+        return analysis
+
+    if planned['type'] == 'lift':
+        history = strength_history or []
+        day_str = day.isoformat()
+        logged = [entry for entry in history if entry.get('date') == day_str]
+        if not logged:
+            return None
+        try:
+            recommendations = build_strength_recommendations(
+                planned.get('detail', ''), history, before_date=day_str)
+            if not recommendations:
+                recommendations = build_default_recommendations(
+                    history, before_date=day_str, limit=6)
+        except (TypeError, ValueError):
+            recommendations = []
+        analysis = session_analysis.analyze_strength(logged, recommendations)
+        analysis['discipline'] = 'strength'
+        analysis['headline'] = session_analysis.headline_for(analysis)
+        return analysis
+
+    return None
+
+
+def match_activities_to_plan(days_back=7, user_id=1, username=None):
     """
     Jämför Garmin-aktiviteter mot planerade pass de senaste N dagarna.
     Markerar pass som completed eller missed. Re-utvärderar även 'missed'
     (om en aktivitet synkats i efterhand) men rör aldrig skipped/rescheduled.
     Idag hoppas över (dagen är inte slut). Körs efter varje synk + 07:30.
+
+    För genomförda pass sparas dessutom en utvärdering av HUR passet kördes
+    (tempo mot måltempo, varv, pulsdrift, vikter mot progressionsmål).
     """
     today = date.today()
     run_types  = {'running','track_running','treadmill_running','trail_running'}
     lift_types = {'strength_training','fitness_equipment'}
+
+    lactate_hr = _latest_lactate_hr(user_id)
+    try:
+        strength_history = _strength_progression_history(user_id)
+    except Exception as e:
+        print('Styrkehistorik kunde inte läsas:', e)
+        strength_history = []
 
     with db() as conn:
         for i in range(0, days_back + 1):
@@ -4307,6 +4474,21 @@ def match_activities_to_plan(days_back=7, user_id=1):
                     if new_status != p['status']:
                         cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
                             WHERE id = %s AND user_id = %s''', (new_status, time.time(), p['id'], user_id))
+
+                    # Utvärderingen görs en gång per pass — den kostar ett
+                    # Garmin-anrop och ändrar sig inte i efterhand.
+                    if new_status == 'completed' and not p.get('execution'):
+                        try:
+                            execution = _build_session_execution(
+                                p, acts, day, user_id, username=username,
+                                strength_history=strength_history, lactate_hr=lactate_hr)
+                        except Exception as e:
+                            print(f"Passutvärdering misslyckades för pass {p['id']}:", e)
+                            execution = None
+                        if execution:
+                            cur.execute('''UPDATE plan_sessions SET execution = %s
+                                WHERE id = %s AND user_id = %s''',
+                                (psycopg2.extras.Json(execution), p['id'], user_id))
         conn.commit()
     print(f'Activity matching complete (last {days_back} days)')
 
@@ -4436,7 +4618,7 @@ def run_sync(count=50, username=None, user_id=1):
         print('Strength-länkning fel:', e)
     clear_cache('health', 'analysis', 'training_review', user_id=user_id)
     try:
-        match_activities_to_plan(user_id=user_id)
+        match_activities_to_plan(user_id=user_id, username=username)
     except Exception as e:
         print('Matchning efter synk fel:', e)
     try:
@@ -4654,6 +4836,12 @@ Training load (ACWR):
 Week status W{iso_week}:
 - Completed running: {completed_km:.1f} km · Planned weekly cap: {week_cap} km
 - Completed total load: {round(completed_load)}
+{_recent_execution_block(first_uid)}
+
+Execution rules:
+- A session marked completed is not automatically a session done well. When easy days were run faster than their target band, the aerobic base is not being built and the next quality session will suffer — consider protecting it by making the following easy day explicitly slower.
+- Reps landing under target pace, or fading across the session, mean the prescribed pace is currently too ambitious or recovery is lacking. Adjust the pace target rather than silently repeating it.
+- Lifts logged below the calculated target weight mean the progression stalled; note it in coaching_notes.
 
 === VERIFIED STRENGTH PROGRESSION ===
 
@@ -4898,7 +5086,7 @@ def manual_adjust_disabled():
 def _apply_plan_request(text):
     """Apply a user-requested plan adjustment for the unified assistant."""
     try:
-        match_activities_to_plan(user_id=uid())
+        match_activities_to_plan(user_id=uid(), username=uname())
         ai_adjust_plan(user_request=text)
         first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
         row = get_cache('last_plan_adjustment', first_uid)

@@ -3736,6 +3736,60 @@ HEALTH DATA (current):
     return map;
   }
 
+  // Utvärderingen av ett genomfört pass (se session_analysis.py). Allt utom
+  // dessa två flaggor är något att åtgärda, inte att berömma.
+  const EXECUTION_POSITIVE_FLAGS = new Set(['negative_split_reps', 'strength_on_target']);
+
+  function executionIsPositive(execution) {
+    const flags = execution?.flags || [];
+    return !flags.length || flags.every(flag => EXECUTION_POSITIVE_FLAGS.has(flag));
+  }
+
+  function executionDetailLines(execution) {
+    if (!execution) return [];
+    const lines = [];
+
+    if (execution.discipline === 'strength') {
+      (execution.exercises || []).forEach(item => {
+        if (!item.weight) return;
+        const target = item.targetWeight ? ` mot mål ${item.targetWeight} kg` : '';
+        const delta = item.deltaPct != null ? ` (${item.deltaPct > 0 ? '+' : ''}${item.deltaPct}%)` : '';
+        lines.push(`${item.exercise}: ${item.weight} kg${target}${delta}`);
+      });
+      return lines;
+    }
+
+    if (execution.avgPace) {
+      const target = execution.targetPace ? ` mot mål ${execution.targetPace.text}` : '';
+      const delta = execution.paceDeltaPct != null
+        ? ` (${execution.paceDeltaPct > 0 ? '+' : ''}${execution.paceDeltaPct}%)` : '';
+      lines.push(`Snittempo ${execution.avgPace}${target}${delta}`);
+    }
+    if (execution.reps?.length) {
+      const paces = execution.reps.map(rep => rep.pace).filter(Boolean).join(', ');
+      if (paces) lines.push(`Rep: ${paces}`);
+      if (execution.fadePct != null) {
+        lines.push(`Första till sista rep: ${execution.fadePct > 0 ? '+' : ''}${execution.fadePct}%`);
+      }
+    }
+    if (execution.hrDrift) {
+      lines.push(`Pulsdrift ${execution.hrDrift.firstHalf} → ${execution.hrDrift.secondHalf} slag`
+        + ` (${execution.hrDrift.pct > 0 ? '+' : ''}${execution.hrDrift.pct}%)`);
+    }
+    if (execution.plannedKm && execution.distanceKm) {
+      lines.push(`${execution.distanceKm} km av planerade ${execution.plannedKm} km`);
+    }
+    return lines;
+  }
+
+  function executionBadgeHtml(execution) {
+    if (!execution?.headline) return '';
+    const cls = executionIsPositive(execution) ? 'cal-verdict-good' : 'cal-verdict-warn';
+    const tip = [execution.headline, ...executionDetailLines(execution)].join(' - ');
+    return `<span class="cal-verdict ${cls}" data-freetip="${escapeHtml(tip)}">`
+      + `${escapeHtml(execution.headline)}</span>`;
+  }
+
   function calendarActualPills(dayActivities, plannedSession) {
     if (!dayActivities.length) return '';
     const runs = dayActivities.filter(a => calendarActivityType(a) === 'run');
@@ -3744,10 +3798,12 @@ HEALTH DATA (current):
     const totalSec = dayActivities.reduce((sum, a) => sum + (a.duration || a.elapsedDuration || 0), 0);
     const minutes = totalSec ? Math.round(totalSec / 60) : null;
 
+    const verdict = executionBadgeHtml(plannedSession?.execution);
+
     if (plannedSession?.type === 'lift' && lifts.length) {
       const label = plannedSession.title || 'Styrkepass';
       const tip = ['Garmin', label, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
-      return `<span class="cal-session-pill csp-lift csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+      return `<span class="cal-session-pill csp-lift csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
     }
 
     if (runs.length) {
@@ -3759,7 +3815,7 @@ HEALTH DATA (current):
           : calendarActivityLabel(runs[0]);
       const names = runs.map(calendarActivityLabel).join(' - ');
       const tip = ['Garmin', names, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
-      return `<span class="cal-session-pill csp-run csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+      return `<span class="cal-session-pill csp-run csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
     }
 
     return dayActivities.map(activity => {
@@ -3771,6 +3827,20 @@ HEALTH DATA (current):
       const tip = ['Garmin', label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
       return `<span class="cal-session-pill ${cls} csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
     }).join('');
+  }
+
+  // Planerat pass för ett visst datum. Ett genomfört pass bär utvärderingen
+  // i .execution, så både startsidan och kalendern går via den här.
+  function findPlanSessionForDate(dateKey, planYear = 2026) {
+    let found = null;
+    for (const session of PLAN_SESSIONS) {
+      const monday = getMondayOfISOWeek(session.week, planYear);
+      const sessionDate = new Date(monday);
+      sessionDate.setDate(monday.getDate() + session.dow);
+      if (localDateKey(sessionDate) !== dateKey) continue;
+      if (!found || (session.status === 'planned' && found.status !== 'planned')) found = session;
+    }
+    return found;
   }
 
   function renderTodaySession() {
@@ -3825,23 +3895,27 @@ HEALTH DATA (current):
         ? `${todayActs.length} aktiviteter  —  ${timeStr} totalt`
         : (todayActs[0].activityName || todayActs[0].name || 'Aktivitet idag');
       title.style.color      = col;
-      detail.textContent     = detailStr;
       km.textContent         = totalKm > 0 ? totalKm.toFixed(1) + ' km' : timeStr;
       km.style.color         = col;
-      type.textContent       = 'KLART';
+
+      // Säg hur passet gick, inte bara att det blev av.
+      const execution = findPlanSessionForDate(todayKey)?.execution;
+      const verdictLines = executionDetailLines(execution);
+      detail.textContent = verdictLines.length
+        ? detailStr + '  ·  ' + verdictLines.join('  ·  ')
+        : detailStr;
+      if (execution?.headline) {
+        type.textContent  = execution.headline.toUpperCase();
+        type.style.color  = executionIsPositive(execution) ? 'var(--green)' : 'var(--amber)';
+      } else {
+        type.textContent  = 'KLART';
+        type.style.color  = '';
+      }
       return;
     }
 
     // ── 2. Fall back to today's planned session ───────────────────────────
-    const PLAN_YEAR = 2026;
-    let s = null;
-    for (const p of PLAN_SESSIONS) {
-      const mon = getMondayOfISOWeek(p.week, PLAN_YEAR);
-      const sessionDate = new Date(mon);
-      sessionDate.setDate(mon.getDate() + p.dow);
-      if (localDateKey(sessionDate) !== todayKey) continue;
-      if (!s || (p.status === 'planned' && s.status !== 'planned')) s = p;
-    }
+    const s = findPlanSessionForDate(todayKey);
 
     if (!s) {
       title.textContent    = 'Vilodag';

@@ -2454,6 +2454,31 @@
       line-height: 1.4;
       cursor: default;
     }
+    /* Hur passet faktiskt kördes mot planen — se session_analysis.py */
+    .cal-verdict {
+      display: block;
+      font-size: 9px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      padding: 2px 6px 2px 14px;
+      border-radius: 5px;
+      margin: -2px 0 5px;
+      line-height: 1.35;
+      position: relative;
+      cursor: default;
+    }
+    .cal-verdict::before {
+      content: '';
+      position: absolute;
+      left: 6px; top: 50%;
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      transform: translateY(-50%);
+      background: currentColor;
+    }
+    .cal-verdict-warn { color: var(--amber); background: var(--amber-dim); }
+    .cal-verdict-good { color: var(--green); background: var(--green-dim); }
     .cal-session-list {
       min-width: 0;
     }
