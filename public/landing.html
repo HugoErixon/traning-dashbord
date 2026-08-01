@@ -32,11 +32,42 @@
         <p class="landing-note">Registrering sker med e-postverifiering.</p>
       </div>
 
-      <aside class="landing-preview" aria-label="Exempel på vad dashboarden samlar">
-        <div class="landing-preview-top"><span class="landing-preview-label">Dagens överblick</span><span class="landing-live">DIN DATA</span></div>
-        <div class="landing-score"><div><span class="landing-mini-label">Återhämtning</span><div class="landing-score-value">—</div></div><span class="landing-score-copy">Sömn, vilopuls,<br>HRV och träningsbelastning</span></div>
-        <div class="landing-preview-grid"><div class="landing-mini"><span class="landing-mini-label">Träning</span><span class="landing-mini-value">Aktiviteter</span></div><div class="landing-mini"><span class="landing-mini-label">Plan</span><span class="landing-mini-value">Kommande pass</span></div><div class="landing-mini"><span class="landing-mini-label">Styrka</span><span class="landing-mini-value">Progression</span></div></div>
-        <div class="landing-plan"><span class="landing-plan-dot" aria-hidden="true"></span><div><strong>Allt samlat på ett ställe</strong><span>Från dagens status till din träningshistorik.</span></div></div>
+      <aside class="landing-preview" aria-label="Exempel på dashboardens återhämtningskort">
+        <div class="landing-preview-bar">
+          <span class="landing-preview-label">Dagens överblick</span>
+          <span class="landing-live">EXEMPELVY</span>
+        </div>
+        <div class="panel landing-dashboard-panel">
+          <span class="panel-accent-bar" aria-hidden="true"></span>
+          <div class="panel-eyebrow">CNS <span class="tag good">ÅTERHÄMTNING</span></div>
+          <div class="recovery-wrap">
+            <div class="landing-readiness-ring" aria-hidden="true">
+              <div class="landing-ring-glow"></div>
+              <svg viewBox="0 0 88 88" width="112" height="112">
+                <defs>
+                  <linearGradient id="landing-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#c2f04a"/>
+                    <stop offset="100%" stop-color="#7fd6c4"/>
+                  </linearGradient>
+                </defs>
+                <circle cx="44" cy="44" r="38" fill="none" stroke="var(--border2)" stroke-width="7"></circle>
+                <circle cx="44" cy="44" r="38" fill="none" stroke="url(#landing-ring-grad)" stroke-width="7" stroke-linecap="round" stroke-dasharray="239" stroke-dashoffset="54" transform="rotate(-90 44 44)" style="filter:drop-shadow(0 0 5px rgba(194,240,74,0.4))"></circle>
+              </svg>
+              <div class="landing-ring-value"><strong>—</strong><span>CNS</span></div>
+            </div>
+            <div class="landing-recovery-copy">
+              <span>Din CNS-beredskap idag</span>
+              <strong>Se när data är synkad</strong>
+              <div class="bar"><div class="bar-fill"></div></div>
+            </div>
+          </div>
+          <div class="contrib-row landing-contrib-row">
+            <div class="contrib contrib-cell"><div class="contrib-label">SÖMN</div><div class="contrib-val">—</div><div class="contrib-sub">Nattens data</div><div class="bar"><div class="bar-fill landing-fill-green"></div></div></div>
+            <div class="contrib contrib-cell"><div class="contrib-label">RHR</div><div class="contrib-val">—</div><div class="contrib-sub">Vilopuls</div><div class="bar"><div class="bar-fill landing-fill-green"></div></div></div>
+            <div class="contrib contrib-cell"><div class="contrib-label">HRV NATT</div><div class="contrib-val">—</div><div class="contrib-sub">Återhämtning</div><div class="bar"><div class="bar-fill landing-fill-amber"></div></div></div>
+          </div>
+        </div>
+        <p class="landing-preview-caption">Ett av korten som samlar sömn, vilopuls och HRV i din dagliga överblick.</p>
       </aside>
     </section>
 
