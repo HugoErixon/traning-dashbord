@@ -1220,7 +1220,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       setText('sl-debt-sub', `${debt.nights} nätter · snitt ${debt.averageH.toFixed(1)} h`);
       const bar = document.getElementById('sl-debt-bar');
       if (bar) {
-        bar.style.width = Math.min(100, (debt.debtH / (debt.targetH || 1)) * 100 * 2) + '%';
+        // Full stapel = en hel natts sömn skuldsatt, inte veckomålet.
+        const scale = owed ? debt.debtH / 7.5 : debt.surplusH / 7.5;
+        bar.style.width = Math.min(100, Math.max(3, scale * 100)) + '%';
         bar.className = owed ? 'sl-meter-amber' : 'sl-meter-good';
       }
       const el = document.getElementById('sl-debt');
@@ -1231,13 +1233,17 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setText('sl-streak', summary.streak != null ? summary.streak : '–');
     setText('sl-streak-sub', summary.streak === 1 ? 'natt i rad på 7,5 h' : 'nätter i rad på 7,5 h');
 
-    // Sänggående i natt som gick
-    const latest = (nights || []).find(n => n.sleep_start);
-    if (latest) {
-      const bed = slClock(latest.sleep_start);
-      const wake = slClock(latest.sleep_end);
-      setText('sl-window', bed && wake ? `${bed} – ${wake}` : (bed || '–'));
+    // Sänggående — måste komma från samma natt som siffrorna ovanför, annars
+    // visas en tid från en helt annan natt bredvid nattens totalsumma.
+    const latest = (nights || [])[0];
+    const bed = latest && slClock(latest.sleep_start);
+    const wake = latest && slClock(latest.sleep_end);
+    if (bed) {
+      setText('sl-window', wake ? `${bed} – ${wake}` : bed);
       setText('sl-window-sub', 'sänggående och uppstigning');
+    } else {
+      setText('sl-window', '–');
+      setText('sl-window-sub', 'Garmin har inte rapporterat tider för natten');
     }
 
     // Trendchips
