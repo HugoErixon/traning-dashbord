@@ -32,6 +32,7 @@ from strength_progression import (
 import session_analysis
 import pace_progression
 import sleep_analysis
+import training_analysis
 
 # Google Calendar (valfritt — kräver google_credentials.json)
 try:
@@ -2455,138 +2456,99 @@ def collect_metric_history(days=45, username=None):
     print(f'metric-history: {added} nya dagar tillagda')
 
 
-def _linreg_per_week(series):
-    """series = lista av (dagindex_float, värde). Returnerar lutning per VECKA via minsta kvadrat."""
-    n = len(series)
-    if n < 2:
-        return None
-    sx = sum(p[0] for p in series); sy = sum(p[1] for p in series)
-    sxx = sum(p[0] * p[0] for p in series); sxy = sum(p[0] * p[1] for p in series)
-    denom = n * sxx - sx * sx
-    if denom == 0:
-        return None
-    slope_per_day = (n * sxy - sx * sy) / denom
-    return slope_per_day * 7.0
-
-
 @app.get('/api/analysis')
 def analysis():
-    """Trender + förändringstakt (derivata) för fitness-mätare över ett fönster."""
-    window = int(request.args.get('days', 60))
-    start_date = date.today() - timedelta(days=window)
-    start = start_date.isoformat()
-    load_start = (start_date - timedelta(days=6)).isoformat()
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute('''SELECT date, hrv_avg, resting_hr, sleep_score
-                FROM health_history WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
-            hh = cur.fetchall()
-        with conn.cursor() as cur:
-            cur.execute('''SELECT date, vo2max, endurance_score, lactate_hr, lactate_pace, hrv_status
-                FROM metric_history WHERE date >= %s AND user_id=%s ORDER BY date''', (start, uid()))
-            mh = cur.fetchall()
-        with conn.cursor() as cur:
-            cur.execute('''SELECT date, raw
-                FROM activities WHERE date >= %s AND user_id=%s ORDER BY date''', (load_start, uid()))
-            load_acts = cur.fetchall()
+    """A decision-ready training picture, derived from the user's own history."""
+    try:
+        window = max(30, min(120, int(request.args.get('days', 60) or 60)))
+    except (TypeError, ValueError):
+        return _api_error('invalid_window', 'Analysperioden måste vara ett antal dagar.', 400)
 
-    # Bygg per-mätare tidsserier (dag-index relativt fönstrets start, för lutningsberäkning)
-    def to_day_index(dstr):
-        return (date.fromisoformat(dstr[:10]) - date.fromisoformat(start)).days
-
-    cols = {
-        'hrv':       {'label': 'HRV',                'unit': 'ms',     'good': 'up',   'rows': hh, 'idx': 1, 'fmt': 0},
-        'rhr':       {'label': 'Resting HR',         'unit': 'bpm',    'good': 'down', 'rows': hh, 'idx': 2, 'fmt': 0},
-        'sleep':     {'label': 'Sleep score',        'unit': '',       'good': 'up',   'rows': hh, 'idx': 3, 'fmt': 0},
-        'vo2max':    {'label': 'VO₂max',             'unit': '',       'good': 'up',   'rows': mh, 'idx': 1, 'fmt': 1},
-        'endurance': {'label': 'Endurance score',    'unit': '',       'good': 'up',   'rows': mh, 'idx': 2, 'fmt': 0},
-        'lt_pace':   {'label': 'Lactate threshold',  'unit': 'pace',   'good': 'down', 'rows': mh, 'idx': 4, 'fmt': 'pace'},
-        'lt_hr':     {'label': 'LT heart rate',      'unit': 'bpm',    'good': 'up',   'rows': mh, 'idx': 3, 'fmt': 0},
-    }
-
-    metrics = []
-    for key, c in cols.items():
-        series = []
-        for r in c['rows']:
-            v = r[c['idx']]
-            if v is None:
-                continue
-            series.append({'t': r[0][:10], 'v': float(v)})
-        out = {'key': key, 'label': c['label'], 'unit': c['unit'], 'good': c['good'], 'fmt': c['fmt'],
-               'series': series, 'latest': None, 'first': None, 'slopePerWeek': None,
-               'pctChange': None, 'direction': 'unknown', 'samples': len(series)}
-        if series:
-            out['latest'] = series[-1]['v']
-            out['first'] = series[0]['v']
-            reg = [(to_day_index(p['t']), p['v']) for p in series]
-            slope = _linreg_per_week(reg)
-            out['slopePerWeek'] = round(slope, 3) if slope is not None else None
-            if series[0]['v']:
-                out['pctChange'] = round((series[-1]['v'] - series[0]['v']) / abs(series[0]['v']) * 100, 1)
-            # riktning: bara stabil om <0.05% förändring per vecka (mycket snäv marginal).
-            # Declines markeras alltid som declining om vi vill ha upp, och vice versa.
-            mean = sum(p['v'] for p in series) / len(series)
-            if slope is None or mean == 0:
-                out['direction'] = 'stable'
-            elif abs(slope) < abs(mean) * 0.0005:  # <0.05% per vecka = stabil
-                out['direction'] = 'stable'
-            else:
-                rising = slope > 0
-                good = (rising and c['good'] == 'up') or (not rising and c['good'] == 'down')
-                out['direction'] = 'improving' if good else 'declining'
-        metrics.append(out)
+    today = date.today()
+    start_date = today - timedelta(days=window)
+    activity_start = min(start_date - timedelta(days=6), today - timedelta(weeks=8))
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT date, hrv_avg, resting_hr, sleep_score
+                    FROM health_history WHERE date >= %s AND user_id=%s ORDER BY date''',
+                            (start_date.isoformat(), uid()))
+                health_rows = [dict(row) for row in cur.fetchall()]
+                cur.execute('''SELECT date, vo2max, endurance_score, lactate_hr,
+                        lactate_pace, hrv_status
+                    FROM metric_history WHERE date >= %s AND user_id=%s ORDER BY date''',
+                            (start_date.isoformat(), uid()))
+                metric_rows = [dict(row) for row in cur.fetchall()]
+                cur.execute('''SELECT date, type, distance, raw
+                    FROM activities WHERE date >= %s AND user_id=%s ORDER BY date''',
+                            (activity_start.isoformat(), uid()))
+                activities = [dict(row) for row in cur.fetchall()]
+                cur.execute('''SELECT week, dow, status, type, km, execution
+                    FROM plan_sessions WHERE user_id=%s''', (uid(),))
+                plan_rows = [dict(row) for row in cur.fetchall()]
+    except Exception as exc:
+        return _server_error(exc, 'analysis.history_failed', message='Analysunderlaget kunde inte hämtas.')
 
     daily_load = {}
-    for act_date, raw in load_acts:
+    for activity in activities:
+        day = str(activity.get('date') or '')[:10]
+        raw = activity.get('raw') or {}
         try:
-            d = date.fromisoformat(str(act_date)[:10])
-        except Exception:
-            continue
-        load = (raw or {}).get('activityTrainingLoad') or 0
-        try:
-            load = float(load)
+            load = float(raw.get('activityTrainingLoad') or 0)
         except (TypeError, ValueError):
             load = 0
-        if load > 0:
-            daily_load[d] = daily_load.get(d, 0) + load
-
+        if day and load > 0:
+            daily_load[day] = daily_load.get(day, 0) + load
     load_series = []
-    today = date.today()
-    for i in range(window + 1):
-        d = start_date + timedelta(days=i)
-        if d > today:
-            break
-        rolling = sum(daily_load.get(d - timedelta(days=back), 0) for back in range(7))
+    for offset in range(window + 1):
+        day = start_date + timedelta(days=offset)
+        rolling = sum(daily_load.get((day - timedelta(days=back)).isoformat(), 0)
+                      for back in range(7))
         if rolling > 0 or load_series:
-            load_series.append({'t': d.isoformat(), 'v': round(rolling, 1)})
+            load_series.append({'t': day.isoformat(), 'v': round(rolling, 1)})
 
-    load_metric = {'key': 'training_load', 'label': '7-day training load', 'unit': 'load',
-                   'good': 'up', 'fmt': 'load', 'series': load_series, 'latest': None,
-                   'first': None, 'slopePerWeek': None, 'pctChange': None,
-                   'direction': 'unknown', 'samples': len(load_series)}
-    if load_series:
-        load_metric['latest'] = load_series[-1]['v']
-        load_metric['first'] = load_series[0]['v']
-        reg = [(to_day_index(p['t']), p['v']) for p in load_series]
-        slope = _linreg_per_week(reg)
-        load_metric['slopePerWeek'] = round(slope, 3) if slope is not None else None
-        if load_series[0]['v']:
-            load_metric['pctChange'] = round((load_series[-1]['v'] - load_series[0]['v']) / abs(load_series[0]['v']) * 100, 1)
-        mean = sum(p['v'] for p in load_series) / len(load_series)
-        if slope is None or mean == 0:
-            load_metric['direction'] = 'stable'
-        elif abs(slope) < abs(mean) * 0.0005:
-            load_metric['direction'] = 'stable'
-        else:
-            load_metric['direction'] = 'improving' if slope > 0 else 'declining'
-    metrics.append(load_metric)
+    metrics = training_analysis.build_metrics(health_rows, metric_rows, load_series)
+    volume = training_analysis.weekly_volume(activities, today=today)
 
-    latest_status = next((r[5] for r in reversed(mh) if r[5]), None)
+    dated_plan = []
+    for row in plan_rows:
+        try:
+            session_day = _plan_session_date(row, today)
+        except (TypeError, ValueError):
+            continue
+        if start_date <= session_day < today:
+            row['date'] = session_day.isoformat()
+            dated_plan.append(row)
+    execution = training_analysis.execution_summary(dated_plan)
+
+    goal_record = get_user_goal(uid())
+    pace = _pace_context(uid())
+    goal = {
+        'title': (goal_record or {}).get('goal_title'),
+        'deadline': (goal_record or {}).get('goal_deadline'),
+        'daysLeft': None,
+        'anchor': pace.get('anchor'),
+        'goalPace': pace.get('goalPace'),
+        'feasibility': pace.get('goalFeasibility'),
+        'bands': pace.get('bands'),
+    }
+    if goal['deadline']:
+        try:
+            goal['daysLeft'] = (date.fromisoformat(goal['deadline']) - today).days
+        except ValueError:
+            pass
+
+    latest_status = next((row.get('hrv_status') for row in reversed(metric_rows)
+                          if row.get('hrv_status')), None)
     return jsonify({
-        'window_days': window,
-        'hrv_status': latest_status,
-        'health_rows': len(hh),
-        'metric_rows': len(mh),
+        'windowDays': window,
+        'generatedAt': datetime.now(LOCAL_TZ).isoformat(),
+        'dataCoverage': {'healthDays': len(health_rows), 'metricDays': len(metric_rows)},
+        'hrvStatus': latest_status,
+        'overview': training_analysis.overview(metrics, volume, execution, goal),
+        'volume': volume,
+        'execution': execution,
+        'goal': goal,
         'metrics': metrics,
     })
 

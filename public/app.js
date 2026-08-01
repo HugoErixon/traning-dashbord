@@ -938,6 +938,8 @@ function executeAction(trigger, event) {
   else if (action === 'clear-ac-bedtime') clearAcBedtime();
   else if (action === 'send-ac-command') sendManualAcCommand();
   else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
+  else if (action === 'analysis-window') setAnalysisWindow(Number(trigger.dataset.days));
+  else if (action === 'analysis-metric') selectAnalysisMetric(trigger.dataset.metric);
   else if (action === 'pace-generate') generatePaceProposals();
   else if (action === 'pace-decide') decidePaceProposals(trigger.dataset.decision, trigger.dataset.id);
   else if (action === 'strength-tab') strengthTab(trigger.dataset.tab);
@@ -3358,103 +3360,220 @@ HEALTH DATA (current):
   const fmtDur = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h>0?h+'h '+m+'m':m+' min'; };
   const fmtDateStr = s => new Date(s).toLocaleDateString('sv-SE',{weekday:'short',day:'numeric',month:'short'});
 
-  // ANALYSIS — fitness-trender + förändringstakt (derivata)
-  function fmtMetric(v, fmt) {
-    if (v == null) return '–';
-    if (fmt === 'pace') { const m = Math.floor(v/60), s = Math.round(v%60); return m + ':' + String(s).padStart(2,'0'); }
-    if (fmt === 'load') return Math.round(v).toString();
-    if (fmt === 1) return v.toFixed(1);
-    return Math.round(v).toString();
-  }
-  function sparkline(series, fmt, good) {
-    if (!series || series.length < 2) return '';
-    const W = 200, H = 46, p = 4;
-    const vs = series.map(d => d.v);
-    let lo = Math.min(...vs), hi = Math.max(...vs);
-    if (hi === lo) { hi += 1; lo -= 1; }
-    const t0 = new Date(series[0].t).getTime(), t1 = new Date(series[series.length-1].t).getTime();
-    const tspan = Math.max(1, t1 - t0);
-    const X = ms => p + ((ms - t0) / tspan) * (W - 2*p);
-    const Y = v => p + (1 - (v - lo) / (hi - lo)) * (H - 2*p);
-    const pts = series.map(d => ({ x: X(new Date(d.t).getTime()), y: Y(d.v), ms: new Date(d.t).getTime() }));
-    let path = '';
-    for (let i = 0; i < pts.length; i++) {
-      const gap = i > 0 && (pts[i].ms - pts[i-1].ms) > 5*86400000; // bryt vid >5 dagars glapp
-      path += (i === 0 || gap ? 'M' : 'L') + pts[i].x.toFixed(1) + ' ' + pts[i].y.toFixed(1) + ' ';
+  // ANALYS — en sammanhållen bild av utveckling, genomförande och mål.
+  let analysisData = null;
+  let analysisWindowDays = 60;
+  let analysisMetricKey = 'vo2max';
+
+  const ANALYSIS_DIRECTIONS = {
+    improving: ['↗', 'Förbättras'], declining: ['↘', 'Behöver vändas'],
+    stable: ['→', 'Stabil'], rising: ['↑', 'Stiger'], falling: ['↓', 'Sjunker'],
+    unknown: ['·', 'Samlar data'],
+  };
+
+  function analysisMetricValue(value, fmt) {
+    if (value == null) return '–';
+    if (fmt === 'pace') {
+      const minutes = Math.floor(value / 60);
+      return minutes + ':' + String(Math.round(value % 60)).padStart(2, '0');
     }
-    const last = pts[pts.length-1];
-    const col = 'var(--muted2)';
-    return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" style="display:block;">
-      <path d="${path}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.8"/>
-      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="2.5" fill="var(--text)"/>
+    if (fmt === 1) return Number(value).toFixed(1);
+    return Math.round(value).toLocaleString('sv-SE');
+  }
+
+  function analysisUnit(metric) {
+    if (metric.latest == null) return '';
+    if (metric.fmt === 'pace') return '/km';
+    return metric.unit || '';
+  }
+
+  function analysisRate(metric) {
+    const value = metric.slopePerWeek;
+    if (value == null || metric.samples < 2) return metric.samples ? 'Behöver mer historik' : 'Ingen Garmin-data';
+    const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+    const amount = metric.fmt === 'pace'
+      ? Math.abs(value).toFixed(1) + ' s/km'
+      : (Math.abs(value) < 1 ? Math.abs(value).toFixed(2) : Math.abs(value).toFixed(1)) + (metric.unit ? ' ' + metric.unit : '');
+    return `${sign}${amount} per vecka`;
+  }
+
+  function analysisMiniLine(series) {
+    if (!series || series.length < 2) return '<svg class="an-mini-line"></svg>';
+    const W = 180, H = 28, pad = 2;
+    const values = series.map(p => Number(p.v));
+    let lo = Math.min(...values), hi = Math.max(...values);
+    if (hi === lo) { hi += 1; lo -= 1; }
+    const points = values.map((v, i) => [pad + i / (values.length - 1) * (W - pad * 2), pad + (1 - (v - lo) / (hi - lo)) * (H - pad * 2)]);
+    const path = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    return `<svg class="an-mini-line" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <path d="${path}" fill="none" stroke="var(--muted2)" stroke-width="1.5" opacity=".7" vector-effect="non-scaling-stroke"/>
     </svg>`;
   }
+
+  function renderAnalysisChart() {
+    if (!analysisData) return;
+    const metrics = (analysisData.metrics || []).filter(m => m.samples > 0);
+    if (!metrics.some(m => m.key === analysisMetricKey)) analysisMetricKey = metrics[0]?.key || '';
+    const tabs = document.getElementById('an-metric-tabs');
+    tabs.innerHTML = metrics.map(m => `<button class="an-metric-tab ${m.key === analysisMetricKey ? 'active' : ''}"
+      data-action="analysis-metric" data-metric="${escapeHtml(m.key)}">${escapeHtml(m.label)}</button>`).join('');
+
+    const metric = metrics.find(m => m.key === analysisMetricKey);
+    const chart = document.getElementById('an-chart');
+    const note = document.getElementById('an-chart-note');
+    if (!metric || metric.series.length < 2) {
+      chart.innerHTML = '<div class="an-chart-empty">Behöver minst två mätningar för att rita en kurva.</div>';
+      note.textContent = metric ? analysisRate(metric) : 'Ingen historik ännu';
+      return;
+    }
+    const W = 720, H = 190, left = 48, right = 16, top = 18, bottom = 28;
+    const values = metric.series.map(p => Number(p.v));
+    let lo = Math.min(...values), hi = Math.max(...values);
+    const margin = Math.max((hi - lo) * .18, metric.fmt === 'pace' ? 2 : .5);
+    lo -= margin; hi += margin;
+    const t0 = new Date(metric.series[0].t).getTime();
+    const t1 = new Date(metric.series.at(-1).t).getTime();
+    const x = t => left + ((new Date(t).getTime() - t0) / Math.max(1, t1 - t0)) * (W - left - right);
+    const y = v => top + (1 - (v - lo) / Math.max(1, hi - lo)) * (H - top - bottom);
+    const pts = metric.series.map(p => [x(p.t), y(Number(p.v))]);
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    const area = `${line} L${pts.at(-1)[0].toFixed(1)} ${H-bottom} L${pts[0][0].toFixed(1)} ${H-bottom} Z`;
+    const dateFmt = value => new Date(value).toLocaleDateString('sv-SE', {day:'numeric', month:'short'});
+    const unit = analysisUnit(metric);
+    const dm = ANALYSIS_DIRECTIONS[metric.direction] || ANALYSIS_DIRECTIONS.unknown;
+    note.textContent = `${dm[0]} ${dm[1]} · ${analysisRate(metric)}`;
+    chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${escapeHtml(metric.label)} över tid">
+      <defs><linearGradient id="an-chart-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C8F135" stop-opacity=".18"/><stop offset="1" stop-color="#C8F135" stop-opacity="0"/></linearGradient></defs>
+      ${[0,.5,1].map(f => `<line class="an-chart-grid" x1="${left}" x2="${W-right}" y1="${(top+f*(H-top-bottom)).toFixed(1)}" y2="${(top+f*(H-top-bottom)).toFixed(1)}"/>`).join('')}
+      <path class="an-chart-area" d="${area}"/><path class="an-chart-line" d="${line}" vector-effect="non-scaling-stroke"/>
+      <circle class="an-chart-dot" cx="${pts.at(-1)[0].toFixed(1)}" cy="${pts.at(-1)[1].toFixed(1)}" r="4" vector-effect="non-scaling-stroke"/>
+      <text class="an-chart-label" x="${left-7}" y="${top+4}" text-anchor="end">${analysisMetricValue(hi-margin, metric.fmt)}</text>
+      <text class="an-chart-label" x="${left-7}" y="${H-bottom}" text-anchor="end">${analysisMetricValue(lo+margin, metric.fmt)}</text>
+      <text class="an-chart-label" x="${left}" y="${H-7}">${dateFmt(metric.series[0].t)}</text>
+      <text class="an-chart-label" x="${W-right}" y="${H-7}" text-anchor="end">${dateFmt(metric.series.at(-1).t)}</text>
+      <text class="an-chart-label" x="${W-right}" y="${top+4}" text-anchor="end">${analysisMetricValue(metric.latest, metric.fmt)} ${escapeHtml(unit)}</text>
+    </svg>`;
+  }
+
+  function renderAnalysisVolume(volume) {
+    const weeks = volume.weeks || [];
+    const peak = Math.max(1, ...weeks.map(w => w.km));
+    document.getElementById('an-volume-bars').innerHTML = weeks.map((week, index) => `
+      <div class="an-volume-bar-wrap"><div class="an-volume-bar ${index === weeks.length - 1 ? 'current' : ''}"
+        style="height:${Math.max(2, week.km / peak * 125).toFixed(1)}px" title="${week.km} km · ${week.sessions} pass"><span>${week.km || ''}</span></div>
+        <span>${escapeHtml(week.label)}</span></div>`).join('');
+    const delta = volume.delta7Pct;
+    document.getElementById('an-volume-summary').innerHTML = `
+      <div><span>7 dygn</span><strong>${volume.current7Km ?? 0} km</strong></div>
+      <div><span>4 veckor snitt</span><strong>${volume.average4WeeksKm ?? 0} km</strong></div>
+      <div><span>Mot föregående</span><strong>${delta == null ? '–' : (delta > 0 ? '+' : '') + delta + '%'}</strong></div>`;
+  }
+
+  function renderAnalysisGoal(goal) {
+    const el = document.getElementById('an-goal');
+    if (!goal?.title) {
+      el.innerHTML = '<p class="an-empty">Sätt ett träningsmål så visar analysen hur nuvarande kapacitet förhåller sig till det.</p>';
+      return;
+    }
+    const f = goal.feasibility;
+    const verdicts = {within_reach:['Inom räckhåll','good'], stretch:['Utmanande','warn'], out_of_reach:['Gap kvar','warn']};
+    const verdict = verdicts[f?.verdict] || ['Samlar tempodata',''];
+    const capable = f?.currentCapablePace || goal.anchor?.ltPace || '–';
+    const target = f?.goalPace || goal.goalPace?.pace || '–';
+    const progress = f ? Math.max(8, Math.min(100, 100 - Math.max(0, f.gapSec || 0) * 2.5)) : 12;
+    const deadline = goal.deadline ? new Date(goal.deadline + 'T12:00:00').toLocaleDateString('sv-SE',{day:'numeric',month:'short',year:'numeric'}) : null;
+    el.innerHTML = `<div class="an-goal-title">${escapeHtml(goal.title)}</div>
+      <div class="an-goal-meta">${deadline ? `<span class="an-chip">${escapeHtml(deadline)}</span>` : ''}
+        ${goal.daysLeft != null ? `<span class="an-chip">${goal.daysLeft} dagar kvar</span>` : ''}
+        <span class="an-chip ${verdict[1] ? 'an-chip-' + verdict[1] : ''}">${verdict[0]}</span></div>
+      <div class="an-goal-track"><i style="width:${progress}%"></i></div>
+      <p class="an-goal-copy">Målfart <strong>${escapeHtml(target)}</strong> · nuvarande uppskattad kapacitet <strong>${escapeHtml(capable)}</strong>.
+        ${f?.gapSec > 0 ? `Gapet är cirka ${f.gapSec} sekunder per kilometer.` : f ? 'Kapaciteten stödjer målfarten just nu.' : 'Fler tröskelmätningar krävs för en ärlig bedömning.'}</p>`;
+  }
+
+  function renderAnalysisExecution(execution) {
+    const adherence = execution.adherencePct;
+    const quality = execution.qualityPct;
+    document.getElementById('an-execution').innerHTML = `<div class="an-execution-grid">
+      <div class="an-execution-stat"><span>Genomförda</span><strong>${execution.completed ?? 0}</strong></div>
+      <div class="an-execution-stat"><span>Missade</span><strong>${execution.missed ?? 0}</strong></div>
+      <div class="an-execution-stat"><span>Utvärderade</span><strong>${execution.evaluated ?? 0}</strong></div>
+      </div><p class="an-execution-note">${adherence == null ? 'Inga avgjorda planpass i perioden ännu.' : `${adherence}% planföljsamhet.`}
+      ${quality == null ? ' När fler pass har tempo-, puls- eller styrkedata visas även kvaliteten.' : ` ${quality}% av utvärderade pass genomfördes utan tydliga avvikelser.`}</p>`;
+  }
+
+  function renderAnalysis(data) {
+    analysisData = data;
+    const overview = data.overview || {};
+    const volume = data.volume || {};
+    const execution = data.execution || {};
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    const colors = {building:'var(--accent)',steady:'var(--blue)',attention:'var(--amber)',collecting:'var(--muted2)'};
+    const ring = document.getElementById('an-score-ring');
+    ring.style.strokeDashoffset = 358.14 * (1 - (overview.score || 0) / 100);
+    ring.style.stroke = colors[overview.status] || 'var(--accent)';
+    setText('an-score', overview.score ?? '–');
+    setText('an-verdict', overview.title || 'Samlar en tydligare trendbild');
+    setText('an-confidence', `UNDERLAG ${overview.confidencePct ?? 0}% · ${overview.signals ?? 0} TRENDMARKÖRER`);
+    setText('an-volume', `${volume.current7Km ?? 0} km`);
+    const delta = volume.delta7Pct;
+    setText('an-volume-sub', `${volume.current7Sessions ?? 0} pass${delta == null ? '' : ` · ${delta > 0 ? '+' : ''}${delta}% mot föregående 7 dygn`}`);
+    setText('an-adherence', execution.adherencePct == null ? '–' : execution.adherencePct + '%');
+    setText('an-adherence-sub', `${execution.completed ?? 0} genomförda · ${execution.missed ?? 0} missade`);
+    setText('an-quality', execution.qualityPct == null ? '–' : execution.qualityPct + '%');
+    setText('an-quality-sub', execution.evaluated ? `${execution.onTarget} av ${execution.evaluated} utvärderade pass` : 'Behöver pass med utförandedata');
+    const threshold = (data.metrics || []).find(m => m.key === 'lt_pace');
+    setText('an-threshold', threshold?.latest != null ? analysisMetricValue(threshold.latest, 'pace') + '/km' : '–');
+    setText('an-threshold-sub', threshold ? analysisRate(threshold) : 'Ingen tröskeldata');
+
+    const priorities = overview.priorities || [];
+    document.getElementById('an-focus').innerHTML = '<div class="an-focus-label">Fokus nu</div>' + priorities.map(p =>
+      `<div class="an-priority an-priority-${escapeHtml(p.tone || 'neutral')}"><strong>${escapeHtml(p.title)}</strong><span>${escapeHtml(p.detail)}</span></div>`).join('');
+
+    document.getElementById('an-metrics').innerHTML = (data.metrics || []).map(metric => {
+      const dm = ANALYSIS_DIRECTIONS[metric.direction] || ANALYSIS_DIRECTIONS.unknown;
+      return `<div class="an-metric" data-action="analysis-metric" data-metric="${escapeHtml(metric.key)}" role="button" tabindex="0">
+        <div class="an-metric-top"><span class="an-metric-name">${escapeHtml(metric.label)}</span>
+          <span class="an-direction an-direction-${escapeHtml(metric.direction)}">${dm[0]} ${dm[1]}</span></div>
+        <div class="an-metric-value">${analysisMetricValue(metric.latest, metric.fmt)} <small>${escapeHtml(analysisUnit(metric))}</small></div>
+        <div class="an-metric-rate">${escapeHtml(analysisRate(metric))}</div>${analysisMiniLine(metric.series)}</div>`;
+    }).join('');
+
+    renderAnalysisChart();
+    renderAnalysisVolume(volume);
+    renderAnalysisGoal(data.goal);
+    renderAnalysisExecution(execution);
+  }
+
+  function selectAnalysisMetric(key) {
+    analysisMetricKey = key || analysisMetricKey;
+    renderAnalysisChart();
+    document.querySelector('.an-trend-card')?.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  function setAnalysisWindow(days) {
+    if (![30, 60, 90].includes(days) || days === analysisWindowDays) return;
+    analysisWindowDays = days;
+    document.querySelectorAll('.an-window-btn').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.days) === days));
+    loadAnalysis();
+  }
+
   async function loadAnalysis() {
-    const grid = document.getElementById('analysis-grid');
-    const summary = document.getElementById('analysis-summary');
-    grid.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'IBM Plex Mono\',monospace;">Laddar trender…</div>';
+    const loading = document.getElementById('analysis-loading');
+    const content = document.getElementById('analysis-content');
+    loading.style.display = 'block';
+    loading.textContent = 'Bygger din trendbild…';
+    content.style.display = 'none';
     try {
-      const res = await fetch('/api/analysis');
-      const d = await res.json();
-      const statusMap = {
-        BALANCED:   ['badge-green','Balanserad'],
-        UNBALANCED: ['badge-amber','HRV i obalans'],
-        LOW:        ['badge-red','Låg'],
-        POOR:       ['badge-red','Dålig'],
-      };
-      const st = (d.hrv_status || '').toUpperCase();
-      const sm = statusMap[st];
-      if (sm) sm[1] = getHrvStatusLabel(st) || sm[1];
-      summary.innerHTML = `
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);">
-          <span>Trender över de senaste ${d.window_days} dagarna. Pilarna visar förändringens riktning (derivatan), inte bara dagens värde.</span>
-          <span class="today-badge badge-amber">Hälso-rader: ${d.health_rows ?? 0}</span>
-          <span class="today-badge badge-amber">Mätvärdes-rader: ${d.metric_rows ?? 0}</span>
-          ${sm ? `<span class="today-badge ${sm[0]}">HRV-status: ${sm[1]}</span>` : ''}
-        </div>`;
-      const dirMeta = {
-        improving: ['↗', 'var(--green)', 'Förbättras'],
-        declining: ['↘', 'var(--red)',   'Försämras'],
-        stable:    ['→', 'var(--muted2)','Stabil'],
-        unknown:   ['·', 'var(--muted)', 'Samlar…'],
-      };
-      grid.innerHTML = d.metrics.map(m => {
-        const dm = dirMeta[m.direction] || dirMeta.unknown;
-        const samples = m.samples ?? (m.series ? m.series.length : 0);
-        const hasValue = samples >= 1;
-        const hasTrend = samples >= 2;
-        let rate = '';
-        if (hasTrend && m.slopePerWeek != null) {
-          const sign = m.slopePerWeek > 0 ? '+' : '';
-          const rateVal = m.fmt === 'pace'
-            ? (m.slopePerWeek > 0 ? '+' : '−') + fmtMetric(Math.abs(m.slopePerWeek), 'pace')
-            : sign + (Math.abs(m.slopePerWeek) < 1 ? m.slopePerWeek.toFixed(2) : m.slopePerWeek.toFixed(1));
-          rate = `${rateVal} ${m.unit === 'pace' ? '/km' : m.unit}/wk`;
-        }
-        const pct = (hasTrend && m.pctChange != null) ? `${m.pctChange > 0 ? '+' : ''}${m.pctChange}% över perioden` : (hasValue ? `${samples} mätning${samples === 1 ? '' : 'ar'}` : 'Ingen Garmin-data');
-        const valStr = m.latest != null ? fmtMetric(m.latest, m.fmt) : '–';
-        const unitStr = m.unit && m.unit !== 'pace' ? ` <span style="font-size:13px;color:var(--muted);font-weight:500;">${m.unit}</span>` : (m.unit === 'pace' && m.latest != null ? ' <span style="font-size:13px;color:var(--muted);font-weight:500;">/km</span>' : '');
-        return `
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-              <span style="font-size:12px;font-weight:600;letter-spacing:0.02em;color:var(--muted3);">${escapeHtml(m.label)}</span>
-              <span style="font-size:11px;font-weight:700;color:${dm[1]};white-space:nowrap;">${dm[0]} ${dm[2]}</span>
-            </div>
-            <div style="font-size:26px;font-weight:800;letter-spacing:-0.5px;font-variant-numeric:tabular-nums;">${valStr}${unitStr}</div>
-            ${hasTrend ? sparkline(m.series, m.fmt, m.good) : `<div style="height:46px;display:flex;align-items:center;color:var(--muted);font-size:11px;font-family:'IBM Plex Mono',monospace;">${hasValue ? 'Behöver mer historik för trend' : 'Väntar på Garmin-mätvärde'}</div>`}
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace;">
-              <span style="color:${dm[1]};">${rate}</span>
-              <span>${pct}</span>
-            </div>
-          </div>`;
-      }).join('');
-      if (!grid.style.display) {
-        grid.style.display = 'grid';
-        grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(220px, 1fr))';
-        grid.style.gap = '14px';
-      }
-    } catch(e) {
-      grid.innerHTML = '<div style="color:var(--red);font-size:13px;">Kunde inte ladda analys: ' + escapeHtml(e.message) + '</div>';
+      const response = await fetch(`/api/analysis?days=${analysisWindowDays}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Analysen kunde inte hämtas.');
+      renderAnalysis(data);
+      loading.style.display = 'none';
+      content.style.display = 'block';
+    } catch (error) {
+      loading.textContent = 'Kunde inte ladda analysen: ' + error.message;
+      loading.style.color = 'var(--red)';
     }
   }
 

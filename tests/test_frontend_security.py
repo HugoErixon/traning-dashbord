@@ -29,7 +29,7 @@ class FrontendSecurityTests(unittest.TestCase):
     def test_user_and_ai_content_is_escaped_before_html_rendering(self):
         self.assertIn("escapeHtml(msg)", self.app)
         self.assertIn("const reply = escapeHtml(raw)", self.app)
-        self.assertIn("escapeHtml(n.text)", self.app)
+        self.assertIn("escapeHtml(j.text)", self.app)
         self.assertIn("escapeHtml(it.title", self.app)
         self.assertIn("escapeHtml(ev.title)", self.app)
 

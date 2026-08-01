@@ -90,7 +90,7 @@ class LlmAdapterTests(unittest.TestCase):
              mock.patch.object(garmin_server, 'ANTHROPIC_KEY', 'sk-ant-riktig'):
             self.assertTrue(garmin_server.llm_available())
 
-    def test_chat_endpoint_uses_adapter(self):
+    def test_assistant_endpoint_uses_adapter(self):
         garmin_server.app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
         garmin_server.LOGIN_LIMITER.clear()
         client = garmin_server.app.test_client()
@@ -101,7 +101,7 @@ class LlmAdapterTests(unittest.TestCase):
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
              mock.patch.object(garmin_server.requests, 'post',
                                return_value=FakeResponse(gemini_payload('Kör ett lugnt pass idag.'))):
-            response = client.post('/api/chat', json={'message': 'Vad ska jag träna idag?'},
+            response = client.post('/api/assistant', json={'message': 'Vad ska jag träna idag?'},
                                    headers={'X-CSRF-Token': csrf})
 
         self.assertEqual(response.status_code, 200)

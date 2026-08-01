@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Träningsdashboard</title>
+  <title>Trainyze</title>
+  <meta name="theme-color" content="#0D0F14">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -711,12 +716,75 @@
       <div id="cal-container"></div>
     </div>
 
-    <!-- REKORD -->
-    <!-- STYRKA -->
+    <!-- ANALYS -->
     <div class="page" id="page-analysis">
-      <div class="page-header"><h2>Analys</h2><p>Formtrender och deras förändringstakt — HRV-status, uthållighet, mjölksyratröskel med mera</p></div>
-      <div id="analysis-summary" style="margin-bottom:18px;"></div>
-      <div id="analysis-grid"><div style="color:var(--muted);font-size:13px;font-family:'IBM Plex Mono',monospace;">Laddar trender…</div></div>
+      <div class="page-header an-page-head">
+        <div><h2>Analys</h2><p>Vad som faktiskt utvecklas, vad som håller dig tillbaka och vad du bör göra härnäst</p></div>
+        <div class="an-window" role="group" aria-label="Analysperiod">
+          <button class="an-window-btn" data-action="analysis-window" data-days="30">30 d</button>
+          <button class="an-window-btn active" data-action="analysis-window" data-days="60">60 d</button>
+          <button class="an-window-btn" data-action="analysis-window" data-days="90">90 d</button>
+        </div>
+      </div>
+
+      <div id="analysis-loading" class="an-loading">Bygger din trendbild…</div>
+      <div id="analysis-content" style="display:none;">
+        <section class="an-hero">
+          <div class="an-hero-score">
+            <div class="an-ring">
+              <svg viewBox="0 0 132 132" aria-hidden="true">
+                <circle class="an-ring-track" cx="66" cy="66" r="57" fill="none" stroke-width="10"/>
+                <circle id="an-score-ring" class="an-ring-fill" cx="66" cy="66" r="57" fill="none"
+                  stroke="var(--accent)" stroke-width="10" stroke-linecap="round"
+                  stroke-dasharray="358.14" stroke-dashoffset="358.14" transform="rotate(-90 66 66)"/>
+              </svg>
+              <div class="an-ring-center"><strong id="an-score">–</strong><span>TRENDPOÄNG</span></div>
+            </div>
+            <div class="an-hero-verdict" id="an-verdict">Samlar data…</div>
+            <div class="an-confidence" id="an-confidence"></div>
+          </div>
+          <div class="an-hero-facts">
+            <div class="an-fact"><span class="an-fact-label">Löpning · 7 dygn</span>
+              <strong class="an-fact-val" id="an-volume">–</strong><span class="an-fact-sub" id="an-volume-sub"></span></div>
+            <div class="an-fact"><span class="an-fact-label">Planföljsamhet</span>
+              <strong class="an-fact-val" id="an-adherence">–</strong><span class="an-fact-sub" id="an-adherence-sub"></span></div>
+            <div class="an-fact"><span class="an-fact-label">Pass på rätt nivå</span>
+              <strong class="an-fact-val" id="an-quality">–</strong><span class="an-fact-sub" id="an-quality-sub"></span></div>
+            <div class="an-fact"><span class="an-fact-label">Tröskelfart</span>
+              <strong class="an-fact-val" id="an-threshold">–</strong><span class="an-fact-sub" id="an-threshold-sub"></span></div>
+          </div>
+        </section>
+
+        <section class="an-focus" id="an-focus"></section>
+
+        <section class="an-grid-2">
+          <div class="an-card an-trend-card">
+            <div class="an-card-head"><div><span class="an-card-title">Utvecklingskurva</span>
+              <span class="an-card-note" id="an-chart-note"></span></div></div>
+            <div class="an-metric-tabs" id="an-metric-tabs"></div>
+            <div class="an-chart" id="an-chart"></div>
+          </div>
+          <div class="an-card">
+            <div class="an-card-head"><div><span class="an-card-title">Löpvolym</span>
+              <span class="an-card-note">Kalenderveckor · aktuell vecka är pågående</span></div></div>
+            <div class="an-volume-bars" id="an-volume-bars"></div>
+            <div class="an-volume-summary" id="an-volume-summary"></div>
+          </div>
+        </section>
+
+        <section class="an-card">
+          <div class="an-card-head"><div><span class="an-card-title">Alla markörer</span>
+            <span class="an-card-note">Riktningen tar hänsyn till naturligt mätbrus</span></div></div>
+          <div class="an-metrics" id="an-metrics"></div>
+        </section>
+
+        <section class="an-grid-2 an-bottom-grid">
+          <div class="an-card"><div class="an-card-head"><span class="an-card-title">Vägen mot målet</span></div>
+            <div id="an-goal"></div></div>
+          <div class="an-card"><div class="an-card-head"><span class="an-card-title">Plan mot verklighet</span></div>
+            <div id="an-execution"></div></div>
+        </section>
+      </div>
     </div>
 
     <!-- STRENGTH -->
