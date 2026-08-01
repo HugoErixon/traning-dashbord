@@ -23,6 +23,11 @@ REM_RANGE = (20, 25)
 # forty minutes apart rather than twenty-three hours.
 _BEDTIME_ORIGIN_H = 18
 
+# Only 18:00–06:00 counts as going to bed for the night. Garmin sometimes
+# records a long afternoon nap as the day's main sleep, and letting that
+# through would make an otherwise regular schedule look erratic.
+_BEDTIME_WINDOW_MIN = 12 * 60
+
 
 def _hhmm_to_minutes(value):
     """Accept 'HH:MM', ISO timestamps or minute counts; return minutes or None."""
@@ -96,10 +101,15 @@ def bedtime_consistency(nights, days=14):
     reported on its own rather than folded into the sleep score.
     """
     offsets = []
+    naps = 0
     for night in nights[:days]:
         offset = _bedtime_offset(_hhmm_to_minutes(night.get('sleep_start')))
-        if offset is not None:
-            offsets.append(offset)
+        if offset is None:
+            continue
+        if offset > _BEDTIME_WINDOW_MIN:
+            naps += 1  # daytime sleep, not a bedtime
+            continue
+        offsets.append(offset)
     if len(offsets) < 3:
         return None
 
@@ -113,6 +123,7 @@ def bedtime_consistency(nights, days=14):
         verdict = 'irregular'
     return {
         'nights': len(offsets),
+        'napsExcluded': naps,
         'spreadMin': round(spread),
         'averageBedtime': format_clock(average + _BEDTIME_ORIGIN_H * 60),
         'earliest': format_clock(min(offsets) + _BEDTIME_ORIGIN_H * 60),

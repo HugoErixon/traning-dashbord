@@ -71,6 +71,20 @@ class ConsistencyTests(unittest.TestCase):
 
         self.assertEqual(result['verdict'], 'irregular')
 
+    def test_a_daytime_nap_is_not_treated_as_a_bedtime(self):
+        # Garmin logged a 14:49 afternoon sleep as the day's main session;
+        # counting it as a bedtime made a regular schedule look erratic.
+        nights = [night('2026-07-31', start='2026-07-31 23:30'),
+                  night('2026-07-30', start='2026-07-30 23:45'),
+                  night('2026-07-29', start='2026-07-29 23:20'),
+                  night('2026-07-26', start='2026-07-26 14:49')]
+        result = bedtime_consistency(nights)
+
+        self.assertEqual(result['nights'], 3)
+        self.assertEqual(result['napsExcluded'], 1)
+        self.assertEqual(result['verdict'], 'steady')
+        self.assertEqual(result['latest'], '23:45')
+
     def test_too_few_nights_gives_no_verdict(self):
         self.assertIsNone(bedtime_consistency([night('2026-07-31', start='23:00')]))
 
