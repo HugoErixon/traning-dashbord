@@ -3900,11 +3900,13 @@ HEALTH DATA (current):
       km.textContent         = totalKm > 0 ? totalKm.toFixed(1) + ' km' : timeStr;
       km.style.color         = col;
 
-      // Säg hur passet gick, inte bara att det blev av.
+      // Säg hur passet gick, inte bara att det blev av. Rubriken ovanför
+      // namnger redan passet, så raden används till siffrorna i stället.
       const execution = findPlanSessionForDate(todayKey)?.execution;
       const verdictLines = executionDetailLines(execution);
-      detail.textContent = verdictLines.length
-        ? detailStr + '  ·  ' + verdictLines.join('  ·  ')
+      detail.textContent = verdictLines.length ? verdictLines.join('  ·  ') : detailStr;
+      detail.title = verdictLines.length
+        ? [detailStr, ...verdictLines].join('\n')
         : detailStr;
       if (execution?.headline) {
         type.textContent  = execution.headline.toUpperCase();
