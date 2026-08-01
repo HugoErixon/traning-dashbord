@@ -38,6 +38,13 @@ class PaceParsingTests(unittest.TestCase):
         self.assertEqual(target['distanceM'], 1000)
         self.assertEqual(target['paceSec'], 210)
 
+    def test_reads_time_based_rep_target(self):
+        target = parse_rep_target('Tröskelintervaller · 6×6 min @ 3:50/km · 90 s vila')
+        self.assertEqual(target['count'], 6)
+        self.assertEqual(target['durationSec'], 360)
+        self.assertEqual(target['paceSec'], 230)
+        self.assertIsNone(target['distanceM'])
+
     def test_formats_pace_back_to_text(self):
         self.assertEqual(format_pace(305), '5:05/km')
 
@@ -127,6 +134,30 @@ class RunAnalysisTests(unittest.TestCase):
         self.assertGreater(result['fadePct'], 3)
         self.assertIn('faded_across_reps', result['flags'])
 
+    def test_time_based_intervals_are_judged_against_the_session_pace(self):
+        # "6×6 min" states no distance, so the session's own target pace is
+        # what the reps were meant to hold.
+        planned = {'type': 'run', 'km': 12, 'title': 'Tröskelintervaller · 6×6 min',
+                   'detail': '6×6 min @ 3:50/km · 90 s vila'}
+        # 1500 m in 6:02 is 4:01/km — a clear 5% off the 3:50/km target.
+        laps = normalize_laps({'lapDTOs': [lap(1500, 362), lap(1500, 365), lap(1500, 368)]})
+        result = analyze_run({'distance': 12000, 'duration': 4200}, laps, planned)
+
+        self.assertEqual(result['kind'], 'interval')
+        self.assertEqual(result['repVerdict'], 'too_slow')
+        self.assertIn('reps_below_target_pace', result['flags'])
+
+    def test_easy_run_taken_slower_is_not_treated_as_a_miss(self):
+        planned = {'type': 'easy', 'km': 8, 'title': 'Lugn distans',
+                   'detail': 'Z2 · 4:50–5:05/km'}
+        activity = {'distance': 8000, 'duration': 8 * 377}  # 6:17/km
+        result = analyze_run(activity, [], planned)
+
+        self.assertEqual(result['paceVerdict'], 'too_slow')
+        self.assertIn('easy_run_slower_than_target', result['flags'])
+        self.assertNotIn('slower_than_target', result['flags'])
+        self.assertEqual(headline_for(result), 'Lugnare än måltempo')
+
     def test_session_cut_short_is_flagged(self):
         planned = {'type': 'easy', 'km': 10, 'detail': 'Z2 · 5:00–5:20/km'}
         activity = {'distance': 6000, 'duration': 6 * 310}
@@ -172,6 +203,17 @@ class StrengthAnalysisTests(unittest.TestCase):
         result = analyze_strength(logged, recommendations)
 
         self.assertIn('missed_sets', result['flags'])
+
+    def test_on_target_is_not_claimed_when_sets_were_missed(self):
+        # The weight was right but the session was cut — reporting both
+        # "missed sets" and "on target" reads as contradictory.
+        logged = [{'exercise': 'Marklyft', 'sets': 2, 'reps': '5', 'weight': 120}]
+        recommendations = [{'canonical': 'deadlift', 'exercise': 'Marklyft',
+                            'sets': 4, 'reps': 5, 'weight': 120}]
+        result = analyze_strength(logged, recommendations)
+
+        self.assertNotIn('strength_on_target', result['flags'])
+        self.assertEqual(headline_for(result), 'Färre set än planerat')
 
 
 if __name__ == '__main__':

@@ -3738,7 +3738,9 @@ HEALTH DATA (current):
 
   // Utvärderingen av ett genomfört pass (se session_analysis.py). Allt utom
   // dessa två flaggor är något att åtgärda, inte att berömma.
-  const EXECUTION_POSITIVE_FLAGS = new Set(['negative_split_reps', 'strength_on_target']);
+  const EXECUTION_POSITIVE_FLAGS = new Set([
+    'negative_split_reps', 'strength_on_target', 'easy_run_slower_than_target',
+  ]);
 
   function executionIsPositive(execution) {
     const flags = execution?.flags || [];

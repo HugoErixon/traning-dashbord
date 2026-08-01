@@ -22,6 +22,8 @@ _PACE_RANGE_RE = re.compile(
 _PACE_SINGLE_RE = re.compile(r'(\d{1,2}):(\d{2})\s*/\s*km', re.I)
 _ZONE_RE = re.compile(r'\bZ([1-5])\b', re.I)
 _REPS_RE = re.compile(r'(\d{1,2})\s*[×x*]\s*(\d{2,5})\s*(m|km)\b', re.I)
+# Kvalitetspass anges lika ofta i tid som i meter ("6×6 min tröskel").
+_REPS_TIME_RE = re.compile(r'(\d{1,2})\s*[×x*]\s*(\d{1,3})\s*(min|sek|s)\b', re.I)
 
 # Session kinds we can judge differently. `easy` is the one where running too
 # fast is the actual mistake, so it gets its own bucket.
@@ -72,18 +74,32 @@ def parse_pace_target(detail):
 
 
 def parse_rep_target(detail):
-    """Extract '5×1000m @ 3:30/km' -> {'count', 'distanceM', 'paceSec'}."""
+    """Extract a rep prescription from plan text.
+
+    Handles both distance reps ('5×1000m @ 3:30/km') and time reps
+    ('6×6 min @ 3:50/km'); returns {'count', 'distanceM', 'durationSec',
+    'paceSec'} with whichever dimension the plan stated.
+    """
     text = str(detail or '')
     match = _REPS_RE.search(text)
-    if not match:
-        return None
-    distance = float(match.group(2))
-    if match.group(3).lower() == 'km':
-        distance *= 1000
-    target = {'count': int(match.group(1)), 'distanceM': distance, 'paceSec': None}
+    target = None
+    if match:
+        distance = float(match.group(2))
+        if match.group(3).lower() == 'km':
+            distance *= 1000
+        target = {'count': int(match.group(1)), 'distanceM': distance,
+                  'durationSec': None, 'paceSec': None}
+    else:
+        match = _REPS_TIME_RE.search(text)
+        if not match:
+            return None
+        unit = match.group(3).lower()
+        seconds = float(match.group(2)) * (60 if unit == 'min' else 1)
+        target = {'count': int(match.group(1)), 'distanceM': None,
+                  'durationSec': seconds, 'paceSec': None}
+
     # Pace stated after the rep spec belongs to the reps themselves.
-    tail = text[match.end():]
-    pace = parse_pace_target(tail) or parse_pace_target(text)
+    pace = parse_pace_target(text[match.end():]) or parse_pace_target(text)
     if pace:
         target['paceSec'] = pace['lowSec']
     return target
@@ -278,9 +294,15 @@ def analyze_run(activity, laps=None, planned=None, lactate_hr=None):
     rep_paces = [rep['paceSec'] for rep in result['reps'] if rep['paceSec']]
 
     if result['kind'] == 'interval' and rep_paces:
+        # The rep pace is the yardstick; when the plan only states an overall
+        # target pace, that is what the reps were meant to hit.
+        rep_band = None
         if rep_target and rep_target.get('paceSec'):
-            band = {'lowSec': rep_target['paceSec'], 'highSec': rep_target['paceSec']}
-            result['repVerdict'], result['repDeltaPct'] = _pace_verdict(_mean(rep_paces), band)
+            rep_band = {'lowSec': rep_target['paceSec'], 'highSec': rep_target['paceSec']}
+        elif target_pace:
+            rep_band = target_pace
+        if rep_band:
+            result['repVerdict'], result['repDeltaPct'] = _pace_verdict(_mean(rep_paces), rep_band)
             if result['repVerdict'] == 'too_slow':
                 result['flags'].append('reps_below_target_pace')
             elif result['repVerdict'] == 'too_fast':
@@ -308,7 +330,11 @@ def analyze_run(activity, laps=None, planned=None, lactate_hr=None):
         elif result['paceVerdict'] == 'too_fast':
             result['flags'].append('faster_than_target')
         elif result['paceVerdict'] == 'too_slow':
-            result['flags'].append('slower_than_target')
+            # Taking an easy day genuinely easy is correct behaviour, not a
+            # miss — only quality sessions owe the plan a pace.
+            result['flags'].append('easy_run_slower_than_target'
+                                   if result['kind'] in ('easy', 'long')
+                                   else 'slower_than_target')
 
     # Heart rate is the second opinion — pace alone can look fine on a windy or
     # hilly day while the effort was still far too high for an easy run.
@@ -408,7 +434,9 @@ def analyze_strength(logged, recommendations):
 
     if any(item['verdict'] == 'too_light' for item in exercises):
         flags.append('lifted_light')
-    if exercises and all(item['verdict'] == 'on_target' for item in exercises if item['verdict']):
+    judged = [item for item in exercises if item['verdict']]
+    # "On target" only means something when nothing else went wrong.
+    if judged and not flags and all(item['verdict'] == 'on_target' for item in judged):
         flags.append('strength_on_target')
 
     return {'exercises': exercises, 'flags': sorted(set(flags))}
@@ -427,6 +455,7 @@ _HEADLINES = {
     'fewer_reps_than_planned': 'Färre rep än planerat',
     'more_reps_than_planned': 'Fler rep än planerat',
     'slower_than_target': 'Långsammare än måltempo',
+    'easy_run_slower_than_target': 'Lugnare än måltempo',
     'faster_than_target': 'Snabbare än måltempo',
     'high_cardiac_drift': 'Hög pulsdrift',
     'cut_session_short': 'Kortare än planerat',
