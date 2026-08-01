@@ -40,6 +40,16 @@ class AuthContractTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_sleep_coach_is_available_only_to_local_ac_keeper_without_login(self):
+        schedule = {'night': {'date': '2026-08-02', 'bedtime': '22:00', 'wake': '06:00'}}
+        with mock.patch.object(garmin_server, '_build_sleep_coach', return_value=schedule):
+            local = self.client.get('/api/sleep-coach', environ_base={'REMOTE_ADDR': '127.0.0.1'})
+            remote = self.client.get('/api/sleep-coach', environ_base={'REMOTE_ADDR': '198.51.100.8'})
+
+        self.assertEqual(local.status_code, 200)
+        self.assertEqual(local.get_json(), schedule)
+        self.assertEqual(remote.status_code, 401)
+
     def test_login_sets_http_only_strict_session_cookie(self):
         response = self.login()
 

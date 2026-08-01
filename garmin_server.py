@@ -713,7 +713,7 @@ def check_auth():
         return  # Hardware endpoints authenticate with separate, scoped tokens.
 
     if request.method == 'GET' and request.path in (
-        '/api/ac/bedtime', '/api/weather/current'
+        '/api/ac/bedtime', '/api/weather/current', '/api/sleep-coach'
     ) and request.remote_addr in ('127.0.0.1', '::1'):
         return  # ac-keeper (same host) polls these for pre-cool scheduling.
 
@@ -3463,6 +3463,15 @@ def sleep_insights_endpoint():
         return data if hasattr(data, 'status_code') else jsonify(data)
     except Exception as e:
         return _server_error(e, 'sleep.insights_failed', message='Sömnanalysen kunde inte skapas.')
+
+
+@app.get('/api/sleep-coach')
+def sleep_coach_endpoint():
+    """Compatibility endpoint used by the local AC keeper for a dated night schedule."""
+    try:
+        return jsonify(_build_sleep_coach())
+    except Exception as e:
+        return _server_error(e, 'sleep.coach_failed', message='Sömnschemat kunde inte hämtas.')
 
 
 def _build_sleep_coach():
