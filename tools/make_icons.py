@@ -2,62 +2,91 @@
 
 Run from the repo root:  python3 tools/make_icons.py
 
-The mark is the same pulse line the landing page uses, set in the brand
-green on a dark rounded square. A filled square reads as a distinct blob
-at 16 px, which is the size that actually decides whether an icon is
-recognisable in a tab strip or bookmarks bar.
+The mark is a running track seen from above — four concentric lanes in the
+brand green on a near-black plate. Both the raster set and the SVG are
+produced from the constants below, so the two can never drift apart.
+
+At 16 px the lanes merge into a single green oval, which is what should
+happen: that size only has to be a recognisable silhouette, and a green
+shape against dark reads far better than fine lines ever could.
 """
 
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-ACCENT = (200, 241, 53, 255)   # --accent
-INK = (18, 26, 0, 255)         # dark ink for the glyph
-SUPERSAMPLE = 8                # draw large, downscale for clean edges
+ACCENT = (200, 241, 53, 255)      # --accent
+PLATE = (13, 15, 20, 255)         # --bg
+SUPERSAMPLE = 8                   # draw large, downscale for clean edges
 
-# The pulse polyline, in the 28-unit space the landing page SVG uses.
-PULSE = [(2.6, 15.5), (7.2, 15.5), (10.1, 7.3), (14.2, 22.3),
-         (17.2, 12.9), (19.6, 17.2), (25.4, 17.2)]
+LANES = 4
+PLATE_RADIUS = 0.22               # share of the icon's width
+# Padding of the outermost and innermost lane, as shares of the icon size.
+OUTER_PAD = (0.075, 0.245)
+INNER_PAD = (0.325, 0.418)
+STROKE = 0.056
 
 
-def draw_icon(size, padding_ratio=0.0, radius_ratio=0.22, transparent_bg=False):
+def _lane_geometry():
+    """Padding for each lane, in shares of the icon size."""
+    for index in range(LANES):
+        t = index / max(1, LANES - 1)
+        yield (OUTER_PAD[0] + (INNER_PAD[0] - OUTER_PAD[0]) * t,
+               OUTER_PAD[1] + (INNER_PAD[1] - OUTER_PAD[1]) * t)
+
+
+def draw_icon(size):
     """Render one square icon at `size` pixels."""
-    canvas = size * SUPERSAMPLE
-    pad = int(canvas * padding_ratio)
-    image = Image.new('RGBA', (canvas, canvas), (0, 0, 0, 0))
+    c = size * SUPERSAMPLE
+    image = Image.new('RGBA', (c, c), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((0, 0, c - 1, c - 1), radius=int(c * PLATE_RADIUS), fill=PLATE)
 
-    box = (pad, pad, canvas - pad - 1, canvas - pad - 1)
-    if not transparent_bg:
-        draw.rounded_rectangle(box, radius=int(canvas * radius_ratio), fill=ACCENT)
-
-    inner = box[2] - box[0]
-    scale = inner / 28.0
-    points = [(box[0] + x * scale, box[1] + y * scale) for x, y in PULSE]
-    # Thick enough that the glyph survives being shrunk to 16 px.
-    width = max(1, int(inner * 0.105))
-    draw.line(points, fill=ACCENT if transparent_bg else INK,
-              width=width, joint='curve')
-    # Round the open ends, which draw.line leaves square.
-    for x, y in (points[0], points[-1]):
-        r = width / 2
-        draw.ellipse((x - r, y - r, x + r, y + r),
-                     fill=ACCENT if transparent_bg else INK)
+    for pad_x, pad_y in _lane_geometry():
+        box = (c * pad_x, c * pad_y, c - c * pad_x, c - c * pad_y)
+        draw.rounded_rectangle(box, radius=(box[3] - box[1]) / 2,
+                               outline=ACCENT, width=int(c * STROKE))
 
     return image.resize((size, size), Image.LANCZOS)
+
+
+def build_svg():
+    """The same track as scalable vector, for browsers that prefer it."""
+    view = 64
+    stroke = STROKE * view
+    lanes = []
+    for pad_x, pad_y in _lane_geometry():
+        x, y = pad_x * view, pad_y * view
+        w, h = view - 2 * x, view - 2 * y
+        # SVG centres a stroke on its path while Pillow draws it inside the
+        # box, so inset by half a stroke to land in the same place.
+        x, y = x + stroke / 2, y + stroke / 2
+        w, h = w - stroke, h - stroke
+        lanes.append(
+            f'    <rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" '
+            f'rx="{h / 2:.2f}"/>'
+        )
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {view} {view}" '
+        f'role="img" aria-label="Trainyze">\n'
+        f'  <rect width="{view}" height="{view}" rx="{PLATE_RADIUS * view:.1f}" fill="#0D0F14"/>\n'
+        f'  <g fill="none" stroke="#C8F135" stroke-width="{stroke:.2f}">\n'
+        + '\n'.join(lanes) + '\n'
+        f'  </g>\n</svg>\n'
+    )
 
 
 def main():
     out = Path(__file__).resolve().parents[1] / 'public'
     out.mkdir(exist_ok=True)
 
-    draw_icon(180, padding_ratio=0.0).save(out / 'apple-touch-icon.png')
+    draw_icon(180).save(out / 'apple-touch-icon.png')
     draw_icon(192).save(out / 'icon-192.png')
     draw_icon(512).save(out / 'icon-512.png')
-
-    # .ico carries several sizes; Windows and older browsers pick what they need.
+    # .ico carries several sizes; the browser picks what it needs.
     draw_icon(64).save(out / 'favicon.ico', sizes=[(16, 16), (32, 32), (48, 48)])
+    (out / 'favicon.svg').write_text(build_svg(), encoding='utf-8')
+
     print('Ikoner skrivna till', out)
 
 
