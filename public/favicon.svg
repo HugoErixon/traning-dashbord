@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" role="img" aria-label="Trainyze">
+  <rect width="28" height="28" rx="6.2" fill="#C8F135"/>
+  <path d="M2.6 15.5h4.6l2.9-8.2 4.1 15 3-9.4 2.4 4.3h5.8"
+        fill="none" stroke="#121A00" stroke-width="2.9"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
