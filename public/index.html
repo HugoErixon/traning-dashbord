@@ -316,7 +316,7 @@
           <p id="ac-bedtime-body">Använder uträknad läggtid om inget skrivs här.</p>
           <div class="ac-setpoint-row">
             <span class="ac-setpoint-label">Läggtid:</span>
-            <input class="ac-setpoint-input ac-time-input" type="time" id="ac-bedtime-input">
+            <input class="ac-setpoint-input ac-time-input" type="text" id="ac-bedtime-input" inputmode="numeric" maxlength="5" placeholder="22:00" autocomplete="off" aria-label="Läggtid i formatet timmar och minuter">
             <button class="ac-setpoint-btn" id="ac-bedtime-save" data-action="save-ac-bedtime">Spara</button>
             <button class="ac-setpoint-btn" id="ac-bedtime-clear" data-action="clear-ac-bedtime">Auto</button>
             <span class="ac-setpoint-status" id="ac-bedtime-status"></span>

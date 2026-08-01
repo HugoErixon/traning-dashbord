@@ -283,11 +283,25 @@ def _send_password_reset_email(to_email, username, token):
         return False
 
 
+def _normalize_clock(value):
+    """Return a canonical 24-hour clock value, accepting HH:MM or compact HHMM."""
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    match = re.fullmatch(r'(\d{1,2}):(\d{2})', raw)
+    if match:
+        hour, minute = (int(part) for part in match.groups())
+    elif re.fullmatch(r'\d{3,4}', raw):
+        hour, minute = int(raw[:-2]), int(raw[-2:])
+    else:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return f'{hour:02d}:{minute:02d}'
+
+
 def _valid_clock(value):
-    if not isinstance(value, str) or not re.match(r'^\d{2}:\d{2}$', value):
-        return False
-    hour, minute = [int(part) for part in value.split(':', 1)]
-    return 0 <= hour <= 23 and 0 <= minute <= 59
+    return _normalize_clock(value) is not None
 
 def _read_ac_bedtime_override():
     try:
@@ -1711,9 +1725,9 @@ def ac_bedtime_set():
         if bedtime in (None, ''):
             payload = {'bedtime': None, 'updated_at': datetime.now(timezone.utc).isoformat()}
         else:
-            bedtime = str(bedtime).strip()
-            if not _valid_clock(bedtime):
-                return jsonify({'ok': False, 'error': 'Läggtid måste vara HH:MM'}), 400
+            bedtime = _normalize_clock(str(bedtime))
+            if bedtime is None:
+                return jsonify({'ok': False, 'error': 'Läggtid måste vara HH:MM, exempelvis 22:00'}), 400
             payload = {'bedtime': bedtime, 'updated_at': datetime.now(timezone.utc).isoformat()}
         with open(AC_BEDTIME_OVERRIDE, 'w', encoding='utf-8') as f:
             json.dump(payload, f)

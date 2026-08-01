@@ -2678,17 +2678,31 @@ HEALTH DATA (current):
     }
   }
 
+  function normalizeClockInput(value) {
+    const raw = String(value || '').trim();
+    let match = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match && /^\d{3,4}$/.test(raw)) {
+      match = [raw, raw.slice(0, -2), raw.slice(-2)];
+    }
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  }
+
   async function saveAcBedtime() {
     const inp = document.getElementById('ac-bedtime-input');
     const status = document.getElementById('ac-bedtime-status');
     const btn = document.getElementById('ac-bedtime-save');
     if (!inp || !status || !btn) return;
-    const bedtime = inp.value;
+    const bedtime = normalizeClockInput(inp.value);
     if (!bedtime) {
-      status.textContent = 'Välj en tid eller tryck Auto.';
+      status.textContent = 'Skriv en giltig tid, t.ex. 22:00 eller 2200.';
       status.style.color = 'var(--amber)';
       return;
     }
+    inp.value = bedtime;
     btn.disabled = true;
     status.textContent = 'Sparar...';
     status.style.color = 'var(--muted)';
