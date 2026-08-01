@@ -4,9 +4,11 @@ from pace_progression import (
     derive_anchor,
     describe_anchor,
     goal_feasibility,
+    parse_goal_pace,
     target_band,
     validate_proposal,
 )
+from session_analysis import replace_pace
 
 
 # Hugo's real numbers on 2026-08-01: Garmin reports a 4:00/km threshold.
@@ -109,6 +111,41 @@ class GoalTests(unittest.TestCase):
     def test_a_conservative_goal_is_within_reach(self):
         goal = goal_feasibility(260, LT)
         self.assertEqual(goal['verdict'], 'within_reach')
+
+
+class GoalParsingTests(unittest.TestCase):
+    def test_half_marathon_time_is_read_as_hours_and_minutes(self):
+        goal = parse_goal_pace('Halvmara sub 1:20')
+        self.assertEqual(goal['timeSec'], 4800)
+        self.assertEqual(goal['pace'], '3:48/km')
+
+    def test_short_race_time_is_read_as_minutes_and_seconds(self):
+        # The same "10:00" that would be nonsense as hours over 3 km.
+        goal = parse_goal_pace('3 km under 10:00')
+        self.assertEqual(goal['timeSec'], 600)
+        self.assertEqual(goal['pace'], '3:20/km')
+
+    def test_swedish_race_names_are_recognised(self):
+        self.assertEqual(parse_goal_pace('Milen under 40 min')['pace'], '4:00/km')
+        self.assertEqual(parse_goal_pace('Maraton 3:30:00')['distanceKm'], 42.195)
+
+    def test_a_goal_without_a_race_time_has_no_pace(self):
+        self.assertIsNone(parse_goal_pace('Bli starkare och hålla mig skadefri'))
+
+
+class RewriteTests(unittest.TestCase):
+    def test_a_range_stays_a_range(self):
+        text = replace_pace('Z2 · 4:50–5:15/km · Lugn och lätt', 305, 340)
+        self.assertIn('5:05/km–5:40/km', text)
+        self.assertIn('Lugn och lätt', text)
+
+    def test_a_single_pace_stays_single(self):
+        text = replace_pace('5×1000m @ 3:30/km · 2 min joggvila', 245)
+        self.assertEqual(text, '5×1000m @ 4:05/km · 2 min joggvila')
+
+    def test_text_without_a_pace_gets_one_appended(self):
+        text = replace_pace('Lugn distans 8 km', 305)
+        self.assertEqual(text, 'Lugn distans 8 km · 5:05/km')
 
 
 class PromptTests(unittest.TestCase):

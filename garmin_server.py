@@ -30,6 +30,7 @@ from strength_progression import (
     recommendation_summary,
 )
 import session_analysis
+import pace_progression
 
 # Google Calendar (valfritt — kräver google_credentials.json)
 try:
@@ -448,6 +449,35 @@ def migrate_db():
                 cur.execute('ALTER TABLE plan_sessions ADD COLUMN IF NOT EXISTS execution JSONB')
             except Exception as e:
                 print('migrate_db plan_sessions execution:', e)
+            try:
+                # Planens ursprungliga text sparas när ett godkänt tempoförslag
+                # skriver om den, så anpassningen går att utvärdera i efterhand.
+                cur.execute('ALTER TABLE plan_sessions ADD COLUMN IF NOT EXISTS detail_original TEXT')
+            except Exception as e:
+                print('migrate_db plan_sessions detail_original:', e)
+            try:
+                # Föreslagna måltempon väntar här tills användaren godkänt dem —
+                # inget skrivs till planen automatiskt. Se pace_progression.py.
+                cur.execute('''CREATE TABLE IF NOT EXISTS plan_proposals (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER DEFAULT 1,
+                    session_id INTEGER NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    kind TEXT,
+                    old_detail TEXT,
+                    new_detail TEXT,
+                    old_pace_sec INTEGER,
+                    new_pace_sec INTEGER,
+                    validation TEXT,
+                    reason TEXT,
+                    rationale TEXT,
+                    anchor JSONB,
+                    created_at REAL,
+                    decided_at REAL)''')
+                cur.execute('''CREATE INDEX IF NOT EXISTS plan_proposals_pending_idx
+                    ON plan_proposals (user_id, status)''')
+            except Exception as e:
+                print('migrate_db plan_proposals:', e)
             try:
                 cur.execute('ALTER TABLE health_history ADD COLUMN IF NOT EXISTS stress_avg INTEGER')
             except Exception as e:
@@ -2769,6 +2799,8 @@ def _build_refresh_prompt(acts):
         today_km_note = ""
     next_session_str  = f"{next_session['title']} — {next_session['detail']}"   if next_session  else "No upcoming session found"
 
+    pace_ctx = _pace_context(uid())
+
     prompt = f"""You are a personal training coach. Analyze ALL data below and respond ONLY with JSON. All text fields in the JSON must be written in Swedish (svenska).
 
 {_goal_prompt_block(uid())}
@@ -2784,6 +2816,9 @@ NEXT SCHEDULED SESSION:
 RECENT RUNS:
 {json.dumps(recent_runs, ensure_ascii=False, indent=2)}
 {_recent_execution_block(uid())}
+
+MEASURED PACE CAPABILITY (anchor every pace you mention to this):
+{pace_progression.describe_anchor(pace_ctx['anchor'], pace_ctx['goalFeasibility'])}
 
 WEEK STATUS W{iso_week}:
 - {f'Planned: {planned_km:.0f} km · Completed: {completed_km:.1f} km · Remaining: {remaining_km:.1f} km' if plan_count else f'No plan — Completed: {completed_km:.1f} km'}
@@ -3525,6 +3560,22 @@ def assistant_chat():
                 "rates that are not listed, and if the session they ask about is not in the "
                 "list above, say plainly that you do not have the details for it."
             )
+
+        # Tempofrågor ska besvaras mot uppmätt tröskel, och ett mål som ligger
+        # bortom nuvarande fysiologi ska sägas rakt ut — inte peppas bort.
+        pace_context = _pace_context(uid())
+        if (pace_context.get('anchor') or {}).get('ltPaceSec'):
+            context += "\n\nMEASURED PACE CAPABILITY:\n" + pace_progression.describe_anchor(
+                pace_context['anchor'], pace_context.get('goalFeasibility'))
+            feasibility = pace_context.get('goalFeasibility')
+            if feasibility and feasibility['verdict'] == 'out_of_reach':
+                context += (
+                    f"\n\nThe stated goal pace is {feasibility['gapSec']} s/km faster than what "
+                    "this athlete's measured threshold currently supports. If the goal comes up, "
+                    "say so honestly and give the realistic time the current threshold implies, "
+                    "along with what would have to change. Do not encourage the goal as if it "
+                    "were within reach."
+                )
         return jsonify({'reply': call_llm(message, max_tokens=1024, system=context)})
     except Exception as e:
         return _server_error(
@@ -4230,6 +4281,225 @@ if not APP_TESTING:
 # ─────────────────────────────────────────────
 # PLAN API
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# MÅLTEMPON — härledda ur mätt tröskel, godkänns av användaren
+# ─────────────────────────────────────────────
+
+def _pace_context(user_id):
+    """Tröskelankare, tempoband och målets rimlighet för en användare."""
+    lt_pace = None
+    executions = []
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT lactate_pace FROM metric_history
+                    WHERE user_id=%s AND lactate_pace IS NOT NULL
+                    ORDER BY date DESC LIMIT 1''', (user_id,))
+                row = cur.fetchone()
+                lt_pace = row[0] if row else None
+                cur.execute('''SELECT execution FROM plan_sessions
+                    WHERE user_id=%s AND execution IS NOT NULL
+                    ORDER BY week DESC, dow DESC LIMIT 10''', (user_id,))
+                executions = [r[0] for r in cur.fetchall() if r[0]]
+    except Exception as e:
+        print('Tempokontext kunde inte läsas:', e)
+
+    anchor = pace_progression.derive_anchor(lt_pace_sec=lt_pace, executions=executions)
+
+    goal_pace = None
+    feasibility = None
+    try:
+        goal = get_user_goal(user_id)
+        if goal:
+            goal_pace = pace_progression.parse_goal_pace(
+                goal.get('goal_title'), goal.get('secondary_goal'))
+    except Exception as e:
+        print('Målets tempo kunde inte tolkas:', e)
+    if goal_pace and anchor.get('ltPaceSec'):
+        feasibility = pace_progression.goal_feasibility(goal_pace['paceSec'], anchor['ltPaceSec'])
+
+    bands = {}
+    if anchor.get('ltPaceSec'):
+        for kind in ('interval', 'threshold', 'race', 'long', 'easy'):
+            band = pace_progression.target_band(kind, anchor['ltPaceSec'])
+            if band:
+                bands[kind] = band
+
+    return {'anchor': anchor, 'bands': bands, 'goalPace': goal_pace, 'goalFeasibility': feasibility}
+
+
+def _upcoming_run_sessions(user_id, days=14):
+    """Planerade löppass framåt som kan få ett nytt måltempo."""
+    today = date.today()
+    wanted = set()
+    for offset in range(0, days + 1):
+        day = today + timedelta(days=offset)
+        wanted.add(_iso_week_dow(day))
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT id, week, dow, type, km, title, detail
+                FROM plan_sessions
+                WHERE user_id=%s AND status='planned' AND type IN ('run','easy','race')
+                ORDER BY week, dow''', (user_id,))
+            rows = cur.fetchall()
+    return [dict(r) for r in rows if (r['week'], r['dow']) in wanted]
+
+
+def generate_pace_proposals(user_id):
+    """Låt AI:n föreslå måltempo per pass och validera varje förslag.
+
+    Inget skrivs till planen här — förslagen sparas som väntande och kräver
+    ett uttryckligt godkännande.
+    """
+    context = _pace_context(user_id)
+    anchor_sec = (context['anchor'] or {}).get('ltPaceSec')
+    if not anchor_sec:
+        return {'proposals': 0, 'error': 'no_anchor',
+                'message': 'Ingen tröskeldata att räkna på ännu.'}
+
+    sessions = _upcoming_run_sessions(user_id)
+    if not sessions:
+        return {'proposals': 0, 'message': 'Inga planerade löppass framåt.'}
+    if not llm_available():
+        return {'proposals': 0, 'error': 'ai_unavailable',
+                'message': 'AI-tjänsten är inte konfigurerad.'}
+
+    session_lines = []
+    for item in sessions:
+        current = session_analysis.parse_pace_target(item['detail'])
+        kind = session_analysis.classify_session(item)
+        session_lines.append({
+            'id': item['id'],
+            'title': item['title'],
+            'detail': item['detail'],
+            'km': float(item['km'] or 0),
+            'kind': kind,
+            'currentTargetPace': current['text'] if current else None,
+        })
+
+    prompt = f"""{pace_progression.describe_anchor(context['anchor'], context['goalFeasibility'])}
+
+{_recent_execution_block(user_id)}
+
+UPCOMING SESSIONS THAT NEED A TARGET PACE:
+{json.dumps(session_lines, ensure_ascii=False, indent=2)}
+
+Propose the pace each session should actually be run at, given the athlete's
+measured threshold and how recent sessions were executed. Stay inside the band
+for that session's kind. Where the current target is already right, propose the
+same value.
+
+Respond ONLY with JSON:
+{{"proposals": [{{"id": <session id>, "paceSec": <seconds per km as an integer>, "rationale": "one short sentence in Swedish"}}]}}"""
+
+    try:
+        raw = call_llm(prompt, max_tokens=1500).strip().replace('```json', '').replace('```', '').strip()
+        proposed = (json.loads(raw) or {}).get('proposals') or []
+    except Exception as e:
+        print('Tempoförslag misslyckades:', e)
+        return {'proposals': 0, 'error': 'ai_failed',
+                'message': 'AI-tjänsten kunde inte svara.'}
+
+    by_id = {item['id']: item for item in sessions}
+    kinds = {item['id']: item['kind'] for item in session_lines}
+    stored = 0
+    now = time.time()
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            # Tidigare obeslutade förslag ersätts — annars staplas de på varandra.
+            cur.execute("DELETE FROM plan_proposals WHERE user_id=%s AND status='pending'", (user_id,))
+            for item in proposed:
+                session = by_id.get(item.get('id'))
+                if not session:
+                    continue
+                kind = kinds.get(session['id'], 'run')
+                verdict = pace_progression.validate_proposal(kind, item.get('paceSec'), anchor_sec)
+                if not verdict.get('paceSec'):
+                    continue
+                band = context['bands'].get(kind) or {}
+                old_target = session_analysis.parse_pace_target(session['detail'])
+                old_pace = old_target['lowSec'] if old_target else None
+                if old_pace and abs(old_pace - verdict['paceSec']) < 3:
+                    continue  # redan rätt — inget att godkänna
+                new_detail = session_analysis.replace_pace(
+                    session['detail'], verdict['paceSec'],
+                    band.get('highSec') if old_target and old_target['lowSec'] != old_target['highSec'] else None)
+                cur.execute('''INSERT INTO plan_proposals
+                    (user_id, session_id, status, kind, old_detail, new_detail,
+                     old_pace_sec, new_pace_sec, validation, reason, rationale, anchor, created_at)
+                    VALUES (%s,%s,'pending',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (user_id, session['id'], kind, session['detail'], new_detail,
+                     old_pace, verdict['paceSec'], verdict['status'], verdict['reason'],
+                     str(item.get('rationale') or '')[:400],
+                     psycopg2.extras.Json(context['anchor']), now))
+                stored += 1
+        conn.commit()
+    return {'proposals': stored, 'anchor': context['anchor']}
+
+
+@app.get('/api/plan/pace-proposals')
+def list_pace_proposals():
+    context = _pace_context(uid())
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT p.*, s.title, s.week, s.dow
+                FROM plan_proposals p JOIN plan_sessions s ON s.id = p.session_id
+                WHERE p.user_id=%s AND p.status='pending'
+                ORDER BY s.week, s.dow''', (uid(),))
+            rows = [dict(r) for r in cur.fetchall()]
+    for row in rows:
+        row['oldPace'] = session_analysis.format_pace(row['old_pace_sec'])
+        row['newPace'] = session_analysis.format_pace(row['new_pace_sec'])
+    return jsonify({'proposals': rows, **context})
+
+
+@app.post('/api/plan/pace-proposals/generate')
+def create_pace_proposals():
+    try:
+        return jsonify(generate_pace_proposals(uid()))
+    except Exception as e:
+        return _server_error(e, 'pace.generate_failed',
+                             message='Tempoförslagen kunde inte tas fram.')
+
+
+@app.post('/api/plan/pace-proposals/decide')
+def decide_pace_proposals():
+    """Godkänn eller avfärda förslag. Först vid godkännande ändras planen."""
+    data = request.json or {}
+    decision = 'approved' if data.get('decision') == 'approve' else 'rejected'
+    ids = data.get('ids')
+    now = time.time()
+    applied = 0
+
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if ids:
+                cur.execute('''SELECT * FROM plan_proposals
+                    WHERE user_id=%s AND status='pending' AND id = ANY(%s)''',
+                    (uid(), [int(i) for i in ids]))
+            else:
+                cur.execute("""SELECT * FROM plan_proposals
+                    WHERE user_id=%s AND status='pending'""", (uid(),))
+            rows = cur.fetchall()
+
+        with conn.cursor() as cur:
+            for row in rows:
+                if decision == 'approved':
+                    # Originaltexten bevaras första gången den skrivs om.
+                    cur.execute('''UPDATE plan_sessions
+                        SET detail = %s,
+                            detail_original = COALESCE(detail_original, detail),
+                            modified_at = %s
+                        WHERE id = %s AND user_id = %s''',
+                        (row['new_detail'], now, row['session_id'], uid()))
+                    applied += 1
+                cur.execute('''UPDATE plan_proposals SET status=%s, decided_at=%s
+                    WHERE id=%s AND user_id=%s''', (decision, now, row['id'], uid()))
+        conn.commit()
+    return jsonify({'ok': True, 'decision': decision, 'applied': applied, 'count': len(rows)})
+
+
 @app.get('/api/plan')
 def get_plan():
     with db() as conn:

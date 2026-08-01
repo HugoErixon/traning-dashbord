@@ -110,6 +110,28 @@ def parse_zone(detail):
     return f"Z{match.group(1)}" if match else None
 
 
+def replace_pace(detail, new_pace_sec, band_high_sec=None):
+    """Rewrite the pace stated in a plan session's text.
+
+    A range is replaced by a range and a single pace by a single pace, so the
+    rewritten line still reads like something a coach wrote. When the text
+    states no pace at all the new target is appended rather than guessed into
+    the middle of the sentence.
+    """
+    text = str(detail or '').strip()
+    low = format_pace(new_pace_sec)
+    if not low:
+        return text
+    replacement_range = f"{low}–{format_pace(band_high_sec)}" if band_high_sec else None
+
+    if _PACE_RANGE_RE.search(text):
+        return _PACE_RANGE_RE.sub(replacement_range or low, text, count=1)
+    if _PACE_SINGLE_RE.search(text):
+        return _PACE_SINGLE_RE.sub(low, text, count=1)
+    suffix = replacement_range or low
+    return f"{text} · {suffix}" if text else suffix
+
+
 def classify_session(planned, activity=None):
     """Decide which yardstick applies: easy, interval, threshold, long or race."""
     planned = planned or {}

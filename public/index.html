@@ -657,6 +657,19 @@
           <span style="font-size:12px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;">Idag</span>
         </div>
       </div>
+      <div class="pace-panel" id="pace-panel" style="display:none;">
+        <div class="pace-panel-head">
+          <div>
+            <div class="pace-panel-title">Måltempon</div>
+            <div class="pace-panel-sub" id="pace-anchor-sub">Laddar…</div>
+          </div>
+          <button class="refresh-btn pace-generate-btn" id="pace-generate-btn" data-action="pace-generate" type="button">Räkna om måltempon</button>
+        </div>
+        <div id="pace-bands" class="pace-bands"></div>
+        <div id="pace-goal" class="pace-goal" style="display:none;"></div>
+        <div id="pace-proposals"></div>
+      </div>
+
       <div class="cal-tabs" role="tablist" aria-label="Kalendervy">
         <button class="cal-tab active" id="cal-tab-current" type="button" role="tab" aria-selected="true" data-action="calendar-view" data-view="current">Denna vecka framåt</button>
         <button class="cal-tab" id="cal-tab-past" type="button" role="tab" aria-selected="false" data-action="calendar-view" data-view="past">Tidigare veckor</button>

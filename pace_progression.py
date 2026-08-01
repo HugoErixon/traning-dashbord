@@ -13,6 +13,8 @@ near the plan.
 No database or network access — callers pass in the rows they loaded.
 """
 
+import re
+
 from session_analysis import format_pace
 
 # ── Zone model ────────────────────────────────────────────────────────────────
@@ -149,6 +151,72 @@ def validate_proposal(kind, proposed_sec, anchor_sec):
     return {'status': 'rejected', 'paceSec': edge,
             'reason': (f"{format_pace(proposed)} is not physiologically plausible for a "
                        f"{kind} session at threshold {format_pace(anchor_sec)}")}
+
+
+# ── Goal parsing ──────────────────────────────────────────────────────────────
+
+# Goals are stored as free text ("Halvmara sub 1:20"), so the distance has to
+# be recognised before a target pace can be worked out.
+RACE_DISTANCES_KM = (
+    ('halvmara', 21.0975), ('halvmaraton', 21.0975), ('halvmarathon', 21.0975),
+    ('half marathon', 21.0975), ('halvmarat', 21.0975),
+    ('maraton', 42.195), ('marathon', 42.195),
+    ('milen', 10.0), ('tiokilometer', 10.0),
+)
+_EXPLICIT_KM_RE = re.compile(r'(\d+(?:[.,]\d+)?)\s*km\b', re.I)
+_TIME_RE = re.compile(r'\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b')
+_MINUTES_RE = re.compile(r'\b(\d{1,3})\s*min\b', re.I)
+
+
+def parse_goal_pace(goal_title, goal_detail=None):
+    """Work out the pace a stated race goal demands.
+
+    Returns {'paceSec', 'distanceKm', 'timeSec'} or None when the goal is not
+    expressed as a race time ("bli starkare" has no pace to hit).
+    """
+    text = ' '.join(part for part in (goal_title, goal_detail) if part).lower()
+    if not text:
+        return None
+
+    distance_km = None
+    for keyword, km in RACE_DISTANCES_KM:
+        if keyword in text:
+            distance_km = km
+            break
+    if distance_km is None:
+        match = _EXPLICIT_KM_RE.search(text)
+        if match:
+            try:
+                distance_km = float(match.group(1).replace(',', '.'))
+            except ValueError:
+                distance_km = None
+    if not distance_km or distance_km <= 0:
+        return None
+
+    time_sec = None
+    match = _TIME_RE.search(text)
+    if match:
+        first, second, third = match.group(1), match.group(2), match.group(3)
+        if third is not None:
+            time_sec = int(first) * 3600 + int(second) * 60 + int(third)
+        else:
+            # "1:20" over a long race is hours:minutes; over a short one it is
+            # minutes:seconds. The distance decides which reading is sane.
+            as_minutes = int(first) * 60 + int(second)
+            as_hours = int(first) * 3600 + int(second) * 60
+            time_sec = as_hours if as_minutes / distance_km < 120 else as_minutes
+    else:
+        match = _MINUTES_RE.search(text)
+        if match:
+            time_sec = int(match.group(1)) * 60
+    if not time_sec:
+        return None
+
+    pace = _clean_pace(time_sec / distance_km)
+    if pace is None:
+        return None
+    return {'paceSec': round(pace), 'pace': format_pace(pace),
+            'distanceKm': distance_km, 'timeSec': time_sec}
 
 
 def goal_feasibility(goal_pace_sec, anchor_sec, kind='race'):

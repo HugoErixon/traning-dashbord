@@ -2510,6 +2510,131 @@
       line-height: 1.4;
       cursor: default;
     }
+    /* ─── MÅLTEMPON: förslag som väntar på godkännande ─── */
+    .pace-panel {
+      margin-bottom: 24px;
+      padding: 18px 20px;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-lg);
+      background: var(--card-grad), var(--bg2);
+      box-shadow: var(--shadow-card), var(--edge-top);
+    }
+    .pace-panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .pace-panel-title { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
+    .pace-panel-sub {
+      margin-top: 4px;
+      color: var(--muted2);
+      font: 500 11px 'IBM Plex Mono', monospace;
+    }
+    .pace-generate-btn { width: auto; min-width: 170px; }
+    .pace-bands { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .pace-band {
+      padding: 4px 9px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.03);
+      color: var(--muted2);
+      font: 500 10.5px 'IBM Plex Mono', monospace;
+    }
+    .pace-band b { color: var(--text); font-weight: 600; margin-right: 4px; }
+    .pace-goal {
+      padding: 10px 13px;
+      margin-bottom: 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.025);
+      color: var(--muted2);
+      font-size: 12.5px;
+      line-height: 1.55;
+    }
+    .pace-goal b { color: var(--text); }
+    .pace-goal-warn {
+      border-color: rgba(251,191,36,0.3);
+      background: var(--amber-dim);
+      color: var(--muted3);
+    }
+    .pace-goal-warn b { color: var(--amber); }
+    .pace-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding: 12px 0;
+      border-top: 1px solid var(--border);
+    }
+    .pace-row-main { min-width: 0; flex: 1 1 260px; }
+    .pace-row-title { font-size: 13px; font-weight: 600; }
+    .pace-kind {
+      margin-left: 7px;
+      padding: 2px 7px;
+      border-radius: var(--radius-pill);
+      background: var(--accent-dim);
+      color: var(--accent);
+      font: 600 9px 'IBM Plex Mono', monospace;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .pace-clamped {
+      margin-left: 6px;
+      color: var(--amber);
+      font: 500 9.5px 'IBM Plex Mono', monospace;
+      cursor: help;
+    }
+    .pace-row-change {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-top: 6px;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .pace-old { color: var(--muted); font-size: 13px; text-decoration: line-through; }
+    .pace-arrow { color: var(--muted); font-size: 12px; }
+    .pace-new { color: var(--accent); font-size: 15px; font-weight: 700; }
+    .pace-row-why { margin-top: 5px; color: var(--muted2); font-size: 12px; line-height: 1.5; }
+    .pace-row-actions { display: flex; gap: 7px; flex-shrink: 0; }
+    .pace-btn {
+      padding: 7px 13px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border2);
+      background: var(--bg3);
+      color: var(--muted2);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .pace-btn:hover { color: var(--text); border-color: var(--border3); }
+    .pace-btn-ok { color: var(--accent); border-color: rgba(200,241,53,0.3); }
+    .pace-btn-ok:hover { background: var(--accent-dim); border-color: var(--accent); }
+    .pace-bulk {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+    .pace-empty {
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.6;
+      padding-top: 4px;
+    }
+    @media (max-width: 720px) {
+      .pace-panel { padding: 16px; }
+      .pace-generate-btn { width: 100%; }
+      .pace-row-actions { width: 100%; }
+      .pace-row-actions .pace-btn { flex: 1; }
+    }
+
     /* Hur passet faktiskt kördes mot planen — se session_analysis.py */
     .cal-verdict {
       display: block;

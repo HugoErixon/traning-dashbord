@@ -938,6 +938,8 @@ function executeAction(trigger, event) {
   else if (action === 'clear-ac-bedtime') clearAcBedtime();
   else if (action === 'send-ac-command') sendManualAcCommand();
   else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
+  else if (action === 'pace-generate') generatePaceProposals();
+  else if (action === 'pace-decide') decidePaceProposals(trigger.dataset.decision, trigger.dataset.id);
   else if (action === 'strength-tab') strengthTab(trigger.dataset.tab);
   else if (action === 'save-journal') saveJournalEntry();
   else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
@@ -988,7 +990,7 @@ acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset
     if (id === 'analysis') loadAnalysis();
     if (id === 'strength') loadStrengthPage();
     if (id === 'journal')  loadJournal();
-    if (id === 'upcoming') checkGcalStatus();
+    if (id === 'upcoming') { checkGcalStatus(); loadPaceProposals(); }
     if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcBedtime(); loadHumidityStatus(); loadAcHistory(); }
   }
 
@@ -4397,6 +4399,130 @@ HEALTH DATA (current):
       weekEl.appendChild(daysEl);
       container.appendChild(weekEl);
     });
+  }
+
+  // ─── MÅLTEMPON ──────────────────────────────────────────────
+  // Förslagen ändrar aldrig planen av sig själva — de väntar här tills
+  // de godkänts. Se pace_progression.py för hur banden räknas fram.
+  const PACE_DAY_NAMES = ['mån', 'tis', 'ons', 'tors', 'fre', 'lör', 'sön'];
+  const PACE_KIND_LABELS = {
+    interval: 'Intervall', threshold: 'Tröskel', race: 'Loppfart',
+    long: 'Långpass', easy: 'Lugnt', run: 'Löpning',
+  };
+
+  async function loadPaceProposals() {
+    const panel = document.getElementById('pace-panel');
+    if (!panel) return;
+    try {
+      const res = await fetch('/api/plan/pace-proposals');
+      if (!res.ok) { panel.style.display = 'none'; return; }
+      renderPacePanel(await res.json());
+    } catch (_) {
+      panel.style.display = 'none';
+    }
+  }
+
+  function renderPacePanel(data) {
+    const panel = document.getElementById('pace-panel');
+    const anchor = data.anchor || {};
+    if (!anchor.ltPaceSec) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+
+    document.getElementById('pace-anchor-sub').textContent =
+      `Tröskel ${anchor.ltPace} · källa: ${anchor.source} · konfidens: ${anchor.confidence}`;
+
+    document.getElementById('pace-bands').innerHTML = Object.entries(data.bands || {})
+      .map(([kind, band]) => `<span class="pace-band">`
+        + `<b>${escapeHtml(PACE_KIND_LABELS[kind] || kind)}</b> ${escapeHtml(band.text)}</span>`)
+      .join('');
+
+    const goalEl = document.getElementById('pace-goal');
+    const goal = data.goalFeasibility;
+    if (goal && goal.verdict === 'out_of_reach') {
+      goalEl.style.display = '';
+      goalEl.className = 'pace-goal pace-goal-warn';
+      goalEl.innerHTML = `Ditt mål kräver <b>${escapeHtml(goal.goalPace)}</b>, men din uppmätta`
+        + ` tröskel räcker i dag till <b>${escapeHtml(goal.currentCapablePace)}</b> på loppdistansen`
+        + ` — ${goal.gapSec} s/km ifrån.`;
+    } else if (goal) {
+      goalEl.style.display = '';
+      goalEl.className = 'pace-goal';
+      goalEl.innerHTML = `Målet <b>${escapeHtml(goal.goalPace)}</b> ligger inom räckhåll`
+        + ` (nuvarande kapacitet ${escapeHtml(goal.currentCapablePace)}).`;
+    } else {
+      goalEl.style.display = 'none';
+    }
+
+    const list = document.getElementById('pace-proposals');
+    const proposals = data.proposals || [];
+    if (!proposals.length) {
+      list.innerHTML = '<div class="pace-empty">Inga väntande förslag. '
+        + 'Räkna om när du vill se om planens tempon stämmer med din form.</div>';
+      return;
+    }
+
+    list.innerHTML = proposals.map(p => {
+      const day = `V${p.week} ${PACE_DAY_NAMES[p.dow] || ''}`;
+      const clamped = p.validation !== 'accepted'
+        ? `<span class="pace-clamped" data-freetip="${escapeHtml(p.reason || '')}">justerat av motorn</span>` : '';
+      return `<div class="pace-row">
+        <div class="pace-row-main">
+          <div class="pace-row-title">${escapeHtml(day)} · ${escapeHtml(p.title || '')}
+            <span class="pace-kind">${escapeHtml(PACE_KIND_LABELS[p.kind] || p.kind || '')}</span>${clamped}</div>
+          <div class="pace-row-change">
+            <span class="pace-old">${escapeHtml(p.oldPace || 'inget mål')}</span>
+            <span class="pace-arrow">→</span>
+            <span class="pace-new">${escapeHtml(p.newPace || '')}</span>
+          </div>
+          ${p.rationale ? `<div class="pace-row-why">${escapeHtml(p.rationale)}</div>` : ''}
+        </div>
+        <div class="pace-row-actions">
+          <button class="pace-btn pace-btn-ok" type="button" data-action="pace-decide" data-decision="approve" data-id="${p.id}">Godkänn</button>
+          <button class="pace-btn" type="button" data-action="pace-decide" data-decision="reject" data-id="${p.id}">Avfärda</button>
+        </div>
+      </div>`;
+    }).join('') + `<div class="pace-bulk">
+      <button class="pace-btn pace-btn-ok" type="button" data-action="pace-decide" data-decision="approve">Godkänn alla (${proposals.length})</button>
+      <button class="pace-btn" type="button" data-action="pace-decide" data-decision="reject">Avfärda alla</button>
+    </div>`;
+  }
+
+  async function generatePaceProposals() {
+    const button = document.getElementById('pace-generate-btn');
+    const list = document.getElementById('pace-proposals');
+    if (button) { button.disabled = true; button.textContent = 'Räknar…'; }
+    try {
+      const res = await fetch('/api/plan/pace-proposals/generate', {method: 'POST'});
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        list.innerHTML = `<div class="pace-empty">${escapeHtml(data.message || 'Kunde inte räkna om just nu.')}</div>`;
+      } else if (!data.proposals) {
+        list.innerHTML = '<div class="pace-empty">Planens tempon stämmer redan med din form.</div>';
+      } else {
+        await loadPaceProposals();
+      }
+    } catch (_) {
+      list.innerHTML = '<div class="pace-empty">Servern kunde inte nås.</div>';
+    } finally {
+      if (button) { button.disabled = false; button.textContent = 'Räkna om måltempon'; }
+    }
+  }
+
+  async function decidePaceProposals(decision, id) {
+    const body = {decision};
+    if (id) body.ids = [Number(id)];
+    try {
+      const res = await fetch('/api/plan/pace-proposals/decide', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return;
+      await loadPaceProposals();
+      if (decision === 'approve') await loadPlan();  // kalendern visar den nya texten
+    } catch (_) {
+      // Nästa laddning rättar vyn.
+    }
   }
 
   function setCalendarView(view) {
