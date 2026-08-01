@@ -30,6 +30,13 @@ class PasswordResetTests(unittest.TestCase):
         garmin_server.refresh_users()
         self.client = garmin_server.app.test_client()
 
+    def tearDown(self):
+        # Flera tester här ändrar hugos lösenord/e-post via USER_STORE, som är en
+        # process-global singleton andra testfiler läser utan att själva nollställa
+        # den. Återställ till det opåverkade env-seedade läget så de inte förorenas.
+        garmin_server.USER_STORE = MemoryUserStore(parse_users(os.environ['USERS']))
+        garmin_server.refresh_users()
+
     def request_reset(self, email='hugo@example.com'):
         with mock.patch.object(garmin_server, '_send_password_reset_email', return_value=True) as mocked:
             response = self.client.post('/api/forgot-password', json={'email': email})
