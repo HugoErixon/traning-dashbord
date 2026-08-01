@@ -1,0 +1,78 @@
+# Trainyze — agent briefing
+
+Shared context for any coding agent (Claude Code, Codex CLI, etc.) working in this repo.
+Read this before making changes so you don't rediscover the same gotchas from scratch.
+
+## What this is
+
+Personal training dashboard: Flask backend (`garmin_server.py`) + vanilla HTML/JS
+(`public/index.html`, `public/app.js`) + local PostgreSQL 17. Pulls Garmin Connect data,
+gives AI-generated training recommendations, manages an adaptive training plan, syncs
+Google Calendar, and also drives an unrelated home AC-control system (Tuya + Zigbee via
+`tuya-ac-keeper`) for the same household.
+
+Public site: **https://trainyze.com** (Cloudflare named tunnel).
+
+## Where things run
+
+- **Local dev clone:** this directory, on the machine `t490` (Tailscale hostname `t490`).
+- **Production:** machine `g3` (Tailscale hostname `g3`, reachable via `ssh g3`), running
+  as systemd service `dashboard.service`, local Postgres on the same box.
+- Both t490 and g3 have their own clone of `HugoErixon/traning-dashbord` and push/pull via
+  SSH deploy keys (alias `github.com-traning-dashbord` in each machine's `~/.ssh/config`) —
+  **not** HTTPS. HTTPS clone is read-only.
+- Custom slash commands drive the workflow: `/codex <task>` runs `codex exec` against this
+  local clone, commits, and pushes. `/deploy` SSHes to g3, pulls, restarts
+  `dashboard.service`, and verifies status.
+
+## Hard rules / known gotchas
+
+- **`migrate_db.py` is a manual, one-off data-migration tool** — it requires an explicit
+  target DB URL argument (`python migrate_db.py "<url>"`) and is **not** an idempotent
+  schema migrator. Never run it automatically as part of a deploy. The app's own startup
+  migration (logged as "Databas: migrering klar") runs automatically inside
+  `garmin_server.py` and needs no separate action. (This bit us once on 2026-08-01 — a
+  deploy script ran it blindly and it errored on a missing arg.)
+- g3's sudoers rule only allows `systemctl restart/status/is-active dashboard.service`
+  with **no extra flags** (e.g. no `--no-pager`) — anything else falls back to a password
+  prompt.
+- Local git history has, in the past, diverged from what's actually running in
+  production (unclear exact cause). Don't assume `git push` alone guarantees production
+  is updated — verify with `git log`/`git status` on g3 directly, and confirm behavior
+  with `curl`/logs after any restart.
+- Self-registered accounts must never default to admin (`is_admin=false`). Only the
+  original bootstrap user (`hugo`, user id 1) is admin. Owner-only features (Climate tab,
+  "Hantera användare") must stay gated both server-side (`uid()==1`) and in the frontend.
+- A lot of config (goal-related constants, load-per-km tables, phase boundaries) is still
+  hardcoded in multiple places — see "Known hardcoded values" below before assuming a
+  single source of truth exists.
+
+## Stack / key pieces
+
+- **Backend:** `garmin_server.py` (Flask), `user_store.py` (DB vs in-memory user store).
+- **DB tables:** `users`, `activities`, `cache`, `strength_exercises`, `user_notes`,
+  `plan_sessions`, `health_history`, `metric_history`.
+- **AI:** `call_llm()` adapter supports `LLM_PROVIDER=gemini|anthropic` (Gemini used by
+  default — Anthropic credits ran out at one point, code path for Claude is kept working).
+- **Garmin auth:** unofficial `garminconnect` library per-user, tokens in
+  `~/.garminconnect/<username>/`. Official aggregators (Terra, Junction) were evaluated
+  and rejected as too expensive for this use case.
+- **Email:** Resend (`RESEND_API_KEY`), domain `trainyze.com` verified via Cloudflare
+  integration, used for registration verification emails.
+- **Automatic plan adjustment:** runs daily at 07:30 (backup 10:00) — syncs Garmin,
+  matches yesterday's planned sessions against actual activities, then an LLM call
+  proposes reschedule/skip/keep actions based on sleep, HRV, ACWR, calendar, etc.
+
+## Known hardcoded values (not yet centralized)
+
+- Goals (distance/time targets, deadlines) — several places in the code.
+- VO2max / personal records — not auto-fetched from Garmin yet.
+- CNS-score formula weights (0.40/0.30/0.20/0.10) — two places.
+- Load-per-km tables and weekly-km/phase plan — a few places.
+- Sleep goal (7.5h/night).
+
+## Before you touch DB schema or deploy flow
+
+Check the diff carefully for anything touching `plan_sessions`, `users`, or migration
+logic, and ask Hugo which target DB URL to use if `migrate_db.py` genuinely needs to run
+— don't guess or auto-run it.
