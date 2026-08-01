@@ -59,9 +59,12 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   and rejected as too expensive for this use case.
 - **Email:** Resend (`RESEND_API_KEY`), domain `trainyze.com` verified via Cloudflare
   integration, used for registration verification emails.
-- **Automatic plan adjustment:** runs daily at 07:30 (backup 10:00) — syncs Garmin,
-  matches yesterday's planned sessions against actual activities, then an LLM call
-  proposes reschedule/skip/keep actions based on sleep, HRV, ACWR, calendar, etc.
+- **Background sync:** runs every three hours from application startup and syncs Garmin,
+  matches recent planned sessions against actual activities, and stores health/metric
+  history once daily when Garmin has published fresh sleep or readiness data.
+- **Plan adjustment:** runs only when a user explicitly asks the training assistant to
+  change the plan. The LLM may then propose reschedule/skip/keep actions based on sleep,
+  HRV, ACWR, calendar, etc.; there is no automatic morning plan-adjustment job.
 
 ## Known hardcoded values (not yet centralized)
 

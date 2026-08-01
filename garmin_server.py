@@ -4808,7 +4808,7 @@ def match_activities_to_plan(days_back=7, user_id=1, username=None):
     Jämför Garmin-aktiviteter mot planerade pass de senaste N dagarna.
     Markerar pass som completed eller missed. Re-utvärderar även 'missed'
     (om en aktivitet synkats i efterhand) men rör aldrig skipped/rescheduled.
-    Idag hoppas över (dagen är inte slut). Körs efter varje synk + 07:30.
+    Idag hoppas över eftersom dagen inte är slut. Körs efter varje synk.
 
     För genomförda pass sparas dessutom en utvärdering av HUR passet kördes
     (tempo mot måltempo, varv, pulsdrift, vikter mot progressionsmål).
@@ -5032,8 +5032,7 @@ def run_sync(count=50, username=None, user_id=1):
 # ─────────────────────────────────────────────
 def ai_adjust_plan(user_request=None):
     """
-    Kärnan i den automatiska planjusteringen.
-    Körs kl 07:30 varje morgon efter sömndata kommit in.
+    Kärnan i planjusteringen som användaren startar via träningsassistenten.
     user_request: valfri fritext från användaren (t.ex. "jag vill gymma idag
     istället för att springa") som prioriteras högt i coachens beslut.
     """
@@ -5500,7 +5499,7 @@ def plan_status():
 
 
 # ─────────────────────────────────────────────
-# SCHEDULER — kör kl 07:30 varje morgon
+# SCHEDULER — synkar Garmin var tredje timme
 # ─────────────────────────────────────────────
 def maybe_run_daily_routine():
     """Den dagliga rutinen körs EN gång per dag — men först när dagens hälsodata
