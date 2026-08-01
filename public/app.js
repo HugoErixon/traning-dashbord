@@ -77,9 +77,32 @@ function showLogin(message) {
           <input id="login-input" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord" style="${inputStyle}margin-bottom:12px;" />
           <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
           <p id="login-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel användarnamn eller lösenord</p>
+          <p style="margin-top:10px;font-size:12.5px;">
+            <a id="show-forgot-link" href="#" style="color:var(--blue);">Glömt lösenord?</a>
+          </p>
           <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
             Inget konto? <a id="show-register-link" href="#" style="color:var(--blue);">Registrera dig</a>
           </p>
+        </div>
+        <div id="forgot-view" style="display:none;">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Glömt lösenord</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Vi mejlar en återställningslänk</p>
+          <input id="forgot-email" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="E-postadress" style="${inputStyle}margin-bottom:12px;" />
+          <button id="forgot-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Skicka återställningslänk</button>
+          <p id="forgot-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
+          <p id="forgot-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
+          <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
+            <a id="forgot-back-link" href="#" style="color:var(--blue);">Tillbaka till inloggning</a>
+          </p>
+        </div>
+        <div id="reset-view" style="display:none;">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Nytt lösenord</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Välj ett nytt lösenord</p>
+          <input id="reset-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Nytt lösenord (minst 8 tecken)" style="${inputStyle}" />
+          <input id="reset-password-confirm" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Upprepa lösenord" style="${inputStyle}margin-bottom:12px;" />
+          <button id="reset-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Spara nytt lösenord</button>
+          <p id="reset-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
+          <p id="reset-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
         </div>
         <div id="register-view" style="display:none;">
           <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Skapa konto</h2>
@@ -120,6 +143,34 @@ function showLogin(message) {
     document.getElementById('login-view').style.display = 'block';
     document.getElementById('login-user').focus();
   });
+  document.getElementById('show-forgot-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('forgot-view').style.display = 'block';
+    document.getElementById('forgot-email').focus();
+  });
+  document.getElementById('forgot-back-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('forgot-view').style.display = 'none';
+    document.getElementById('login-view').style.display = 'block';
+    document.getElementById('login-user').focus();
+  });
+  document.getElementById('forgot-submit').addEventListener('click', tryForgotPassword);
+  document.getElementById('forgot-email').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryForgotPassword();
+  });
+  document.getElementById('reset-submit').addEventListener('click', tryResetPassword);
+  document.getElementById('reset-password-confirm').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryResetPassword();
+  });
+
+  const resetToken = new URLSearchParams(window.location.search).get('reset');
+  if (resetToken) {
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('reset-view').style.display = 'block';
+    document.getElementById('reset-password').focus();
+    return;
+  }
   if (new URLSearchParams(window.location.search).get('auth') === 'register') {
     document.getElementById('login-view').style.display = 'none';
     document.getElementById('register-view').style.display = 'block';
@@ -167,6 +218,102 @@ async function tryRegister() {
     document.getElementById('register-password').value = '';
   } catch (registerError) {
     error.textContent = registerError.message;
+    error.style.display = 'block';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function performForgotPassword(email) {
+  const response = await originalFetch('/api/forgot-password', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Något gick fel. Försök igen.');
+  }
+  return data;
+}
+
+async function tryForgotPassword() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const button = document.getElementById('forgot-submit');
+  const error = document.getElementById('forgot-error');
+  const success = document.getElementById('forgot-success');
+  error.style.display = 'none';
+  success.style.display = 'none';
+  if (!email) {
+    error.textContent = 'Fyll i din e-postadress.';
+    error.style.display = 'block';
+    return;
+  }
+  button.disabled = true;
+  try {
+    const data = await performForgotPassword(email);
+    success.textContent = data.message || 'Om kontot finns har vi skickat en återställningslänk.';
+    success.style.display = 'block';
+    document.getElementById('forgot-email').value = '';
+  } catch (forgotError) {
+    error.textContent = forgotError.message;
+    error.style.display = 'block';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function performResetPassword(token, password) {
+  const response = await originalFetch('/api/reset-password', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({token, password}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Länken är ogiltig eller har gått ut.');
+  }
+  return data;
+}
+
+async function tryResetPassword() {
+  const token = new URLSearchParams(window.location.search).get('reset') || '';
+  const password = document.getElementById('reset-password').value;
+  const passwordConfirm = document.getElementById('reset-password-confirm').value;
+  const button = document.getElementById('reset-submit');
+  const error = document.getElementById('reset-error');
+  const success = document.getElementById('reset-success');
+  error.style.display = 'none';
+  success.style.display = 'none';
+  if (!password || password.length < 8) {
+    error.textContent = 'Lösenordet måste vara minst 8 tecken.';
+    error.style.display = 'block';
+    return;
+  }
+  if (password !== passwordConfirm) {
+    error.textContent = 'Lösenorden matchar inte.';
+    error.style.display = 'block';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await performResetPassword(token, password);
+    success.textContent = 'Lösenordet har återställts. Du kan nu logga in.';
+    success.style.display = 'block';
+    document.getElementById('reset-password').value = '';
+    document.getElementById('reset-password-confirm').value = '';
+    const url = new URL(window.location.href);
+    url.searchParams.delete('reset');
+    window.history.replaceState({}, '', url);
+    setTimeout(() => {
+      document.getElementById('reset-view').style.display = 'none';
+      document.getElementById('login-view').style.display = 'block';
+      document.getElementById('login-user').focus();
+    }, 1500);
+  } catch (resetError) {
+    error.textContent = resetError.message;
     error.style.display = 'block';
   } finally {
     button.disabled = false;

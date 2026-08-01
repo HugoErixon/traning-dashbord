@@ -177,6 +177,10 @@ REGISTER_LIMITER = LoginRateLimiter(
     max_attempts=int(config.get('REGISTER_MAX_ATTEMPTS', '3')),
     window_seconds=int(config.get('REGISTER_WINDOW_SECONDS', '3600')),
 )
+FORGOT_PASSWORD_LIMITER = LoginRateLimiter(
+    max_attempts=int(config.get('FORGOT_PASSWORD_MAX_ATTEMPTS', '5')),
+    window_seconds=int(config.get('FORGOT_PASSWORD_WINDOW_SECONDS', '3600')),
+)
 RESEND_API_KEY = config.get('RESEND_API_KEY', '')
 MAIL_FROM = config.get('MAIL_FROM', 'Trainyze <noreply@trainyze.com>')
 PUBLIC_BASE_URL = config.get('PUBLIC_BASE_URL', 'https://trainyze.com')
@@ -238,6 +242,41 @@ def _send_verification_email(to_email, username, token):
         return True
     except Exception as e:
         logger.exception('Verification email send failed', extra={'event': 'mail.send_exception'})
+        return False
+
+
+def _send_password_reset_email(to_email, username, token):
+    """Skickar återställningslänk via Resend. Returnerar True/False (loggar fel, kastar aldrig)."""
+    if not RESEND_API_KEY:
+        logger.error('Cannot send password reset email: RESEND_API_KEY not configured',
+                      extra={'event': 'mail.no_api_key'})
+        return False
+    link = f"{PUBLIC_BASE_URL.rstrip('/')}/index.html?reset={token}"
+    html = f'''<div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
+      <h2 style="color:#111;">Återställ ditt lösenord</h2>
+      <p>Hej {username}, klicka på länken nedan för att välja ett nytt lösenord:</p>
+      <p><a href="{link}" style="display:inline-block;background:#C8F135;color:#1a2200;
+         padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">
+         Återställ lösenord</a></p>
+      <p style="color:#666;font-size:13px;">Länken är giltig i 1 timme. Om du inte bad om detta
+      kan du ignorera mejlet — ditt lösenord ändras inte.</p>
+    </div>'''
+    try:
+        r = requests.post(
+            'https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {RESEND_API_KEY}', 'Content-Type': 'application/json'},
+            json={'from': MAIL_FROM, 'to': [to_email], 'subject': 'Återställ ditt lösenord',
+                  'html': html},
+            timeout=8,
+        )
+        if not r.ok:
+            logger.error('Password reset email rejected by Resend', extra={
+                'event': 'mail.send_failed', 'status': r.status_code, 'body': r.text[:300],
+            })
+            return False
+        return True
+    except Exception:
+        logger.exception('Password reset email send failed', extra={'event': 'mail.send_exception'})
         return False
 
 
@@ -607,7 +646,10 @@ def check_auth():
         return
     if request.method == 'OPTIONS':
         return
-    if request.path in ('/api/login', '/api/session', '/api/healthz', '/api/register'):
+    if request.path in (
+        '/api/login', '/api/session', '/api/healthz', '/api/register',
+        '/api/forgot-password', '/api/reset-password',
+    ):
         return
     if request.method == 'GET' and request.path == '/api/verify-email':
         return
@@ -874,6 +916,67 @@ def verify_email():
       <body><div class="card"><h2>{title}</h2><p>{body}</p>
       <p><a href="{PUBLIC_BASE_URL}">Gå till Trainyze</a></p></div></body></html>'''
     return html, 200 if ok else 400
+
+
+@app.post('/api/forgot-password')
+def forgot_password():
+    generic_response = jsonify({
+        'ok': True,
+        'message': 'Om kontot finns har vi skickat en länk för att återställa lösenordet.',
+    })
+    if USER_STORE is None:
+        return generic_response
+
+    ip_key = f'forgot-password:{request.remote_addr or "unknown"}'
+    allowed, retry_after = FORGOT_PASSWORD_LIMITER.check(ip_key)
+    if not allowed:
+        response, status = _api_error(
+            'too_many_requests',
+            'För många förfrågningar från din adress. Vänta en stund och försök igen.',
+            429,
+        )
+        response.headers['Retry-After'] = str(retry_after)
+        return response, status
+    FORGOT_PASSWORD_LIMITER.record_failure(ip_key)
+
+    data = request.get_json(silent=True) or {}
+    email = str(data.get('email') or '').strip()
+    result = USER_STORE.create_password_reset_token(email)
+    if result:
+        username, token = result
+        sent = _send_password_reset_email(email, username, token)
+        logger.info('Password reset requested', extra={
+            'event': 'auth.password_reset_requested', 'request_id': _request_id(), 'mail_sent': sent,
+        })
+    return generic_response
+
+
+@app.post('/api/reset-password')
+def reset_password():
+    if USER_STORE is None:
+        return _api_error('registration_unavailable', 'Kontohantering är inte tillgänglig just nu.', 503)
+
+    data = request.get_json(silent=True) or {}
+    token = str(data.get('token') or '')
+    password = data.get('password')
+    if not isinstance(password, str):
+        password = ''
+    if not token:
+        return _api_error('invalid_reset_token', 'Länken är ogiltig eller har gått ut.', 400)
+
+    try:
+        username = USER_STORE.reset_password_with_token(token, password)
+    except UserStoreError as e:
+        return _api_error('invalid_registration', str(e), 400)
+
+    if not username:
+        return _api_error('invalid_reset_token', 'Länken är ogiltig eller har gått ut.', 400)
+
+    refresh_users()
+    logger.info('Password reset completed', extra={
+        'event': 'auth.password_reset_completed', 'request_id': _request_id(),
+    })
+    return jsonify({'ok': True, 'message': 'Lösenordet har återställts. Du kan nu logga in.'})
 
 
 @app.post('/api/logout')

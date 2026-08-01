@@ -21,6 +21,7 @@ from security import USERNAME_RE, is_password_hash
 MIN_PASSWORD_LENGTH = 8
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 VERIFICATION_TOKEN_TTL = 24 * 3600
+RESET_TOKEN_TTL = 3600
 
 
 class UserStoreError(ValueError):
@@ -67,7 +68,8 @@ class MemoryUserStore:
             }
 
     def all(self):
-        _internal = ('widget_token_hash', '_verification_token', '_verification_expires')
+        _internal = ('widget_token_hash', '_verification_token', '_verification_expires',
+                     '_reset_token', '_reset_token_expires')
         return {
             username: {key: value for key, value in rec.items() if key not in _internal}
             for username, rec in self._users.items()
@@ -123,6 +125,35 @@ class MemoryUserStore:
                 return username
         return None
 
+    def create_password_reset_token(self, email):
+        email = (email or '').strip().lower()
+        if not email:
+            return None
+        for username, rec in self._users.items():
+            if (rec.get('email') or '').lower() == email:
+                token = secrets.token_urlsafe(32)
+                rec['_reset_token'] = token
+                rec['_reset_token_expires'] = time.time() + RESET_TOKEN_TTL
+                return username, token
+        return None
+
+    def reset_password_with_token(self, token, new_password):
+        if not isinstance(new_password, str) or len(new_password) < MIN_PASSWORD_LENGTH:
+            raise UserStoreError(f'Lösenordet måste vara minst {MIN_PASSWORD_LENGTH} tecken.')
+        if len(new_password) > 1024:
+            raise UserStoreError('Lösenordet är för långt.')
+        now = time.time()
+        for username, rec in self._users.items():
+            if rec.get('_reset_token') == token:
+                if rec.get('_reset_token_expires', 0) < now:
+                    return None
+                rec['password'] = _ensure_hashed(new_password)
+                rec['password_hashed'] = True
+                rec.pop('_reset_token', None)
+                rec.pop('_reset_token_expires', None)
+                return username
+        return None
+
     def delete(self, user_id):
         for username, rec in list(self._users.items()):
             if rec['id'] == user_id:
@@ -175,6 +206,8 @@ class DbUserStore:
                 cur.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_expires REAL')
                 cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS users_email_key
                     ON users (lower(email)) WHERE email IS NOT NULL''')
+                cur.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT')
+                cur.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires REAL')
             conn.commit()
 
     def seed_from_env(self, env_users):
@@ -267,6 +300,51 @@ class DbUserStore:
                 cur.execute(
                     '''UPDATE users SET email_verified=true, verification_token=NULL,
                        verification_token_expires=NULL WHERE id=%s''', (user_id,))
+            conn.commit()
+        return username
+
+    def create_password_reset_token(self, email):
+        """Skapar en återställningstoken om e-postadressen tillhör ett konto. Returnerar (username, token) eller None."""
+        email = (email or '').strip().lower()
+        if not email:
+            return None
+        token = secrets.token_urlsafe(32)
+        now = time.time()
+        with self._db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT id, username FROM users WHERE lower(email)=%s', (email,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                user_id, username = row
+                cur.execute(
+                    'UPDATE users SET reset_token=%s, reset_token_expires=%s WHERE id=%s',
+                    (token, now + RESET_TOKEN_TTL, user_id))
+            conn.commit()
+        return username, token
+
+    def reset_password_with_token(self, token, new_password):
+        """Sätter nytt lösenord om token är giltig och inte har gått ut. Returnerar username eller None."""
+        if not isinstance(new_password, str) or len(new_password) < MIN_PASSWORD_LENGTH:
+            raise UserStoreError(f'Lösenordet måste vara minst {MIN_PASSWORD_LENGTH} tecken.')
+        if len(new_password) > 1024:
+            raise UserStoreError('Lösenordet är för långt.')
+        if not isinstance(token, str) or not token:
+            return None
+        now = time.time()
+        with self._db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'SELECT id, username, reset_token_expires FROM users WHERE reset_token=%s', (token,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                user_id, username, expires = row
+                if expires is None or expires < now:
+                    return None
+                cur.execute(
+                    '''UPDATE users SET password_hash=%s, reset_token=NULL, reset_token_expires=NULL
+                       WHERE id=%s''', (_ensure_hashed(new_password), user_id))
             conn.commit()
         return username
 
