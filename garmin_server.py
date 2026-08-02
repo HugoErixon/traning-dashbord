@@ -32,6 +32,7 @@ from strength_progression import (
 import session_analysis
 import pace_progression
 import sleep_analysis
+import strain_analysis
 import training_analysis
 
 # Google Calendar (valfritt — kräver google_credentials.json)
@@ -498,6 +499,21 @@ def migrate_db():
                 cur.execute('ALTER TABLE health_history ADD COLUMN IF NOT EXISTS stress_avg INTEGER')
             except Exception as e:
                 print('migrate_db health_history stress_avg:', e)
+            try:
+                # Ett omdöme per genomfört pass, skrivet av synken när passet
+                # först dyker upp — vad det kostade och när nästa kvalitetspass
+                # tidigast bör ligga. Se strain_analysis.session_verdict.
+                cur.execute('''CREATE TABLE IF NOT EXISTS session_verdicts (
+                    activity_id BIGINT NOT NULL,
+                    user_id INTEGER DEFAULT 1,
+                    activity_date TEXT,
+                    verdict JSONB,
+                    created_at REAL,
+                    PRIMARY KEY (activity_id, user_id))''')
+                cur.execute('''CREATE INDEX IF NOT EXISTS session_verdicts_recent_idx
+                    ON session_verdicts (user_id, activity_date DESC)''')
+            except Exception as e:
+                print('migrate_db session_verdicts:', e)
             try:
                 # När natten började och slutade, plus resten av stadiefördelningen.
                 # Utan tiderna går läggdagsregelbundenhet inte att mäta alls.
@@ -5126,6 +5142,134 @@ def link_manual_exercises_to_activities(user_id):
         print(f'Strength: länkade {linked} manuella övningar till Garmin-pass')
 
 
+# ─────────────────────────────────────────────
+# BELASTNING (STRAIN) OCH PASSOMDÖMEN
+# ─────────────────────────────────────────────
+# Garmins råa träningsbelastning säger ingenting i sig — 180 är en hård dag för
+# en löpare och en tisdag för en annan. Allt här vägs därför mot personens egen
+# kroniska belastning. Se strain_analysis.py för själva matten.
+
+def _recent_activities(user_id, days=30):
+    """Aktiviteter från de senaste dygnen, i det format strain_analysis vill ha."""
+    start = (date.today() - timedelta(days=days)).isoformat()
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT id, name, date, type, distance, raw
+                FROM activities WHERE date >= %s AND user_id=%s ORDER BY date''',
+                        (start, user_id))
+            return [dict(row) for row in cur.fetchall()]
+
+
+def _load_context(user_id):
+    """Kronisk belastning och ACWR från cachen — ingen extra Garmin-runda i synken."""
+    row = get_cache('training_load', user_id)
+    payload = (row[0] if row else None) or {}
+    return payload.get('chronic'), payload.get('ratio')
+
+
+def _recent_recovery(user_id):
+    """Senaste registrerade beredskapen och sömnlängden."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT readiness, sleep_hours FROM health_history
+                    WHERE user_id=%s AND (readiness IS NOT NULL OR sleep_hours IS NOT NULL)
+                    ORDER BY date DESC LIMIT 1''', (user_id,))
+                row = cur.fetchone()
+        return (row[0], row[1]) if row else (None, None)
+    except Exception as e:
+        print('Kunde inte läsa återhämtningsdata:', e)
+        return None, None
+
+
+def _unseen_activity_ids(activities, user_id):
+    """Vilka av de hämtade passen vi inte har sett förut."""
+    ids = [a.get('activityId') for a in activities or [] if a.get('activityId')]
+    if not ids:
+        return set()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM activities WHERE user_id=%s AND id = ANY(%s)',
+                        (user_id, ids))
+            known = {row[0] for row in cur.fetchall()}
+    return {i for i in ids if i not in known}
+
+
+def record_session_verdicts(activity_ids, user_id=1, max_age_days=3):
+    """Skriv ett omdöme för varje nytt pass från de senaste dygnen.
+
+    Äldre pass som dyker upp vid en första synk hoppas över — ett omdöme om ett
+    tre veckor gammalt pass har ingenting att informera. Befintliga omdömen
+    skrivs aldrig över; det första skrevs i den kontext som gällde då.
+    """
+    if not activity_ids:
+        return 0
+    cutoff = (date.today() - timedelta(days=max_age_days)).isoformat()
+    activities = [a for a in _recent_activities(user_id, days=max_age_days)
+                  if a.get('id') in set(activity_ids) and str(a.get('date') or '')[:10] >= cutoff]
+    if not activities:
+        return 0
+
+    chronic, acwr = _load_context(user_id)
+    readiness, sleep_hours = _recent_recovery(user_id)
+    reference = strain_analysis.reference_load(_recent_activities(user_id), chronic=chronic)
+
+    written = 0
+    with db() as conn:
+        with conn.cursor() as cur:
+            for activity in activities:
+                try:
+                    verdict = strain_analysis.session_verdict(
+                        activity, reference=reference, acwr=acwr,
+                        readiness=readiness, sleep_hours=sleep_hours)
+                    cur.execute('''INSERT INTO session_verdicts
+                        (activity_id, user_id, activity_date, verdict, created_at)
+                        VALUES (%s,%s,%s,%s,%s)
+                        ON CONFLICT (activity_id, user_id) DO NOTHING''',
+                        (activity['id'], user_id, verdict['date'],
+                         json.dumps(verdict), time.time()))
+                    written += cur.rowcount
+                except Exception as e:
+                    print('Passomdöme fel:', e)
+        conn.commit()
+    if written:
+        print(f'Passomdöme: skrev {written} nya')
+    return written
+
+
+@app.get('/api/strain')
+def strain_today():
+    """Dagens belastning vägd mot vad kroppen normalt tål."""
+    try:
+        chronic, _ = _load_context(uid())
+        readiness, _ = _recent_recovery(uid())
+        summary = strain_analysis.strain_summary(
+            _recent_activities(uid()), readiness=readiness, chronic=chronic)
+        return jsonify(summary)
+    except Exception as e:
+        return _server_error(e, 'strain.failed', message='Belastningen kunde inte beräknas.')
+
+
+@app.get('/api/session-verdict')
+def session_verdicts():
+    """De senast bedömda passen, nyast först."""
+    try:
+        limit = max(1, min(int(request.args.get('limit', 5)), 20))
+    except (TypeError, ValueError):
+        limit = 5
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT verdict FROM session_verdicts
+                    WHERE user_id=%s ORDER BY activity_date DESC, created_at DESC
+                    LIMIT %s''', (uid(), limit))
+                verdicts = [row[0] for row in cur.fetchall()]
+        return jsonify({'verdicts': verdicts, 'latest': verdicts[0] if verdicts else None})
+    except Exception as e:
+        return _server_error(e, 'session_verdict.failed',
+                             message='Passomdömena kunde inte hämtas.')
+
+
 def run_sync(count=50, username=None, user_id=1):
     """Hämta senaste aktiviteter, spara, rensa cache och matcha mot planen.
     Används av både /api/sync och den återkommande autosynken."""
@@ -5133,7 +5277,16 @@ def run_sync(count=50, username=None, user_id=1):
         username = list(USERS.keys())[0] if USERS else 'hugo'
     client = get_garmin(username)
     acts = client.get_activities(0, count)
+    try:
+        fresh_ids = _unseen_activity_ids(acts, user_id)
+    except Exception as e:
+        print('Kunde inte avgöra nya pass:', e)
+        fresh_ids = set()
     save_activities(acts, user_id)
+    try:
+        record_session_verdicts(fresh_ids, user_id)
+    except Exception as e:
+        print('Passomdöme fel:', e)
     try:
         link_manual_exercises_to_activities(user_id)
     except Exception as e:

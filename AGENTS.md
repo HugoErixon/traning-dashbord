@@ -51,7 +51,14 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
 
 - **Backend:** `garmin_server.py` (Flask), `user_store.py` (DB vs in-memory user store).
 - **DB tables:** `users`, `activities`, `cache`, `strength_exercises`, `user_notes`,
-  `plan_sessions`, `health_history`, `metric_history`.
+  `plan_sessions`, `health_history`, `metric_history`, `session_verdicts`.
+- **Strain:** `strain_analysis.py` scores each day 0-100 by weighing that day's Garmin
+  `activityTrainingLoad` against the athlete's own chronic load (Garmin's chronic value
+  when available, otherwise a 28-day average) — a raw load number means nothing on its
+  own. `GET /api/strain` serves it. The sync writes one `session_verdict` per newly seen
+  activity from the last three days (`GET /api/session-verdict`); older activities showing
+  up in a first-time sync are skipped on purpose, and existing verdicts are never
+  overwritten since the first one was written in the context that applied that day.
 - **AI:** `call_llm()` adapter supports `LLM_PROVIDER=gemini|anthropic` (Gemini used by
   default — Anthropic credits ran out at one point, code path for Claude is kept working).
 - **Garmin auth:** unofficial `garminconnect` library per-user, tokens in
