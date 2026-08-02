@@ -28,7 +28,7 @@ def gemini_payload(text):
 
 class LlmAdapterTests(unittest.TestCase):
     def test_gemini_request_shape_and_response(self):
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
              mock.patch.object(garmin_server.requests, 'post',
                                return_value=FakeResponse(gemini_payload('Hej!'))) as post:
@@ -45,7 +45,7 @@ class LlmAdapterTests(unittest.TestCase):
         self.assertEqual(body['system_instruction']['parts'][0]['text'], 'Var en coach.')
 
     def test_gemini_error_raises(self):
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
              mock.patch.object(garmin_server.requests, 'post',
                                return_value=FakeResponse({'error': {'code': 429, 'message': 'quota'}})):
@@ -54,7 +54,7 @@ class LlmAdapterTests(unittest.TestCase):
         self.assertIn('429', str(ctx.exception))
 
     def test_gemini_empty_response_raises(self):
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
              mock.patch.object(garmin_server.requests, 'post',
                                return_value=FakeResponse({'candidates': [{'finishReason': 'MAX_TOKENS'}]})):
@@ -63,7 +63,7 @@ class LlmAdapterTests(unittest.TestCase):
         self.assertIn('MAX_TOKENS', str(ctx.exception))
 
     def test_anthropic_request_shape_and_response(self):
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'anthropic'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['anthropic']), \
              mock.patch.object(garmin_server, 'ANTHROPIC_KEY', 'sk-ant-test'), \
              mock.patch.object(garmin_server.requests, 'post',
                                return_value=FakeResponse({'content': [{'text': 'Hej från Claude'}]})) as post:
@@ -77,16 +77,16 @@ class LlmAdapterTests(unittest.TestCase):
         self.assertEqual(kwargs['headers']['x-api-key'], 'sk-ant-test')
 
     def test_llm_available_per_provider(self):
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', ''):
             self.assertFalse(garmin_server.llm_available())
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'nyckel'):
             self.assertTrue(garmin_server.llm_available())
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'anthropic'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['anthropic']), \
              mock.patch.object(garmin_server, 'ANTHROPIC_KEY', 'sk-ant-placeholder-x'):
             self.assertFalse(garmin_server.llm_available())
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'anthropic'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['anthropic']), \
              mock.patch.object(garmin_server, 'ANTHROPIC_KEY', 'sk-ant-riktig'):
             self.assertTrue(garmin_server.llm_available())
 
@@ -97,7 +97,7 @@ class LlmAdapterTests(unittest.TestCase):
         login = client.post('/api/login', json={'username': 'hugo', 'password': 'test-password'})
         csrf = login.get_json()['csrfToken']
 
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
              mock.patch.object(garmin_server.requests, 'post',
                                return_value=FakeResponse(gemini_payload('Kör ett lugnt pass idag.'))):

@@ -59,8 +59,22 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   activity from the last three days (`GET /api/session-verdict`); older activities showing
   up in a first-time sync are skipped on purpose, and existing verdicts are never
   overwritten since the first one was written in the context that applied that day.
-- **AI:** `call_llm()` adapter supports `LLM_PROVIDER=gemini|anthropic` (Gemini used by
-  default — Anthropic credits ran out at one point, code path for Claude is kept working).
+- **AI:** `call_llm()` walks a provider chain set with `LLM_PROVIDERS=gemini,cerebras,groq`
+  (ordered). It moves to the next provider only on quota (429) or network errors — a bad
+  prompt or an unparseable reply fails immediately, since retrying it elsewhere would just
+  burn a second quota. A provider that returns 429 is put on cooldown for the delay it
+  asked for, so later requests skip straight past it instead of paying for the round trip;
+  that cooldown is what actually lets two free tiers stack.
+  - `gemini` and `anthropic` have their own adapters. `groq`, `cerebras`, `openrouter` and
+    `mistral` all speak OpenAI chat-completions and share one adapter — add a key as
+    `<NAME>_API_KEY`, and override `<NAME>_MODEL` / `<NAME>_URL` when needed. **Provider
+    model names change often; the built-in defaults are a starting point, not a promise.**
+  - **The chain is never built automatically.** With neither `LLM_PROVIDERS` nor the legacy
+    `LLM_PROVIDER` set, exactly one provider is used. This is deliberate: g3 has a leftover
+    `ANTHROPIC_API_KEY`, and auto-chaining to it would silently start spending money.
+    Anthropic only ever runs if it is named explicitly.
+  - `LLM_RETRY_MAX_WAIT` (default 10s) caps how long a provider may make us sleep before we
+    give up on it; a wait is only taken at all when no other provider could take over.
 - **Garmin auth:** unofficial `garminconnect` library per-user, tokens in
   `~/.garminconnect/<username>/`. Official aggregators (Terra, Junction) were evaluated
   and rejected as too expensive for this use case.

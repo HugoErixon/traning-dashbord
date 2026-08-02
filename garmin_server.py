@@ -113,17 +113,113 @@ for _username, _user in USERS.items():
 
 ANTHROPIC_KEY = config.get('ANTHROPIC_API_KEY', '')
 
-# --- AI-leverantör: gemini (gratis via aistudio.google.com) eller anthropic ---
+# --- AI-leverantörer ---------------------------------------------------------
+# Flera leverantörer kan kedjas: LLM_PROVIDERS=gemini,cerebras,groq. Kedjan
+# används i ordning och nästa tas bara vid kvot- eller nätverksfel, aldrig vid
+# ett riktigt fel som en trasig prompt — det felet skulle upprepas hos alla och
+# bara bränna kvot. Poängen är att kunna stapla flera gratisnivåer på varandra.
 GEMINI_API_KEY  = config.get('GEMINI_API_KEY', '')
 GEMINI_MODEL    = config.get('GEMINI_MODEL', 'gemini-flash-latest')
 ANTHROPIC_MODEL = config.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
-LLM_PROVIDER    = (config.get('LLM_PROVIDER') or ('gemini' if GEMINI_API_KEY else 'anthropic')).strip().lower()
+
+# Groq, Cerebras, OpenRouter och Mistral talar alla OpenAI:s chat-completions,
+# så samma adapter räcker för alla fyra — bara URL, modell och nyckel skiljer.
+# Modellnamnen byts ut ofta hos leverantörerna; sätt <NAMN>_MODEL i .env om
+# defaulten slutar finnas.
+OPENAI_COMPATIBLE_PROVIDERS = {
+    'groq': ('https://api.groq.com/openai/v1/chat/completions', 'llama-3.3-70b-versatile'),
+    'cerebras': ('https://api.cerebras.ai/v1/chat/completions', 'llama3.1-70b'),
+    'openrouter': ('https://openrouter.ai/api/v1/chat/completions', 'meta-llama/llama-3.3-70b-instruct:free'),
+    'mistral': ('https://api.mistral.ai/v1/chat/completions', 'mistral-small-latest'),
+}
+
+
+def _provider_spec(name):
+    """Nyckel, modell och URL för en leverantör, eller None om namnet är okänt.
+
+    Slås upp vid anropet i stället för vid import: konfigurationen ska kunna
+    bytas ut utan att modulen laddas om, och nyckeln läses från modulens egna
+    globaler så att den går att ersätta i test."""
+    if name == 'gemini':
+        return {'kind': 'gemini', 'key': GEMINI_API_KEY, 'model': GEMINI_MODEL,
+                'label': 'Gemini'}
+    if name == 'anthropic':
+        return {'kind': 'anthropic', 'key': ANTHROPIC_KEY, 'model': ANTHROPIC_MODEL,
+                'label': 'Anthropic'}
+    if name in OPENAI_COMPATIBLE_PROVIDERS:
+        url, default_model = OPENAI_COMPATIBLE_PROVIDERS[name]
+        return {
+            'kind': 'openai',
+            'key': config.get(f'{name.upper()}_API_KEY', ''),
+            'model': config.get(f'{name.upper()}_MODEL', default_model),
+            'url': config.get(f'{name.upper()}_URL', url),
+            'label': name.capitalize(),
+        }
+    return None
+
+
+def _provider_configured(name):
+    spec = _provider_spec(name)
+    if not spec or not spec['key']:
+        return False
+    if name == 'anthropic' and spec['key'].startswith('sk-ant-placeholder'):
+        return False
+    return True
+
+
+def _resolve_llm_chain():
+    """Leverantörskedjan i prioritetsordning.
+
+    LLM_PROVIDERS är den nya formen. LLM_PROVIDER (singular) stöds fortfarande
+    så att befintliga .env-filer fungerar oförändrat.
+
+    Utan någon av dem används EN leverantör, precis som förr. Kedjan byggs
+    aldrig automatiskt, för flera av leverantörerna kostar pengar och en tyst
+    fallback till en betald tjänst är inget man ska kunna råka ut för — den
+    som vill kedja får skriva ut ordningen själv."""
+    raw = config.get('LLM_PROVIDERS') or config.get('LLM_PROVIDER') or ''
+    names = [n.strip().lower() for n in raw.split(',') if n.strip()]
+    if not names:
+        names = ['gemini'] if GEMINI_API_KEY else ['anthropic']
+    seen, chain = set(), []
+    for name in names:
+        if _provider_spec(name) and name not in seen:
+            seen.add(name)
+            chain.append(name)
+    return chain
+
+
+LLM_CHAIN = _resolve_llm_chain()
+# Behålls för bakåtkompatibilitet: en del kod och tester läser den enskilda
+# leverantören.
+LLM_PROVIDER = LLM_CHAIN[0] if LLM_CHAIN else 'gemini'
+
+# När en leverantör svarat 429 är det slöseri att fortsätta fråga den under
+# hela väntetiden — nästa request hoppar direkt vidare i kedjan i stället.
+_llm_cooldowns = {}
+_llm_cooldown_guard = threading.Lock()
+LLM_TRANSIENT_COOLDOWN = float(config.get('LLM_TRANSIENT_COOLDOWN', '30'))
+
+
+def _llm_cooldown_remaining(name):
+    with _llm_cooldown_guard:
+        return max(0.0, _llm_cooldowns.get(name, 0.0) - time.time())
+
+
+def _set_llm_cooldown(name, seconds):
+    if not seconds or seconds <= 0:
+        return
+    with _llm_cooldown_guard:
+        _llm_cooldowns[name] = max(_llm_cooldowns.get(name, 0.0), time.time() + seconds)
+
+
+def reset_llm_cooldowns():
+    with _llm_cooldown_guard:
+        _llm_cooldowns.clear()
 
 
 def llm_available():
-    if LLM_PROVIDER == 'gemini':
-        return bool(GEMINI_API_KEY)
-    return bool(ANTHROPIC_KEY) and not ANTHROPIC_KEY.startswith('sk-ant-placeholder')
+    return any(_provider_configured(name) for name in LLM_CHAIN)
 
 
 class LLMQuotaError(RuntimeError):
@@ -159,50 +255,57 @@ def _gemini_retry_after(error_obj):
     return float(match.group(1)) if match else None
 
 
-def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
-    """Skicka en prompt till den konfigurerade AI-leverantören och returnera svarstexten.
+class LLMTransientError(RuntimeError):
+    """Leverantören var tillfälligt onåbar (nätverksfel eller 5xx).
 
-    Samma gränssnitt oavsett leverantör så att alla anropsställen är oberoende av
-    vilken tjänst som används. Kastar LLMQuotaError vid 429 och RuntimeError när
-    leverantören svarar med annat fel eller tomt svar; anropsställenas befintliga
-    except-hantering tar hand om det."""
-    if LLM_PROVIDER == 'gemini':
-        body = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}
-        if system:
-            body['system_instruction'] = {'parts': [{'text': system}]}
+    Skiljs från kvotfel eftersom den inte har någon meningsfull väntetid, men
+    är precis som kvotfel något som ska få kedjan att gå vidare till nästa."""
 
-        for attempt in (1, 2):
-            resp = requests.post(
-                f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent',
-                json=body,
-                headers={'x-goog-api-key': GEMINI_API_KEY, 'Content-Type': 'application/json'},
-                timeout=timeout)
-            rj = resp.json()
-            if 'error' not in rj:
-                break
-            err = rj['error']
-            if err.get('code') != 429:
-                raise RuntimeError(f"Gemini {err.get('code')}: {err.get('message')}")
-            wait = _gemini_retry_after(err)
-            if attempt == 2 or wait is None or wait > LLM_RETRY_MAX_WAIT:
-                raise LLMQuotaError(f"Gemini 429: {err.get('message')}", retry_after=wait)
-            logger.warning('LLM rate limited, retrying', extra={
-                'event': 'llm.rate_limited', 'retry_after_s': wait, 'model': GEMINI_MODEL})
-            time.sleep(wait)
 
-        try:
-            return rj['candidates'][0]['content']['parts'][0]['text']
-        except (KeyError, IndexError, TypeError) as exc:
-            finish = ((rj.get('candidates') or [{}])[0]).get('finishReason', 'okänt')
-            raise RuntimeError(f'Gemini gav tomt svar (finishReason: {finish})') from exc
+def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait):
+    body = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}
+    if system:
+        body['system_instruction'] = {'parts': [{'text': system}]}
 
-    payload = {'model': ANTHROPIC_MODEL, 'max_tokens': max_tokens,
+    for attempt in (1, 2):
+        resp = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{spec['model']}:generateContent",
+            json=body,
+            headers={'x-goog-api-key': spec['key'], 'Content-Type': 'application/json'},
+            timeout=timeout)
+        rj = resp.json()
+        if 'error' not in rj:
+            break
+        err = rj['error']
+        code = err.get('code')
+        if code != 429:
+            if isinstance(code, int) and code >= 500:
+                raise LLMTransientError(f"Gemini {code}: {err.get('message')}")
+            raise RuntimeError(f"Gemini {code}: {err.get('message')}")
+        wait = _gemini_retry_after(err)
+        # Att sova är bara värt det när ingen annan leverantör kan ta över —
+        # annars är det snabbare att falla vidare i kedjan direkt.
+        if attempt == 2 or not allow_wait or wait is None or wait > LLM_RETRY_MAX_WAIT:
+            raise LLMQuotaError(f"Gemini 429: {err.get('message')}", retry_after=wait)
+        logger.warning('LLM rate limited, retrying', extra={
+            'event': 'llm.rate_limited', 'retry_after_s': wait, 'model': spec['model']})
+        time.sleep(wait)
+
+    try:
+        return rj['candidates'][0]['content']['parts'][0]['text']
+    except (KeyError, IndexError, TypeError) as exc:
+        finish = ((rj.get('candidates') or [{}])[0]).get('finishReason', 'okänt')
+        raise RuntimeError(f'Gemini gav tomt svar (finishReason: {finish})') from exc
+
+
+def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait):
+    payload = {'model': spec['model'], 'max_tokens': max_tokens,
                'messages': [{'role': 'user', 'content': prompt}]}
     if system:
         payload['system'] = system
     resp = requests.post('https://api.anthropic.com/v1/messages',
         json=payload,
-        headers={'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01',
+        headers={'x-api-key': spec['key'], 'anthropic-version': '2023-06-01',
                  'content-type': 'application/json'}, timeout=timeout)
     rj = resp.json()
     if 'error' in rj:
@@ -210,11 +313,92 @@ def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
         if resp.status_code == 429 or rj['error'].get('type') == 'rate_limit_error':
             try:
                 wait = float(resp.headers.get('retry-after', ''))
-            except ValueError:
+            except (TypeError, ValueError):
                 wait = None
             raise LLMQuotaError(f'Anthropic: {message}', retry_after=wait)
+        if resp.status_code >= 500:
+            raise LLMTransientError(f'Anthropic {resp.status_code}: {message}')
         raise RuntimeError(f'Anthropic: {message}')
-    return rj['content'][0]['text']
+    try:
+        return rj['content'][0]['text']
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError('Anthropic gav tomt svar') from exc
+
+
+def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wait):
+    """Groq, Cerebras, OpenRouter, Mistral — samma chat-completions-format."""
+    messages = ([{'role': 'system', 'content': system}] if system else []) + \
+               [{'role': 'user', 'content': prompt}]
+    resp = requests.post(spec['url'],
+        json={'model': spec['model'], 'max_tokens': max_tokens, 'messages': messages},
+        headers={'Authorization': f"Bearer {spec['key']}",
+                 'Content-Type': 'application/json'}, timeout=timeout)
+    if resp.status_code == 429:
+        try:
+            wait = float(resp.headers.get('retry-after', ''))
+        except (TypeError, ValueError):
+            wait = None
+        raise LLMQuotaError(f'{spec["label"]} 429: {resp.text[:200]}', retry_after=wait)
+    if resp.status_code >= 500:
+        raise LLMTransientError(f'{spec["label"]} {resp.status_code}')
+    rj = resp.json()
+    if resp.status_code >= 400 or 'error' in rj:
+        detail = rj.get('error') if isinstance(rj.get('error'), str) else \
+                 (rj.get('error') or {}).get('message', resp.text[:200])
+        raise RuntimeError(f'{spec["label"]}: {detail}')
+    try:
+        return rj['choices'][0]['message']['content']
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f'{spec["label"]} gav tomt svar') from exc
+
+
+_LLM_CALLERS = {'gemini': _call_gemini, 'anthropic': _call_anthropic,
+                'openai': _call_openai_compatible}
+
+
+def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
+    """Skicka en prompt till leverantörskedjan och returnera svarstexten.
+
+    Går igenom LLM_CHAIN i ordning och hoppar över leverantörer som nyligen
+    svarat 429. Faller vidare vid kvot- och nätverksfel; ett riktigt fel (trasig
+    prompt, tomt svar) kastas direkt eftersom det skulle upprepas överallt.
+    Kastar LLMQuotaError om alla leverantörer är slut på kvot."""
+    configured = [name for name in LLM_CHAIN if _provider_configured(name)]
+    if not configured:
+        raise RuntimeError('Ingen AI-leverantör är konfigurerad.')
+
+    ready = [name for name in configured if not _llm_cooldown_remaining(name)]
+    # Är allt nedkylt är ett försök ändå bättre än ett säkert nej — kvoten kan
+    # ha återställts tidigare än leverantören gissade.
+    order = ready or configured
+
+    last_error = None
+    for position, name in enumerate(order):
+        spec = _provider_spec(name)
+        caller = _LLM_CALLERS[spec['kind']]
+        try:
+            text = caller(prompt, max_tokens, system, timeout, spec,
+                          allow_wait=(position == len(order) - 1))
+            if position > 0:
+                logger.info('LLM served by fallback provider', extra={
+                    'event': 'llm.fallback_used', 'provider': name,
+                    'model': spec['model'], 'position': position})
+            return text
+        except LLMQuotaError as exc:
+            _set_llm_cooldown(name, exc.retry_after or LLM_TRANSIENT_COOLDOWN)
+            logger.warning('LLM provider out of quota', extra={
+                'event': 'llm.quota', 'provider': name,
+                'retry_after_s': exc.retry_after})
+            last_error = exc
+        except (LLMTransientError, requests.RequestException) as exc:
+            _set_llm_cooldown(name, LLM_TRANSIENT_COOLDOWN)
+            logger.warning('LLM provider unreachable', extra={
+                'event': 'llm.transient', 'provider': name, 'detail': str(exc)[:200]})
+            last_error = LLMTransientError(str(exc))
+
+    raise last_error
+
+
 TOKEN_DIR     = str(Path.home() / '.garminconnect')
 DATABASE_URL  = config.get('DATABASE_URL', '')
 GCAL_ID       = config.get('GOOGLE_CALENDAR_ID', 'primary')

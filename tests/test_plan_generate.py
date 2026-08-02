@@ -76,13 +76,13 @@ class GeneratePlanEndpointTests(unittest.TestCase):
         self.csrf = login.get_json()['csrfToken']
 
     def test_requires_configured_llm(self):
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', ''):
             response = self.client.post('/api/plan/generate', headers={'X-CSRF-Token': self.csrf})
         self.assertEqual(response.status_code, 503)
 
     def test_requires_goal(self):
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'):
             response = self.client.post('/api/plan/generate', headers={'X-CSRF-Token': self.csrf})
         self.assertEqual(response.status_code, 400)
@@ -92,7 +92,7 @@ class GeneratePlanEndpointTests(unittest.TestCase):
         garmin_server.save_user_goal(1, {'goal_title': 'Milen under 45', 'goal_deadline': None,
                                          'current_best': None, 'secondary_goal': None,
                                          'start_date': '2026-07-01'})
-        with mock.patch.object(garmin_server, 'LLM_PROVIDER', 'gemini'), \
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
              mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
              mock.patch.object(garmin_server, 'call_llm',
                                return_value='{"coaching_notes": "x", "sessions": []}'):
