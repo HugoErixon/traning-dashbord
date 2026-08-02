@@ -128,7 +128,9 @@ ANTHROPIC_MODEL = config.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
 # defaulten slutar finnas.
 OPENAI_COMPATIBLE_PROVIDERS = {
     'groq': ('https://api.groq.com/openai/v1/chat/completions', 'llama-3.3-70b-versatile'),
-    'cerebras': ('https://api.cerebras.ai/v1/chat/completions', 'llama3.1-70b'),
+    # gpt-oss-120b är Cerebras enda produktionsmodell; övriga är preview och
+    # en av dem har redan ett avvecklingsdatum. Kontrollerad 2026-08-02.
+    'cerebras': ('https://api.cerebras.ai/v1/chat/completions', 'gpt-oss-120b'),
     'openrouter': ('https://openrouter.ai/api/v1/chat/completions', 'meta-llama/llama-3.3-70b-instruct:free'),
     'mistral': ('https://api.mistral.ai/v1/chat/completions', 'mistral-small-latest'),
 }
