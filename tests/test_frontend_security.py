@@ -33,6 +33,11 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn("escapeHtml(it.title", self.app)
         self.assertIn("escapeHtml(ev.title)", self.app)
 
+    def test_activity_map_uses_attributed_openstreetmap_tiles(self):
+        self.assertIn('https://tile.openstreetmap.org/', self.app)
+        self.assertIn('https://www.openstreetmap.org/copyright', self.app)
+        self.assertIn('© OpenStreetMap', self.app)
+
 
 if __name__ == '__main__':
     unittest.main()

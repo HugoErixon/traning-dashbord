@@ -2860,13 +2860,17 @@
     .ad-card-sub { display:block; margin-top:3px; color:var(--muted); font:500 9.5px var(--font-mono); }
     .ad-route { position:relative; min-height:390px; margin:14px; overflow:hidden; border:1px solid var(--border); border-radius:11px; background-color:#10151a; background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px),radial-gradient(circle at 30% 45%,rgba(91,124,109,.17),transparent 35%),radial-gradient(circle at 72% 60%,rgba(79,106,128,.14),transparent 40%); background-size:32px 32px,32px 32px,auto,auto; }
     .ad-route svg { position:absolute; inset:0; width:100%; height:100%; }
+    .ad-map-tile { image-rendering:auto; }
+    .ad-map-shade { fill:rgba(7,11,14,.42); }
     .ad-route-line-under { fill:none; stroke:#06100a; stroke-width:6; stroke-linecap:round; stroke-linejoin:round; opacity:.8; }
     .ad-route-line { fill:none; stroke:var(--accent); stroke-width:3; stroke-linecap:round; stroke-linejoin:round; filter:drop-shadow(0 0 5px rgba(200,241,53,.34)); }
     .ad-route-pin { stroke:var(--bg); stroke-width:2; }
     .ad-map-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font:500 11px var(--font-mono); }
     .ad-map-north { position:absolute; top:13px; right:13px; display:flex; flex-direction:column; align-items:center; color:var(--muted2); font:700 9px var(--font-mono); }
     .ad-map-north::after { content:''; margin-top:3px; border-left:4px solid transparent; border-right:4px solid transparent; border-bottom:10px solid var(--muted2); }
-    .ad-map-attribution { position:absolute; right:10px; bottom:8px; color:var(--muted); font:500 8px var(--font-mono); }
+    .ad-map-attribution { position:absolute; right:8px; bottom:7px; padding:3px 5px; border-radius:4px; color:var(--muted2); background:rgba(7,10,13,.78); font:500 8px var(--font-mono); }
+    .ad-map-attribution a { color:inherit; text-decoration:none; }
+    .ad-map-attribution a:hover { color:var(--text); text-decoration:underline; }
     .ad-summary-list { display:grid; grid-template-columns:1fr 1fr; padding:10px 18px 18px; }
     .ad-summary-row { padding:12px 0; border-bottom:1px solid var(--border); }
     .ad-summary-row:nth-child(odd) { padding-right:13px; }

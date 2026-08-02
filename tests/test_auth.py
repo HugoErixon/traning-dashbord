@@ -110,7 +110,12 @@ class AuthContractTests(unittest.TestCase):
         response = self.client.get('/')
         self.assertEqual(response.headers['X-Frame-Options'], 'DENY')
         self.assertEqual(response.headers['X-Content-Type-Options'], 'nosniff')
+        self.assertEqual(response.headers['Referrer-Policy'], 'strict-origin-when-cross-origin')
         self.assertIn("script-src 'self'", response.headers['Content-Security-Policy'])
+        self.assertIn(
+            "img-src 'self' data: https://tile.openstreetmap.org",
+            response.headers['Content-Security-Policy'],
+        )
         self.assertNotIn("script-src 'self' 'unsafe-inline'", response.headers['Content-Security-Policy'])
         response.close()
 

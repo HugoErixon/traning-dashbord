@@ -5026,30 +5026,57 @@ HEALTH DATA (current):
     if (!Array.isArray(route) || route.length < 2) {
       return '<div class="ad-map-empty">Ingen GPS-rutt registrerades för passet.</div>';
     }
-    const W = 760, H = 420, pad = 34;
-    const avgLat = route.reduce((sum, p) => sum + p.lat, 0) / route.length;
-    const lonScale = Math.max(.15, Math.cos(avgLat * Math.PI / 180));
-    const projected = route.map(p => ({x:p.lon * lonScale, y:p.lat}));
-    const xs = projected.map(p => p.x), ys = projected.map(p => p.y);
-    let minX = Math.min(...xs), maxX = Math.max(...xs);
-    let minY = Math.min(...ys), maxY = Math.max(...ys);
-    if (minX === maxX) { minX -= .001; maxX += .001; }
-    if (minY === maxY) { minY -= .001; maxY += .001; }
-    const scale = Math.min((W - pad * 2) / (maxX - minX), (H - pad * 2) / (maxY - minY));
-    const usedW = (maxX - minX) * scale, usedH = (maxY - minY) * scale;
-    const ox = (W - usedW) / 2, oy = (H - usedH) / 2;
-    const points = projected.map(p => [
-      ox + (p.x - minX) * scale,
-      H - (oy + (p.y - minY) * scale),
-    ]);
+    const compact = window.matchMedia('(max-width:520px)').matches;
+    const W = compact ? 420 : 760, H = 420, pad = 34, tileSize = 256;
+    const mercatorPoint = (point, zoom) => {
+      const latitude = Math.max(-85.05112878, Math.min(85.05112878, Number(point.lat)));
+      const longitude = Number(point.lon);
+      const sinLatitude = Math.sin(latitude * Math.PI / 180);
+      const worldSize = tileSize * (2 ** zoom);
+      return {
+        x: ((longitude + 180) / 360) * worldSize,
+        y: (.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI)) * worldSize,
+      };
+    };
+    let zoom = 3, projected = [];
+    for (let candidate = 17; candidate >= 3; candidate -= 1) {
+      const candidatePoints = route.map(point => mercatorPoint(point, candidate));
+      const xs = candidatePoints.map(point => point.x), ys = candidatePoints.map(point => point.y);
+      if (Math.max(...xs) - Math.min(...xs) <= W - pad * 2
+          && Math.max(...ys) - Math.min(...ys) <= H - pad * 2) {
+        zoom = candidate;
+        projected = candidatePoints;
+        break;
+      }
+    }
+    if (!projected.length) projected = route.map(point => mercatorPoint(point, zoom));
+    const xs = projected.map(point => point.x), ys = projected.map(point => point.y);
+    const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const originX = centerX - W / 2, originY = centerY - H / 2;
+    const points = projected.map(point => [point.x - originX, point.y - originY]);
     const path = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
     const start = points[0], end = points.at(-1);
+    const tileCount = 2 ** zoom;
+    const tileImages = [];
+    const firstTileX = Math.floor(originX / tileSize);
+    const lastTileX = Math.floor((originX + W) / tileSize);
+    const firstTileY = Math.max(0, Math.floor(originY / tileSize));
+    const lastTileY = Math.min(tileCount - 1, Math.floor((originY + H) / tileSize));
+    for (let tileY = firstTileY; tileY <= lastTileY; tileY += 1) {
+      for (let tileX = firstTileX; tileX <= lastTileX; tileX += 1) {
+        const wrappedTileX = ((tileX % tileCount) + tileCount) % tileCount;
+        tileImages.push(`<image class="ad-map-tile" href="https://tile.openstreetmap.org/${zoom}/${wrappedTileX}/${tileY}.png" x="${(tileX * tileSize - originX).toFixed(1)}" y="${(tileY * tileSize - originY).toFixed(1)}" width="${tileSize}" height="${tileSize}"/>`);
+      }
+    }
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="GPS-rutt för passet">
+      ${tileImages.join('')}
+      <rect class="ad-map-shade" width="${W}" height="${H}"/>
       <path class="ad-route-line-under" d="${path}" vector-effect="non-scaling-stroke"/>
       <path class="ad-route-line" d="${path}" vector-effect="non-scaling-stroke"/>
       <circle class="ad-route-pin" cx="${start[0].toFixed(1)}" cy="${start[1].toFixed(1)}" r="6" fill="var(--green)" vector-effect="non-scaling-stroke"/>
       <circle class="ad-route-pin" cx="${end[0].toFixed(1)}" cy="${end[1].toFixed(1)}" r="6" fill="var(--red)" vector-effect="non-scaling-stroke"/>
-    </svg><span class="ad-map-north">N</span><span class="ad-map-attribution">GARMIN GPS · GRÖN START · RÖD MÅL</span>`;
+    </svg><span class="ad-map-north">N</span><span class="ad-map-attribution"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap</a> · GARMIN GPS</span>`;
   }
 
   function activityChartSvg(series, key, color, formatter, invert = false) {
