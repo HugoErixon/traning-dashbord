@@ -67,6 +67,19 @@ class MorningReportTextTests(unittest.TestCase):
 
         self.assertIn('Fjärde hårda dagen i rad', body)
 
+    def test_a_title_that_already_states_the_distance_is_left_alone(self):
+        # Riktig plantitel fran produktionen; distansen stod dubbelt forr.
+        self.plan_row(('Tröskelpass på löpband · 10 km', 10.0, 'run'))
+        with patch.object(garmin_server, '_recent_recovery', return_value=(84, 9.9)), \
+             patch.object(garmin_server, '_load_context', return_value=(None, None)), \
+             patch.object(garmin_server, '_recent_activities', return_value=[]), \
+             patch.object(garmin_server.strain_analysis, 'strain_summary',
+                          return_value={'tone': 'neutral'}):
+            headline, _ = garmin_server._morning_report_text(1)
+
+        self.assertEqual(headline, 'Tröskelpass på löpband · 10 km')
+        self.assertEqual(headline.lower().count('km'), 1)
+
     def test_a_rest_day_still_produces_a_report(self):
         self.plan_row(None)
         with patch.object(garmin_server, '_recent_recovery', return_value=(80, 8.0)), \

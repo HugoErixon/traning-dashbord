@@ -7064,8 +7064,10 @@ def _morning_report_text(user_id):
         if row:
             title, km, kind = row
             session_title = title
-            if km:
-                session_title += f' {km:.0f} km'.replace('.0 ', ' ')
+            # Passtitlarna innehåller ofta distansen redan ("Tröskelpass · 10 km").
+            # Lägg bara till den när den saknas, annars står den dubbelt.
+            if km and 'km' not in title.lower():
+                session_title += f' {km:.0f} km'
         else:
             session_title = 'Vilodag'
     except Exception as exc:
