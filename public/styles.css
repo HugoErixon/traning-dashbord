@@ -3642,3 +3642,100 @@
       outline: 2px solid var(--blue);
       outline-offset: 2px;
     }
+
+    /* ═══════════════ HOVER: LJUSSVEP ÖVER KORTEN ═══════════════ */
+    /* Ett smalt ljus far diagonalt över kortet och kanten tänds. Allt ligger
+       bakom @media (hover: hover) — på touch fastnar :hover annars kvar på
+       det senast tryckta kortet tills man rör något annat. */
+
+    /* Gradientens position animeras, inte elementets — då lämnar ljuset
+       aldrig kortet och ingen overflow-klippning behövs. Att lägga
+       overflow:hidden på kort som saknade det hade riskerat att kapa
+       diagram och annat som ritar mot kanten. */
+    @keyframes card-sheen {
+      0%   { opacity: 0; background-position: 130% 0; }
+      15%  { opacity: 1; }
+      85%  { opacity: 1; }
+      100% { opacity: 0; background-position: -30% 0; }
+    }
+
+    @media (hover: hover) {
+      /* Pseudoelementet ligger absolut inuti kortet, så varje yta behöver
+         vara en position-container. */
+      .panel, .cockpit-card, .bigcard, .hg-card,
+      .cns-card, .sl-card, .an-card {
+        position: relative;
+        transition: transform 0.28s cubic-bezier(.4,0,.2,1),
+                    border-color 0.28s ease,
+                    box-shadow 0.28s ease;
+      }
+
+      /* ::before överallt utom på .cockpit-card, vars ::before redan är
+         accentlisten i .primary — den får ::after i stället. */
+      .panel::before,
+      .bigcard::before,
+      .hg-card::before,
+      .cns-card::before,
+      .sl-card::before,
+      .an-card::before,
+      .cockpit-card::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        border-radius: inherit;
+        pointer-events: none;   /* får aldrig äta klick på knappar i kortet */
+        opacity: 0;
+        background-image: linear-gradient(105deg,
+                    transparent 34%,
+                    rgba(200,241,53,0.10) 45%,
+                    rgba(255,255,255,0.11) 50%,
+                    rgba(200,241,53,0.10) 55%,
+                    transparent 66%);
+        background-size: 260% 100%;
+        background-repeat: no-repeat;
+        background-position: 130% 0;
+      }
+
+      .panel:hover::before,
+      .bigcard:hover::before,
+      .hg-card:hover::before,
+      .cns-card:hover::before,
+      .sl-card:hover::before,
+      .an-card:hover::before,
+      .cockpit-card:hover::after {
+        animation: card-sheen 0.9s cubic-bezier(.25,.6,.3,1);
+      }
+
+      .panel:hover, .cockpit-card:hover, .bigcard:hover, .hg-card:hover,
+      .cns-card:hover, .sl-card:hover, .an-card:hover {
+        transform: translateY(-2px);
+        border-color: var(--border2);
+        box-shadow: var(--shadow-card),
+                    0 0 0 1px rgba(200,241,53,0.16),
+                    0 0 26px -8px rgba(200,241,53,0.20),
+                    0 14px 38px rgba(0,0,0,0.48);
+      }
+
+      /* Flikarna och statistiken uppe i headern lyfter på samma sätt. */
+      .nav-item { transition: background 0.18s, color 0.18s, border-color 0.18s, transform 0.18s; }
+      .nav-item:hover { transform: translateY(-1px); }
+      .nav-item.active:hover { transform: none; }
+
+      .ghost-btn { transition: all 0.2s, transform 0.18s; }
+      .ghost-btn:hover { transform: translateY(-1px); }
+    }
+
+    /* Respektera systeminställningen: rörelsen är dekor, inte information. */
+    @media (prefers-reduced-motion: reduce) {
+      .panel::before, .bigcard::before, .hg-card::before, .cns-card::before,
+      .sl-card::before, .an-card::before, .cockpit-card::after {
+        animation: none !important;
+        opacity: 0 !important;
+      }
+      .panel:hover, .cockpit-card:hover, .bigcard:hover, .hg-card:hover,
+      .cns-card:hover, .sl-card:hover, .an-card:hover,
+      .nav-item:hover, .ghost-btn:hover {
+        transform: none;
+      }
+    }
