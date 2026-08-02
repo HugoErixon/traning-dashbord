@@ -1179,6 +1179,7 @@ function executeAction(trigger, event) {
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'open-activity') openActivityDetails(
     Number(trigger.dataset.activityId), trigger.dataset.activitySource);
+  else if (action === 'open-today-activity') openTodayActivity();
   else if (action === 'close-activity') closeActivityDetails();
   else if (action === 'activity-map-expand') toggleActivityMapExpanded();
   else if (action === 'activity-map-zoom-in') zoomActivityMap(1);
@@ -4899,12 +4900,13 @@ HEALTH DATA (current):
     // always clear the previous interaction before deciding what today contains.
     card.classList.remove('is-clickable');
     panel.classList.remove('is-clickable');
-    for (const element of [card, panel]) {
+    for (const element of [card]) {
       for (const attribute of ['data-action', 'data-activity-id', 'data-activity-source',
                                'role', 'tabindex', 'title']) {
         element.removeAttribute(attribute);
       }
     }
+    for (const attribute of ['role', 'tabindex', 'title']) panel.removeAttribute(attribute);
 
     const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
     const typeLabels = { run:'LÖPNING', easy:'LUGN LÖPNING', lift:'STYRKA', race:'LOPP', rest:'VILA' };
@@ -4935,9 +4937,6 @@ HEALTH DATA (current):
       if (Number.isSafeInteger(activityId) && activityId > 0) {
         card.classList.add('is-clickable');
         panel.classList.add('is-clickable');
-        panel.dataset.action = 'open-activity';
-        panel.dataset.activityId = String(activityId);
-        panel.dataset.activitySource = longest.source === 'strava' ? 'strava' : 'garmin';
         panel.setAttribute('role', 'button');
         panel.setAttribute('tabindex', '0');
         panel.title = todayActs.length > 1
@@ -5007,6 +5006,18 @@ HEALTH DATA (current):
     km.style.color         = col;
     const statusSuffix = s.status && s.status !== 'planned' ? '  -  ' + s.status.toUpperCase() : '';
     type.textContent       = (typeLabels[s.type] || String(s.type || 'PLAN').toUpperCase()) + statusSuffix;
+  }
+
+  function openTodayActivity() {
+    const todayKey = localDateKey(new Date());
+    const activities = recentActivities.filter(activity =>
+      String(activity.startTimeLocal || activity.beginTimestamp || '').slice(0, 10) === todayKey);
+    if (!activities.length) return;
+    const activity = activities.reduce((left, right) =>
+      (left.distance || 0) >= (right.distance || 0) ? left : right);
+    const activityId = Number(activity.activityId || activity.id);
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) return;
+    openActivityDetails(activityId, activity.source === 'strava' ? 'strava' : 'garmin');
   }
 
   async function reseedPlan() {

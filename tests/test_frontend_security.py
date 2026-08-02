@@ -71,8 +71,9 @@ class FrontendSecurityTests(unittest.TestCase):
 
     def test_completed_home_session_opens_the_shared_activity_detail(self):
         self.assertIn('id="today-panel"', self.index)
-        self.assertIn("panel.dataset.action = 'open-activity'", self.app)
-        self.assertIn("panel.dataset.activitySource = longest.source === 'strava'", self.app)
+        self.assertIn('data-action="open-today-activity"', self.index)
+        self.assertIn("else if (action === 'open-today-activity') openTodayActivity()", self.app)
+        self.assertIn('function openTodayActivity()', self.app)
         self.assertIn("card.classList.add('is-clickable')", self.app)
 
 
