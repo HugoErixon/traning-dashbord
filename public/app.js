@@ -4894,6 +4894,14 @@ HEALTH DATA (current):
     const type  = document.getElementById('today-session-type');
     if (!card || !dot || !title || !detail || !km || !type) return;
 
+    // Rendering can switch between a completed activity and a planned session;
+    // always clear the previous interaction before deciding what today contains.
+    card.classList.remove('is-clickable');
+    for (const attribute of ['data-action', 'data-activity-id', 'data-activity-source',
+                             'role', 'tabindex', 'title']) {
+      card.removeAttribute(attribute);
+    }
+
     const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
     const typeLabels = { run:'LÖPNING', easy:'LUGN LÖPNING', lift:'STYRKA', race:'LOPP', rest:'VILA' };
 
@@ -4912,12 +4920,24 @@ HEALTH DATA (current):
 
       // Pick dominant type from the longest activity
       const longest = todayActs.reduce((a, b) => (a.distance||0) >= (b.distance||0) ? a : b);
+      const activityId = Number(longest.activityId || longest.id);
       const typeKey  = longest.activityType?.typeKey || '';
       let   planType = 'run';
       if (/strength|fitness_equipment|weight/i.test(typeKey)) planType = 'lift';
       else if (/track/i.test(typeKey))                         planType = 'run';
 
       const col = typeColors[planType] || 'var(--green)';
+
+      if (Number.isSafeInteger(activityId) && activityId > 0) {
+        card.classList.add('is-clickable');
+        card.dataset.action = 'open-activity';
+        card.dataset.activityId = String(activityId);
+        card.dataset.activitySource = longest.source === 'strava' ? 'strava' : 'garmin';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.title = todayActs.length > 1
+          ? 'Öppna den längsta av dagens aktiviteter' : 'Öppna passdetaljer';
+      }
 
       // Build detail: individual activity names on one line
       const actNames = todayActs.map(a => {

@@ -69,6 +69,11 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertNotIn('data-action="sync-calendar"', navigation)
         self.assertNotIn('data-action="logout"', navigation)
 
+    def test_completed_home_session_opens_the_shared_activity_detail(self):
+        self.assertIn("card.dataset.action = 'open-activity'", self.app)
+        self.assertIn("card.dataset.activitySource = longest.source === 'strava'", self.app)
+        self.assertIn("card.classList.add('is-clickable')", self.app)
+
 
 if __name__ == '__main__':
     unittest.main()
