@@ -2252,7 +2252,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan(), loadStrain(), loadSessionVerdict()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2632,6 +2632,126 @@ HEALTH DATA (current):
     } catch(e) {}
   }
   loadTrainingLoad();
+
+  // Dagens belastning vägd mot vad kroppen normalt tål (se strain_analysis.py).
+  const STRAIN_TONE_CLASS = { good:'good', warn:'bad', watch:'warn', neutral:'' };
+
+  function strainBarClass(strain) {
+    if (strain >= 60) return 'is-high';
+    if (strain >= 30) return 'is-mid';
+    if (strain > 0)   return 'is-low';
+    return '';
+  }
+
+  function renderStrain(data) {
+    const headline = document.getElementById('strain-headline');
+    const score    = document.getElementById('strain-score');
+    const detail   = document.getElementById('strain-detail');
+    if (!headline || !score) return;
+
+    headline.textContent = data.headline || '–';
+    score.textContent    = data.strain ?? '--';
+    if (detail) detail.textContent = data.detail || '';
+
+    const card = document.getElementById('strain-card');
+    if (card) {
+      const colors = { good:'var(--green)', warn:'var(--red)', watch:'var(--amber)', neutral:'var(--muted2)' };
+      card.style.setProperty('--cockpit-color', colors[data.tone] || 'var(--muted2)');
+    }
+
+    const weekAvg = document.getElementById('strain-week-avg');
+    const streak  = document.getElementById('strain-streak');
+    const load    = document.getElementById('strain-load');
+    if (weekAvg) weekAvg.textContent = data.weekAvgStrain ?? '--';
+    if (streak)  streak.textContent  = data.consecutiveHighDays ?? '--';
+    if (load)    load.textContent    = data.load ? Math.round(data.load) : '0';
+
+    // Var referensen kommer ifrån avgör hur mycket siffran är värd att lita på.
+    const note = document.getElementById('strain-reference-note');
+    if (note) {
+      const sources = {
+        garmin:  ref => `Mot din kroniska belastning (${ref})`,
+        history: ref => `Mot ditt 28-dagarssnitt (${ref})`,
+      };
+      const describe = sources[data.referenceSource];
+      note.textContent = describe && data.referenceLoad
+        ? describe(Math.round(data.referenceLoad))
+        : 'För lite historik — siffran är preliminär';
+    }
+
+    const bars = document.getElementById('strain-bars');
+    if (bars) {
+      const series = data.series || [];
+      bars.innerHTML = series.map((point, index) => {
+        const height = Math.max(2, Math.round(point.strain * 0.56));
+        const today = index === series.length - 1 ? ' is-today' : '';
+        return `<div class="strain-bar ${strainBarClass(point.strain)}${today}"
+                     style="height:${height}px"
+                     title="${escapeHtml(point.t)}: belastning ${Math.round(point.load)} → ${point.strain}"></div>`;
+      }).join('');
+    }
+  }
+
+  async function loadStrain() {
+    try {
+      const res = await fetch('/api/strain');
+      const data = await res.json();
+      if (data.error) return;
+      renderStrain(data);
+    } catch(e) {}
+  }
+  loadStrain();
+
+  // Omdömet om det senast genomförda passet.
+  function renderSessionVerdict(verdict) {
+    const title   = document.getElementById('verdict-title');
+    const tag     = document.getElementById('verdict-tag');
+    const detail  = document.getElementById('verdict-detail');
+    const timing  = document.getElementById('verdict-timing');
+    const actions = document.getElementById('verdict-actions');
+    if (!title) return;
+
+    if (!verdict) {
+      title.textContent = 'Inget bedömt pass än';
+      if (tag) { tag.textContent = 'VÄNTAR'; tag.className = 'cockpit-tag'; }
+      if (detail) detail.textContent = 'Ett omdöme skrivs när synken hittar ett nytt pass.';
+      if (timing) timing.style.display = 'none';
+      if (actions) actions.innerHTML = '';
+      return;
+    }
+
+    title.textContent = verdict.name || verdict.headline || 'Pass';
+    if (tag) {
+      const tags = { easy:['', 'LÄTT'], moderate:['good','MÅTTLIGT'], hard:['warn','HÅRT'], very_hard:['bad','MYCKET HÅRT'] };
+      const [tone, label] = tags[verdict.intensity] || ['', 'PASS'];
+      tag.className = 'cockpit-tag' + (tone ? ' ' + tone : '');
+      tag.textContent = label;
+    }
+    if (detail) detail.textContent = `${verdict.date} · ${verdict.detail || ''}`;
+    if (timing) {
+      timing.textContent = verdict.timing || '';
+      timing.style.display = verdict.timing ? '' : 'none';
+    }
+    if (actions) {
+      actions.innerHTML = (verdict.recovery || []).map(action => `
+        <div class="verdict-action">
+          <div>
+            <div class="verdict-action-title">${escapeHtml(action.title)}</div>
+            <div class="verdict-action-why">${escapeHtml(action.why)}</div>
+          </div>
+        </div>`).join('') || '<div class="verdict-empty">Inga åtgärder föreslagna.</div>';
+    }
+  }
+
+  async function loadSessionVerdict() {
+    try {
+      const res = await fetch('/api/session-verdict?limit=1');
+      const data = await res.json();
+      if (data.error) return;
+      renderSessionVerdict(data.latest);
+    } catch(e) {}
+  }
+  loadSessionVerdict();
 
   // AI-analys av senaste passen (planerat vs faktiskt gjort)
   async function loadTrainingReview(force) {

@@ -261,7 +261,48 @@
         </div>
       </div>
 
-      <!-- ROW 3: Insikter -->
+      <!-- ROW 3: Belastning + senaste passets omdöme -->
+      <div class="section-header">
+        <span class="section-header-label">Belastning</span>
+        <span class="section-header-note" id="strain-reference-note"></span>
+      </div>
+      <div class="home-cols">
+        <div class="cockpit-card primary" id="strain-card">
+          <span class="panel-accent-bar"></span>
+          <div class="cockpit-top">
+            <div>
+              <div class="cockpit-kicker">Dagens belastning</div>
+              <div class="cockpit-title" id="strain-headline">Laddar…</div>
+            </div>
+            <div class="cockpit-score" id="strain-score">--</div>
+          </div>
+          <div class="cockpit-copy" id="strain-detail">Väger dagens träning mot vad just din kropp normalt tål.</div>
+          <div class="cockpit-metrics">
+            <div class="metric-tile"><div class="metric-tile-label">Veckosnitt</div><div class="metric-tile-val" id="strain-week-avg">--</div></div>
+            <div class="metric-tile"><div class="metric-tile-label">Höga dagar i rad</div><div class="metric-tile-val" id="strain-streak">--</div></div>
+            <div class="metric-tile"><div class="metric-tile-label">Belastning idag</div><div class="metric-tile-val" id="strain-load">--</div></div>
+          </div>
+          <div class="strain-chart">
+            <div class="strain-bars" id="strain-bars"></div>
+            <div class="strain-axis"><span>14 dygn sedan</span><span>Idag</span></div>
+          </div>
+        </div>
+
+        <div class="cockpit-card">
+          <div class="cockpit-top">
+            <div>
+              <div class="cockpit-kicker">Senaste passet</div>
+              <div class="cockpit-title" style="font-size:18px;" id="verdict-title">Laddar…</div>
+            </div>
+            <span class="cockpit-tag" id="verdict-tag">--</span>
+          </div>
+          <div class="cockpit-copy" id="verdict-detail">Ett omdöme skrivs när synken hittar ett nytt pass.</div>
+          <div class="verdict-timing" id="verdict-timing" style="display:none;"></div>
+          <div class="verdict-actions" id="verdict-actions"></div>
+        </div>
+      </div>
+
+      <!-- ROW 4: Insikter -->
       <div class="section-header">
         <span class="section-header-label">Kroppen rapporterar</span>
         <button class="insights-refresh" data-action="refresh-insights">↺ Uppdatera</button>
