@@ -126,24 +126,70 @@ def llm_available():
     return bool(ANTHROPIC_KEY) and not ANTHROPIC_KEY.startswith('sk-ant-placeholder')
 
 
+class LLMQuotaError(RuntimeError):
+    """Leverantören avvisade anropet på grund av kvot/rate limit (HTTP 429).
+
+    Egen typ så att anropsställena kan skilja "vi har slut på kvot just nu" —
+    ett väntat, övergående tillstånd som ska falla tillbaka på cache — från
+    riktiga fel som en trasig prompt eller ett ogiltigt svar."""
+
+    def __init__(self, message, retry_after=None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+# Gemini svarar på 429 med hur länge man bör vänta. Är väntan kort beror den på
+# att vi själva sköt iväg flera anrop på en gång, och då är ett omförsök rätt.
+# Är den lång är dygns-/minutkvoten faktiskt slut och då ska vi fela snabbt
+# i stället för att låta en request hänga — anropsställena har cache att falla
+# tillbaka på.
+LLM_RETRY_MAX_WAIT = float(config.get('LLM_RETRY_MAX_WAIT', '10'))
+
+
+def _gemini_retry_after(error_obj):
+    """Plocka ut föreslagen väntetid (sekunder) ur ett Gemini-felsvar."""
+    for detail in error_obj.get('details') or []:
+        delay = detail.get('retryDelay')
+        if isinstance(delay, str) and delay.endswith('s'):
+            try:
+                return float(delay[:-1])
+            except ValueError:
+                pass
+    match = re.search(r'retry in ([0-9.]+)s', error_obj.get('message') or '')
+    return float(match.group(1)) if match else None
+
+
 def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
     """Skicka en prompt till den konfigurerade AI-leverantören och returnera svarstexten.
 
     Samma gränssnitt oavsett leverantör så att alla anropsställen är oberoende av
-    vilken tjänst som används. Kastar RuntimeError när leverantören svarar med fel
-    eller tomt svar; anropsställenas befintliga except-hantering tar hand om det."""
+    vilken tjänst som används. Kastar LLMQuotaError vid 429 och RuntimeError när
+    leverantören svarar med annat fel eller tomt svar; anropsställenas befintliga
+    except-hantering tar hand om det."""
     if LLM_PROVIDER == 'gemini':
         body = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}
         if system:
             body['system_instruction'] = {'parts': [{'text': system}]}
-        resp = requests.post(
-            f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent',
-            json=body,
-            headers={'x-goog-api-key': GEMINI_API_KEY, 'Content-Type': 'application/json'},
-            timeout=timeout)
-        rj = resp.json()
-        if 'error' in rj:
-            raise RuntimeError(f"Gemini {rj['error'].get('code')}: {rj['error'].get('message')}")
+
+        for attempt in (1, 2):
+            resp = requests.post(
+                f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent',
+                json=body,
+                headers={'x-goog-api-key': GEMINI_API_KEY, 'Content-Type': 'application/json'},
+                timeout=timeout)
+            rj = resp.json()
+            if 'error' not in rj:
+                break
+            err = rj['error']
+            if err.get('code') != 429:
+                raise RuntimeError(f"Gemini {err.get('code')}: {err.get('message')}")
+            wait = _gemini_retry_after(err)
+            if attempt == 2 or wait is None or wait > LLM_RETRY_MAX_WAIT:
+                raise LLMQuotaError(f"Gemini 429: {err.get('message')}", retry_after=wait)
+            logger.warning('LLM rate limited, retrying', extra={
+                'event': 'llm.rate_limited', 'retry_after_s': wait, 'model': GEMINI_MODEL})
+            time.sleep(wait)
+
         try:
             return rj['candidates'][0]['content']['parts'][0]['text']
         except (KeyError, IndexError, TypeError) as exc:
@@ -160,7 +206,14 @@ def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
                  'content-type': 'application/json'}, timeout=timeout)
     rj = resp.json()
     if 'error' in rj:
-        raise RuntimeError(f"Anthropic: {rj['error'].get('message')}")
+        message = rj['error'].get('message')
+        if resp.status_code == 429 or rj['error'].get('type') == 'rate_limit_error':
+            try:
+                wait = float(resp.headers.get('retry-after', ''))
+            except ValueError:
+                wait = None
+            raise LLMQuotaError(f'Anthropic: {message}', retry_after=wait)
+        raise RuntimeError(f'Anthropic: {message}')
     return rj['content'][0]['text']
 TOKEN_DIR     = str(Path.home() / '.garminconnect')
 DATABASE_URL  = config.get('DATABASE_URL', '')
@@ -2485,6 +2538,21 @@ def _normalize_activity_ai_response(payload):
     }
 
 
+# En analys per pass räcker, men två klick i rad (eller två flikar) startade
+# tidigare två parallella LLM-anrop som båda drog kvot och båda kunde falla på
+# 429. Låset gör att bara den första genererar; resten väntar in cachen.
+_ai_overview_locks = {}
+_ai_overview_locks_guard = threading.Lock()
+
+
+def _ai_overview_lock(key):
+    with _ai_overview_locks_guard:
+        lock = _ai_overview_locks.get(key)
+        if lock is None:
+            lock = _ai_overview_locks[key] = threading.Lock()
+        return lock
+
+
 @app.post('/api/activities/<int:activity_id>/ai-overview')
 def activity_ai_overview(activity_id):
     """Create once, cache permanently, and return an AI review for any owned workout."""
@@ -2498,16 +2566,33 @@ def activity_ai_overview(activity_id):
     if not llm_available():
         return _api_error('ai_not_configured', 'AI-analysen är inte konfigurerad.', 503)
     try:
-        activity = _activity_ai_detail(activity_id, source, uid(), uname())
-        if activity is None:
-            return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
-        activity['source'] = source
-        planned = _activity_ai_plan_context(activity, uid())
-        text = call_llm(_activity_ai_prompt(activity, planned), max_tokens=800)
-        cleaned = text.strip().replace('```json', '').replace('```', '').strip()
-        overview = _normalize_activity_ai_response(json.loads(cleaned))
-        set_cache(cache_key, overview, uid())
-        return jsonify({'overview': overview, 'cached': False})
+        with _ai_overview_lock(f'{uid()}:{cache_key}'):
+            # Kan ha fyllts i medan vi väntade på låset.
+            cached = get_cache(cache_key, uid())
+            if cached:
+                return jsonify({'overview': cached[0], 'cached': True})
+            activity = _activity_ai_detail(activity_id, source, uid(), uname())
+            if activity is None:
+                return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
+            activity['source'] = source
+            planned = _activity_ai_plan_context(activity, uid())
+            text = call_llm(_activity_ai_prompt(activity, planned), max_tokens=800)
+            cleaned = text.strip().replace('```json', '').replace('```', '').strip()
+            overview = _normalize_activity_ai_response(json.loads(cleaned))
+            set_cache(cache_key, overview, uid())
+            return jsonify({'overview': overview, 'cached': False})
+    except LLMQuotaError as exc:
+        # Väntat och övergående — logga som varning utan stack trace så att
+        # riktiga fel fortsätter synas i loggen.
+        logger.warning('AI overview hit provider quota', extra={
+            'event': 'activity.ai_quota',
+            'request_id': _request_id(),
+            'activity_id': activity_id,
+            'retry_after_s': exc.retry_after,
+        })
+        return _api_error('ai_quota_exceeded',
+                          'AI-kvoten är slut just nu. Försök igen om en stund.', 429,
+                          extra={'retryAfter': exc.retry_after})
     except (ValueError, json.JSONDecodeError) as exc:
         return _server_error(exc, 'activity.ai_invalid_response', status=502,
                              code='ai_invalid_response',
@@ -3760,8 +3845,9 @@ Respond ONLY with this JSON (all text in Swedish / svenska):
 def training_review():
     force = request.args.get('force') == '1'
     row = get_cache('training_review', uid())
-    if row and row[0].get('_review_version') == 2 and not force and (time.time() - row[1]) < 30 * 60:
-        return jsonify(row[0])
+    usable = row[0] if row and row[0].get('_review_version') == 2 else None
+    if usable and not force and (time.time() - row[1]) < 30 * 60:
+        return jsonify(usable)
     if not llm_available():
         return jsonify({'status': 'pending', 'headline': 'AI-nyckel krävs',
                         'body': 'Lägg till en AI-nyckel (GEMINI_API_KEY) i .env för dagens passkoll.'})
@@ -3773,6 +3859,18 @@ def training_review():
         set_cache('training_review', review, uid())
         return jsonify(review)
     except Exception as e:
+        # En utgången analys är långt bättre än ett felmeddelande: innehållet
+        # gäller fortfarande dagens pass. Servera den och märk den som gammal
+        # så att gränssnittet kan vara ärligt om åldern.
+        if usable:
+            stale = dict(usable)
+            stale['_stale'] = True
+            stale['_stale_age_min'] = int((time.time() - row[1]) / 60)
+            logger.warning('Serving stale training review', extra={
+                'event': 'training_review.stale_fallback',
+                'age_min': stale['_stale_age_min'],
+                'reason': type(e).__name__})
+            return jsonify(stale)
         return _server_error(e, 'training_review.failed', message='Träningsanalysen kunde inte skapas.')
 
 def _build_insights_prompt():

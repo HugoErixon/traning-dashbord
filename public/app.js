@@ -3032,7 +3032,12 @@ HEALTH DATA (current):
       const d = await res.json();
       if (d.error) return;
       if (d.headline) document.getElementById('review-headline').textContent = d.headline;
-      if (d.body)     document.getElementById('review-body').textContent = d.body;
+      if (d.body) {
+        // Servern faller tillbaka på en utgången analys när AI-kvoten är slut.
+        // Säg det rakt ut i stället för att låtsas att den är färsk.
+        const age = d._stale ? ` (analys från ${d._stale_age_min} min sedan — AI-kvoten är slut just nu)` : '';
+        document.getElementById('review-body').textContent = d.body + age;
+      }
       const map = { done:['badge-green','DONE'], pending:['badge-amber','TO DO'], missed:['badge-red','MISSED'], rest:['badge-green','REST'], other:['badge-amber','OTHER'] };
       const m = map[d.status] || ['badge-amber','TODAY'];
       const badge = document.getElementById('review-badge');
@@ -5720,9 +5725,17 @@ HEALTH DATA (current):
       <button type="button" class="ad-ai-retry" data-action="retry-activity-ai">Försök igen</button>`;
   }
 
+  // Vakten nedan på requestNumber stoppar bara renderingen, inte anropet, så
+  // två snabba öppningar av samma pass sköt iväg två LLM-anrop som båda drog
+  // kvot. Håll reda på vad som redan är i luften.
+  const activityAiInFlight = new Set();
+
   async function loadActivityAiOverview(activityId, source, requestNumber) {
     const target = document.getElementById('activity-ai-overview');
     if (!target) return;
+    const inFlightKey = `${source}:${activityId}`;
+    if (activityAiInFlight.has(inFlightKey)) return;
+    activityAiInFlight.add(inFlightKey);
     target.className = 'ad-ai-overview is-loading';
     target.innerHTML = `<div class="ad-ai-mark" aria-hidden="true">✦</div><div class="ad-ai-body">
       <div class="ad-ai-label">AI-översikt</div><div class="ad-ai-loading"><span></span><div><strong>Analyserar passet</strong><small>Första analysen av ett äldre pass kan ta några sekunder…</small></div></div></div>`;
@@ -5739,6 +5752,8 @@ HEALTH DATA (current):
       if (requestNumber !== activityDetailRequest || !target.isConnected) return;
       target.className = 'ad-ai-overview has-error';
       target.innerHTML = `<div class="ad-ai-mark" aria-hidden="true">!</div><div class="ad-ai-body">${renderActivityAiError(error.message)}</div>`;
+    } finally {
+      activityAiInFlight.delete(inFlightKey);
     }
   }
 
