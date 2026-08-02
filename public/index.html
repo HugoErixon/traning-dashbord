@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=nav-1">
+  <link rel="stylesheet" href="styles.css?v=nav-2">
 </head>
 <body>
 <div class="shell">
@@ -46,16 +46,6 @@
       </div>
     </div>
 
-    <div class="topbar-actions">
-      <div class="garmin-sync-row" title="Garmin Connect">
-        <span class="live-dot"></span>
-        <span class="live-sublabel" id="garmin-sync-time">Synkroniserat</span>
-      </div>
-      <button type="button" class="ghost-btn" id="refresh-btn" data-action="refresh-data">Uppdatera data</button>
-      <button type="button" class="ghost-btn" id="gcal-sync-btn" data-action="sync-calendar">Synka kalender</button>
-      <button type="button" class="ghost-btn" id="users-btn" data-action="open-users" style="display:none;">Användare</button>
-      <button type="button" class="ghost-btn ghost-btn-quiet" id="logout-btn" data-action="logout">Logga ut</button>
-    </div>
   </header>
 
   <nav class="topnav" aria-label="Huvudnavigering">
@@ -107,6 +97,17 @@
           <span>Klimat</span>
         </button>
       </div>
+    </div>
+
+    <div class="topnav-actions">
+      <div class="garmin-sync-row" title="Garmin Connect">
+        <span class="live-dot"></span>
+        <span class="live-sublabel" id="garmin-sync-time">Synkroniserat</span>
+      </div>
+      <button type="button" class="ghost-btn" id="refresh-btn" data-action="refresh-data">Uppdatera data</button>
+      <button type="button" class="ghost-btn" id="gcal-sync-btn" data-action="sync-calendar">Synka kalender</button>
+      <button type="button" class="ghost-btn" id="users-btn" data-action="open-users" style="display:none;">Användare</button>
+      <button type="button" class="ghost-btn ghost-btn-quiet" id="logout-btn" data-action="logout">Logga ut</button>
     </div>
   </nav>
 
@@ -968,6 +969,6 @@
   </main>
 </div>
 
-<script src="app.js?v=nav-1"></script>
+<script src="app.js?v=nav-2"></script>
 </body>
 </html>

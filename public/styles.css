@@ -282,13 +282,14 @@
       font-variant-numeric: tabular-nums;
     }
     .topbar-stat-unit { font-size: 10px; color: var(--muted); font-weight: 500; }
-    .topbar-actions {
+    /* Åtgärderna bor i navigeringsraden, inte här — se .topnav-actions. */
+    .topnav-actions {
       display: flex;
       align-items: center;
       gap: 8px;
+      margin-left: auto;
+      padding-left: 24px;
       flex-shrink: 0;
-      padding-left: 20px;
-      border-left: 1px solid var(--border);
     }
     .garmin-sync-row {
       display: flex;
@@ -317,11 +318,40 @@
       white-space: nowrap;
     }
 
+    @media (max-width: 1400px) {
+      .navgroup + .navgroup { margin-left: 22px; }
+      .topnav-actions { gap: 6px; padding-left: 16px; }
+    }
+    @media (max-width: 1240px) {
+      /* Siffrorna finns kvar på Hem-sidan; navigering och synk väger tyngre här. */
+      .topbar-stats { display: none; }
+    }
+    @media (max-width: 1080px) {
+      /* Här får raden inte plats med både flikar och åtgärder. Knapparna
+         flyttar då till .mobile-actions överst i innehållet i stället för
+         att hamna bakom en sidoscroll — utloggningen måste alltid synas. */
+      .topnav-actions { display: none; }
+      .mobile-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0 0 18px;
+      }
+      /* Ligger på en rad här; först på telefon delar de på bredden.
+         .refresh-btn har width:100% i grunden och måste skrivas över. */
+      .mobile-actions .refresh-btn {
+        width: auto;
+        flex: 0 1 auto;
+        min-height: 38px;
+        padding: 9px 16px;
+      }
+    }
+
     /* ─── GRUPPERAD TOPPNAVIGERING ─── */
     .topnav {
       position: sticky; top: 62px; z-index: 25;
       display: flex;
-      align-items: stretch;
+      align-items: center;
       gap: 0;
       padding: 0 var(--gutter);
       background: var(--bg2);
@@ -334,12 +364,13 @@
       display: flex;
       flex-direction: column;
       justify-content: center;
-      gap: 3px;
-      padding: 9px 20px 10px;
-      border-left: 1px solid var(--border);
+      gap: 4px;
+      padding: 9px 0 10px;
       flex-shrink: 0;
     }
-    .navgroup:first-child { border-left: none; padding-left: 0; }
+    /* Grupperna hålls isär av luft i stället för linjer; en avdelare per
+       grupp gjorde raden lika tung som en tabell. */
+    .navgroup + .navgroup { margin-left: 34px; }
     .navgroup-label {
       font-size: 8.5px;
       font-family: var(--font-mono);
@@ -347,7 +378,8 @@
       letter-spacing: 0.14em;
       color: var(--muted);
       font-weight: 600;
-      padding-left: 10px;
+      /* Samma indrag som flikarnas text, så etiketten står i lod med dem. */
+      padding-left: 11px;
     }
     .navgroup-items { display: flex; gap: 2px; }
     .nav-item {
@@ -2858,7 +2890,8 @@
         border: none;
       }
       .nav-icon { width: auto; opacity: 1; }
-      .topbar-greet, .topbar-stats, .topbar-actions { display:none; }
+      .topbar-greet, .topbar-stats { display:none; }
+      .topnav-actions { display:none; }
       .topbar { height:54px; padding:0 16px; }
       .main { max-width:100vw; width:100%; }
       .content { padding:20px 14px 24px; }
