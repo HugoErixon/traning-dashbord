@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=hover-1">
+  <link rel="stylesheet" href="styles.css?v=trend-1">
 </head>
 <body>
 <div class="shell">
@@ -832,7 +832,8 @@
       <div id="analysis-content" style="display:none;">
         <section class="an-hero">
           <div class="an-hero-score">
-            <div class="an-ring">
+            <div class="an-ring" data-action="open-trend-breakdown" role="button" tabindex="0"
+                 title="Se hur trendpoängen räknas fram">
               <svg viewBox="0 0 132 132" aria-hidden="true">
                 <circle class="an-ring-track" cx="66" cy="66" r="57" fill="none" stroke-width="10"/>
                 <circle id="an-score-ring" class="an-ring-fill" cx="66" cy="66" r="57" fill="none"
@@ -843,6 +844,9 @@
             </div>
             <div class="an-hero-verdict" id="an-verdict">Samlar data…</div>
             <div class="an-confidence" id="an-confidence"></div>
+            <button type="button" class="an-score-explain" data-action="open-trend-breakdown">
+              Så räknas poängen
+            </button>
           </div>
           <div class="an-hero-facts">
             <div class="an-fact"><span class="an-fact-label">Löpning · 7 dygn</span>
@@ -969,6 +973,6 @@
   </main>
 </div>
 
-<script src="app.js?v=hover-1"></script>
+<script src="app.js?v=trend-1"></script>
 </body>
 </html>

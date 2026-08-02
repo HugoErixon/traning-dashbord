@@ -182,20 +182,109 @@ def execution_summary(sessions):
     }
 
 
+TREND_BASE = 60
+TREND_MIN = 20
+TREND_MAX = 95
+TREND_PER_IMPROVING = 7
+TREND_PER_DECLINING = 8
+
+
 def overview(metrics, volume, execution, goal=None):
-    """One honest page-level verdict and the most useful next actions."""
+    """One honest page-level verdict and the most useful next actions.
+
+    The score is assembled and explained in the same pass, so `breakdown`
+    can never drift away from the number it claims to describe: the entries
+    add up to `rawScore`, and `score` is that value clamped.
+    """
     signal_keys = {'hrv', 'rhr', 'sleep', 'vo2max', 'endurance', 'lt_pace'}
     signals = [m for m in metrics if m['key'] in signal_keys and m['samples'] >= 3]
     improving = [m for m in signals if m['direction'] == 'improving']
     declining = [m for m in signals if m['direction'] == 'declining']
-    score = 60 + len(improving) * 7 - len(declining) * 8
+
+    breakdown = [{
+        'key': 'base', 'label': 'Utgångsläge', 'delta': None, 'tone': 'neutral',
+        'detail': f'Varje trendpoäng börjar på {TREND_BASE} och rör sig därifrån.',
+    }]
+    score = TREND_BASE
+
+    if improving:
+        delta = len(improving) * TREND_PER_IMPROVING
+        score += delta
+        breakdown.append({
+            'key': 'improving', 'delta': delta, 'tone': 'good',
+            'label': f'{len(improving)} markör{"er" if len(improving) > 1 else ""} förbättras',
+            'detail': ', '.join(m['label'] for m in improving)
+                      + f' · +{TREND_PER_IMPROVING} per markör.',
+        })
+    if declining:
+        delta = -len(declining) * TREND_PER_DECLINING
+        score += delta
+        breakdown.append({
+            'key': 'declining', 'delta': delta, 'tone': 'warn',
+            'label': f'{len(declining)} markör{"er" if len(declining) > 1 else ""} försämras',
+            'detail': ', '.join(m['label'] for m in declining)
+                      + f' · −{TREND_PER_DECLINING} per markör.',
+        })
+    stable = [m for m in signals if m not in improving and m not in declining]
+    if stable:
+        breakdown.append({
+            'key': 'stable', 'delta': 0, 'tone': 'neutral',
+            'label': f'{len(stable)} markör{"er" if len(stable) > 1 else ""} ligger stilla',
+            'detail': ', '.join(m['label'] for m in stable)
+                      + ' · rör sig inte mer än mätbruset och påverkar därför inte poängen.',
+        })
+
     adherence = execution.get('adherencePct')
-    if adherence is not None:
-        score += 8 if adherence >= 85 else (-8 if adherence < 65 else 0)
+    if adherence is None:
+        breakdown.append({
+            'key': 'adherence', 'delta': None, 'tone': 'neutral',
+            'label': 'Planföljsamhet saknas',
+            'detail': 'Inga avgjorda planpass i perioden, så följsamheten påverkar inte poängen.',
+        })
+    else:
+        delta = 8 if adherence >= 85 else (-8 if adherence < 65 else 0)
+        score += delta
+        if delta > 0:
+            detail = f'{adherence}% av planpassen genomförda — 85% eller mer ger +8.'
+        elif delta < 0:
+            detail = f'{adherence}% av planpassen genomförda — under 65% ger −8.'
+        else:
+            detail = f'{adherence}% av planpassen genomförda — mellan 65% och 85% ger varken plus eller minus.'
+        breakdown.append({
+            'key': 'adherence', 'delta': delta, 'label': 'Planföljsamhet', 'detail': detail,
+            'tone': 'good' if delta > 0 else ('warn' if delta < 0 else 'neutral'),
+        })
+
     quality = execution.get('qualityPct')
-    if quality is not None:
-        score += 5 if quality >= 75 else (-5 if quality < 50 else 0)
-    score = max(20, min(95, round(score)))
+    if quality is None:
+        breakdown.append({
+            'key': 'quality', 'delta': None, 'tone': 'neutral',
+            'label': 'Passkvalitet saknas',
+            'detail': 'Inga pass med utförandedata ännu, så kvaliteten påverkar inte poängen.',
+        })
+    else:
+        delta = 5 if quality >= 75 else (-5 if quality < 50 else 0)
+        score += delta
+        if delta > 0:
+            detail = f'{quality}% av passen låg på rätt nivå — 75% eller mer ger +5.'
+        elif delta < 0:
+            detail = f'{quality}% av passen låg på rätt nivå — under 50% ger −5.'
+        else:
+            detail = f'{quality}% av passen låg på rätt nivå — mellan 50% och 75% ger varken plus eller minus.'
+        breakdown.append({
+            'key': 'quality', 'delta': delta, 'label': 'Pass på rätt nivå', 'detail': detail,
+            'tone': 'good' if delta > 0 else ('warn' if delta < 0 else 'neutral'),
+        })
+
+    raw_score = round(score)
+    score = max(TREND_MIN, min(TREND_MAX, raw_score))
+    if score != raw_score:
+        breakdown.append({
+            'key': 'clamp', 'delta': score - raw_score, 'tone': 'neutral',
+            'label': f'Begränsad till {score}',
+            'detail': f'Summan blev {raw_score}; skalan går bara mellan '
+                      f'{TREND_MIN} och {TREND_MAX}.',
+        })
 
     if len(signals) < 2:
         status, title = 'collecting', 'Samlar en tydligare trendbild'
@@ -230,9 +319,19 @@ def overview(metrics, volume, execution, goal=None):
 
     confidence = min(100, round(len(signals) / len(signal_keys) * 70
                                 + min(execution.get('evaluated', 0), 6) / 6 * 30))
+    if len(signals) < 2:
+        confidence_note = ('Färre än två markörer har tillräckligt med mätpunkter, '
+                           'så poängen vilar mest på utgångsläget.')
+    else:
+        confidence_note = (f'{len(signals)} av {len(signal_keys)} trendmarkörer har minst tre '
+                           f'mätpunkter, och {execution.get("evaluated", 0)} pass är utvärderade.')
+
     return {
         'score': score, 'status': status, 'title': title,
         'improving': len(improving), 'declining': len(declining),
         'signals': len(signals), 'confidencePct': confidence,
         'priorities': priorities[:3],
+        'rawScore': raw_score, 'base': TREND_BASE,
+        'scale': {'min': TREND_MIN, 'max': TREND_MAX},
+        'breakdown': breakdown, 'confidenceNote': confidence_note,
     }

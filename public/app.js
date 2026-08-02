@@ -932,6 +932,8 @@ function executeAction(trigger, event) {
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'refresh-insights') loadInsights(true);
+  else if (action === 'open-trend-breakdown') openTrendBreakdown();
+  else if (action === 'close-trend-breakdown') closeTrendBreakdown();
   else if (action === 'toggle-ac-loop') toggleAcLoop();
   else if (action === 'set-ac-setpoint') setAcSetpoint();
   else if (action === 'save-ac-bedtime') saveAcBedtime();
@@ -3691,6 +3693,57 @@ HEALTH DATA (current):
       <div class="an-execution-stat"><span>Utvärderade</span><strong>${execution.evaluated ?? 0}</strong></div>
       </div><p class="an-execution-note">${adherence == null ? 'Inga avgjorda planpass i perioden ännu.' : `${adherence}% planföljsamhet.`}
       ${quality == null ? ' När fler pass har tempo-, puls- eller styrkedata visas även kvaliteten.' : ` ${quality}% av utvärderade pass genomfördes utan tydliga avvikelser.`}</p>`;
+  }
+
+  // Trendpoängen är meningslös utan sin uträkning — posterna kommer från
+  // training_analysis.overview() och summerar alltid till rawScore.
+  function closeTrendBreakdown() {
+    document.getElementById('trend-modal')?.remove();
+  }
+
+  function openTrendBreakdown() {
+    if (document.getElementById('trend-modal')) return;
+    const overview = (analysisData || {}).overview || {};
+    const entries = overview.breakdown || [];
+    if (!entries.length) return;
+
+    const rows = entries.map(entry => {
+      const delta = entry.delta;
+      const sign = delta == null ? '–'
+        : (delta > 0 ? '+' + delta : (delta === 0 ? '±0' : String(delta)));
+      return `<div class="tb-row tb-${escapeHtml(entry.tone || 'neutral')}">
+          <span class="tb-delta">${escapeHtml(sign)}</span>
+          <span class="tb-text">
+            <strong>${escapeHtml(entry.label)}</strong>
+            <span>${escapeHtml(entry.detail)}</span>
+          </span>
+        </div>`;
+    }).join('');
+
+    const scale = overview.scale || {};
+    const clamped = overview.rawScore != null && overview.rawScore !== overview.score;
+
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="trend-modal" class="tb-backdrop">
+        <div class="tb-panel" role="dialog" aria-modal="true" aria-label="Så räknas trendpoängen">
+          <div class="tb-head">
+            <div>
+              <div class="tb-kicker">Trendpoäng</div>
+              <h2>${escapeHtml(String(overview.score ?? '–'))}<span class="tb-outof"> / ${escapeHtml(String(scale.max ?? 100))}</span></h2>
+              <div class="tb-verdict">${escapeHtml(overview.title || '')}</div>
+            </div>
+            <button type="button" class="tb-close" data-action="close-trend-breakdown" aria-label="Stäng">✕</button>
+          </div>
+          <div class="tb-rows">${rows}</div>
+          <div class="tb-foot">
+            <div><strong>Summa</strong> ${escapeHtml(String(overview.base ?? 60))} i utgångsläge${clamped
+              ? ` → ${escapeHtml(String(overview.rawScore))}, begränsat till ${escapeHtml(String(overview.score))}`
+              : ` → ${escapeHtml(String(overview.score ?? '–'))}`}.
+              Skalan går mellan ${escapeHtml(String(scale.min ?? 20))} och ${escapeHtml(String(scale.max ?? 95))}.</div>
+            ${overview.confidenceNote ? `<div class="tb-confidence">${escapeHtml(overview.confidenceNote)}</div>` : ''}
+          </div>
+        </div>
+      </div>`);
   }
 
   function renderAnalysis(data) {
