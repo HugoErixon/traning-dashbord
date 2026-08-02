@@ -931,6 +931,8 @@ function executeAction(trigger, event) {
   else if (action === 'logout') performLogout();
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
+  else if (action === 'open-activity') openActivityDetails(Number(trigger.dataset.activityId));
+  else if (action === 'close-activity') closeActivityDetails();
   else if (action === 'refresh-insights') loadInsights(true);
   else if (action === 'open-trend-breakdown') openTrendBreakdown();
   else if (action === 'close-trend-breakdown') closeTrendBreakdown();
@@ -969,6 +971,10 @@ document.addEventListener('click', event => {
 });
 
 document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && document.getElementById('activity-overlay')?.classList.contains('is-open')) {
+    closeActivityDetails();
+    return;
+  }
   const trigger = event.target.closest('[data-action][role="button"]');
   if (trigger && (event.key === 'Enter' || event.key === ' ')) {
     event.preventDefault();
@@ -4479,6 +4485,12 @@ HEALTH DATA (current):
     return name + km;
   }
 
+  function activityOpenAttrs(activity) {
+    const id = Number(activity?.activityId || activity?.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return '';
+    return ` data-action="open-activity" data-activity-id="${id}" role="button" tabindex="0" title="Öppna passdetaljer"`;
+  }
+
   function activitiesByDate() {
     const map = {};
     (recentActivities || []).forEach(activity => {
@@ -4558,19 +4570,26 @@ HEALTH DATA (current):
     if (plannedSession?.type === 'lift' && lifts.length) {
       const label = plannedSession.title || 'Styrkepass';
       const tip = ['Garmin', label, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
-      return `<span class="cal-session-pill csp-lift csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
+      return `<span class="cal-session-pill csp-lift csp-done csp-actual"${activityOpenAttrs(lifts[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
     }
 
     if (runs.length) {
+      if (runs.length > 1) {
+        const pills = runs.map(run => {
+          const label = calendarActivityLabel(run);
+          const seconds = run.duration || run.elapsedDuration || 0;
+          const tip = ['Garmin', label, seconds ? Math.round(seconds / 60) + ' min' : ''].filter(Boolean).join(' - ');
+          return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(run)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+        }).join('');
+        return pills + verdict;
+      }
       const interval = runs.find(a => a.calendarSummary?.kind === 'interval');
       const label = interval?.calendarSummary?.label
         ? `${interval.calendarSummary.label}${totalRunKm ? ' · ' + totalRunKm.toFixed(1) + ' km' : ''}`
-        : runs.length > 1
-          ? `${runs.length} löpdelar${totalRunKm ? ' · ' + totalRunKm.toFixed(1) + ' km' : ''}`
-          : calendarActivityLabel(runs[0]);
+        : calendarActivityLabel(runs[0]);
       const names = runs.map(calendarActivityLabel).join(' - ');
       const tip = ['Garmin', names, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
-      return `<span class="cal-session-pill csp-run csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
+      return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(runs[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
     }
 
     return dayActivities.map(activity => {
@@ -4580,7 +4599,7 @@ HEALTH DATA (current):
       const seconds = activity.duration || activity.elapsedDuration || 0;
       const mins = seconds ? Math.round(seconds / 60) : null;
       const tip = ['Garmin', label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
-      return `<span class="cal-session-pill ${cls} csp-done csp-actual" data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+      return `<span class="cal-session-pill ${cls} csp-done csp-actual"${activityOpenAttrs(activity)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
     }).join('');
   }
 
@@ -4956,6 +4975,270 @@ HEALTH DATA (current):
       weekEl.appendChild(daysEl);
       container.appendChild(weekEl);
     });
+  }
+
+  // ─── PASSDETALJ ──────────────────────────────────────────────
+  let activityDetailRequest = 0;
+  let activityModalPreviousFocus = null;
+
+  function formatActivityDuration(seconds) {
+    if (seconds == null) return '–';
+    const total = Math.max(0, Math.round(Number(seconds)));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      : `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function formatActivityPace(seconds) {
+    if (seconds == null || !Number.isFinite(Number(seconds))) return '–';
+    const total = Math.max(0, Math.round(Number(seconds)));
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  }
+
+  function formatActivityDate(value) {
+    if (!value) return '';
+    const parsed = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 16);
+    return parsed.toLocaleString('sv-SE', {
+      weekday:'long', day:'numeric', month:'long', year:'numeric',
+      hour:'2-digit', minute:'2-digit'
+    });
+  }
+
+  function formatActivityType(value) {
+    const key = String(value || '').toLowerCase();
+    if (/track/.test(key)) return 'Banlöpning';
+    if (/trail/.test(key)) return 'Traillöpning';
+    if (/treadmill/.test(key)) return 'Löpband';
+    if (/run/.test(key)) return 'Löpning';
+    if (/strength|weight|fitness/.test(key)) return 'Styrka';
+    if (/cycling|bike/.test(key)) return 'Cykling';
+    return key ? key.replaceAll('_', ' ') : 'Garmin-aktivitet';
+  }
+
+  function activityMetric(label, value, unit = '') {
+    return `<div class="ad-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}${unit ? ` <small>${escapeHtml(unit)}</small>` : ''}</strong></div>`;
+  }
+
+  function activityRouteSvg(route) {
+    if (!Array.isArray(route) || route.length < 2) {
+      return '<div class="ad-map-empty">Ingen GPS-rutt registrerades för passet.</div>';
+    }
+    const W = 760, H = 420, pad = 34;
+    const avgLat = route.reduce((sum, p) => sum + p.lat, 0) / route.length;
+    const lonScale = Math.max(.15, Math.cos(avgLat * Math.PI / 180));
+    const projected = route.map(p => ({x:p.lon * lonScale, y:p.lat}));
+    const xs = projected.map(p => p.x), ys = projected.map(p => p.y);
+    let minX = Math.min(...xs), maxX = Math.max(...xs);
+    let minY = Math.min(...ys), maxY = Math.max(...ys);
+    if (minX === maxX) { minX -= .001; maxX += .001; }
+    if (minY === maxY) { minY -= .001; maxY += .001; }
+    const scale = Math.min((W - pad * 2) / (maxX - minX), (H - pad * 2) / (maxY - minY));
+    const usedW = (maxX - minX) * scale, usedH = (maxY - minY) * scale;
+    const ox = (W - usedW) / 2, oy = (H - usedH) / 2;
+    const points = projected.map(p => [
+      ox + (p.x - minX) * scale,
+      H - (oy + (p.y - minY) * scale),
+    ]);
+    const path = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    const start = points[0], end = points.at(-1);
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="GPS-rutt för passet">
+      <path class="ad-route-line-under" d="${path}" vector-effect="non-scaling-stroke"/>
+      <path class="ad-route-line" d="${path}" vector-effect="non-scaling-stroke"/>
+      <circle class="ad-route-pin" cx="${start[0].toFixed(1)}" cy="${start[1].toFixed(1)}" r="6" fill="var(--green)" vector-effect="non-scaling-stroke"/>
+      <circle class="ad-route-pin" cx="${end[0].toFixed(1)}" cy="${end[1].toFixed(1)}" r="6" fill="var(--red)" vector-effect="non-scaling-stroke"/>
+    </svg><span class="ad-map-north">N</span><span class="ad-map-attribution">GARMIN GPS · GRÖN START · RÖD MÅL</span>`;
+  }
+
+  function activityChartSvg(series, key, color, formatter, invert = false) {
+    let data = (series || []).filter(point => point.elapsed != null && point[key] != null
+      && Number.isFinite(Number(point[key])));
+    if (key === 'pace') data = data.filter(point => point.pace >= 120 && point.pace <= 1200);
+    if (data.length < 2) return '<div class="ad-chart-empty">Ingen mätserie registrerad.</div>';
+    if (data.length > 500) {
+      const step = Math.ceil(data.length / 500);
+      const last = data.at(-1);
+      data = data.filter((_, index) => index % step === 0);
+      if (data.at(-1) !== last) data.push(last);
+    }
+    const W = 560, H = 190, left = 42, right = 12, top = 15, bottom = 25;
+    const sorted = data.map(point => Number(point[key])).sort((a, b) => a - b);
+    let lo = sorted[Math.floor((sorted.length - 1) * .03)];
+    let hi = sorted[Math.ceil((sorted.length - 1) * .97)];
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const margin = Math.max((hi - lo) * .08, .5);
+    lo -= margin; hi += margin;
+    const t0 = data[0].elapsed, t1 = data.at(-1).elapsed;
+    const x = elapsed => left + ((elapsed - t0) / Math.max(1, t1 - t0)) * (W - left - right);
+    const y = value => {
+      const ratio = Math.max(0, Math.min(1, (value - lo) / (hi - lo)));
+      return top + (invert ? ratio : 1 - ratio) * (H - top - bottom);
+    };
+    const points = data.map(point => [x(point.elapsed), y(Number(point[key]))]);
+    const line = points.map((point, index) => `${index ? 'L' : 'M'}${point[0].toFixed(1)} ${point[1].toFixed(1)}`).join(' ');
+    const area = `${line} L${points.at(-1)[0].toFixed(1)} ${H-bottom} L${points[0][0].toFixed(1)} ${H-bottom} Z`;
+    const gradient = `ad-grad-${key}`;
+    const topValue = invert ? lo : hi, bottomValue = invert ? hi : lo;
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+      ${[0,.5,1].map(f => `<line class="ad-chart-gridline" x1="${left}" x2="${W-right}" y1="${top+f*(H-top-bottom)}" y2="${top+f*(H-top-bottom)}"/>`).join('')}
+      <path class="ad-chart-area" d="${area}" fill="url(#${gradient})"/>
+      <path class="ad-chart-line" d="${line}" stroke="${color}"/>
+      <text class="ad-chart-label" x="${left-6}" y="${top+4}" text-anchor="end">${escapeHtml(formatter(topValue))}</text>
+      <text class="ad-chart-label" x="${left-6}" y="${H-bottom}" text-anchor="end">${escapeHtml(formatter(bottomValue))}</text>
+      <text class="ad-chart-label" x="${left}" y="${H-6}">0:00</text>
+      <text class="ad-chart-label" x="${W-right}" y="${H-6}" text-anchor="end">${escapeHtml(formatActivityDuration(t1-t0))}</text>
+    </svg>`;
+  }
+
+  function activityChartCard(title, subtitle, series, key, color, formatter, invert = false) {
+    return `<section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">${escapeHtml(title)}</span><span class="ad-card-sub">${escapeHtml(subtitle)}</span></div></div>
+      <div class="ad-chart">${activityChartSvg(series, key, color, formatter, invert)}</div></section>`;
+  }
+
+  function activityZones(title, unit, zones, colors) {
+    const total = (zones || []).reduce((sum, zone) => sum + Number(zone.seconds || 0), 0);
+    const rows = (zones || []).map((zone, index) => {
+      const pct = total ? zone.seconds / total * 100 : 0;
+      const boundary = zone.low != null ? ` · från ${Math.round(zone.low)} ${unit}` : '';
+      return `<div class="ad-zone-row"><span class="ad-zone-name">Z${zone.zone}${escapeHtml(boundary)}</span>
+        <div class="ad-zone-track"><div class="ad-zone-fill" style="width:${pct.toFixed(1)}%;background:${colors[index] || colors.at(-1)}"></div></div>
+        <span class="ad-zone-time">${formatActivityDuration(zone.seconds)}</span></div>`;
+    }).join('');
+    return `<section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">${escapeHtml(title)}</span><span class="ad-card-sub">Tid i zon · ${formatActivityDuration(total)}</span></div></div>
+      <div class="ad-zone-list">${rows || '<div class="ad-chart-empty" style="height:90px">Inga zoner registrerade.</div>'}</div></section>`;
+  }
+
+  function activityLaps(laps) {
+    if (!laps?.length) return '<div class="ad-chart-empty" style="height:110px">Inga varv registrerades.</div>';
+    const rows = laps.map(lap => `<tr>
+      <td>${escapeHtml(String(lap.index))}${lap.type ? ` <small>${escapeHtml(lap.type)}</small>` : ''}</td>
+      <td>${lap.distance != null ? (lap.distance / 1000).toFixed(2) : '–'} km</td>
+      <td>${formatActivityDuration(lap.duration)}</td><td>${formatActivityPace(lap.pace)} /km</td>
+      <td>${lap.averageHR ?? '–'}</td><td>${lap.averagePower ?? '–'}</td>
+      <td>${lap.elevationGain != null ? '+' + Math.round(lap.elevationGain) : '–'}</td>
+    </tr>`).join('');
+    return `<div class="ad-table-wrap"><table class="ad-laps"><thead><tr><th>Varv</th><th>Distans</th><th>Tid</th><th>Tempo</th><th>Puls</th><th>Watt</th><th>Höjd</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function activitySecondaryMetrics(activity) {
+    const o = activity.overview || {};
+    const items = [
+      ['Maxpuls', o.maxHR, ' bpm'], ['Maxeffekt', o.maxPower, ' W'],
+      ['Kadens', o.averageCadence, ' spm'], ['Maxkadens', o.maxCadence, ' spm'],
+      ['Kalorier', o.calories, ' kcal'], ['Träningsbelastning', o.trainingLoad, ''],
+      ['VO₂ max', o.vo2max, ''], ['Steglängd', o.strideLength, ' cm'],
+      ['Markkontakttid', o.groundContactTime, ' ms'], ['Vertikal rörelse', o.verticalOscillation, ' cm'],
+      ['Vertikal kvot', o.verticalRatio, ' %'], ['Andning', o.averageRespiration, ' /min'],
+      ['Body Battery', o.bodyBatteryImpact, ''], ['Steg', o.steps, ''],
+      ['Vätskeförlust', o.waterEstimated, ' ml'],
+    ];
+    if (activity.weather) {
+      const weather = [
+        activity.weather.description,
+        activity.weather.temperature != null ? `${activity.weather.temperature} °C` : '',
+        activity.weather.windSpeed != null ? `${activity.weather.windSpeed} m/s ${activity.weather.windDirection || ''}` : '',
+      ].filter(Boolean).join(' · ');
+      if (weather) items.push(['Väder', weather, '']);
+    }
+    if (activity.gear?.length) {
+      items.push(['Utrustning', activity.gear.map(item => item.name || item.model).filter(Boolean).join(', '), '']);
+    }
+    return items.filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .map(([label, value, unit]) => `<div class="ad-secondary-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}${escapeHtml(unit)}</strong></div>`).join('');
+  }
+
+  function renderActivityDetail(activity) {
+    const o = activity.overview || {};
+    const type = formatActivityType(activity.type);
+    const meta = [formatActivityDate(activity.date), activity.location, activity.device].filter(Boolean).join(' · ');
+    const primary = [
+      activityMetric('Distans', o.distance != null ? (o.distance / 1000).toFixed(2) : '–', 'km'),
+      activityMetric('Tid', formatActivityDuration(o.movingDuration)),
+      activityMetric('Snittempo', formatActivityPace(o.pace), '/km'),
+      activityMetric('Snittpuls', o.averageHR ?? '–', 'bpm'),
+      activityMetric('Höjdmeter', o.elevationGain != null ? Math.round(o.elevationGain) : '–', 'm'),
+      activityMetric('Snitteffekt', o.averagePower ?? '–', 'W'),
+    ].join('');
+    const effect = [
+      o.aerobicEffect != null ? `<div class="ad-effect"><span>Aerob effekt</span><strong>${o.aerobicEffect}</strong></div>` : '',
+      o.anaerobicEffect != null ? `<div class="ad-effect"><span>Anaerob effekt</span><strong>${o.anaerobicEffect}</strong></div>` : '',
+    ].join('');
+    const summaryRows = [
+      ['Förfluten tid', formatActivityDuration(o.elapsedDuration)],
+      ['Rörelsetid', formatActivityDuration(o.movingDuration)],
+      ['Maxpuls', o.maxHR != null ? `${o.maxHR} bpm` : '–'],
+      ['Kalorier', o.calories != null ? `${o.calories} kcal` : '–'],
+      ['Höjd ner', o.elevationLoss != null ? `${Math.round(o.elevationLoss)} m` : '–'],
+      ['Belastning', o.trainingLoad ?? '–'],
+      ['Kadens', o.averageCadence != null ? `${o.averageCadence} spm` : '–'],
+      ['VO₂ max', o.vo2max ?? '–'],
+    ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
+    const zoneColors = ['#7fd6c4','#2dd4bf','#c8f135','#ffb84d','#ff4d6d'];
+    const secondary = activitySecondaryMetrics(activity);
+    return `<div class="ad-head"><div><div class="ad-kicker">${escapeHtml(type)}</div>
+        <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}</div></div>
+        ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>
+      <div class="ad-metrics">${primary}</div>
+      <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från Garmin</span></div></div>
+          <div class="ad-route">${activityRouteSvg(activity.route)}</div></section>
+        <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
+      <div class="ad-chart-grid">
+        ${activityChartCard('Tempo', 'Minuter per kilometer', activity.series, 'pace', '#c8f135', value => formatActivityPace(value), true)}
+        ${activityChartCard('Puls', 'Slag per minut', activity.series, 'heartRate', '#ff4d6d', value => String(Math.round(value)))}
+        ${activityChartCard('Höjdprofil', 'Meter över havet', activity.series, 'elevation', '#7fd6c4', value => String(Math.round(value)))}
+        ${activityChartCard('Löpeffekt', 'Watt', activity.series, 'power', '#ffb84d', value => String(Math.round(value)))}
+      </div>
+      <div class="ad-zones">
+        ${activityZones('Pulszoner', 'bpm', activity.heartRateZones, zoneColors)}
+        ${activityZones('Effektzoner', 'W', activity.powerZones, zoneColors)}
+      </div>
+      ${secondary ? `<div class="ad-secondary">${secondary}</div>` : ''}
+      <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Varv</span><span class="ad-card-sub">Tempo, puls, effekt och höjd per varv</span></div></div>${activityLaps(activity.laps)}</section>`;
+  }
+
+  async function openActivityDetails(activityId) {
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) return;
+    const overlay = document.getElementById('activity-overlay');
+    const content = document.getElementById('activity-detail-content');
+    if (!overlay || !content) return;
+    activityModalPreviousFocus = document.activeElement;
+    const requestNumber = ++activityDetailRequest;
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('activity-modal-open');
+    content.innerHTML = '<div class="activity-loading"><span></span>Laddar passet från Garmin…</div>';
+    overlay.querySelector('.activity-dialog').scrollTop = 0;
+    setTimeout(() => overlay.querySelector('.activity-close')?.focus(), 0);
+    try {
+      const response = await fetch(`/api/activities/${activityId}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Passet kunde inte laddas.');
+      if (requestNumber !== activityDetailRequest) return;
+      content.innerHTML = renderActivityDetail(payload.activity || {});
+      overlay.querySelector('.activity-dialog').scrollTop = 0;
+    } catch (error) {
+      if (requestNumber !== activityDetailRequest) return;
+      content.innerHTML = `<div class="ad-error"><strong>Kunde inte öppna passet</strong><p>${escapeHtml(error.message)}</p></div>`;
+    }
+  }
+
+  function closeActivityDetails() {
+    const overlay = document.getElementById('activity-overlay');
+    if (!overlay?.classList.contains('is-open')) return;
+    activityDetailRequest += 1;
+    overlay.classList.remove('is-open');
+    overlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('activity-modal-open');
+    if (activityModalPreviousFocus?.focus) activityModalPreviousFocus.focus();
+    activityModalPreviousFocus = null;
+  }
+
+  const linkedActivityId = Number(new URLSearchParams(window.location.search).get('activity'));
+  if (Number.isSafeInteger(linkedActivityId) && linkedActivityId > 0) {
+    setTimeout(() => openActivityDetails(linkedActivityId), 0);
   }
 
   // ─── MÅLTEMPON ──────────────────────────────────────────────

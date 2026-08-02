@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=trend-1">
+  <link rel="stylesheet" href="styles.css?v=activity-2">
 </head>
 <body>
 <div class="shell">
@@ -973,6 +973,23 @@
   </main>
 </div>
 
-<script src="app.js?v=trend-1"></script>
+<div class="activity-overlay" id="activity-overlay" aria-hidden="true">
+  <button class="activity-backdrop" type="button" data-action="close-activity" aria-label="Stäng passdetaljer"></button>
+  <section class="activity-dialog" role="dialog" aria-modal="true" aria-labelledby="activity-detail-title">
+    <header class="activity-dialog-bar">
+      <button class="activity-back" type="button" data-action="close-activity" aria-label="Tillbaka till kalendern">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        Kalender
+      </button>
+      <span class="activity-dialog-label">PASSDETALJ</span>
+      <button class="activity-close" type="button" data-action="close-activity" aria-label="Stäng">×</button>
+    </header>
+    <div id="activity-detail-content" class="activity-detail-content">
+      <div class="activity-loading"><span></span>Laddar passet från Garmin…</div>
+    </div>
+  </section>
+</div>
+
+<script src="app.js?v=activity-2"></script>
 </body>
 </html>

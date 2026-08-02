@@ -34,6 +34,7 @@ import pace_progression
 import sleep_analysis
 import strain_analysis
 import training_analysis
+from activity_detail import normalize_activity_detail
 
 # Google Calendar (valfritt — kräver google_credentials.json)
 try:
@@ -1945,6 +1946,67 @@ def activities():
         return jsonify({'activities': acts, 'source': 'garmin'})
     except Exception as e:
         return _server_error(e, 'activities.load_failed', message='Aktiviteterna kunde inte hämtas.')
+
+
+def _stored_activity_for_user(activity_id, user_id):
+    """Return the stored Garmin summary and enforce per-user ownership."""
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('SELECT raw FROM activities WHERE id=%s AND user_id=%s',
+                        (activity_id, user_id))
+            row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _garmin_activity_part(client, method_name, activity_id, default):
+    """A missing optional Garmin panel must not make the activity unusable."""
+    try:
+        return getattr(client, method_name)(activity_id)
+    except Exception as exc:
+        logger.info('Optional Garmin activity data unavailable', extra={
+            'event': 'activity.detail_partial',
+            'request_id': _request_id(),
+            'user_id': uid(),
+        })
+        return default
+
+
+@app.get('/api/activities/<int:activity_id>')
+def activity_details(activity_id):
+    """Return route, charts, zones and laps for one owned Garmin activity."""
+    if activity_id <= 0:
+        return _api_error('invalid_activity_id', 'Aktivitets-id är ogiltigt.', 400)
+    try:
+        raw = _stored_activity_for_user(activity_id, uid())
+        if raw is None:
+            return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
+
+        cache_key = f'activity-detail:{activity_id}'
+        cached = get_cache(cache_key, uid())
+        if cached and time.time() - cached[1] < 6 * 3600:
+            return jsonify({'activity': cached[0], 'source': 'cache'})
+
+        if not _garmin_connected(uname()):
+            return _api_error('garmin_not_connected',
+                              'Garmin behöver anslutas för att visa passdetaljer.', 409)
+        client = get_garmin(uname())
+        normalized = normalize_activity_detail(
+            raw=raw,
+            activity=_garmin_activity_part(client, 'get_activity', activity_id, {}),
+            details=_garmin_activity_part(client, 'get_activity_details', activity_id, {}),
+            splits=_garmin_activity_part(client, 'get_activity_splits', activity_id, {}),
+            hr_zones=_garmin_activity_part(
+                client, 'get_activity_hr_in_timezones', activity_id, []),
+            power_zones=_garmin_activity_part(
+                client, 'get_activity_power_in_timezones', activity_id, []),
+            weather=_garmin_activity_part(client, 'get_activity_weather', activity_id, {}),
+            gear=_garmin_activity_part(client, 'get_activity_gear', activity_id, []),
+        )
+        set_cache(cache_key, normalized, uid())
+        return jsonify({'activity': normalized, 'source': 'garmin'})
+    except Exception as exc:
+        return _server_error(exc, 'activity.detail_failed',
+                             message='Passdetaljerna kunde inte hämtas.')
 
 # ─────────────────────────────────────────────
 # HRV-LOGIK (Garmin HRV Status + personlig baslinje)
