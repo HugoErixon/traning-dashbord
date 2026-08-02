@@ -1,12 +1,15 @@
 # Training Dashboard
 
-Personal training dashboard that fetches data from Garmin Connect.
+Personal training dashboard that fetches data from Garmin Connect or Strava.
 
 ## Requirements
 
 - Python 3.10+
 - PostgreSQL
 - Garmin Connect account
+
+Strava is optional. When both Garmin and Strava are connected, Garmin is used as
+the primary activity source to avoid duplicate workouts.
 
 ## Installation
 
@@ -41,6 +44,13 @@ Personal training dashboard that fetches data from Garmin Connect.
    ```powershell
    uvx --python 3.12 --from git+https://github.com/Taxuspt/garmin_mcp garmin-mcp-auth
    ```
+
+   Alternatively, configure Strava OAuth by creating an application at
+   `https://www.strava.com/settings/api`. Set the callback domain to the public
+   Trainyze hostname, then add `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, and
+   `STRAVA_REDIRECT_URI=https://your-host/strava/callback` to `.env`. Each user
+   can then connect their own Strava account from the dashboard. Access and
+   refresh tokens are stored server-side with owner-only file permissions.
 
 6. Start the dashboard:
 

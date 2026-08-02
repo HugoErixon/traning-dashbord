@@ -291,12 +291,28 @@
       padding-left: 24px;
       flex-shrink: 0;
     }
-    .garmin-sync-row {
+    .garmin-sync-row, .strava-sync-row {
       display: flex;
       align-items: center;
       gap: 7px;
       padding-right: 4px;
     }
+    .strava-sync-row .live-dot { background: #fc5200; animation: none; opacity: .55; }
+    .strava-sync-row.is-connected .live-dot { opacity: 1; animation: pulse-dot-breathe 2.4s ease-in-out infinite; }
+    .strava-overlay { position:fixed; inset:0; z-index:998; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.58); }
+    .strava-modal { width:410px; max-width:calc(100vw - 32px); border:1px solid var(--border2); border-radius:14px; background:var(--bg2); box-shadow:0 24px 80px rgba(0,0,0,.4); }
+    .strava-modal-head { display:flex; align-items:flex-start; justify-content:space-between; padding:25px 26px 13px; }
+    .strava-modal-head span { color:#fc5200; font:700 10px/1 var(--font-mono); letter-spacing:.14em; }
+    .strava-modal-head h2 { margin:7px 0 0; font-size:18px; }
+    .strava-modal-head button { border:0; background:none; color:var(--muted); cursor:pointer; font-size:17px; }
+    .strava-modal-body { padding:0 26px 26px; }
+    .strava-modal-body > p:first-child { margin:0 0 18px; color:var(--muted2); font:12.5px/1.6 var(--font-mono); }
+    .strava-connect-btn, .strava-secondary-btn { width:100%; border:0; border-radius:8px; padding:11px 14px; font:700 13.5px var(--font-sans); cursor:pointer; }
+    .strava-connect-btn { color:#fff; background:#fc5200; }
+    .strava-connect-btn:disabled { opacity:.45; cursor:not-allowed; }
+    .strava-secondary-btn { margin-top:8px; color:var(--muted2); background:var(--bg3); border:1px solid var(--border2); }
+    #strava-modal-msg { min-height:17px; margin:12px 0 0; color:var(--accent); font-size:12px; }
+    #strava-modal-msg.is-error { color:var(--red); }
     .live-dot {
       width: 7px; height: 7px;
       background: var(--accent);

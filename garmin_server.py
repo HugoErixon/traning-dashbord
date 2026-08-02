@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import os
 import yaml
 import re
+import strava_integration
 from apscheduler.schedulers.background import BackgroundScheduler
 from werkzeug.exceptions import HTTPException
 from security import LoginRateLimiter, parse_users, verify_user
@@ -189,6 +190,11 @@ FORGOT_PASSWORD_LIMITER = LoginRateLimiter(
 RESEND_API_KEY = config.get('RESEND_API_KEY', '')
 MAIL_FROM = config.get('MAIL_FROM', 'Trainyze <noreply@trainyze.com>')
 PUBLIC_BASE_URL = config.get('PUBLIC_BASE_URL', 'https://trainyze.com')
+STRAVA_CLIENT_ID = str(config.get('STRAVA_CLIENT_ID') or '').strip()
+STRAVA_CLIENT_SECRET = str(config.get('STRAVA_CLIENT_SECRET') or '').strip()
+STRAVA_REDIRECT_URI = str(config.get('STRAVA_REDIRECT_URI') or
+                          f"{PUBLIC_BASE_URL.rstrip('/')}/strava/callback").strip()
+STRAVA_TOKEN_ROOT = Path(config.get('STRAVA_TOKEN_DIR') or (Path.home() / '.strava'))
 
 def uid():
     return getattr(flask_g, 'uid', 1)
@@ -445,6 +451,10 @@ def setup_db():
                 secondary_goal TEXT,
                 start_date TEXT,
                 updated_at REAL)''')
+            cur.execute('''CREATE TABLE IF NOT EXISTS strava_oauth_states (
+                state_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at REAL NOT NULL)''')
         conn.commit()
     print('Databas: klar')
 
@@ -833,6 +843,9 @@ def auth_session():
         'userId': user['id'],
         'isAdmin': bool(user.get('is_admin')),
         'garminConnected': _garmin_connected(username),
+        'stravaConfigured': _strava_configured(),
+        'stravaConnected': _strava_connected(username),
+        'stravaAthlete': _strava_profile(username).get('athleteName'),
         'csrfToken': _ensure_csrf_token(),
     })
 
@@ -914,6 +927,9 @@ def login():
         'userId': user['id'],
         'isAdmin': bool(user.get('is_admin')),
         'garminConnected': _garmin_connected(username),
+        'stravaConfigured': _strava_configured(),
+        'stravaConnected': _strava_connected(username),
+        'stravaAthlete': _strava_profile(username).get('athleteName'),
         'csrfToken': csrf_token,
     })
 
@@ -1109,6 +1125,120 @@ def _garmin_connected(username):
     return False
 
 
+# --- Strava OAuth (per användare) ---
+STRAVA_STATE_TTL_SECONDS = 10 * 60
+_TESTING_STRAVA_STATES = {}
+_strava_token_lock = threading.Lock()
+
+
+def _strava_configured():
+    return bool(STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET and STRAVA_REDIRECT_URI)
+
+
+def _strava_token_path(username):
+    return STRAVA_TOKEN_ROOT / f'{username}.json'
+
+
+def _read_strava_tokens(username):
+    try:
+        payload = json.loads(_strava_token_path(username).read_text(encoding='utf-8'))
+        return payload if isinstance(payload, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _save_strava_tokens(username, payload):
+    STRAVA_TOKEN_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = _strava_token_path(username)
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(payload), encoding='utf-8')
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
+def _strava_connected(username):
+    payload = _read_strava_tokens(username)
+    return bool(payload and payload.get('refresh_token'))
+
+
+def _strava_profile(username):
+    payload = _read_strava_tokens(username) or {}
+    athlete = payload.get('athlete') or {}
+    name = ' '.join(filter(None, (athlete.get('firstname'), athlete.get('lastname')))).strip()
+    return {
+        'connected': bool(payload.get('refresh_token')),
+        'athleteId': athlete.get('id'),
+        'athleteName': name or None,
+        'scope': payload.get('scope') or '',
+    }
+
+
+def _strava_access_token(username):
+    with _strava_token_lock:
+        payload = _read_strava_tokens(username)
+        if not payload or not payload.get('refresh_token'):
+            raise strava_integration.StravaError('Strava är inte anslutet.')
+        if float(payload.get('expires_at') or 0) > time.time() + 3600 \
+                and payload.get('access_token'):
+            return payload['access_token']
+        refreshed = strava_integration.refresh_access_token(
+            STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, payload['refresh_token'])
+        refreshed['athlete'] = payload.get('athlete') or {}
+        refreshed['scope'] = refreshed.get('scope') or payload.get('scope') or ''
+        _save_strava_tokens(username, refreshed)
+        return refreshed['access_token']
+
+
+def _create_strava_state(user_id):
+    state = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(state.encode('utf-8')).hexdigest()
+    now = time.time()
+    if APP_TESTING:
+        _TESTING_STRAVA_STATES[digest] = (user_id, now)
+        return state
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM strava_oauth_states WHERE created_at < %s',
+                        (now - STRAVA_STATE_TTL_SECONDS,))
+            cur.execute('INSERT INTO strava_oauth_states (state_hash,user_id,created_at) '
+                        'VALUES (%s,%s,%s)', (digest, user_id, now))
+        conn.commit()
+    return state
+
+
+def _consume_strava_state(state):
+    if not state or len(state) > 256:
+        return None
+    digest = hashlib.sha256(state.encode('utf-8')).hexdigest()
+    if APP_TESTING:
+        entry = _TESTING_STRAVA_STATES.pop(digest, None)
+        return entry[0] if entry and time.time() - entry[1] <= STRAVA_STATE_TTL_SECONDS else None
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM strava_oauth_states WHERE state_hash=%s '
+                        'RETURNING user_id,created_at', (digest,))
+            row = cur.fetchone()
+        conn.commit()
+    return row[0] if row and time.time() - row[1] <= STRAVA_STATE_TTL_SECONDS else None
+
+
+def _strava_username_for_user_id(user_id):
+    return next((name for name, user in USERS.items() if user.get('id') == user_id), None)
+
+
+def _strava_activities(username, days=120, force=False):
+    cache_key = 'strava:activities'
+    if not force:
+        cached = get_cache(cache_key, USERS[username]['id'])
+        if cached and time.time() - cached[1] < 15 * 60:
+            return cached[0]
+    token = _strava_access_token(username)
+    activities = [strava_integration.normalize_summary(activity) for activity in
+                  strava_integration.athlete_activities(token, days=days)]
+    set_cache(cache_key, activities, USERS[username]['id'])
+    return activities
+
+
 @app.get('/api/users')
 def list_users():
     if not _current_is_admin():
@@ -1119,6 +1249,7 @@ def list_users():
             'username': username,
             'isAdmin': bool(rec.get('is_admin')),
             'garminConnected': _garmin_connected(username),
+            'stravaConnected': _strava_connected(username),
         }
         for username, rec in sorted(USERS.items(), key=lambda item: item[1]['id'])
     ]})
@@ -1410,6 +1541,123 @@ def garmin_disconnect():
         'request_id': _request_id(),
         'user_id': uid(),
     })
+    return jsonify({'ok': True, 'connected': False})
+
+
+def _strava_callback_page(status):
+    messages = {
+        'connected': ('Strava är anslutet', 'Aktiviteterna synkas nu till Trainyze.'),
+        'denied': ('Anslutningen avbröts', 'Strava gav inte Trainyze åtkomst.'),
+        'scope': ('Behörighet saknas', 'Tillåt åtkomst till aktiviteter och försök igen.'),
+        'expired': ('Länken har gått ut', 'Stäng fönstret och starta anslutningen igen.'),
+        'error': ('Strava kunde inte anslutas', 'Försök igen om en stund.'),
+    }
+    title, message = messages.get(status, messages['error'])
+    return f'''<!doctype html><html lang="sv"><head><meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <title>{title}</title><style>
+      body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d0f14;
+      color:#e5e7eb;font-family:system-ui,sans-serif}}.card{{width:min(380px,calc(100% - 40px));
+      padding:30px;border:1px solid #303641;border-radius:16px;background:#161a22;text-align:center}}
+      b{{color:#fc5200}}p{{color:#9ca3af;line-height:1.5}}a{{color:#c8f135}}</style></head>
+      <body data-strava-status="{status}"><div class="card"><b>STRAVA</b><h2>{title}</h2>
+      <p>{message}</p><a href="/">Tillbaka till Trainyze</a></div>
+      <script src="/strava-callback.js?v=1"></script></body></html>'''
+
+
+@app.post('/api/strava/connect')
+def strava_connect():
+    if not _strava_configured():
+        return _api_error(
+            'strava_not_configured',
+            'Strava behöver konfigureras av Trainyzes administratör först.', 503)
+    state = _create_strava_state(uid())
+    return jsonify({
+        'authorizationUrl': strava_integration.authorization_url(
+            STRAVA_CLIENT_ID, STRAVA_REDIRECT_URI, state),
+    })
+
+
+@app.get('/strava/callback')
+def strava_callback():
+    state = str(request.args.get('state') or '')
+    user_id = _consume_strava_state(state)
+    if user_id is None:
+        return _strava_callback_page('expired'), 400
+    if request.args.get('error'):
+        return _strava_callback_page('denied'), 400
+    code = str(request.args.get('code') or '')
+    if not code or len(code) > 512:
+        return _strava_callback_page('error'), 400
+    username = _strava_username_for_user_id(user_id)
+    if not username:
+        return _strava_callback_page('error'), 400
+    try:
+        payload = strava_integration.exchange_code(
+            STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, code)
+        scope = str(request.args.get('scope') or payload.get('scope') or '')
+        granted = set(filter(None, re.split(r'[ ,]+', scope)))
+        if 'activity:read_all' not in granted:
+            return _strava_callback_page('scope'), 403
+        payload['scope'] = scope
+        _save_strava_tokens(username, payload)
+        if not APP_TESTING:
+            threading.Thread(
+                target=_strava_activities, args=(username, 120, True), daemon=True
+            ).start()
+        logger.info('Strava connected', extra={
+            'event': 'strava.connected', 'request_id': _request_id(), 'user_id': user_id,
+        })
+        return _strava_callback_page('connected')
+    except Exception as exc:
+        logger.exception('Strava callback failed', extra={
+            'event': 'strava.connect_failed', 'request_id': _request_id(), 'user_id': user_id,
+        })
+        return _strava_callback_page('error'), 502
+
+
+@app.get('/api/strava/status')
+def strava_status():
+    return jsonify({
+        'configured': _strava_configured(),
+        **_strava_profile(uname()),
+    })
+
+
+@app.post('/api/strava/sync')
+def strava_sync():
+    if not _strava_connected(uname()):
+        return _api_error('strava_not_connected', 'Strava är inte anslutet.', 409)
+    try:
+        activities_out = _strava_activities(uname(), 120, True)
+        return jsonify({'ok': True, 'activities': len(activities_out)})
+    except Exception as exc:
+        return _server_error(exc, 'strava.sync_failed', status=502,
+                             code='strava_provider_error',
+                             message='Strava kunde inte synkas just nu.')
+
+
+@app.post('/api/strava/disconnect')
+def strava_disconnect():
+    username = uname()
+    payload = _read_strava_tokens(username) or {}
+    token = payload.get('refresh_token') or payload.get('access_token')
+    if token and _strava_configured():
+        try:
+            requests.post(
+                strava_integration.REVOKE_URL,
+                auth=(STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET),
+                data={'token': token, 'token_type_hint': 'refresh_token'}, timeout=10,
+            )
+        except requests.RequestException:
+            logger.warning('Strava revoke unavailable', extra={
+                'event': 'strava.revoke_failed', 'request_id': _request_id(), 'user_id': uid(),
+            })
+    try:
+        _strava_token_path(username).unlink(missing_ok=True)
+    except OSError as exc:
+        return _server_error(exc, 'strava.disconnect_failed')
+    clear_cache('strava:activities', user_id=uid())
     return jsonify({'ok': True, 'connected': False})
 
 
@@ -1935,7 +2183,9 @@ def activities():
     except (TypeError, ValueError):
         days = 50
     start = (date.today() - timedelta(days=days)).isoformat()
-    if request.args.get('refresh') == '1':
+    garmin_connected = _garmin_connected(uname())
+    strava_connected = _strava_connected(uname())
+    if request.args.get('refresh') == '1' and garmin_connected:
         try:
             client = get_garmin(uname())
             save_activities(client.get_activities(0, 100), uid())
@@ -1947,12 +2197,40 @@ def activities():
                 WHERE user_id=%s AND date >= %s
                 ORDER BY date DESC LIMIT 200''', (uid(), start))
             rows = cur.fetchall()
+    # Garmin remains the primary source when both providers are connected. This
+    # avoids showing the same workout twice, since Strava commonly receives the
+    # activity from Garmin itself.
+    if rows and garmin_connected:
+        activities_out = [r[0] for r in rows]
+        if request.args.get('calendar') == '1':
+            activities_out = _add_calendar_activity_summaries(activities_out)
+        return jsonify({'activities': activities_out, 'source': 'database'})
+
+    if strava_connected:
+        try:
+            activities_out = _strava_activities(
+                uname(), days, request.args.get('refresh') == '1')
+            return jsonify({'activities': activities_out, 'source': 'strava'})
+        except Exception as exc:
+            logger.warning('Strava activities unavailable', extra={
+                'event': 'strava.activities_failed', 'request_id': _request_id(),
+                'user_id': uid(),
+            })
+            if rows:
+                activities_out = [r[0] for r in rows]
+                if request.args.get('calendar') == '1':
+                    activities_out = _add_calendar_activity_summaries(activities_out)
+                return jsonify({'activities': activities_out, 'source': 'database'})
+            return _server_error(exc, 'strava.activities_failed', status=502,
+                                 code='strava_provider_error',
+                                 message='Aktiviteterna kunde inte hämtas från Strava.')
+
     if rows:
         activities_out = [r[0] for r in rows]
         if request.args.get('calendar') == '1':
             activities_out = _add_calendar_activity_summaries(activities_out)
         return jsonify({'activities': activities_out, 'source': 'database'})
-    if not _garmin_connected(uname()):
+    if not garmin_connected:
         return jsonify({'activities': [], 'source': 'not_connected', 'notConnected': True})
     try:
         client = get_garmin(uname())
@@ -1961,6 +2239,32 @@ def activities():
         return jsonify({'activities': acts, 'source': 'garmin'})
     except Exception as e:
         return _server_error(e, 'activities.load_failed', message='Aktiviteterna kunde inte hämtas.')
+
+
+@app.get('/api/strava/activities/<int:activity_id>')
+def strava_activity_details(activity_id):
+    """Return rich detail for an activity owned by the connected Strava athlete."""
+    if activity_id <= 0:
+        return _api_error('invalid_activity_id', 'Aktivitets-id är ogiltigt.', 400)
+    if not _strava_connected(uname()):
+        return _api_error('strava_not_connected', 'Strava är inte anslutet.', 409)
+    cache_key = f'strava:activity-detail:{activity_id}'
+    cached = get_cache(cache_key, uid())
+    if cached and time.time() - cached[1] < 6 * 3600:
+        return jsonify({'activity': cached[0], 'source': 'cache'})
+    try:
+        activity = strava_integration.activity_detail(
+            _strava_access_token(uname()), activity_id)
+        athlete_id = _strava_profile(uname()).get('athleteId')
+        activity_athlete_id = activity.pop('_athleteId', None)
+        if athlete_id and activity_athlete_id and int(activity_athlete_id) != int(athlete_id):
+            return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
+        set_cache(cache_key, activity, uid())
+        return jsonify({'activity': activity, 'source': 'strava'})
+    except strava_integration.StravaError as exc:
+        return _server_error(exc, 'strava.activity_detail_failed', status=502,
+                             code='strava_provider_error',
+                             message='Passdetaljerna kunde inte hämtas från Strava.')
 
 
 def _stored_activity_for_user(activity_id, user_id):
@@ -5930,6 +6234,13 @@ def auto_sync_job():
     first = next(iter(USERS), None)
     for username, rec in list(USERS.items()):
         if not _garmin_connected(username):
+            if _strava_connected(username):
+                try:
+                    activities_out = _strava_activities(username, 120, True)
+                    print(f'[{datetime.now().strftime("%H:%M")}] Strava-sync klar '
+                          f'({username}): {len(activities_out)} aktiviteter')
+                except Exception as e:
+                    print(f'Strava-sync fel ({username}):', e)
             continue
         try:
             n = run_sync(username=username, user_id=rec['id'])

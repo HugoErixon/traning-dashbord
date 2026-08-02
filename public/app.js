@@ -12,6 +12,9 @@ let csrfToken = '';
 let currentUserIsAdmin = false;
 let garminConnected = false;
 let garminMfaStateId = null;
+let stravaConfigured = false;
+let stravaConnected = false;
+let stravaAthlete = null;
 let userGoal = null;
 let goalPromptShownThisLoad = false;
 let authResolved = false;
@@ -29,6 +32,9 @@ function completeAuth(data) {
   csrfToken = data.csrfToken || '';
   currentUserIsAdmin = !!data.isAdmin;
   garminConnected = !!data.garminConnected;
+  stravaConfigured = !!data.stravaConfigured;
+  stravaConnected = !!data.stravaConnected;
+  stravaAthlete = data.stravaAthlete || null;
   const usersBtn = document.getElementById('users-btn');
   if (usersBtn) usersBtn.style.display = currentUserIsAdmin ? '' : 'none';
   const mobileUsersBtn = document.getElementById('mobile-users-btn');
@@ -36,6 +42,7 @@ function completeAuth(data) {
   const navClimate = document.getElementById('nav-climate');
   if (navClimate) navClimate.style.display = currentUserIsAdmin ? '' : 'none';
   updateGarminSidebar();
+  updateStravaSidebar();
   loadUserGoal();
   const screen = document.getElementById('login-screen');
   if (screen) screen.remove();
@@ -742,6 +749,132 @@ async function submitGarminMfaCode() {
   }
 }
 
+// --- Strava OAuth ---
+function updateStravaSidebar() {
+  const row = document.querySelector('.strava-sync-row');
+  const label = document.getElementById('strava-sync-time');
+  if (!row || !label) return;
+  label.textContent = stravaConnected
+    ? `Strava${stravaAthlete ? ` · ${stravaAthlete}` : ' anslutet'}`
+    : (stravaConfigured ? 'Koppla Strava' : 'Aktivera Strava');
+  row.dataset.action = 'open-strava';
+  row.setAttribute('role', 'button');
+  row.style.cursor = 'pointer';
+  row.title = stravaConnected ? 'Hantera Strava' : 'Koppla ditt Strava-konto';
+  row.classList.toggle('is-connected', stravaConnected);
+}
+
+function closeStravaModal() {
+  document.getElementById('strava-modal')?.remove();
+}
+
+function openStravaModal() {
+  if (document.getElementById('strava-modal')) return;
+  const connectedCopy = stravaAthlete
+    ? `Ansluten som ${escapeHtml(stravaAthlete)}.`
+    : 'Ditt Strava-konto är anslutet.';
+  const body = stravaConnected ? `
+    <p>${connectedCopy} Aktiviteter från Garmin fortsätter vara förstahandskälla när båda tjänsterna är anslutna, så passen visas inte dubbelt.</p>
+    <button type="button" data-action="sync-strava" id="strava-primary-btn" class="strava-connect-btn">Synka Strava nu</button>
+    <button type="button" data-action="disconnect-strava" id="strava-disconnect-btn" class="strava-secondary-btn">Koppla från Strava</button>` : `
+    <p>${stravaConfigured
+      ? 'Godkänn Trainyze hos Strava för att visa dina aktiviteter, kartor, varv, puls, effekt och annan passdata.'
+      : 'Strava-stödet är installerat men administratören behöver lägga in appens Client ID och Secret på servern innan konton kan anslutas.'}</p>
+    <button type="button" data-action="connect-strava" id="strava-primary-btn" class="strava-connect-btn" ${stravaConfigured ? '' : 'disabled'}>Anslut med Strava</button>`;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="strava-modal" class="strava-overlay" role="presentation">
+      <div class="strava-modal" role="dialog" aria-modal="true" aria-labelledby="strava-title">
+        <div class="strava-modal-head"><div><span>STRAVA</span><h2 id="strava-title">${stravaConnected ? 'Strava är anslutet' : 'Koppla Strava'}</h2></div>
+          <button type="button" data-action="close-strava" aria-label="Stäng">✕</button></div>
+        <div class="strava-modal-body">${body}<p id="strava-modal-msg" role="status"></p></div>
+      </div>
+    </div>`);
+  const overlay = document.getElementById('strava-modal');
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) closeStravaModal();
+  });
+}
+
+function showStravaMessage(text, isError = false) {
+  const message = document.getElementById('strava-modal-msg');
+  if (!message) return;
+  message.textContent = text;
+  message.classList.toggle('is-error', isError);
+}
+
+async function connectStrava() {
+  const button = document.getElementById('strava-primary-btn');
+  if (button) button.disabled = true;
+  showStravaMessage('Öppnar Strava…');
+  try {
+    const response = await fetch('/api/strava/connect', {method: 'POST'});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Strava kunde inte öppnas.');
+    const popup = window.open(payload.authorizationUrl, 'trainyze-strava', 'popup,width=620,height=780');
+    if (!popup) location.assign(payload.authorizationUrl);
+  } catch (error) {
+    showStravaMessage(error.message, true);
+    if (button) button.disabled = false;
+  }
+}
+
+async function syncStrava() {
+  const button = document.getElementById('strava-primary-btn');
+  if (button) button.disabled = true;
+  showStravaMessage('Hämtar dina senaste aktiviteter…');
+  try {
+    const response = await fetch('/api/strava/sync', {method: 'POST'});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Strava kunde inte synkas.');
+    showStravaMessage(`${payload.activities} aktiviteter hämtade. Kalendern uppdateras nu.`);
+    await loadRecentActivities(false);
+  } catch (error) {
+    showStravaMessage(error.message, true);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function disconnectStrava() {
+  if (!confirm('Koppla från Strava? Redan sparad Garmin-data påverkas inte.')) return;
+  const button = document.getElementById('strava-disconnect-btn');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch('/api/strava/disconnect', {method: 'POST'});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Strava kunde inte kopplas från.');
+    stravaConnected = false;
+    stravaAthlete = null;
+    closeStravaModal();
+    updateStravaSidebar();
+    await loadRecentActivities(false);
+  } catch (error) {
+    showStravaMessage(error.message, true);
+    if (button) button.disabled = false;
+  }
+}
+
+window.addEventListener('message', async event => {
+  if (event.origin !== location.origin || event.data?.type !== 'strava-oauth') return;
+  if (event.data.status !== 'connected') {
+    showStravaMessage('Strava kunde inte anslutas. Kontrollera behörigheten och försök igen.', true);
+    return;
+  }
+  try {
+    const response = await fetch('/api/strava/status');
+    const payload = await response.json();
+    stravaConnected = !!payload.connected;
+    stravaAthlete = payload.athleteName || null;
+    closeStravaModal();
+    updateStravaSidebar();
+    openStravaModal();
+    showStravaMessage('Anslutningen lyckades. Dina aktiviteter synkas i bakgrunden.');
+    await loadRecentActivities(false);
+  } catch (_) {
+    showStravaMessage('Strava anslöts, men sidan behöver laddas om för att visa statusen.', true);
+  }
+});
+
 // --- Användarhantering (admin) ---
 function closeUsersPanel() {
   document.getElementById('users-panel')?.remove();
@@ -924,6 +1057,11 @@ function executeAction(trigger, event) {
   else if (action === 'garmin-connect-submit') submitGarminCredentials();
   else if (action === 'garmin-mfa-submit') submitGarminMfaCode();
   else if (action === 'garmin-reload-now') location.reload();
+  else if (action === 'open-strava') openStravaModal();
+  else if (action === 'close-strava') closeStravaModal();
+  else if (action === 'connect-strava') connectStrava();
+  else if (action === 'sync-strava') syncStrava();
+  else if (action === 'disconnect-strava') disconnectStrava();
   else if (action === 'open-goal-modal') openGoalModal(false);
   else if (action === 'close-goal-modal') closeGoalModal();
   else if (action === 'save-goal') saveGoalFromForm();
@@ -931,7 +1069,8 @@ function executeAction(trigger, event) {
   else if (action === 'logout') performLogout();
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
-  else if (action === 'open-activity') openActivityDetails(Number(trigger.dataset.activityId));
+  else if (action === 'open-activity') openActivityDetails(
+    Number(trigger.dataset.activityId), trigger.dataset.activitySource);
   else if (action === 'close-activity') closeActivityDetails();
   else if (action === 'activity-map-expand') toggleActivityMapExpanded();
   else if (action === 'activity-map-zoom-in') zoomActivityMap(1);
@@ -2625,9 +2764,9 @@ HEALTH DATA (current):
 
   // Garmin-aktiviteter cached globalt för coachens volyms- och loadberäkning
   let recentActivities = [];
-  async function loadRecentActivities() {
+  async function loadRecentActivities(refresh = true) {
     try {
-      const res = await fetch('/api/activities?days=120&refresh=1&calendar=1');
+      const res = await fetch(`/api/activities?days=120&refresh=${refresh ? '1' : '0'}&calendar=1`);
       const data = await res.json();
       recentActivities = data.activities || [];
       safeRenderTrainingCockpit();
@@ -4488,15 +4627,21 @@ HEALTH DATA (current):
   }
 
   function calendarActivityLabel(activity) {
-    const name = activity.activityName || activity.name || activity.activityType?.typeKey || 'Garmin-aktivitet';
+    const name = activity.activityName || activity.name || activity.activityType?.typeKey
+      || (activity.source === 'strava' ? 'Strava-aktivitet' : 'Garmin-aktivitet');
     const km = activity.distance ? ' · ' + (activity.distance / 1000).toFixed(1) + ' km' : '';
     return name + km;
+  }
+
+  function activitySourceLabel(activity) {
+    return activity?.source === 'strava' ? 'Strava' : 'Garmin';
   }
 
   function activityOpenAttrs(activity) {
     const id = Number(activity?.activityId || activity?.id);
     if (!Number.isSafeInteger(id) || id <= 0) return '';
-    return ` data-action="open-activity" data-activity-id="${id}" role="button" tabindex="0" title="Öppna passdetaljer"`;
+    const source = activity?.source === 'strava' ? 'strava' : 'garmin';
+    return ` data-action="open-activity" data-activity-id="${id}" data-activity-source="${source}" role="button" tabindex="0" title="Öppna passdetaljer"`;
   }
 
   function activitiesByDate() {
@@ -4577,7 +4722,7 @@ HEALTH DATA (current):
 
     if (plannedSession?.type === 'lift' && lifts.length) {
       const label = plannedSession.title || 'Styrkepass';
-      const tip = ['Garmin', label, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+      const tip = [activitySourceLabel(lifts[0]), label, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
       return `<span class="cal-session-pill csp-lift csp-done csp-actual"${activityOpenAttrs(lifts[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
     }
 
@@ -4586,7 +4731,7 @@ HEALTH DATA (current):
         const pills = runs.map(run => {
           const label = calendarActivityLabel(run);
           const seconds = run.duration || run.elapsedDuration || 0;
-          const tip = ['Garmin', label, seconds ? Math.round(seconds / 60) + ' min' : ''].filter(Boolean).join(' - ');
+          const tip = [activitySourceLabel(run), label, seconds ? Math.round(seconds / 60) + ' min' : ''].filter(Boolean).join(' - ');
           return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(run)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
         }).join('');
         return pills + verdict;
@@ -4596,7 +4741,7 @@ HEALTH DATA (current):
         ? `${interval.calendarSummary.label}${totalRunKm ? ' · ' + totalRunKm.toFixed(1) + ' km' : ''}`
         : calendarActivityLabel(runs[0]);
       const names = runs.map(calendarActivityLabel).join(' - ');
-      const tip = ['Garmin', names, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+      const tip = [activitySourceLabel(runs[0]), names, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
       return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(runs[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
     }
 
@@ -4606,7 +4751,7 @@ HEALTH DATA (current):
       const label = calendarActivityLabel(activity);
       const seconds = activity.duration || activity.elapsedDuration || 0;
       const mins = seconds ? Math.round(seconds / 60) : null;
-      const tip = ['Garmin', label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
+      const tip = [activitySourceLabel(activity), label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
       return `<span class="cal-session-pill ${cls} csp-done csp-actual"${activityOpenAttrs(activity)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
     }).join('');
   }
@@ -5460,7 +5605,11 @@ HEALTH DATA (current):
   function renderActivityDetail(activity) {
     const o = activity.overview || {};
     const type = formatActivityType(activity.type);
-    const meta = [formatActivityDate(activity.date), activity.location, activity.device].filter(Boolean).join(' · ');
+    const sourceName = activity.source === 'strava' ? 'Strava' : 'Garmin';
+    const meta = [formatActivityDate(activity.date), activity.location, activity.device, sourceName].filter(Boolean).join(' · ');
+    const sourceUrl = activity.source === 'strava'
+      && /^https:\/\/www\.strava\.com\/activities\/\d+$/.test(activity.sourceUrl || '')
+      ? activity.sourceUrl : '';
     const primary = [
       activityMetric('Distans', o.distance != null ? (o.distance / 1000).toFixed(2) : '–', 'km'),
       activityMetric('Tid', formatActivityDuration(o.movingDuration)),
@@ -5486,12 +5635,12 @@ HEALTH DATA (current):
     const zoneColors = ['#7fd6c4','#2dd4bf','#c8f135','#ffb84d','#ff4d6d'];
     const secondary = activitySecondaryMetrics(activity);
     const heading = `<div class="ad-head"><div><div class="ad-kicker">${escapeHtml(type)}</div>
-        <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}</div></div>
+        <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}${sourceUrl ? ` · <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Visa på Strava</a>` : ''}</div></div>
         ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>`;
     if (isStrengthActivity(activity)) return renderStrengthActivityDetail(activity, heading);
     return `${heading}
       <div class="ad-metrics">${primary}</div>
-      <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från Garmin</span></div></div>
+      <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från ${sourceName}</span></div></div>
           <div class="ad-route">${activityRouteMap(activity.route)}</div></section>
         <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
       <div class="ad-chart-grid">
@@ -5508,7 +5657,7 @@ HEALTH DATA (current):
       <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Varv</span><span class="ad-card-sub">Tempo, puls, effekt och höjd per varv</span></div></div>${activityLaps(activity.laps)}</section>`;
   }
 
-  async function openActivityDetails(activityId) {
+  async function openActivityDetails(activityId, source = 'garmin') {
     if (!Number.isSafeInteger(activityId) || activityId <= 0) return;
     const overlay = document.getElementById('activity-overlay');
     const content = document.getElementById('activity-detail-content');
@@ -5518,11 +5667,14 @@ HEALTH DATA (current):
     overlay.classList.add('is-open');
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('activity-modal-open');
-    content.innerHTML = '<div class="activity-loading"><span></span>Laddar passet från Garmin…</div>';
+    const normalizedSource = source === 'strava' ? 'strava' : 'garmin';
+    content.innerHTML = '<div class="activity-loading"><span></span>Laddar passdetaljer…</div>';
     overlay.querySelector('.activity-dialog').scrollTop = 0;
     setTimeout(() => overlay.querySelector('.activity-close')?.focus(), 0);
     try {
-      const response = await fetch(`/api/activities/${activityId}`);
+      const endpoint = normalizedSource === 'strava'
+        ? `/api/strava/activities/${activityId}` : `/api/activities/${activityId}`;
+      const response = await fetch(endpoint);
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Passet kunde inte laddas.');
       if (requestNumber !== activityDetailRequest) return;
