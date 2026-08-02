@@ -53,6 +53,22 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn('if (isStrengthActivity(activity))', self.app)
         self.assertIn('activity.strengthExercises', self.app)
 
+    def test_integrations_live_on_a_dedicated_settings_page(self):
+        self.assertIn('id="page-settings"', self.index)
+        self.assertIn('id="settings-garmin-state"', self.index)
+        self.assertIn('id="settings-strava-state"', self.index)
+        self.assertIn('id="settings-calendar-state"', self.index)
+        self.assertNotIn('class="garmin-sync-row"', self.index)
+        self.assertNotIn('class="strava-sync-row"', self.index)
+        self.assertIn("if (id === 'settings') loadSettingsPage()", self.app)
+
+    def test_primary_navigation_has_settings_and_no_utility_buttons(self):
+        navigation = self.index.split('<nav class="topnav"', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('data-page="settings"', navigation)
+        self.assertNotIn('data-action="refresh-data"', navigation)
+        self.assertNotIn('data-action="sync-calendar"', navigation)
+        self.assertNotIn('data-action="logout"', navigation)
+
 
 if __name__ == '__main__':
     unittest.main()

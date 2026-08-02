@@ -10,11 +10,13 @@ const originalFetch = window.fetch.bind(window);
 const dashboardShell = document.querySelector('.shell');
 let csrfToken = '';
 let currentUserIsAdmin = false;
+let currentUsername = '';
 let garminConnected = false;
 let garminMfaStateId = null;
 let stravaConfigured = false;
 let stravaConnected = false;
 let stravaAthlete = null;
+let calendarConnected = false;
 let userGoal = null;
 let goalPromptShownThisLoad = false;
 let authResolved = false;
@@ -31,6 +33,7 @@ function clearLegacyCredentials() {
 function completeAuth(data) {
   csrfToken = data.csrfToken || '';
   currentUserIsAdmin = !!data.isAdmin;
+  currentUsername = data.username || '';
   garminConnected = !!data.garminConnected;
   stravaConfigured = !!data.stravaConfigured;
   stravaConnected = !!data.stravaConnected;
@@ -41,8 +44,13 @@ function completeAuth(data) {
   if (mobileUsersBtn) mobileUsersBtn.style.display = currentUserIsAdmin ? '' : 'none';
   const navClimate = document.getElementById('nav-climate');
   if (navClimate) navClimate.style.display = currentUserIsAdmin ? '' : 'none';
+  const settingsClimate = document.getElementById('settings-climate-link');
+  if (settingsClimate) settingsClimate.style.display = currentUserIsAdmin ? '' : 'none';
+  const settingsUsers = document.getElementById('settings-users-link');
+  if (settingsUsers) settingsUsers.style.display = currentUserIsAdmin ? '' : 'none';
   updateGarminSidebar();
   updateStravaSidebar();
+  loadSettingsPage();
   loadUserGoal();
   const screen = document.getElementById('login-screen');
   if (screen) screen.remove();
@@ -588,6 +596,7 @@ async function performLogout() {
 function updateGarminSidebar() {
   const row = document.querySelector('.garmin-sync-row');
   const label = document.getElementById('garmin-sync-time');
+  renderSettingsPage();
   if (!row || !label) return;
   if (garminConnected) {
     row.removeAttribute('data-action');
@@ -753,6 +762,7 @@ async function submitGarminMfaCode() {
 function updateStravaSidebar() {
   const row = document.querySelector('.strava-sync-row');
   const label = document.getElementById('strava-sync-time');
+  renderSettingsPage();
   if (!row || !label) return;
   label.textContent = stravaConnected
     ? `Strava${stravaAthlete ? ` · ${stravaAthlete}` : ' anslutet'}`
@@ -803,7 +813,8 @@ function showStravaMessage(text, isError = false) {
 }
 
 async function connectStrava() {
-  const button = document.getElementById('strava-primary-btn');
+  const button = document.getElementById('strava-primary-btn')
+    || document.getElementById('settings-strava-primary');
   if (button) button.disabled = true;
   showStravaMessage('Öppnar Strava…');
   try {
@@ -814,13 +825,16 @@ async function connectStrava() {
     if (!popup) location.assign(payload.authorizationUrl);
   } catch (error) {
     showStravaMessage(error.message, true);
+    if (!document.getElementById('strava-modal')) alert(error.message);
     if (button) button.disabled = false;
   }
 }
 
 async function syncStrava() {
-  const button = document.getElementById('strava-primary-btn');
+  const button = document.getElementById('strava-primary-btn')
+    || document.getElementById('settings-strava-primary');
   if (button) button.disabled = true;
+  if (button) button.textContent = 'Synkar…';
   showStravaMessage('Hämtar dina senaste aktiviteter…');
   try {
     const response = await fetch('/api/strava/sync', {method: 'POST'});
@@ -830,8 +844,10 @@ async function syncStrava() {
     await loadRecentActivities(false);
   } catch (error) {
     showStravaMessage(error.message, true);
+    if (!document.getElementById('strava-modal')) alert(error.message);
   } finally {
     if (button) button.disabled = false;
+    renderSettingsPage();
   }
 }
 
@@ -874,6 +890,93 @@ window.addEventListener('message', async event => {
     showStravaMessage('Strava anslöts, men sidan behöver laddas om för att visa statusen.', true);
   }
 });
+
+function setIntegrationState(id, connected, label) {
+  const element = document.getElementById(id);
+  if (!element) return;
+  element.classList.toggle('is-connected', connected);
+  element.innerHTML = `<i></i>${escapeHtml(label)}`;
+}
+
+function renderSettingsPage() {
+  const username = currentUsername || 'Konto';
+  const displayName = username ? username.charAt(0).toUpperCase() + username.slice(1) : 'Konto';
+  const accountName = document.getElementById('topbar-account-name');
+  const settingsName = document.getElementById('settings-username');
+  const avatar = document.getElementById('settings-avatar');
+  const role = document.getElementById('settings-role');
+  const accountTitle = document.getElementById('settings-account-title');
+  if (accountName) accountName.textContent = displayName;
+  if (settingsName) settingsName.textContent = displayName;
+  if (avatar) avatar.textContent = displayName.charAt(0).toUpperCase();
+  if (role) role.textContent = currentUserIsAdmin ? 'Administratör' : 'Användare';
+  if (accountTitle) accountTitle.textContent = `Inloggad som ${displayName}`;
+
+  setIntegrationState('settings-garmin-state', garminConnected,
+    garminConnected ? 'Ansluten' : 'Ej ansluten');
+  setIntegrationState('settings-strava-state', stravaConnected,
+    stravaConnected ? 'Ansluten' : (stravaConfigured ? 'Ej ansluten' : 'Ej konfigurerad'));
+  setIntegrationState('settings-calendar-state', calendarConnected,
+    calendarConnected ? 'Ansluten' : 'Ej ansluten');
+
+  const garminPrimary = document.getElementById('settings-garmin-primary');
+  const garminDisconnect = document.getElementById('settings-garmin-disconnect');
+  if (garminPrimary) garminPrimary.textContent = garminConnected ? 'Synka Garmin nu' : 'Koppla Garmin';
+  if (garminDisconnect) garminDisconnect.style.display = garminConnected ? '' : 'none';
+  const stravaPrimary = document.getElementById('settings-strava-primary');
+  const stravaDisconnect = document.getElementById('settings-strava-disconnect');
+  if (stravaPrimary) {
+    stravaPrimary.textContent = stravaConnected ? 'Synka Strava nu' : 'Koppla Strava';
+    stravaPrimary.disabled = !stravaConnected && !stravaConfigured;
+  }
+  if (stravaDisconnect) stravaDisconnect.style.display = stravaConnected ? '' : 'none';
+  const calendarPrimary = document.getElementById('settings-calendar-primary');
+  if (calendarPrimary) calendarPrimary.disabled = !calendarConnected;
+
+  const connectedCount = [garminConnected, stravaConnected, calendarConnected].filter(Boolean).length;
+  const summary = document.getElementById('settings-connection-summary');
+  if (summary) summary.textContent = `${connectedCount} av 3 anslutna`;
+  const topLabel = document.getElementById('topbar-connection-label');
+  if (topLabel) topLabel.textContent = `${connectedCount} anslutningar`;
+  const topDot = document.getElementById('topbar-connection-dot');
+  if (topDot) topDot.classList.toggle('is-connected', connectedCount > 0);
+}
+
+async function loadSettingsPage() {
+  renderSettingsPage();
+  try {
+    const [stravaResponse, calendarResponse] = await Promise.all([
+      fetch('/api/strava/status'), fetch('/api/calendar/status'),
+    ]);
+    if (stravaResponse.ok) {
+      const status = await stravaResponse.json();
+      stravaConfigured = !!status.configured;
+      stravaConnected = !!status.connected;
+      stravaAthlete = status.athleteName || null;
+    }
+    if (calendarResponse.ok) {
+      const status = await calendarResponse.json();
+      calendarConnected = !!status.hasToken;
+    }
+  } catch (_) {
+    // Senast kända status står kvar om en leverantör tillfälligt inte svarar.
+  }
+  renderSettingsPage();
+}
+
+async function disconnectGarmin() {
+  if (!confirm('Koppla från Garmin Connect? Strava används då som aktivitetskälla om det är anslutet.')) return;
+  try {
+    const response = await fetch('/api/garmin/disconnect', {method: 'POST'});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Garmin kunde inte kopplas från.');
+    garminConnected = false;
+    updateGarminSidebar();
+    await loadRecentActivities(false);
+  } catch (error) {
+    alert(error.message);
+  }
+}
 
 // --- Användarhantering (admin) ---
 function closeUsersPanel() {
@@ -1057,11 +1160,16 @@ function executeAction(trigger, event) {
   else if (action === 'garmin-connect-submit') submitGarminCredentials();
   else if (action === 'garmin-mfa-submit') submitGarminMfaCode();
   else if (action === 'garmin-reload-now') location.reload();
+  else if (action === 'settings-garmin-primary') garminConnected
+    ? refreshData() : openGarminConnectModal();
+  else if (action === 'disconnect-garmin') disconnectGarmin();
   else if (action === 'open-strava') openStravaModal();
   else if (action === 'close-strava') closeStravaModal();
   else if (action === 'connect-strava') connectStrava();
   else if (action === 'sync-strava') syncStrava();
   else if (action === 'disconnect-strava') disconnectStrava();
+  else if (action === 'settings-strava-primary') stravaConnected
+    ? syncStrava() : connectStrava();
   else if (action === 'open-goal-modal') openGoalModal(false);
   else if (action === 'close-goal-modal') closeGoalModal();
   else if (action === 'save-goal') saveGoalFromForm();
@@ -1135,12 +1243,18 @@ acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset
 
   // Navigation
   function goto(id) {
+    const page = document.getElementById('page-' + id);
+    if (!page) return;
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.getElementById('page-' + id).classList.add('active');
+    page.classList.add('active');
     document.querySelectorAll('.nav-item').forEach(n => {
       if (n.dataset.page === id) n.classList.add('active');
     });
+    if (phoneMedia.matches && ['strength', 'sleep', 'journal', 'climate'].includes(id)) {
+      document.querySelector('.nav-settings')?.classList.add('active');
+    }
+    document.querySelector('.topbar-account')?.classList.toggle('is-active', id === 'settings');
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
     if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
@@ -1149,6 +1263,7 @@ acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset
     if (id === 'journal')  loadJournal();
     if (id === 'upcoming') { checkGcalStatus(); loadPaceProposals(); }
     if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcBedtime(); loadHumidityStatus(); loadAcHistory(); }
+    if (id === 'settings') loadSettingsPage();
   }
 
   // Nedräkning och målrad ritas av renderGoalUi() när målet laddats.
@@ -5853,22 +5968,26 @@ HEALTH DATA (current):
     try {
       const r = await fetch('/api/calendar/status');
       const d = await r.json();
+      calendarConnected = !!d.hasToken;
+      renderSettingsPage();
       if (d.hasToken) await syncGcal();
     } catch(e) {}
   }
 
   async function syncGcal() {
-    const syncIds = ['gcal-sync-btn', 'mobile-gcal-sync-btn'];
+    const syncIds = ['gcal-sync-btn', 'mobile-gcal-sync-btn', 'settings-calendar-primary'];
     setButtons(syncIds, 'Synkar…', 'var(--blue)', true);
     try {
       const r = await fetch('/api/calendar');
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || 'Fel');
+      calendarConnected = true;
       gcalEvents = d.events || [];
       setButtons(syncIds, 'Synkad', 'var(--green)', true);
       setTimeout(() => setButtons(syncIds, 'Synka kalender', '', false), 2500);
       buildCalendar();
       renderTodaySession();
+      renderSettingsPage();
     } catch(e) {
       setButtons(syncIds, 'Försök igen', 'var(--red)', false);
     }

@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=strength-detail-1">
+  <link rel="stylesheet" href="styles.css?v=settings-nav-1">
 </head>
 <body>
 <div class="shell">
@@ -46,12 +46,16 @@
       </div>
     </div>
 
+    <button type="button" class="topbar-account" data-action="goto" data-page="settings" title="Inställningar">
+      <span class="topbar-account-status" id="topbar-connection-dot"></span>
+      <span class="topbar-account-copy"><strong id="topbar-account-name">Konto</strong><small id="topbar-connection-label">Anslutningar</small></span>
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.88l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.7 1.7 0 0015 19.4a1.7 1.7 0 00-1 .6 1.7 1.7 0 00-.4 1.1V21a2 2 0 01-4 0v-.09A1.7 1.7 0 008.6 19.4a1.7 1.7 0 00-1.88.34l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-.6-1 1.7 1.7 0 00-1.1-.4H3a2 2 0 010-4h.09A1.7 1.7 0 004.6 8.6a1.7 1.7 0 00-.34-1.88l-.06-.06a2 2 0 012.83-2.83l.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-.6 1.7 1.7 0 00.4-1.1V3a2 2 0 014 0v.09A1.7 1.7 0 0015.4 4.6a1.7 1.7 0 001.88-.34l.06-.06a2 2 0 012.83 2.83l-.06.06A1.7 1.7 0 0019.4 9c.12.38.33.72.6 1 .3.27.68.41 1.1.4h.09a2 2 0 010 4h-.09c-.42-.01-.8.13-1.1.4-.27.28-.48.62-.6 1z"/></svg>
+    </button>
+
   </header>
 
   <nav class="topnav" aria-label="Huvudnavigering">
-    <div class="navgroup">
-      <span class="navgroup-label">Träning</span>
-      <div class="navgroup-items">
+    <div class="nav-primary">
         <button type="button" class="nav-item active" data-action="goto" data-page="home">
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
           <span>Hem</span>
@@ -68,12 +72,6 @@
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5h11M6.5 17.5h11M8 6.5v11M16 6.5v11"/><rect x="4" y="5" width="2.5" height="14" rx="1"/><rect x="17.5" y="5" width="2.5" height="14" rx="1"/></svg></span>
           <span>Styrka</span>
         </button>
-      </div>
-    </div>
-
-    <div class="navgroup">
-      <span class="navgroup-label">Kropp</span>
-      <div class="navgroup-items">
         <button type="button" class="nav-item" data-action="goto" data-page="health">
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg></span>
           <span>Hälsa</span>
@@ -82,47 +80,25 @@
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></span>
           <span>Sömn</span>
         </button>
-      </div>
-    </div>
-
-    <div class="navgroup">
-      <span class="navgroup-label">Övrigt</span>
-      <div class="navgroup-items">
         <button type="button" class="nav-item" data-action="goto" data-page="journal">
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></span>
           <span>Dagbok</span>
         </button>
+    </div>
+    <div class="nav-secondary">
         <button type="button" class="nav-item" id="nav-climate" data-action="goto" data-page="climate">
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 00-5 0v11.26a4.5 4.5 0 105 0z"/></svg></span>
           <span>Klimat</span>
         </button>
-      </div>
-    </div>
-
-    <div class="topnav-actions">
-      <div class="garmin-sync-row" title="Garmin Connect">
-        <span class="live-dot"></span>
-        <span class="live-sublabel" id="garmin-sync-time">Synkroniserat</span>
-      </div>
-      <div class="strava-sync-row" title="Strava">
-        <span class="live-dot"></span>
-        <span class="live-sublabel" id="strava-sync-time">Strava</span>
-      </div>
-      <button type="button" class="ghost-btn" id="refresh-btn" data-action="refresh-data">Uppdatera data</button>
-      <button type="button" class="ghost-btn" id="gcal-sync-btn" data-action="sync-calendar">Synka kalender</button>
-      <button type="button" class="ghost-btn" id="users-btn" data-action="open-users" style="display:none;">Användare</button>
-      <button type="button" class="ghost-btn ghost-btn-quiet" id="logout-btn" data-action="logout">Logga ut</button>
+        <button type="button" class="nav-item nav-settings" data-action="goto" data-page="settings">
+          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.88l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.7 1.7 0 0015 19.4a1.7 1.7 0 00-1 .6 1.7 1.7 0 00-.4 1.1V21a2 2 0 01-4 0v-.09A1.7 1.7 0 008.6 19.4a1.7 1.7 0 00-1.88.34l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-.6-1 1.7 1.7 0 00-1.1-.4H3a2 2 0 010-4h.09A1.7 1.7 0 004.6 8.6a1.7 1.7 0 00-.34-1.88l-.06-.06a2 2 0 012.83-2.83l.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-.6 1.7 1.7 0 00.4-1.1V3a2 2 0 014 0v.09A1.7 1.7 0 0015.4 4.6a1.7 1.7 0 001.88-.34l.06-.06a2 2 0 012.83 2.83l-.06.06A1.7 1.7 0 0019.4 9c.12.38.33.72.6 1 .3.27.68.41 1.1.4h.09a2 2 0 010 4h-.09c-.42-.01-.8.13-1.1.4-.27.28-.48.62-.6 1z"/></svg></span>
+          <span>Inställningar</span>
+        </button>
     </div>
   </nav>
 
   <main class="main">
     <div class="content">
-    <div class="mobile-actions" aria-label="Dashboard actions">
-      <button class="refresh-btn" id="mobile-refresh-btn" data-action="refresh-data">Uppdatera data</button>
-      <button class="refresh-btn" id="mobile-gcal-sync-btn" data-action="sync-calendar">Synka kalender</button>
-      <button class="refresh-btn" id="mobile-users-btn" data-action="open-users" style="display:none;">Hantera användare</button>
-      <button class="refresh-btn mobile-logout-btn" id="mobile-logout-btn" data-action="logout">Logga ut</button>
-    </div>
 
     <!-- HEM -->
     <div class="page active" id="page-home">
@@ -973,6 +949,78 @@
       </div>
     </div>
 
+    <!-- INSTÄLLNINGAR -->
+    <div class="page" id="page-settings">
+      <div class="settings-hero">
+        <div>
+          <span class="settings-kicker">DITT TRAINYZE</span>
+          <h2>Inställningar</h2>
+          <p>Datakällor, kalender och konto samlat på ett ställe.</p>
+        </div>
+        <div class="settings-profile">
+          <span class="settings-avatar" id="settings-avatar">H</span>
+          <div><strong id="settings-username">Hugo</strong><small id="settings-role">Användare</small></div>
+        </div>
+      </div>
+
+      <section class="settings-section">
+        <div class="settings-section-head"><div><span>ANSLUTNINGAR</span><h3>Dina datakällor</h3></div><p id="settings-connection-summary">Kontrollerar status…</p></div>
+        <div class="integration-grid">
+          <article class="integration-card integration-garmin">
+            <div class="integration-card-top">
+              <div class="integration-brand"><span class="integration-mark">G</span><div><strong>Garmin Connect</strong><small>Primär tränings- och hälsodata</small></div></div>
+              <span class="integration-state" id="settings-garmin-state"><i></i>Kontrollerar</span>
+            </div>
+            <p id="settings-garmin-copy">Pass, sömn, Body Battery, träningsberedskap och styrkedetaljer.</p>
+            <div class="integration-actions">
+              <button type="button" class="settings-btn primary" id="settings-garmin-primary" data-action="settings-garmin-primary">Hantera</button>
+              <button type="button" class="settings-btn quiet" id="settings-garmin-disconnect" data-action="disconnect-garmin" style="display:none;">Koppla från</button>
+            </div>
+          </article>
+
+          <article class="integration-card integration-strava">
+            <div class="integration-card-top">
+              <div class="integration-brand"><span class="integration-mark">S</span><div><strong>Strava</strong><small>Aktiviteter och GPS-rutter</small></div></div>
+              <span class="integration-state" id="settings-strava-state"><i></i>Kontrollerar</span>
+            </div>
+            <p id="settings-strava-copy">Reservkälla för passdata. Garmin prioriteras när båda är anslutna.</p>
+            <div class="integration-actions">
+              <button type="button" class="settings-btn primary strava" id="settings-strava-primary" data-action="settings-strava-primary">Hantera</button>
+              <button type="button" class="settings-btn quiet" id="settings-strava-disconnect" data-action="disconnect-strava" style="display:none;">Koppla från</button>
+            </div>
+          </article>
+
+          <article class="integration-card integration-calendar">
+            <div class="integration-card-top">
+              <div class="integration-brand"><span class="integration-mark">31</span><div><strong>Google Kalender</strong><small>Planering och vardagsbelastning</small></div></div>
+              <span class="integration-state" id="settings-calendar-state"><i></i>Kontrollerar</span>
+            </div>
+            <p>Visar jobb, resor och andra händelser tillsammans med träningsplanen.</p>
+            <div class="integration-actions">
+              <button type="button" class="settings-btn primary" id="settings-calendar-primary" data-action="sync-calendar">Synka kalender</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="settings-section settings-tools">
+        <div class="settings-section-head"><div><span>VERKTYG</span><h3>Genvägar</h3></div><p>Funktioner och underhåll</p></div>
+        <div class="settings-link-grid">
+          <button type="button" data-action="refresh-data"><span>↻</span><div><strong>Uppdatera all data</strong><small>Hämta senaste värden och pass</small></div><b>→</b></button>
+          <button type="button" data-action="goto" data-page="strength"><span>⌁</span><div><strong>Styrketräning</strong><small>Logga pass och se historik</small></div><b>→</b></button>
+          <button type="button" data-action="goto" data-page="sleep"><span>☾</span><div><strong>Sömn</strong><small>Översikt och återhämtning</small></div><b>→</b></button>
+          <button type="button" data-action="goto" data-page="journal"><span>✎</span><div><strong>Dagbok</strong><small>Incheckningar och anteckningar</small></div><b>→</b></button>
+          <button type="button" id="settings-climate-link" data-action="goto" data-page="climate"><span>⌁</span><div><strong>Klimat</strong><small>Hemstyrning och luftkvalitet</small></div><b>→</b></button>
+          <button type="button" id="settings-users-link" data-action="open-users" style="display:none;"><span>◎</span><div><strong>Hantera användare</strong><small>Konton och behörigheter</small></div><b>→</b></button>
+        </div>
+      </section>
+
+      <section class="settings-account-card">
+        <div><span>KONTO</span><h3 id="settings-account-title">Inloggad</h3><p>Din träningsdata och dina anslutningar är separerade från andra användare.</p></div>
+        <button type="button" data-action="logout">Logga ut</button>
+      </section>
+    </div>
+
     </div><!-- /.content -->
   </main>
 </div>
@@ -994,6 +1042,6 @@
   </section>
 </div>
 
-<script src="app.js?v=strength-detail-1"></script>
+<script src="app.js?v=settings-nav-1"></script>
 </body>
 </html>
