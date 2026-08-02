@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=llm-quota-1">
+  <link rel="stylesheet" href="styles.css?v=richer-review-1">
 </head>
 <body>
 <div class="shell">
@@ -184,6 +184,15 @@
           </div>
           <h3 id="review-headline" style="font-size:16px;font-weight:700;margin:0 0 6px;">Kollar dagens pass…</h3>
           <p id="review-body" style="font-size:13px;color:var(--muted3);line-height:1.55;margin:0;flex:1;">Laddar…</p>
+          <!-- Motiveringen är oftast för lång för kortet, så den ligger bakom en
+               summary. Rubrik och brödtext ovan säger fortfarande allt man
+               behöver vid en snabb blick. -->
+          <details id="review-more" class="review-more" style="display:none;">
+            <summary>Varför?</summary>
+            <p id="review-assessment" class="review-more-text"></p>
+            <p id="review-adjust" class="review-more-line" style="display:none;"></p>
+            <p id="review-next" class="review-more-line" style="display:none;"></p>
+          </details>
         </div>
       </div>
 
@@ -1046,6 +1055,6 @@
   </section>
 </div>
 
-<script src="app.js?v=llm-quota-1"></script>
+<script src="app.js?v=richer-review-1"></script>
 </body>
 </html>

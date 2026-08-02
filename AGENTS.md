@@ -79,6 +79,15 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
     on and parks that provider for `LLM_DISABLED_COOLDOWN` (default 1h) — asking again in
     thirty seconds cannot fix a missing payment method. Cerebras returned 402 on every model
     with a valid key on 2026-08-02, which is what this handling came from.
+- **Daily review prompt** (`_build_review_prompt`): the athlete's goal, today's plan, today's
+  activities with interval reps read from Garmin laps, a measured execution-vs-plan block,
+  recovery and load (`_recovery_prompt_block`), the week so far (`_week_prompt_block`),
+  and the athlete's own notes (`_notes_prompt_block`). Each context block swallows its own
+  errors — a dead data source must never take the whole analysis down.
+  - The answer carries `assessment`, `adjust` and `next` on top of `headline`/`body`.
+    Bump `REVIEW_SCHEMA_VERSION` when that shape changes. Note the two separate checks in
+    `training_review()`: serving the cache straight requires the *current* version, while the
+    stale fallback accepts *any* version — an older answer still beats an error message.
 - **Garmin auth:** unofficial `garminconnect` library per-user, tokens in
   `~/.garminconnect/<username>/`. Official aggregators (Terra, Junction) were evaluated
   and rejected as too expensive for this use case.

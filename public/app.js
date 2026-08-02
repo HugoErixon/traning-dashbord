@@ -3038,6 +3038,22 @@ HEALTH DATA (current):
         const age = d._stale ? ` (analys från ${d._stale_age_min} min sedan — AI-kvoten är slut just nu)` : '';
         document.getElementById('review-body').textContent = d.body + age;
       }
+      // Fälten nedan saknas i analyser som cachades före det utökade formatet,
+      // så varje rad visas bara när den faktiskt har innehåll.
+      const more = document.getElementById('review-more');
+      if (more) {
+        const setLine = (id, label, value) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.textContent = value ? `${label} ${value}` : '';
+          el.style.display = value ? 'block' : 'none';
+        };
+        const assessment = document.getElementById('review-assessment');
+        if (assessment) assessment.textContent = d.assessment || '';
+        setLine('review-adjust', 'Justera:', d.adjust);
+        setLine('review-next', 'Nästa pass:', d.next);
+        more.style.display = (d.assessment || d.adjust || d.next) ? 'block' : 'none';
+      }
       const map = { done:['badge-green','DONE'], pending:['badge-amber','TO DO'], missed:['badge-red','MISSED'], rest:['badge-green','REST'], other:['badge-amber','OTHER'] };
       const m = map[d.status] || ['badge-amber','TODAY'];
       const badge = document.getElementById('review-badge');

@@ -3864,6 +3864,127 @@ def refresh():
 # ─────────────────────────────────────────────
 # AI-ANALYS AV SENASTE PASSEN (planerat vs faktiskt)
 # ─────────────────────────────────────────────
+# Bumpas när svarsformatet ändras så att gamla cachade analyser inte
+# renderas mot ett schema de aldrig kände till.
+REVIEW_SCHEMA_VERSION = 3
+
+
+def _recovery_prompt_block(user_id):
+    """Sömn, CNS, belastning och strain — det en coach faktiskt väger passet mot.
+
+    Utan det här bedömdes dagens pass blint: samma omdöme oavsett om atleten
+    sovit åtta timmar eller fyra. Varje del är inslagen för sig eftersom en
+    saknad datakälla aldrig får sänka hela analysen."""
+    lines, cns, chronic = [], None, None
+    try:
+        cns, sleep_h = _recent_recovery(user_id)
+        if cns is not None:
+            lines.append(f'CNS readiness: {cns}/100')
+        if sleep_h:
+            lines.append(f'Sleep last night: {sleep_h} h')
+    except Exception as exc:
+        print('review recovery block:', exc)
+
+    try:
+        health = latest_health_snapshot(user_id, date.today().isoformat()) or {}
+        rhr = (health.get('restingHR') or {}).get('value')
+        hrv = (health.get('hrv') or {}).get('lastNightAvg')
+        if rhr:
+            lines.append(f'Resting HR: {rhr} bpm')
+        if hrv:
+            lines.append(f'HRV last night: {hrv} ms')
+    except Exception as exc:
+        print('review health block:', exc)
+
+    try:
+        chronic, ratio = _load_context(user_id)
+        if chronic:
+            lines.append(f'Chronic training load: {round(chronic)}')
+        if ratio:
+            lines.append(f'Acute:chronic ratio: {ratio:.2f} '
+                         '(above 1.3 = ramping up fast, below 0.8 = detraining)')
+    except Exception as exc:
+        print('review load block:', exc)
+
+    try:
+        summary = strain_analysis.strain_summary(
+            _recent_activities(user_id, days=30), readiness=cns, chronic=chronic)
+        lines.append(f"Strain today: {summary['strain']}/100 "
+                     f"(7-day average {summary['weekAvgStrain']})")
+        if summary.get('headline'):
+            lines.append(f"Strain verdict: {summary['headline']} — {summary.get('detail', '')}")
+    except Exception as exc:
+        print('review strain block:', exc)
+
+    if not lines:
+        return 'RECOVERY & LOAD:\nNo recovery data available — do not speculate about it.'
+    return 'RECOVERY & LOAD:\n' + '\n'.join(lines)
+
+
+def _week_prompt_block(user_id, today):
+    """Veckan så här långt: vad som gjorts, vad som missats, hur mycket.
+
+    Ett pass går inte att bedöma isolerat — samma lugna pass är rätt beslut
+    efter tre hårda dagar och fel beslut när veckans kvalitet ligger orörd."""
+    week, dow = _iso_week_dow(today)
+    monday = today - timedelta(days=dow)
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    'SELECT dow, type, km, title, status FROM plan_sessions '
+                    'WHERE week=%s AND user_id=%s ORDER BY dow', (week, user_id))
+                planned = cur.fetchall()
+            with conn.cursor() as cur:
+                cur.execute(
+                    'SELECT date, type, distance FROM activities '
+                    'WHERE date >= %s AND user_id=%s ORDER BY date',
+                    (monday.isoformat(), user_id))
+                done = cur.fetchall()
+    except Exception as exc:
+        print('review week block:', exc)
+        return ''
+
+    names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    lines = []
+    for session in planned:
+        when = 'today' if session['dow'] == dow else (
+            'past' if session['dow'] < dow else 'upcoming')
+        km = f" {session['km']:.0f} km" if session.get('km') else ''
+        lines.append(f"  {names[session['dow']]}: {session['title']}{km} "
+                     f"[{session.get('status') or 'planned'}, {when}]")
+
+    done_km = sum((row[2] or 0) for row in done) / 1000
+    planned_km = sum((s.get('km') or 0) for s in planned)
+    summary = [f'Logged so far this week: {len(done)} sessions, {done_km:.1f} km']
+    if planned_km:
+        summary.append(f'Week plan totals {planned_km:.0f} km')
+
+    out = f'THIS WEEK (ISO week {week}):'
+    if lines:
+        out += '\n' + '\n'.join(lines)
+    return out + '\n' + '\n'.join(summary)
+
+
+def _notes_prompt_block(user_id, limit=6):
+    """Atletens egna anteckningar — skador och känsla som mätdatan inte visar."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    'SELECT text, category FROM user_notes '
+                    'WHERE user_id=%s ORDER BY created_at DESC LIMIT %s', (user_id, limit))
+                rows = cur.fetchall()
+    except Exception as exc:
+        print('review notes block:', exc)
+        return ''
+    if not rows:
+        return ''
+    listed = '\n'.join(f'  - [{row[1] or "note"}] {row[0]}' for row in rows)
+    return ('ATHLETE NOTES (most recent first — injuries and how they felt; '
+            'weigh these above the numbers when they conflict):\n' + listed)
+
+
 def _build_review_prompt():
     """Prompt för AI-koll på DAGENS pass: planerat vs gjort, med tidsmedvetenhet."""
     now   = datetime.now()
@@ -4027,7 +4148,14 @@ def _build_review_prompt():
             today_events.append(f"{ev.get('title','')} ({t}{'–' + te if te else ''})")
     events_str = '; '.join(today_events) if today_events else 'nothing on the calendar'
 
-    return f"""You are a personal running coach. Look ONLY at TODAY and tell the athlete how today's planned session is going right now.
+    recovery_str = _recovery_prompt_block(uid())
+    week_str = _week_prompt_block(uid(), today)
+    notes_str = _notes_prompt_block(uid())
+    optional_blocks = '\n\n'.join(b for b in (week_str, notes_str) if b)
+    if optional_blocks:
+        optional_blocks = '\n\n' + optional_blocks
+
+    return f"""You are a personal running coach. Judge TODAY's session for this athlete.
 
 {_goal_prompt_block(uid())}
 Current date & time: {now.strftime('%A %d %b, %H:%M')}
@@ -4038,8 +4166,23 @@ TODAY'S PLANNED SESSION:
 ACTIVITIES LOGGED TODAY (from Garmin):
 {acts_str}{execution_block}
 
+{recovery_str}
+
 TODAY'S CALENDAR (work / commitments):
-{events_str}
+{events_str}{optional_blocks}
+
+How to use the context above:
+- Recovery decides how hard to push, not whether the session "counts". Poor sleep, a
+  suppressed HRV or a high acute:chronic ratio turns "you went too easy" into "backing off
+  was the right call" — say that explicitly rather than judging pace in isolation.
+- Read today against the week. A missed quality session earlier in the week changes what
+  today should have been; three hard days in a row make an easy day correct.
+- Never invent numbers. If a value is missing above, do not guess it or mention it.
+- If the athlete has logged an injury or a complaint, say something about it — an ache that
+  goes unmentioned reads as an ache that went unnoticed. Where a note contradicts the
+  numbers, trust the note and say so.
+- "next" must name an actual session: distance and pace or effort. "Rest well and be ready"
+  is not an answer. If the plan above already says what comes next, use that.
 
 Decide which single case applies and write accordingly:
 - DONE: an activity matching the planned session was completed today. Say specifically HOW it was executed, not just that it happened — use the EXECUTION VS PLAN numbers above. If an easy day was run faster than its target band, say so plainly and explain the cost (it steals from the week's quality sessions). If reps came in under target pace, faded towards the end, or the session was cut short, name it. Only give plain praise when the numbers actually match the plan. For interval/track sessions, use the individual REP PACES (not the average pace).
@@ -4051,32 +4194,64 @@ Respond ONLY with this JSON (all text in Swedish / svenska):
 {{
   "status": "done | pending | missed | rest | other",
   "headline": "max 6 words",
-  "body": "1-3 short, friendly sentences specific to today."
+  "body": "1-3 short, friendly sentences specific to today.",
+  "assessment": "2-4 sentences. Explain WHY, citing the numbers you used — pace vs target, recovery, where the week stands. This is where the reasoning goes.",
+  "adjust": "One sentence on what to change, or null if nothing needs changing. Do not invent a problem to fill this in.",
+  "next": "One sentence on what the next session should be, given today and the week."
+}}
+
+Calibration — match this tone and this level of specificity:
+
+Example (session run too fast on an easy day, athlete slept badly):
+{{
+  "status": "done",
+  "headline": "För snabbt på ett lugnt pass",
+  "body": "Du sprang 8 km i 4:45/km när planen sa 5:30-5:50. Passet blev bra, men det låg i fel zon.",
+  "assessment": "Måltempot för dagen var 5:30-5:50/km och du låg 45 sekunder snabbare per kilometer. Med 5,5 timmars sömn och HRV under din baslinje blir ett för hårt lugnt pass dyrare än vanligt. Du har tröskelpasset på torsdag, och det är där farten hör hemma.",
+  "adjust": "Håll de lugna passen under 5:30/km resten av veckan.",
+  "next": "Imorgon: 6 km riktigt lugnt, 5:45/km eller långsammare."
+}}
+
+Example (planned session not done yet, still time):
+{{
+  "status": "pending",
+  "headline": "Passet väntar fortfarande",
+  "body": "Dagens 10 km är inte gjort än, men kvällen är fri enligt kalendern.",
+  "assessment": "Du har inget inbokat efter 17:00 och beredskapen ligger på 78 av 100, så kroppen är redo. Veckan ligger på 24 km av planerade 45, vilket gör det här passet viktigt för att inte tappa volym.",
+  "adjust": null,
+  "next": "Kör dagens 10 km i kväll, sedan vilodag imorgon."
 }}"""
 
 @app.get('/api/training-review')
 def training_review():
     force = request.args.get('force') == '1'
     row = get_cache('training_review', uid())
-    usable = row[0] if row and row[0].get('_review_version') == 2 else None
-    if usable and not force and (time.time() - row[1]) < 30 * 60:
-        return jsonify(usable)
+    # Två skilda frågor: är cachen värd att servera rakt av, och duger den som
+    # nödutgång? Bara den första kräver aktuellt schema. En äldre analys saknar
+    # de nya fälten men säger fortfarande något sant om dagens pass, och
+    # gränssnittet döljer det som saknas — den slår ett felmeddelande.
+    cached = row[0] if row and row[0].get('_review_version') else None
+    current = cached if cached and cached['_review_version'] == REVIEW_SCHEMA_VERSION else None
+    if current and not force and (time.time() - row[1]) < 30 * 60:
+        return jsonify(current)
     if not llm_available():
         return jsonify({'status': 'pending', 'headline': 'AI-nyckel krävs',
                         'body': 'Lägg till en AI-nyckel (GEMINI_API_KEY) i .env för dagens passkoll.'})
     try:
         prompt = _build_review_prompt()
-        text = call_llm(prompt, max_tokens=500).strip().replace('```json','').replace('```','').strip()
+        # Svaret rymmer nu motivering, justering och nasta pass, sa 500 tokens
+        # racker inte langre - ett avklippt svar blir ogiltig JSON.
+        text = call_llm(prompt, max_tokens=1200).strip().replace('```json','').replace('```','').strip()
         review = json.loads(text)
-        review['_review_version'] = 2
+        review['_review_version'] = REVIEW_SCHEMA_VERSION
         set_cache('training_review', review, uid())
         return jsonify(review)
     except Exception as e:
         # En utgången analys är långt bättre än ett felmeddelande: innehållet
         # gäller fortfarande dagens pass. Servera den och märk den som gammal
         # så att gränssnittet kan vara ärligt om åldern.
-        if usable:
-            stale = dict(usable)
+        if cached:
+            stale = dict(cached)
             stale['_stale'] = True
             stale['_stale_age_min'] = int((time.time() - row[1]) / 60)
             logger.warning('Serving stale training review', extra={

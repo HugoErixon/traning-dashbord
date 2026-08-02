@@ -1417,6 +1417,43 @@
     .verdict-action-why { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
     .verdict-empty { color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
 
+    /* ─── DAGENS ANALYS: MOTIVERING ─── */
+    .review-more {
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+    .review-more > summary {
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      list-style: none;
+      transition: color .16s ease;
+    }
+    .review-more > summary::-webkit-details-marker { display: none; }
+    .review-more > summary::after {
+      content: ' ▾';
+      display: inline-block;
+      transition: transform .16s ease;
+    }
+    .review-more[open] > summary::after { transform: rotate(180deg); }
+    .review-more > summary:hover { color: var(--accent); }
+    .review-more-text {
+      font-size: 12.5px;
+      color: var(--muted3);
+      line-height: 1.6;
+      margin: 8px 0 0;
+    }
+    .review-more-line {
+      font-size: 12.5px;
+      color: var(--muted2);
+      line-height: 1.55;
+      margin: 6px 0 0;
+    }
+
     /* ─── TODAY HEADER ─── */
     .today-header {
       display: flex;
