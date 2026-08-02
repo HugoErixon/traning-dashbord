@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 from unittest.mock import patch
 
@@ -140,6 +141,24 @@ class ActivityNormalizerTests(unittest.TestCase):
         self.assertEqual(activity['strengthExercises'][0]['sets'], 4)
         self.assertEqual(activity['strengthExercises'][0]['weight'], 60)
 
+    def test_ai_overview_response_is_normalized_and_bounded(self):
+        result = garmin_server._normalize_activity_ai_response({
+            'tone': 'GOOD',
+            'headline': 'Jämnt genomfört tröskelpass',
+            'summary': 'Pulsen steg kontrollerat genom passet.',
+            'highlights': ['Jämna varv', 'Stabil effekt', 'Bra avslutning',
+                           'Relevant belastning', 'Detta ska kapas bort'],
+            'nextStep': 'Behåll samma öppningsfart nästa gång.',
+        })
+
+        self.assertEqual(result['tone'], 'good')
+        self.assertEqual(len(result['highlights']), 4)
+        self.assertTrue(result['generatedAt'])
+
+    def test_ai_overview_requires_headline_and_summary(self):
+        with self.assertRaises(ValueError):
+            garmin_server._normalize_activity_ai_response({'tone': 'good'})
+
 
 class ActivityDetailEndpointTests(unittest.TestCase):
     def setUp(self):
@@ -203,6 +222,45 @@ class ActivityDetailEndpointTests(unittest.TestCase):
         activity = response.get_json()['activity']
         self.assertEqual(activity['exerciseSets'][0]['reps'], 6)
         self.assertEqual(activity['strengthExercises'][0]['exercise'], 'Bänkpress')
+
+    def test_ai_overview_is_generated_for_an_owned_historical_activity(self):
+        csrf = self.login().get_json()['csrfToken']
+        detail = normalize_activity_detail(RAW)
+        ai_payload = {
+            'tone': 'good', 'headline': 'Kontrollerat och jämnt genomfört',
+            'summary': 'Du höll ihop passet med stabil puls och fart.',
+            'highlights': ['10,0 km genomfört', 'Snittpuls 156 bpm'],
+            'nextStep': 'Öppna lika kontrollerat nästa gång.',
+        }
+        with patch.object(garmin_server, 'get_cache', return_value=None), \
+             patch.object(garmin_server, 'llm_available', return_value=True), \
+             patch.object(garmin_server, '_activity_ai_detail', return_value=detail), \
+             patch.object(garmin_server, '_activity_ai_plan_context', return_value=None), \
+             patch.object(garmin_server, 'call_llm', return_value=json.dumps(ai_payload)) as llm, \
+             patch.object(garmin_server, 'set_cache') as set_cache:
+            response = self.client.post('/api/activities/42/ai-overview',
+                headers={'X-CSRF-Token': csrf})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.get_json()['cached'])
+        self.assertEqual(response.get_json()['overview']['tone'], 'good')
+        self.assertIn('MEASURED WORKOUT DATA', llm.call_args.args[0])
+        set_cache.assert_called_once()
+
+    def test_ai_overview_for_old_activity_is_reused_from_cache(self):
+        csrf = self.login().get_json()['csrfToken']
+        cached = {'tone': 'neutral', 'headline': 'Tidigare analys',
+                  'summary': 'Den här analysen är redan skapad.',
+                  'highlights': [], 'nextStep': '', 'generatedAt': '2026-08-02T10:00:00Z'}
+        with patch.object(garmin_server, 'get_cache', return_value=(cached, 1)), \
+             patch.object(garmin_server, 'call_llm') as llm:
+            response = self.client.post('/api/activities/42/ai-overview',
+                headers={'X-CSRF-Token': csrf})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['cached'])
+        self.assertEqual(response.get_json()['overview']['headline'], 'Tidigare analys')
+        llm.assert_not_called()
 
 
 if __name__ == '__main__':

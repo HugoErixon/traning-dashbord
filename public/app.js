@@ -1181,6 +1181,7 @@ function executeAction(trigger, event) {
     Number(trigger.dataset.activityId), trigger.dataset.activitySource);
   else if (action === 'open-today-activity') openTodayActivity();
   else if (action === 'close-activity') closeActivityDetails();
+  else if (action === 'retry-activity-ai') retryActivityAiOverview();
   else if (action === 'activity-map-expand') toggleActivityMapExpanded();
   else if (action === 'activity-map-zoom-in') zoomActivityMap(1);
   else if (action === 'activity-map-zoom-out') zoomActivityMap(-1);
@@ -5285,6 +5286,7 @@ HEALTH DATA (current):
   let activityDetailRequest = 0;
   let activityModalPreviousFocus = null;
   let activityMapState = null;
+  let activeActivityAi = null;
   const ACTIVITY_MAP_TILE_SIZE = 256;
   const ACTIVITY_MAP_MIN_ZOOM = 3;
   const ACTIVITY_MAP_MAX_ZOOM = 18;
@@ -5680,6 +5682,59 @@ HEALTH DATA (current):
     return /strength|fitness|weight|gym/i.test(String(activity?.type || ''));
   }
 
+  function activityAiOverviewPlaceholder() {
+    return `<section class="ad-ai-overview is-loading" id="activity-ai-overview" aria-live="polite">
+      <div class="ad-ai-mark" aria-hidden="true">✦</div>
+      <div class="ad-ai-body">
+        <div class="ad-ai-label">AI-översikt</div>
+        <div class="ad-ai-loading"><span></span><div><strong>Analyserar passet</strong><small>Tempo, puls, zoner, varv och planerat mål vägs samman…</small></div></div>
+      </div>
+    </section>`;
+  }
+
+  function renderActivityAiOverview(overview) {
+    const highlights = Array.isArray(overview?.highlights)
+      ? overview.highlights.filter(Boolean).slice(0, 4) : [];
+    return `<div class="ad-ai-label">AI-översikt <span>✦ Coachens analys</span></div>
+      <h3>${escapeHtml(overview?.headline || 'Passet är analyserat')}</h3>
+      <p class="ad-ai-summary">${escapeHtml(overview?.summary || '')}</p>
+      ${highlights.length ? `<ul class="ad-ai-highlights">${highlights.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+      ${overview?.nextStep ? `<div class="ad-ai-next"><span>Nästa liknande pass</span><strong>${escapeHtml(overview.nextStep)}</strong></div>` : ''}`;
+  }
+
+  function renderActivityAiError(message) {
+    return `<div class="ad-ai-label">AI-översikt</div><h3>Analysen kunde inte skapas</h3>
+      <p class="ad-ai-summary">${escapeHtml(message || 'Försök igen om en liten stund.')}</p>
+      <button type="button" class="ad-ai-retry" data-action="retry-activity-ai">Försök igen</button>`;
+  }
+
+  async function loadActivityAiOverview(activityId, source, requestNumber) {
+    const target = document.getElementById('activity-ai-overview');
+    if (!target) return;
+    target.className = 'ad-ai-overview is-loading';
+    target.innerHTML = `<div class="ad-ai-mark" aria-hidden="true">✦</div><div class="ad-ai-body">
+      <div class="ad-ai-label">AI-översikt</div><div class="ad-ai-loading"><span></span><div><strong>Analyserar passet</strong><small>Första analysen av ett äldre pass kan ta några sekunder…</small></div></div></div>`;
+    try {
+      const response = await fetch(`/api/activities/${activityId}/ai-overview?source=${encodeURIComponent(source)}`, {method:'POST'});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'AI-tjänsten kunde inte nås.');
+      if (requestNumber !== activityDetailRequest || !target.isConnected) return;
+      const tone = ['good', 'mixed', 'warning', 'neutral'].includes(payload.overview?.tone)
+        ? payload.overview.tone : 'neutral';
+      target.className = `ad-ai-overview tone-${tone}`;
+      target.innerHTML = `<div class="ad-ai-mark" aria-hidden="true">✦</div><div class="ad-ai-body">${renderActivityAiOverview(payload.overview)}</div>`;
+    } catch (error) {
+      if (requestNumber !== activityDetailRequest || !target.isConnected) return;
+      target.className = 'ad-ai-overview has-error';
+      target.innerHTML = `<div class="ad-ai-mark" aria-hidden="true">!</div><div class="ad-ai-body">${renderActivityAiError(error.message)}</div>`;
+    }
+  }
+
+  function retryActivityAiOverview() {
+    if (!activeActivityAi) return;
+    loadActivityAiOverview(activeActivityAi.id, activeActivityAi.source, activityDetailRequest);
+  }
+
   function activityStrengthWorkout(activity) {
     const logged = Array.isArray(activity.strengthExercises) ? activity.strengthExercises : [];
     const garminSets = Array.isArray(activity.exerciseSets) ? activity.exerciseSets : [];
@@ -5744,7 +5799,7 @@ HEALTH DATA (current):
       ['Enhet', activity.device || '–'],
     ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
     const zoneColors = ['#7fd6c4','#2dd4bf','#c8f135','#ffb84d','#ff4d6d'];
-    return `${heading}<div class="ad-metrics">${primary}</div>
+    return `${heading}${activityAiOverviewPlaceholder()}<div class="ad-metrics">${primary}</div>
       <div class="ad-grid ad-strength-grid">${activityStrengthWorkout(activity)}
         <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
       <div class="ad-chart-grid ad-strength-charts">
@@ -5789,7 +5844,7 @@ HEALTH DATA (current):
         <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}${sourceUrl ? ` · <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Visa på Strava</a>` : ''}</div></div>
         ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>`;
     if (isStrengthActivity(activity)) return renderStrengthActivityDetail(activity, heading);
-    return `${heading}
+    return `${heading}${activityAiOverviewPlaceholder()}
       <div class="ad-metrics">${primary}</div>
       <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från ${sourceName}</span></div></div>
           <div class="ad-route">${activityRouteMap(activity.route)}</div></section>
@@ -5829,8 +5884,12 @@ HEALTH DATA (current):
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || 'Passet kunde inte laddas.');
       if (requestNumber !== activityDetailRequest) return;
-      content.innerHTML = renderActivityDetail(payload.activity || {});
-      initializeActivityMap(payload.activity?.route);
+      const activity = payload.activity || {};
+      activity.source = normalizedSource;
+      content.innerHTML = renderActivityDetail(activity);
+      initializeActivityMap(activity.route);
+      activeActivityAi = {id:activityId, source:normalizedSource};
+      loadActivityAiOverview(activityId, normalizedSource, requestNumber);
       overlay.querySelector('.activity-dialog').scrollTop = 0;
     } catch (error) {
       if (requestNumber !== activityDetailRequest) return;
@@ -5842,6 +5901,7 @@ HEALTH DATA (current):
     const overlay = document.getElementById('activity-overlay');
     if (!overlay?.classList.contains('is-open')) return;
     activityDetailRequest += 1;
+    activeActivityAi = null;
     destroyActivityMap();
     overlay.classList.remove('is-open');
     overlay.setAttribute('aria-hidden', 'true');

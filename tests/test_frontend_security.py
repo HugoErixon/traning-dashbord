@@ -53,6 +53,12 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn('if (isStrengthActivity(activity))', self.app)
         self.assertIn('activity.strengthExercises', self.app)
 
+    def test_activity_detail_loads_ai_overview_for_runs_and_strength(self):
+        self.assertIn('id="activity-ai-overview"', self.app)
+        self.assertIn('/ai-overview?source=', self.app)
+        self.assertIn('activityAiOverviewPlaceholder()', self.app)
+        self.assertIn('retry-activity-ai', self.app)
+
     def test_integrations_live_on_a_dedicated_settings_page(self):
         self.assertIn('id="page-settings"', self.index)
         self.assertIn('id="settings-garmin-state"', self.index)

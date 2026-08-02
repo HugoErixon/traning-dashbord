@@ -2360,6 +2360,163 @@ def activity_details(activity_id):
         return _server_error(exc, 'activity.detail_failed',
                              message='Passdetaljerna kunde inte hämtas.')
 
+
+def _activity_ai_detail(activity_id, source, user_id, username):
+    """Load an owned activity from the detail cache used by the open modal."""
+    if source == 'strava':
+        if not _strava_connected(username):
+            return None
+        cache_key = f'strava:activity-detail:{activity_id}'
+        cached = get_cache(cache_key, user_id)
+        if cached:
+            return dict(cached[0])
+        detail = strava_integration.activity_detail(
+            _strava_access_token(username), activity_id)
+        athlete_id = _strava_profile(username).get('athleteId')
+        detail_athlete_id = detail.pop('_athleteId', None)
+        if athlete_id and detail_athlete_id and int(detail_athlete_id) != int(athlete_id):
+            return None
+        set_cache(cache_key, detail, user_id)
+        return detail
+
+    raw = _stored_activity_for_user(activity_id, user_id)
+    if raw is None:
+        return None
+    cached = get_cache(f'activity-detail:v2:{activity_id}', user_id)
+    if cached:
+        detail = dict(cached[0])
+    else:
+        strength_exercises = _stored_strength_exercises(activity_id, user_id) \
+            if _is_strength_activity(raw) else []
+        detail = normalize_activity_detail(
+            raw=raw, strength_exercises=strength_exercises)
+    detail['source'] = 'garmin'
+    return detail
+
+
+def _activity_ai_plan_context(activity, user_id):
+    day_text = str(activity.get('date') or '')[:10]
+    try:
+        activity_day = date.fromisoformat(day_text)
+    except ValueError:
+        return None
+    week, dow = _iso_week_dow(activity_day)
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT title,type,km,detail,status,execution
+                FROM plan_sessions WHERE user_id=%s AND week=%s AND dow=%s
+                ORDER BY CASE WHEN status='completed' THEN 0 ELSE 1 END, id LIMIT 1''',
+                        (user_id, week, dow))
+            row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def _activity_ai_series_summary(series):
+    points = [point for point in (series or []) if isinstance(point, dict)]
+    if not points:
+        return None
+
+    def mean(key, subset):
+        values = [float(point[key]) for point in subset
+                  if isinstance(point.get(key), (int, float))]
+        return round(sum(values) / len(values), 1) if values else None
+
+    middle = max(1, len(points) // 2)
+    first, second = points[:middle], points[middle:]
+    return {
+        'samples': len(points),
+        'firstHalf': {key: mean(key, first) for key in ('heartRate', 'pace', 'power')},
+        'secondHalf': {key: mean(key, second) for key in ('heartRate', 'pace', 'power')},
+    }
+
+
+def _activity_ai_prompt(activity, planned):
+    evidence = {
+        'activity': {
+            'name': activity.get('name'), 'type': activity.get('type'),
+            'date': activity.get('date'), 'source': activity.get('source'),
+            'overview': activity.get('overview') or {},
+            'laps': (activity.get('laps') or [])[:60],
+            'heartRateZones': activity.get('heartRateZones') or [],
+            'powerZones': activity.get('powerZones') or [],
+            'seriesTrend': _activity_ai_series_summary(activity.get('series')),
+            'strengthExercises': activity.get('strengthExercises') or [],
+            'exerciseSets': (activity.get('exerciseSets') or [])[:80],
+        },
+        'plannedSession': planned,
+    }
+    return f'''Analyze one completed workout retrospectively. Be an evidence-driven running and
+strength coach. Use only the supplied measurements. Compare against the planned session when one
+exists; otherwise assess pacing consistency, heart-rate response, power, elevation, laps, and the
+workout's likely purpose without inventing a target. Pace values are seconds per kilometer. Be
+direct when execution missed the plan and specific when it went well. Do not diagnose illness or
+injury. Write all user-facing text in Swedish.
+
+MEASURED WORKOUT DATA:
+{json.dumps(evidence, ensure_ascii=False, default=str)}
+
+Respond ONLY with valid JSON:
+{{
+  "tone": "good|mixed|warning|neutral",
+  "headline": "a concrete assessment, max 9 words",
+  "summary": "2-4 concise sentences using the most relevant measured numbers",
+  "highlights": ["2-4 short factual observations"],
+  "nextStep": "one useful takeaway for the next similar workout"
+}}'''
+
+
+def _normalize_activity_ai_response(payload):
+    if not isinstance(payload, dict):
+        raise ValueError('AI-svaret är inte ett objekt.')
+    tone = str(payload.get('tone') or 'neutral').lower()
+    if tone not in {'good', 'mixed', 'warning', 'neutral'}:
+        tone = 'neutral'
+    headline = str(payload.get('headline') or '').strip()[:160]
+    summary = str(payload.get('summary') or '').strip()[:1200]
+    next_step = str(payload.get('nextStep') or '').strip()[:500]
+    highlights = [str(item).strip()[:300] for item in (payload.get('highlights') or [])
+                  if str(item).strip()][:4]
+    if not headline or not summary:
+        raise ValueError('AI-svaret saknar rubrik eller sammanfattning.')
+    return {
+        'tone': tone, 'headline': headline, 'summary': summary,
+        'highlights': highlights, 'nextStep': next_step,
+        'generatedAt': datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post('/api/activities/<int:activity_id>/ai-overview')
+def activity_ai_overview(activity_id):
+    """Create once, cache permanently, and return an AI review for any owned workout."""
+    if activity_id <= 0:
+        return _api_error('invalid_activity_id', 'Aktivitets-id är ogiltigt.', 400)
+    source = 'strava' if request.args.get('source') == 'strava' else 'garmin'
+    cache_key = f'activity-ai:v1:{source}:{activity_id}'
+    cached = get_cache(cache_key, uid())
+    if cached:
+        return jsonify({'overview': cached[0], 'cached': True})
+    if not llm_available():
+        return _api_error('ai_not_configured', 'AI-analysen är inte konfigurerad.', 503)
+    try:
+        activity = _activity_ai_detail(activity_id, source, uid(), uname())
+        if activity is None:
+            return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
+        activity['source'] = source
+        planned = _activity_ai_plan_context(activity, uid())
+        text = call_llm(_activity_ai_prompt(activity, planned), max_tokens=800)
+        cleaned = text.strip().replace('```json', '').replace('```', '').strip()
+        overview = _normalize_activity_ai_response(json.loads(cleaned))
+        set_cache(cache_key, overview, uid())
+        return jsonify({'overview': overview, 'cached': False})
+    except (ValueError, json.JSONDecodeError) as exc:
+        return _server_error(exc, 'activity.ai_invalid_response', status=502,
+                             code='ai_invalid_response',
+                             message='AI-översikten fick ett ogiltigt svar.')
+    except Exception as exc:
+        return _server_error(exc, 'activity.ai_failed', status=502,
+                             code='ai_provider_error',
+                             message='AI-översikten kunde inte skapas just nu.')
+
 # ─────────────────────────────────────────────
 # HRV-LOGIK (Garmin HRV Status + personlig baslinje)
 # ─────────────────────────────────────────────
