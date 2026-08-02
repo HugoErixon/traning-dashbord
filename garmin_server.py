@@ -1489,8 +1489,21 @@ def _mobile_widget_payload(user_id):
         }
         break
 
+    # Hälsocachen fylls bara av /api/health, alltså när någon öppnar
+    # dashboarden — och run_sync tömmer den var tredje timme. Widgeten får
+    # därför inte hänga på den ensam; utan reserv stod den tom ända tills
+    # man råkade besöka sajten. health_history skrivs av den dagliga
+    # rutinen och finns alltid.
     h_row = get_cache('health', user_id)
-    health = h_row[0] if h_row else {}
+    health = h_row[0] if h_row else None
+    source = 'live'
+    if not has_health_payload(health or {}):
+        try:
+            health = latest_health_snapshot(user_id, today.isoformat()) or {}
+        except Exception as e:
+            print('Widget: kunde inte läsa hälsohistorik:', e)
+            health = {}
+        source = 'history' if health else 'none'
     sleep = health.get('sleep') or {}
     return {
         'date': today.isoformat(),
@@ -1508,6 +1521,7 @@ def _mobile_widget_payload(user_id):
             'sourceDate': sleep.get('sourceDate') or health.get('sourceDate') or today.isoformat(),
         },
         'nextQuality': next_quality,
+        'source': source,
     }
 
 @app.get('/api/widget/mobile')
