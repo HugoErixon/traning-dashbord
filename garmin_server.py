@@ -5168,15 +5168,22 @@ def _load_context(user_id):
 
 
 def _recent_recovery(user_id):
-    """Senaste registrerade beredskapen och sömnlängden."""
+    """CNS-beredskapen och sömnlängden som belastningen vägs mot.
+
+    Samma källa som mobilwidgeten: hälsocachen först, annars den senaste
+    sparade natten. Kolumnen health_history.readiness ser ut att duga men
+    fylls aldrig av collect_health_history — den är NULL i varje rad.
+    """
     try:
-        with db() as conn:
-            with conn.cursor() as cur:
-                cur.execute('''SELECT readiness, sleep_hours FROM health_history
-                    WHERE user_id=%s AND (readiness IS NOT NULL OR sleep_hours IS NOT NULL)
-                    ORDER BY date DESC LIMIT 1''', (user_id,))
-                row = cur.fetchone()
-        return (row[0], row[1]) if row else (None, None)
+        row = get_cache('health', user_id)
+        health = (row[0] if row else None) or {}
+        if not health:
+            health = latest_health_snapshot(user_id, date.today().isoformat()) or {}
+        if not health:
+            return None, None
+        sleep_sec = (health.get('sleep') or {}).get('totalSec')
+        return (_cns_score_from_health(health),
+                round(sleep_sec / 3600, 2) if sleep_sec else None)
     except Exception as e:
         print('Kunde inte läsa återhämtningsdata:', e)
         return None, None
