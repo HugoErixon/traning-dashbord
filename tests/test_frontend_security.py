@@ -38,6 +38,15 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn('https://www.openstreetmap.org/copyright', self.app)
         self.assertIn('© OpenStreetMap', self.app)
 
+    def test_activity_map_supports_navigation_and_large_view(self):
+        self.assertIn("addEventListener('pointermove'", self.app)
+        self.assertIn("addEventListener('wheel'", self.app)
+        self.assertIn("addEventListener('dblclick'", self.app)
+        self.assertIn('activity-map-zoom-in', self.app)
+        self.assertIn('activity-map-zoom-out', self.app)
+        self.assertIn('activity-map-reset', self.app)
+        self.assertIn('activity-map-expand', self.app)
+
 
 if __name__ == '__main__':
     unittest.main()

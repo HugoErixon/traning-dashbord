@@ -933,6 +933,10 @@ function executeAction(trigger, event) {
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'open-activity') openActivityDetails(Number(trigger.dataset.activityId));
   else if (action === 'close-activity') closeActivityDetails();
+  else if (action === 'activity-map-expand') toggleActivityMapExpanded();
+  else if (action === 'activity-map-zoom-in') zoomActivityMap(1);
+  else if (action === 'activity-map-zoom-out') zoomActivityMap(-1);
+  else if (action === 'activity-map-reset') fitActivityMapToRoute();
   else if (action === 'refresh-insights') loadInsights(true);
   else if (action === 'open-trend-breakdown') openTrendBreakdown();
   else if (action === 'close-trend-breakdown') closeTrendBreakdown();
@@ -972,6 +976,10 @@ document.addEventListener('click', event => {
 
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && document.getElementById('activity-overlay')?.classList.contains('is-open')) {
+    if (activityMapState?.element.classList.contains('is-expanded')) {
+      toggleActivityMapExpanded(true);
+      return;
+    }
     closeActivityDetails();
     return;
   }
@@ -4980,6 +4988,10 @@ HEALTH DATA (current):
   // ─── PASSDETALJ ──────────────────────────────────────────────
   let activityDetailRequest = 0;
   let activityModalPreviousFocus = null;
+  let activityMapState = null;
+  const ACTIVITY_MAP_TILE_SIZE = 256;
+  const ACTIVITY_MAP_MIN_ZOOM = 3;
+  const ACTIVITY_MAP_MAX_ZOOM = 18;
 
   function formatActivityDuration(seconds) {
     if (seconds == null) return '–';
@@ -5022,61 +5034,252 @@ HEALTH DATA (current):
     return `<div class="ad-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}${unit ? ` <small>${escapeHtml(unit)}</small>` : ''}</strong></div>`;
   }
 
-  function activityRouteSvg(route) {
-    if (!Array.isArray(route) || route.length < 2) {
+  function normalizedActivityRoute(route) {
+    if (!Array.isArray(route)) return [];
+    return route.map(point => ({lat:Number(point?.lat), lon:Number(point?.lon)}))
+      .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lon)
+        && point.lat >= -85.05112878 && point.lat <= 85.05112878
+        && point.lon >= -180 && point.lon <= 180);
+  }
+
+  function activityMapWorldPoint(point, zoom) {
+    const sinLatitude = Math.sin(point.lat * Math.PI / 180);
+    const worldSize = ACTIVITY_MAP_TILE_SIZE * (2 ** zoom);
+    return {
+      x: ((point.lon + 180) / 360) * worldSize,
+      y: (.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI)) * worldSize,
+    };
+  }
+
+  function activityRouteMap(route) {
+    if (normalizedActivityRoute(route).length < 2) {
       return '<div class="ad-map-empty">Ingen GPS-rutt registrerades för passet.</div>';
     }
-    const compact = window.matchMedia('(max-width:520px)').matches;
-    const W = compact ? 420 : 760, H = 420, pad = 34, tileSize = 256;
-    const mercatorPoint = (point, zoom) => {
-      const latitude = Math.max(-85.05112878, Math.min(85.05112878, Number(point.lat)));
-      const longitude = Number(point.lon);
-      const sinLatitude = Math.sin(latitude * Math.PI / 180);
-      const worldSize = tileSize * (2 ** zoom);
-      return {
-        x: ((longitude + 180) / 360) * worldSize,
-        y: (.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI)) * worldSize,
-      };
-    };
-    let zoom = 3, projected = [];
-    for (let candidate = 17; candidate >= 3; candidate -= 1) {
-      const candidatePoints = route.map(point => mercatorPoint(point, candidate));
-      const xs = candidatePoints.map(point => point.x), ys = candidatePoints.map(point => point.y);
-      if (Math.max(...xs) - Math.min(...xs) <= W - pad * 2
-          && Math.max(...ys) - Math.min(...ys) <= H - pad * 2) {
-        zoom = candidate;
-        projected = candidatePoints;
-        break;
-      }
-    }
-    if (!projected.length) projected = route.map(point => mercatorPoint(point, zoom));
-    const xs = projected.map(point => point.x), ys = projected.map(point => point.y);
-    const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-    const centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
-    const originX = centerX - W / 2, originY = centerY - H / 2;
-    const points = projected.map(point => [point.x - originX, point.y - originY]);
-    const path = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
-    const start = points[0], end = points.at(-1);
-    const tileCount = 2 ** zoom;
-    const tileImages = [];
-    const firstTileX = Math.floor(originX / tileSize);
-    const lastTileX = Math.floor((originX + W) / tileSize);
-    const firstTileY = Math.max(0, Math.floor(originY / tileSize));
-    const lastTileY = Math.min(tileCount - 1, Math.floor((originY + H) / tileSize));
+    return `<svg class="ad-map-canvas" role="img" aria-label="Interaktiv GPS-rutt för passet">
+        <g class="ad-map-tiles"></g>
+        <rect class="ad-map-shade"/>
+        <path class="ad-route-line-under" vector-effect="non-scaling-stroke"/>
+        <path class="ad-route-line" vector-effect="non-scaling-stroke"/>
+        <circle class="ad-route-pin ad-route-start" r="6" fill="var(--green)" vector-effect="non-scaling-stroke"/>
+        <circle class="ad-route-pin ad-route-end" r="6" fill="var(--red)" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="ad-map-controls" aria-label="Kartkontroller">
+        <button type="button" data-action="activity-map-zoom-in" aria-label="Zooma in" title="Zooma in">+</button>
+        <button type="button" data-action="activity-map-zoom-out" aria-label="Zooma ut" title="Zooma ut">−</button>
+        <button type="button" data-action="activity-map-reset" aria-label="Visa hela rutten" title="Visa hela rutten">⌖</button>
+      </div>
+      <button class="ad-map-expand" type="button" data-action="activity-map-expand" aria-label="Öppna stor karta"><span>Öppna karta</span><b>↗</b></button>
+      <span class="ad-map-hint">Dra kartan · scrolla eller nyp för zoom</span>
+      <span class="ad-map-attribution"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap</a> · GARMIN GPS</span>`;
+  }
+
+  function renderActivityMap() {
+    const state = activityMapState;
+    if (!state?.element?.isConnected) return;
+    const svg = state.element.querySelector('.ad-map-canvas');
+    if (!svg) return;
+    const width = Math.max(1, state.element.clientWidth);
+    const height = Math.max(1, state.element.clientHeight);
+    const worldSize = ACTIVITY_MAP_TILE_SIZE * (2 ** state.zoom);
+    state.centerX = ((state.centerX % worldSize) + worldSize) % worldSize;
+    state.centerY = Math.max(Math.min(height / 2, worldSize / 2),
+      Math.min(worldSize - height / 2, state.centerY));
+    const originX = state.centerX - width / 2;
+    const originY = state.centerY - height / 2;
+    const tileCount = 2 ** state.zoom;
+    const tileLayer = svg.querySelector('.ad-map-tiles');
+    const visibleTiles = new Set();
+    const existingTiles = new Map([...tileLayer.querySelectorAll('.ad-map-tile')]
+      .map(tile => [tile.dataset.tileKey, tile]));
+    const firstTileX = Math.floor(originX / ACTIVITY_MAP_TILE_SIZE);
+    const lastTileX = Math.floor((originX + width) / ACTIVITY_MAP_TILE_SIZE);
+    const firstTileY = Math.max(0, Math.floor(originY / ACTIVITY_MAP_TILE_SIZE));
+    const lastTileY = Math.min(tileCount - 1, Math.floor((originY + height) / ACTIVITY_MAP_TILE_SIZE));
     for (let tileY = firstTileY; tileY <= lastTileY; tileY += 1) {
       for (let tileX = firstTileX; tileX <= lastTileX; tileX += 1) {
         const wrappedTileX = ((tileX % tileCount) + tileCount) % tileCount;
-        tileImages.push(`<image class="ad-map-tile" href="https://tile.openstreetmap.org/${zoom}/${wrappedTileX}/${tileY}.png" x="${(tileX * tileSize - originX).toFixed(1)}" y="${(tileY * tileSize - originY).toFixed(1)}" width="${tileSize}" height="${tileSize}"/>`);
+        const tileKey = `${state.zoom}/${tileX}/${tileY}`;
+        visibleTiles.add(tileKey);
+        let tile = existingTiles.get(tileKey);
+        if (!tile) {
+          tile = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+          tile.classList.add('ad-map-tile');
+          tile.dataset.tileKey = tileKey;
+          tile.setAttribute('href', `https://tile.openstreetmap.org/${state.zoom}/${wrappedTileX}/${tileY}.png`);
+          tile.setAttribute('width', String(ACTIVITY_MAP_TILE_SIZE));
+          tile.setAttribute('height', String(ACTIVITY_MAP_TILE_SIZE));
+          tileLayer.appendChild(tile);
+        }
+        tile.setAttribute('x', (tileX * ACTIVITY_MAP_TILE_SIZE - originX).toFixed(1));
+        tile.setAttribute('y', (tileY * ACTIVITY_MAP_TILE_SIZE - originY).toFixed(1));
       }
     }
-    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="GPS-rutt för passet">
-      ${tileImages.join('')}
-      <rect class="ad-map-shade" width="${W}" height="${H}"/>
-      <path class="ad-route-line-under" d="${path}" vector-effect="non-scaling-stroke"/>
-      <path class="ad-route-line" d="${path}" vector-effect="non-scaling-stroke"/>
-      <circle class="ad-route-pin" cx="${start[0].toFixed(1)}" cy="${start[1].toFixed(1)}" r="6" fill="var(--green)" vector-effect="non-scaling-stroke"/>
-      <circle class="ad-route-pin" cx="${end[0].toFixed(1)}" cy="${end[1].toFixed(1)}" r="6" fill="var(--red)" vector-effect="non-scaling-stroke"/>
-    </svg><span class="ad-map-north">N</span><span class="ad-map-attribution"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap</a> · GARMIN GPS</span>`;
+    existingTiles.forEach((tile, key) => { if (!visibleTiles.has(key)) tile.remove(); });
+    const routePoints = state.route.map(point => activityMapWorldPoint(point, state.zoom)).map(point => {
+      let x = point.x;
+      if (x - state.centerX > worldSize / 2) x -= worldSize;
+      if (state.centerX - x > worldSize / 2) x += worldSize;
+      return [x - originX, point.y - originY];
+    });
+    const path = routePoints.map((point, index) => `${index ? 'L' : 'M'}${point[0].toFixed(1)} ${point[1].toFixed(1)}`).join(' ');
+    const start = routePoints[0], end = routePoints.at(-1);
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    const shade = svg.querySelector('.ad-map-shade');
+    shade.setAttribute('width', String(width));
+    shade.setAttribute('height', String(height));
+    svg.querySelector('.ad-route-line-under').setAttribute('d', path);
+    svg.querySelector('.ad-route-line').setAttribute('d', path);
+    const startPin = svg.querySelector('.ad-route-start');
+    const endPin = svg.querySelector('.ad-route-end');
+    startPin.setAttribute('cx', start[0].toFixed(1));
+    startPin.setAttribute('cy', start[1].toFixed(1));
+    endPin.setAttribute('cx', end[0].toFixed(1));
+    endPin.setAttribute('cy', end[1].toFixed(1));
+  }
+
+  function scheduleActivityMapRender() {
+    const state = activityMapState;
+    if (!state || state.renderFrame) return;
+    state.renderFrame = requestAnimationFrame(() => {
+      if (activityMapState === state) {
+        state.renderFrame = 0;
+        renderActivityMap();
+      }
+    });
+  }
+
+  function fitActivityMapToRoute() {
+    const state = activityMapState;
+    if (!state) return;
+    const width = Math.max(280, state.element.clientWidth);
+    const height = Math.max(240, state.element.clientHeight);
+    const padding = state.element.classList.contains('is-expanded') ? 70 : 34;
+    let projected = [];
+    for (let zoom = ACTIVITY_MAP_MAX_ZOOM; zoom >= ACTIVITY_MAP_MIN_ZOOM; zoom -= 1) {
+      const candidate = state.route.map(point => activityMapWorldPoint(point, zoom));
+      const xs = candidate.map(point => point.x), ys = candidate.map(point => point.y);
+      if (Math.max(...xs) - Math.min(...xs) <= width - padding * 2
+          && Math.max(...ys) - Math.min(...ys) <= height - padding * 2) {
+        state.zoom = zoom;
+        projected = candidate;
+        break;
+      }
+    }
+    if (!projected.length) {
+      state.zoom = ACTIVITY_MAP_MIN_ZOOM;
+      projected = state.route.map(point => activityMapWorldPoint(point, state.zoom));
+    }
+    const xs = projected.map(point => point.x), ys = projected.map(point => point.y);
+    state.centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    state.centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    scheduleActivityMapRender();
+  }
+
+  function zoomActivityMap(change, clientX, clientY) {
+    const state = activityMapState;
+    if (!state) return;
+    const nextZoom = Math.max(ACTIVITY_MAP_MIN_ZOOM,
+      Math.min(ACTIVITY_MAP_MAX_ZOOM, state.zoom + change));
+    if (nextZoom === state.zoom) return;
+    const rect = state.element.getBoundingClientRect();
+    const anchorX = Number.isFinite(clientX) ? clientX - rect.left : rect.width / 2;
+    const anchorY = Number.isFinite(clientY) ? clientY - rect.top : rect.height / 2;
+    const scale = 2 ** (nextZoom - state.zoom);
+    state.centerX = (state.centerX + anchorX - rect.width / 2) * scale - anchorX + rect.width / 2;
+    state.centerY = (state.centerY + anchorY - rect.height / 2) * scale - anchorY + rect.height / 2;
+    state.zoom = nextZoom;
+    scheduleActivityMapRender();
+  }
+
+  function initializeActivityMap(route) {
+    const element = document.querySelector('#activity-detail-content .ad-route');
+    const cleanRoute = normalizedActivityRoute(route);
+    if (!element || cleanRoute.length < 2) return;
+    const state = {element, route:cleanRoute, zoom:ACTIVITY_MAP_MIN_ZOOM, centerX:0, centerY:0,
+      pointers:new Map(), dragStart:null, pinchDistance:0, renderFrame:0, resizeObserver:null};
+    activityMapState = state;
+    element.addEventListener('wheel', event => {
+      event.preventDefault();
+      zoomActivityMap(event.deltaY < 0 ? 1 : -1, event.clientX, event.clientY);
+    }, {passive:false});
+    element.addEventListener('dblclick', event => {
+      if (event.target.closest('button,a')) return;
+      event.preventDefault();
+      zoomActivityMap(1, event.clientX, event.clientY);
+    });
+    element.addEventListener('pointerdown', event => {
+      if (event.target.closest('button,a')) return;
+      element.setPointerCapture(event.pointerId);
+      state.pointers.set(event.pointerId, {x:event.clientX, y:event.clientY});
+      if (state.pointers.size === 1) {
+        state.dragStart = {id:event.pointerId, x:event.clientX, y:event.clientY,
+          centerX:state.centerX, centerY:state.centerY};
+        element.classList.add('is-dragging');
+      } else if (state.pointers.size === 2) {
+        const [first, second] = [...state.pointers.values()];
+        state.pinchDistance = Math.hypot(second.x - first.x, second.y - first.y);
+        state.dragStart = null;
+      }
+    });
+    element.addEventListener('pointermove', event => {
+      if (!state.pointers.has(event.pointerId)) return;
+      state.pointers.set(event.pointerId, {x:event.clientX, y:event.clientY});
+      if (state.pointers.size === 1 && state.dragStart?.id === event.pointerId) {
+        state.centerX = state.dragStart.centerX - (event.clientX - state.dragStart.x);
+        state.centerY = state.dragStart.centerY - (event.clientY - state.dragStart.y);
+        scheduleActivityMapRender();
+      } else if (state.pointers.size === 2) {
+        const [first, second] = [...state.pointers.values()];
+        const distance = Math.hypot(second.x - first.x, second.y - first.y);
+        const midpointX = (first.x + second.x) / 2;
+        const midpointY = (first.y + second.y) / 2;
+        if (distance > state.pinchDistance * 1.2) {
+          zoomActivityMap(1, midpointX, midpointY);
+          state.pinchDistance = distance;
+        } else if (distance < state.pinchDistance * .8) {
+          zoomActivityMap(-1, midpointX, midpointY);
+          state.pinchDistance = distance;
+        }
+      }
+    });
+    const endPointer = event => {
+      state.pointers.delete(event.pointerId);
+      if (state.pointers.size === 1) {
+        const [id, point] = [...state.pointers.entries()][0];
+        state.dragStart = {id, x:point.x, y:point.y, centerX:state.centerX, centerY:state.centerY};
+      } else if (!state.pointers.size) {
+        state.dragStart = null;
+        element.classList.remove('is-dragging');
+      }
+    };
+    element.addEventListener('pointerup', endPointer);
+    element.addEventListener('pointercancel', endPointer);
+    state.resizeObserver = new ResizeObserver(scheduleActivityMapRender);
+    state.resizeObserver.observe(element);
+    fitActivityMapToRoute();
+  }
+
+  function toggleActivityMapExpanded(forceClose = false) {
+    const state = activityMapState;
+    if (!state) return false;
+    const expanded = forceClose ? false : !state.element.classList.contains('is-expanded');
+    state.element.classList.toggle('is-expanded', expanded);
+    document.body.classList.toggle('activity-map-open', expanded);
+    const button = state.element.querySelector('.ad-map-expand');
+    if (button) {
+      button.setAttribute('aria-label', expanded ? 'Stäng stor karta' : 'Öppna stor karta');
+      button.querySelector('span').textContent = expanded ? 'Stäng karta' : 'Öppna karta';
+      button.querySelector('b').textContent = expanded ? '×' : '↗';
+    }
+    requestAnimationFrame(scheduleActivityMapRender);
+    return expanded;
+  }
+
+  function destroyActivityMap() {
+    if (activityMapState?.resizeObserver) activityMapState.resizeObserver.disconnect();
+    if (activityMapState?.renderFrame) cancelAnimationFrame(activityMapState.renderFrame);
+    activityMapState = null;
+    document.body.classList.remove('activity-map-open');
   }
 
   function activityChartSvg(series, key, color, formatter, invert = false) {
@@ -5210,7 +5413,7 @@ HEALTH DATA (current):
         ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>
       <div class="ad-metrics">${primary}</div>
       <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från Garmin</span></div></div>
-          <div class="ad-route">${activityRouteSvg(activity.route)}</div></section>
+          <div class="ad-route">${activityRouteMap(activity.route)}</div></section>
         <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
       <div class="ad-chart-grid">
         ${activityChartCard('Tempo', 'Minuter per kilometer', activity.series, 'pace', '#c8f135', value => formatActivityPace(value), true)}
@@ -5245,6 +5448,7 @@ HEALTH DATA (current):
       if (!response.ok) throw new Error(payload.error || 'Passet kunde inte laddas.');
       if (requestNumber !== activityDetailRequest) return;
       content.innerHTML = renderActivityDetail(payload.activity || {});
+      initializeActivityMap(payload.activity?.route);
       overlay.querySelector('.activity-dialog').scrollTop = 0;
     } catch (error) {
       if (requestNumber !== activityDetailRequest) return;
@@ -5256,6 +5460,7 @@ HEALTH DATA (current):
     const overlay = document.getElementById('activity-overlay');
     if (!overlay?.classList.contains('is-open')) return;
     activityDetailRequest += 1;
+    destroyActivityMap();
     overlay.classList.remove('is-open');
     overlay.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('activity-modal-open');
