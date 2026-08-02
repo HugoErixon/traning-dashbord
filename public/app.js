@@ -4887,19 +4887,23 @@ HEALTH DATA (current):
 
   function renderTodaySession() {
     const card  = document.getElementById('today-session-card');
+    const panel = document.getElementById('today-panel');
     const dot   = document.getElementById('today-session-dot');
     const title = document.getElementById('today-session-title');
     const detail= document.getElementById('today-session-detail');
     const km    = document.getElementById('today-session-km');
     const type  = document.getElementById('today-session-type');
-    if (!card || !dot || !title || !detail || !km || !type) return;
+    if (!card || !panel || !dot || !title || !detail || !km || !type) return;
 
     // Rendering can switch between a completed activity and a planned session;
     // always clear the previous interaction before deciding what today contains.
     card.classList.remove('is-clickable');
-    for (const attribute of ['data-action', 'data-activity-id', 'data-activity-source',
-                             'role', 'tabindex', 'title']) {
-      card.removeAttribute(attribute);
+    panel.classList.remove('is-clickable');
+    for (const element of [card, panel]) {
+      for (const attribute of ['data-action', 'data-activity-id', 'data-activity-source',
+                               'role', 'tabindex', 'title']) {
+        element.removeAttribute(attribute);
+      }
     }
 
     const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
@@ -4930,12 +4934,13 @@ HEALTH DATA (current):
 
       if (Number.isSafeInteger(activityId) && activityId > 0) {
         card.classList.add('is-clickable');
-        card.dataset.action = 'open-activity';
-        card.dataset.activityId = String(activityId);
-        card.dataset.activitySource = longest.source === 'strava' ? 'strava' : 'garmin';
-        card.setAttribute('role', 'button');
-        card.setAttribute('tabindex', '0');
-        card.title = todayActs.length > 1
+        panel.classList.add('is-clickable');
+        panel.dataset.action = 'open-activity';
+        panel.dataset.activityId = String(activityId);
+        panel.dataset.activitySource = longest.source === 'strava' ? 'strava' : 'garmin';
+        panel.setAttribute('role', 'button');
+        panel.setAttribute('tabindex', '0');
+        panel.title = todayActs.length > 1
           ? 'Öppna den längsta av dagens aktiviteter' : 'Öppna passdetaljer';
       }
 
