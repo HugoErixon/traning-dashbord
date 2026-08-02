@@ -5380,6 +5380,83 @@ HEALTH DATA (current):
       .map(([label, value, unit]) => `<div class="ad-secondary-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}${escapeHtml(unit)}</strong></div>`).join('');
   }
 
+  function isStrengthActivity(activity) {
+    return /strength|fitness|weight|gym/i.test(String(activity?.type || ''));
+  }
+
+  function activityStrengthWorkout(activity) {
+    const logged = Array.isArray(activity.strengthExercises) ? activity.strengthExercises : [];
+    const garminSets = Array.isArray(activity.exerciseSets) ? activity.exerciseSets : [];
+    const activeSets = garminSets.filter(set => set.type === 'active');
+    const restSets = garminSets.filter(set => set.type === 'rest');
+    let rows = '';
+    if (logged.length) {
+      rows = logged.map(item => `<tr>
+        <td><strong>${escapeHtml(item.exercise)}</strong>${item.note ? `<small>${escapeHtml(item.note)}</small>` : ''}</td>
+        <td>${item.sets ?? '–'}</td><td>${escapeHtml(item.reps || '–')}</td>
+        <td>${item.weight != null ? `${escapeHtml(String(item.weight))} kg` : '–'}</td>
+      </tr>`).join('');
+    } else if (activeSets.length) {
+      rows = activeSets.map((set, index) => {
+        const next = garminSets[garminSets.indexOf(set) + 1];
+        const rawName = set.exercise || '';
+        const name = rawName ? rawName.replaceAll('_', ' ').toLowerCase() : `Arbetsset ${index + 1}`;
+        return `<tr><td><strong>${escapeHtml(name)}</strong></td>
+          <td>1</td><td>${set.reps ?? '–'}</td><td>${set.weight != null ? `${set.weight} kg` : '–'}</td>
+          <td>${formatActivityDuration(set.duration)}</td>
+          <td>${next?.type === 'rest' ? formatActivityDuration(next.duration) : '–'}</td></tr>`;
+      }).join('');
+    }
+    const table = logged.length
+      ? `<table class="ad-strength-table"><thead><tr><th>Övning</th><th>Set</th><th>Reps</th><th>Vikt</th></tr></thead><tbody>${rows}</tbody></table>`
+      : activeSets.length
+        ? `<table class="ad-strength-table"><thead><tr><th>Övning</th><th>Set</th><th>Reps</th><th>Vikt</th><th>Arbete</th><th>Vila</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<div class="ad-strength-empty">Inga övningar har loggats för det här passet.</div>';
+    const sourceNote = logged.length
+      ? `${logged.length} loggade övningar${activeSets.length ? ` · Garmin registrerade ${activeSets.length} arbetsset och ${restSets.length} viloperioder` : ''}`
+      : activeSets.length && activeSets.every(set => !set.exercise && set.reps == null && set.weight == null)
+        ? 'Klockan registrerade setens tider, men inga övningsnamn, reps eller vikter.'
+        : 'Setdata från Garmin';
+    return `<section class="ad-card ad-strength-card"><div class="ad-card-head"><div><span class="ad-card-title">Övningar & set</span><span class="ad-card-sub">${escapeHtml(sourceNote)}</span></div></div>
+      <div class="ad-strength-table-wrap">${table}</div></section>`;
+  }
+
+  function renderStrengthActivityDetail(activity, heading) {
+    const o = activity.overview || {};
+    const logged = activity.strengthExercises || [];
+    const activeSets = (activity.exerciseSets || []).filter(set => set.type === 'active');
+    const exerciseCount = new Set(logged.map(item => item.exercise).filter(Boolean)).size;
+    const loggedSetCount = logged.reduce((sum, item) => sum + Number(item.sets || 0), 0);
+    const totalVolume = logged.reduce((sum, item) => {
+      const reps = Number.parseFloat(String(item.reps || '').replace(',', '.'));
+      return sum + (Number(item.sets || 0) * (Number.isFinite(reps) ? reps : 0) * Number(item.weight || 0));
+    }, 0);
+    const primary = [
+      activityMetric('Tid', formatActivityDuration(o.duration || o.movingDuration)),
+      activityMetric('Övningar', exerciseCount || '–'),
+      activityMetric('Arbetsset', loggedSetCount || activeSets.length || '–'),
+      activityMetric('Volym', totalVolume ? Math.round(totalVolume).toLocaleString('sv-SE') : '–', totalVolume ? 'kg' : ''),
+      activityMetric('Snittpuls', o.averageHR ?? '–', 'bpm'),
+      activityMetric('Kalorier', o.calories ?? '–', 'kcal'),
+    ].join('');
+    const summaryRows = [
+      ['Förfluten tid', formatActivityDuration(o.elapsedDuration || o.duration)],
+      ['Aktiv tid', formatActivityDuration(o.movingDuration)],
+      ['Maxpuls', o.maxHR != null ? `${o.maxHR} bpm` : '–'],
+      ['Belastning', o.trainingLoad ?? '–'],
+      ['Body Battery', o.bodyBatteryImpact ?? '–'],
+      ['Enhet', activity.device || '–'],
+    ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
+    const zoneColors = ['#7fd6c4','#2dd4bf','#c8f135','#ffb84d','#ff4d6d'];
+    return `${heading}<div class="ad-metrics">${primary}</div>
+      <div class="ad-grid ad-strength-grid">${activityStrengthWorkout(activity)}
+        <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
+      <div class="ad-chart-grid ad-strength-charts">
+        ${activityChartCard('Puls', 'Slag per minut under styrkepasset', activity.series, 'heartRate', '#ff4d6d', value => String(Math.round(value)))}
+        ${activityZones('Pulszoner', 'bpm', activity.heartRateZones, zoneColors)}
+      </div>`;
+  }
+
   function renderActivityDetail(activity) {
     const o = activity.overview || {};
     const type = formatActivityType(activity.type);
@@ -5408,9 +5485,11 @@ HEALTH DATA (current):
     ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
     const zoneColors = ['#7fd6c4','#2dd4bf','#c8f135','#ffb84d','#ff4d6d'];
     const secondary = activitySecondaryMetrics(activity);
-    return `<div class="ad-head"><div><div class="ad-kicker">${escapeHtml(type)}</div>
+    const heading = `<div class="ad-head"><div><div class="ad-kicker">${escapeHtml(type)}</div>
         <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}</div></div>
-        ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>
+        ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>`;
+    if (isStrengthActivity(activity)) return renderStrengthActivityDetail(activity, heading);
+    return `${heading}
       <div class="ad-metrics">${primary}</div>
       <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från Garmin</span></div></div>
           <div class="ad-route">${activityRouteMap(activity.route)}</div></section>

@@ -47,6 +47,12 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn('activity-map-reset', self.app)
         self.assertIn('activity-map-expand', self.app)
 
+    def test_strength_activity_has_exercise_view_instead_of_route_view(self):
+        self.assertIn('function renderStrengthActivityDetail', self.app)
+        self.assertIn('Övningar & set', self.app)
+        self.assertIn('if (isStrengthActivity(activity))', self.app)
+        self.assertIn('activity.strengthExercises', self.app)
+
 
 if __name__ == '__main__':
     unittest.main()

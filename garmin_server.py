@@ -1986,6 +1986,28 @@ def _garmin_activity_part(client, method_name, activity_id, default):
         return default
 
 
+def _is_strength_activity(raw):
+    type_key = str(
+        ((raw.get('activityType') or {}).get('typeKey')) or raw.get('type') or ''
+    ).lower()
+    return any(token in type_key for token in ('strength', 'fitness', 'weight', 'gym'))
+
+
+def _stored_strength_exercises(activity_id, user_id):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT id, exercise, sets, reps, weight, note
+                FROM strength_exercises
+                WHERE session_id=%s AND user_id=%s ORDER BY id''',
+                        (str(activity_id), user_id))
+            rows = cur.fetchall()
+    return [{
+        'id': row[0], 'exercise': row[1], 'sets': row[2], 'reps': row[3],
+        'weight': float(row[4]) if row[4] is not None else None,
+        'note': row[5] or '',
+    } for row in rows]
+
+
 @app.get('/api/activities/<int:activity_id>')
 def activity_details(activity_id):
     """Return route, charts, zones and laps for one owned Garmin activity."""
@@ -1996,15 +2018,24 @@ def activity_details(activity_id):
         if raw is None:
             return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
 
-        cache_key = f'activity-detail:{activity_id}'
+        strength_activity = _is_strength_activity(raw)
+        strength_exercises = _stored_strength_exercises(activity_id, uid()) \
+            if strength_activity else []
+        cache_key = f'activity-detail:v2:{activity_id}'
         cached = get_cache(cache_key, uid())
         if cached and time.time() - cached[1] < 6 * 3600:
-            return jsonify({'activity': cached[0], 'source': 'cache'})
+            cached_activity = dict(cached[0])
+            if strength_activity:
+                cached_activity['strengthExercises'] = strength_exercises
+            return jsonify({'activity': cached_activity, 'source': 'cache'})
 
         if not _garmin_connected(uname()):
             return _api_error('garmin_not_connected',
                               'Garmin behöver anslutas för att visa passdetaljer.', 409)
         client = get_garmin(uname())
+        exercise_sets = _garmin_activity_part(
+            client, 'get_activity_exercise_sets', activity_id, {}) \
+            if strength_activity else {}
         normalized = normalize_activity_detail(
             raw=raw,
             activity=_garmin_activity_part(client, 'get_activity', activity_id, {}),
@@ -2016,6 +2047,8 @@ def activity_details(activity_id):
                 client, 'get_activity_power_in_timezones', activity_id, []),
             weather=_garmin_activity_part(client, 'get_activity_weather', activity_id, {}),
             gear=_garmin_activity_part(client, 'get_activity_gear', activity_id, []),
+            exercise_sets=exercise_sets,
+            strength_exercises=strength_exercises,
         )
         set_cache(cache_key, normalized, uid())
         return jsonify({'activity': normalized, 'source': 'garmin'})

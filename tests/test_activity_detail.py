@@ -118,6 +118,28 @@ class ActivityNormalizerTests(unittest.TestCase):
         self.assertEqual(activity['heartRateZones'], [])
         self.assertIsNone(activity['weather'])
 
+    def test_strength_sets_and_logged_exercises_are_normalized(self):
+        activity = normalize_activity_detail(
+            {**RAW, 'activityType': {'typeKey': 'strength_training'}},
+            exercise_sets={'exerciseSets': [{
+                'setType': 'ACTIVE', 'duration': 42.5, 'repetitionCount': 8,
+                'weight': 60, 'exercises': [{
+                    'category': 'BENCH_PRESS', 'name': 'BARBELL_BENCH_PRESS',
+                    'probability': 99,
+                }],
+            }, {'setType': 'REST', 'duration': 120}]},
+            strength_exercises=[{
+                'id': 7, 'exercise': 'Bänkpress', 'sets': 4,
+                'reps': '6', 'weight': 60, 'note': '',
+            }],
+        )
+
+        self.assertEqual(activity['exerciseSets'][0]['type'], 'active')
+        self.assertEqual(activity['exerciseSets'][0]['exercise'], 'BARBELL_BENCH_PRESS')
+        self.assertEqual(activity['exerciseSets'][0]['reps'], 8)
+        self.assertEqual(activity['strengthExercises'][0]['sets'], 4)
+        self.assertEqual(activity['strengthExercises'][0]['weight'], 60)
+
 
 class ActivityDetailEndpointTests(unittest.TestCase):
     def setUp(self):
@@ -159,6 +181,28 @@ class ActivityDetailEndpointTests(unittest.TestCase):
         self.assertEqual(payload['activity']['name'], 'Tröskel runt sjön')
         self.assertEqual(payload['activity']['laps'][0]['averagePower'], 330)
         set_cache.assert_called_once()
+
+    def test_strength_activity_fetches_sets_and_local_exercises(self):
+        strength_raw = {**RAW, 'activityType': {'typeKey': 'strength_training'}}
+        client = FakeGarmin()
+        client.get_activity_exercise_sets = lambda activity_id: {
+            'exerciseSets': [{'setType': 'ACTIVE', 'repetitionCount': 6, 'weight': 60}]
+        }
+        local = [{'id': 1, 'exercise': 'Bänkpress', 'sets': 4,
+                  'reps': '6', 'weight': 60, 'note': ''}]
+        self.login()
+        with patch.object(garmin_server, '_stored_activity_for_user', return_value=strength_raw), \
+             patch.object(garmin_server, '_stored_strength_exercises', return_value=local), \
+             patch.object(garmin_server, 'get_cache', return_value=None), \
+             patch.object(garmin_server, 'set_cache'), \
+             patch.object(garmin_server, '_garmin_connected', return_value=True), \
+             patch.object(garmin_server, 'get_garmin', return_value=client):
+            response = self.client.get('/api/activities/42')
+
+        self.assertEqual(response.status_code, 200)
+        activity = response.get_json()['activity']
+        self.assertEqual(activity['exerciseSets'][0]['reps'], 6)
+        self.assertEqual(activity['strengthExercises'][0]['exercise'], 'Bänkpress')
 
 
 if __name__ == '__main__':

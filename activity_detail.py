@@ -172,9 +172,53 @@ def _gear(items):
     return result
 
 
+def _exercise_sets(payload):
+    """Normalize Garmin's strength set stream without inventing missing fields."""
+    if isinstance(payload, dict):
+        items = payload.get('exerciseSets') or payload.get('sets') or []
+    else:
+        items = payload if isinstance(payload, list) else []
+    result = []
+    for position, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        candidates = [exercise for exercise in item.get('exercises') or []
+                      if isinstance(exercise, dict)]
+        exercise = max(candidates, key=lambda value: _number(value.get('probability')) or 0,
+                       default={})
+        result.append({
+            'index': position + 1,
+            'type': str(item.get('setType') or '').lower(),
+            'exercise': _pick(item.get('exerciseName'), exercise.get('name')),
+            'category': exercise.get('category'),
+            'reps': _rounded(item.get('repetitionCount'), 0),
+            'weight': _rounded(item.get('weight'), 2),
+            'duration': _rounded(item.get('duration'), 1),
+            'startedAt': item.get('startTime'),
+        })
+    return result
+
+
+def _logged_strength_exercises(items):
+    result = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict) or not item.get('exercise'):
+            continue
+        result.append({
+            'id': item.get('id'),
+            'exercise': str(item['exercise']),
+            'sets': int(item['sets']) if _number(item.get('sets')) is not None else None,
+            'reps': str(item.get('reps') or ''),
+            'weight': _rounded(item.get('weight'), 2),
+            'note': str(item.get('note') or ''),
+        })
+    return result
+
+
 def normalize_activity_detail(raw, activity=None, details=None, splits=None,
                               hr_zones=None, power_zones=None, weather=None,
-                              gear=None):
+                              gear=None, exercise_sets=None,
+                              strength_exercises=None):
     """Combine Garmin responses into one serializable activity payload."""
     raw = raw or {}
     activity = activity or {}
@@ -263,4 +307,6 @@ def normalize_activity_detail(raw, activity=None, details=None, splits=None,
             'description': (weather.get('weatherTypeDTO') or {}).get('desc'),
         } if weather else None,
         'gear': _gear(gear),
+        'exerciseSets': _exercise_sets(exercise_sets),
+        'strengthExercises': _logged_strength_exercises(strength_exercises),
     }
