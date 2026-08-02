@@ -34,6 +34,9 @@ class StravaConnectFlowTests(unittest.TestCase):
             mock.patch.object(garmin_server, 'STRAVA_REDIRECT_URI',
                               'https://trainyze.test/strava/callback'),
             mock.patch.object(garmin_server, 'STRAVA_TOKEN_ROOT', Path(self.tmp.name)),
+            mock.patch.object(garmin_server, 'get_cache', return_value=None),
+            mock.patch.object(garmin_server, 'set_cache'),
+            mock.patch.object(garmin_server, 'clear_cache'),
         ]
         for patcher in patchers:
             patcher.start()
