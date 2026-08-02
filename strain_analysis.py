@@ -46,6 +46,21 @@ def _activity_type(activity):
     return (activity or {}).get('type') or (raw.get('activityType') or {}).get('typeKey', '')
 
 
+# Under this, a session has nothing to say: no load and barely any elapsed time.
+# Garmin's watch produces stop_watch entries of a few seconds that would
+# otherwise outrank a real run when picking the most recent session.
+MIN_JUDGEABLE_SECONDS = 300
+
+
+def is_judgeable(activity):
+    """Whether a finished activity carries enough to be worth a verdict."""
+    if _activity_load(activity) > 0:
+        return True
+    raw = (activity or {}).get('raw') or {}
+    duration = _number((activity or {}).get('duration')) or _number(raw.get('duration')) or 0
+    return duration >= MIN_JUDGEABLE_SECONDS
+
+
 def daily_loads(activities, today=None, days=28):
     """Total training load per calendar day, newest day last."""
     today = today or date.today()

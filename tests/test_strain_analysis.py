@@ -2,8 +2,8 @@ import unittest
 from datetime import date, timedelta
 
 from strain_analysis import (
-    consecutive_high_days, reference_load, session_intensity, session_verdict,
-    strain_balance, strain_from_load, strain_series, strain_summary,
+    consecutive_high_days, is_judgeable, reference_load, session_intensity,
+    session_verdict, strain_balance, strain_from_load, strain_series, strain_summary,
 )
 
 
@@ -174,6 +174,28 @@ class SessionVerdictTests(unittest.TestCase):
 
         self.assertEqual(verdict['intensity'], 'moderate')
         self.assertFalse(verdict['isRun'])
+
+
+class JudgeableTests(unittest.TestCase):
+    def test_a_scored_session_is_worth_judging(self):
+        self.assertTrue(is_judgeable(activity(TODAY, 80)))
+
+    def test_a_watch_stopwatch_entry_is_not(self):
+        # Garmin writes these as zero-length stop_watch activities; left in,
+        # one outranks a real run when picking the most recent session.
+        noise = {'id': 5, 'name': 'Timed Activity', 'date': TODAY.isoformat(),
+                 'type': 'stop_watch', 'duration': 0, 'raw': {'duration': 0}}
+        self.assertFalse(is_judgeable(noise))
+
+    def test_a_long_session_without_load_still_counts(self):
+        unscored = {'id': 6, 'name': 'Långpass', 'date': TODAY.isoformat(),
+                    'type': 'running', 'duration': 2700, 'raw': {'duration': 2700}}
+        self.assertTrue(is_judgeable(unscored))
+
+    def test_a_few_seconds_without_load_does_not(self):
+        blip = {'id': 7, 'name': 'Blip', 'date': TODAY.isoformat(),
+                'type': 'running', 'duration': 45, 'raw': {'duration': 45}}
+        self.assertFalse(is_judgeable(blip))
 
 
 class IntensityTests(unittest.TestCase):

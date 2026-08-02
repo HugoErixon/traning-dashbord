@@ -5212,8 +5212,10 @@ def record_session_verdicts(activity_ids, user_id=1, max_age_days=3):
     if not activity_ids:
         return 0
     cutoff = (date.today() - timedelta(days=max_age_days)).isoformat()
+    wanted = set(activity_ids)
     activities = [a for a in _recent_activities(user_id, days=max_age_days)
-                  if a.get('id') in set(activity_ids) and str(a.get('date') or '')[:10] >= cutoff]
+                  if a.get('id') in wanted and str(a.get('date') or '')[:10] >= cutoff
+                  and strain_analysis.is_judgeable(a)]
     if not activities:
         return 0
 
@@ -5229,11 +5231,13 @@ def record_session_verdicts(activity_ids, user_id=1, max_age_days=3):
                     verdict = strain_analysis.session_verdict(
                         activity, reference=reference, acwr=acwr,
                         readiness=readiness, sleep_hours=sleep_hours)
+                    # Hela starttiden sparas, inte bara datumet — annars avgör
+                    # insättningsordningen vilket av dagens pass som visas.
                     cur.execute('''INSERT INTO session_verdicts
                         (activity_id, user_id, activity_date, verdict, created_at)
                         VALUES (%s,%s,%s,%s,%s)
                         ON CONFLICT (activity_id, user_id) DO NOTHING''',
-                        (activity['id'], user_id, verdict['date'],
+                        (activity['id'], user_id, str(activity.get('date') or verdict['date'])[:19],
                          json.dumps(verdict), time.time()))
                     written += cur.rowcount
                 except Exception as e:
