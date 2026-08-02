@@ -6441,6 +6441,92 @@ def _unseen_activity_ids(activities, user_id):
     return {i for i in ids if i not in known}
 
 
+# Ett pass som dyker upp tre dagar sent behover ingen notis - da har du redan
+# levt vidare. Fonstret ar snavare an for omdomena av just den anledningen.
+ACTIVITY_PUSH_MAX_AGE_HOURS = float(config.get('ACTIVITY_PUSH_MAX_AGE_HOURS', '30'))
+ACTIVITY_PUSH_MAX_INDIVIDUAL = 2
+
+
+def _activity_started_at(activity):
+    """Starttiden som datetime, eller None. Kolumnen ar text ('2026-08-02 17:18:32')."""
+    raw = str(activity.get('date') or '')[:19]
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _activity_push_line(activity):
+    """Kort beskrivning av ett pass: distans och tid, tempo nar det ar en lopning."""
+    bits = []
+    distance = (activity.get('distance') or 0) / 1000
+    raw = activity.get('raw') or {}
+    duration = activity.get('duration') or raw.get('duration') or 0
+    if distance >= 0.1:
+        bits.append(f'{distance:.1f} km'.replace('.', ','))
+    if duration:
+        minutes = int(duration / 60)
+        bits.append(f'{minutes // 60} h {minutes % 60} min' if minutes >= 60
+                    else f'{minutes} min')
+    if distance >= 0.5 and duration:
+        pace = (duration / 60) / distance
+        bits.append(f'{int(pace)}:{int((pace % 1) * 60):02d}/km')
+    return ' · '.join(bits)
+
+
+def notify_new_activities(activity_ids, user_id=1):
+    """Notis om pass som just synkats in.
+
+    Bara riktigt farska pass, och bara nagra stycken: en backfill eller en
+    forsta synk hittar hela historiken, och femtio notiser pa en gang ar ett
+    battre satt att fa nagon att sla av notiser an att sla pa dem."""
+    if not push_available() or not activity_ids:
+        return 0
+    wanted = set(activity_ids)
+    cutoff = datetime.now() - timedelta(hours=ACTIVITY_PUSH_MAX_AGE_HOURS)
+    try:
+        candidates = []
+        for activity in _recent_activities(user_id, days=3):
+            if activity.get('id') not in wanted:
+                continue
+            started = _activity_started_at(activity)
+            if started and started < cutoff:
+                continue
+            candidates.append(activity)
+    except Exception as exc:
+        print('passnotis: kunde inte lasa aktiviteter:', exc)
+        return 0
+    if not candidates:
+        return 0
+
+    if len(candidates) > ACTIVITY_PUSH_MAX_INDIVIDUAL:
+        total = sum((a.get('distance') or 0) for a in candidates) / 1000
+        body = f'{len(candidates)} pass'
+        if total >= 0.1:
+            body += f', {total:.1f} km totalt'.replace('.', ',')
+        send_push(user_id, 'Nya pass synkade', body, url='/', tag='activity-synced')
+        return len(candidates)
+
+    sent = 0
+    for activity in candidates:
+        title = activity.get('name') or 'Nytt pass'
+        body = _activity_push_line(activity)
+        try:
+            verdict = strain_analysis.session_verdict(activity)
+            if verdict.get('headline'):
+                body = f"{body} · {verdict['headline']}" if body else verdict['headline']
+        except Exception as exc:
+            print('passnotis: omdome saknas:', exc)
+        if not body:
+            body = 'Passet finns nu i Trainyze.'
+        # Egen tagg per pass sa att tva pass samma dag inte ersatter varandra.
+        sent += 1 if send_push(user_id, title, body, url='/',
+                               tag=f"activity-{activity.get('id')}") else 0
+    return sent
+
+
 def record_session_verdicts(activity_ids, user_id=1, max_age_days=3):
     """Skriv ett omdöme för varje nytt pass från de senaste dygnen.
 
@@ -6537,6 +6623,11 @@ def run_sync(count=50, username=None, user_id=1):
         record_session_verdicts(fresh_ids, user_id)
     except Exception as e:
         print('Passomdöme fel:', e)
+    # Efter omdömena, så att notisen kan bära med sig ett av dem.
+    try:
+        notify_new_activities(fresh_ids, user_id)
+    except Exception as e:
+        print('Passnotis fel:', e)
     try:
         link_manual_exercises_to_activities(user_id)
     except Exception as e:
