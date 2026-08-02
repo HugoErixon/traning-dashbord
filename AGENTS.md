@@ -91,6 +91,15 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
 - **Garmin auth:** unofficial `garminconnect` library per-user, tokens in
   `~/.garminconnect/<username>/`. Official aggregators (Terra, Junction) were evaluated
   and rejected as too expensive for this use case.
+- **Web push:** `public/sw.js` (notifications only — it deliberately caches nothing, since a
+  stale cache on a dashboard of today's numbers is worse than a slow load). Subscriptions live
+  in `push_subscriptions`, keyed by endpoint so a re-subscribe updates instead of duplicating.
+  `send_push(user_id, title, body, url)` fans out to every device and deletes subscriptions
+  that answer 404/410 — those are gone for good. Needs `VAPID_PUBLIC_KEY` and
+  `VAPID_PRIVATE_KEY` in `.env`; without them the endpoints report unavailable and nothing is
+  sent. **On iPhone the site must be added to the Home Screen first** — Safari blocks push from
+  an ordinary tab, so the settings card detects that case and says so instead of offering a
+  button that could not work. No triggers are wired up yet beyond `POST /api/push/test`.
 - **Email:** Resend (`RESEND_API_KEY`), domain `trainyze.com` verified via Cloudflare
   integration, used for registration verification emails.
 - **Background sync:** runs every three hours from application startup and syncs Garmin,

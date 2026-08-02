@@ -64,9 +64,13 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn('id="settings-garmin-state"', self.index)
         self.assertIn('id="settings-strava-state"', self.index)
         self.assertIn('id="settings-calendar-state"', self.index)
+        self.assertIn('id="settings-push-state"', self.index)
         self.assertNotIn('class="garmin-sync-row"', self.index)
         self.assertNotIn('class="strava-sync-row"', self.index)
-        self.assertIn("if (id === 'settings') loadSettingsPage()", self.app)
+        # Att navigera till inställningar ska ladda sidans status. Matcha på
+        # anropet snarare än hela raden — raden har fler anrop nu.
+        self.assertIn("if (id === 'settings')", self.app)
+        self.assertIn('loadSettingsPage();', self.app)
 
     def test_primary_navigation_has_settings_and_no_utility_buttons(self):
         navigation = self.index.split('<nav class="topnav"', 1)[1].split('</nav>', 1)[0]

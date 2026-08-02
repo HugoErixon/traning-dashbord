@@ -1168,6 +1168,9 @@ function executeAction(trigger, event) {
   else if (action === 'connect-strava') connectStrava();
   else if (action === 'sync-strava') syncStrava();
   else if (action === 'disconnect-strava') disconnectStrava();
+  else if (action === 'enable-push') enablePush();
+  else if (action === 'disable-push') disablePush();
+  else if (action === 'send-test-push') sendTestPush();
   else if (action === 'settings-strava-primary') stravaConnected
     ? syncStrava() : connectStrava();
   else if (action === 'open-goal-modal') openGoalModal(false);
@@ -1265,7 +1268,7 @@ acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset
     if (id === 'journal')  loadJournal();
     if (id === 'upcoming') { checkGcalStatus(); loadPaceProposals(); }
     if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcBedtime(); loadHumidityStatus(); loadAcHistory(); }
-    if (id === 'settings') loadSettingsPage();
+    if (id === 'settings') { loadSettingsPage(); refreshPushUi(); }
   }
 
   // Nedräkning och målrad ritas av renderGoalUi() när målet laddats.
@@ -6131,6 +6134,188 @@ HEALTH DATA (current):
       setButtons(syncIds, 'Försök igen', 'var(--red)', false);
     }
   }
+
+
+  // ─── WEBBNOTISER ─────────────────────────────────────────────────────────
+  // På iPhone tillåter Safari inte push från en vanlig flik. Sajten måste
+  // först läggas till på hemskärmen, och då körs den i standalone-läge. Det
+  // gör att UI:t behöver kunna säga tre olika saker: "din enhet kan inte",
+  // "lägg till på hemskärmen först", och "tryck här för att slå på".
+  let pushSubscription = null;
+
+  function pushSupported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window &&
+           'Notification' in window;
+  }
+
+  function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches ||
+           window.navigator.standalone === true;
+  }
+
+  function isIos() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    // VAPID-nyckeln levereras base64url-kodad men subscribe() vill ha bytes.
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = window.atob(base64);
+    return Uint8Array.from([...raw].map(char => char.charCodeAt(0)));
+  }
+
+  async function registerPushWorker() {
+    if (!pushSupported()) return null;
+    try {
+      return await navigator.serviceWorker.register('/sw.js');
+    } catch (error) {
+      console.warn('Service worker kunde inte registreras:', error);
+      return null;
+    }
+  }
+
+  async function refreshPushUi() {
+    const state = document.getElementById('settings-push-state');
+    const copy = document.getElementById('settings-push-copy');
+    const primary = document.getElementById('settings-push-primary');
+    const test = document.getElementById('settings-push-test');
+    if (!state || !copy || !primary) return;
+
+    const setState = (text, cls) => { state.textContent = text; state.className = 'integration-state ' + (cls || ''); };
+    const show = (el, visible) => { if (el) el.style.display = visible ? '' : 'none'; };
+
+    if (!pushSupported()) {
+      setState('Stöds ej', 'is-off');
+      copy.textContent = 'Den här webbläsaren saknar stöd för notiser.';
+      show(primary, false); show(test, false);
+      return;
+    }
+    if (isIos() && !isStandalone()) {
+      setState('Kräver hemskärm', 'is-off');
+      copy.textContent = 'På iPhone måste Trainyze läggas till på hemskärmen innan notiser '
+        + 'kan slås på. Tryck på Dela i Safari och välj "Lägg till på hemskärmen", '
+        + 'öppna appen därifrån och kom tillbaka hit.';
+      show(primary, false); show(test, false);
+      return;
+    }
+
+    let serverReady = false;
+    try {
+      const response = await fetch('/api/push/status');
+      serverReady = (await response.json()).available;
+    } catch (error) { /* visas som avstängt nedan */ }
+    if (!serverReady) {
+      setState('Ej konfigurerad', 'is-off');
+      copy.textContent = 'Servern saknar VAPID-nycklar, så notiser kan inte skickas än.';
+      show(primary, false); show(test, false);
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.getRegistration();
+    pushSubscription = registration ? await registration.pushManager.getSubscription() : null;
+
+    if (pushSubscription && Notification.permission === 'granted') {
+      setState('På', 'is-on');
+      copy.textContent = 'Den här enheten tar emot notiser från Trainyze.';
+      primary.textContent = 'Stäng av';
+      primary.dataset.action = 'disable-push';
+      show(primary, true); show(test, true);
+    } else if (Notification.permission === 'denied') {
+      setState('Blockerad', 'is-off');
+      copy.textContent = 'Notiser är blockerade för Trainyze. Slå på dem igen i enhetens '
+        + 'inställningar för att kunna aktivera här.';
+      show(primary, false); show(test, false);
+    } else {
+      setState('Av', 'is-off');
+      copy.textContent = 'Få en notis när något viktigt händer i din träning.';
+      primary.textContent = 'Slå på notiser';
+      primary.dataset.action = 'enable-push';
+      show(primary, true); show(test, false);
+    }
+  }
+
+  async function enablePush() {
+    const primary = document.getElementById('settings-push-primary');
+    if (primary) { primary.disabled = true; primary.textContent = 'Aktiverar…'; }
+    try {
+      // Tillåtelsen måste begäras från ett knapptryck — därav att det här
+      // ligger i en klick-hanterare och inte vid sidladdning.
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      const registration = await registerPushWorker();
+      if (!registration) throw new Error('Service worker saknas.');
+      await navigator.serviceWorker.ready;
+
+      const keyResponse = await fetch('/api/push/key');
+      const { key } = await keyResponse.json();
+      if (!key) throw new Error('Servern saknar VAPID-nyckel.');
+
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+      const stored = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription.toJSON()),
+      });
+      if (!stored.ok) throw new Error('Servern kunde inte spara prenumerationen.');
+    } catch (error) {
+      console.warn('Kunde inte aktivera notiser:', error);
+      alert('Notiser kunde inte aktiveras: ' + error.message);
+    } finally {
+      if (primary) primary.disabled = false;
+      refreshPushUi();
+    }
+  }
+
+  async function disablePush() {
+    const primary = document.getElementById('settings-push-primary');
+    if (primary) { primary.disabled = true; primary.textContent = 'Stänger av…'; }
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const subscription = registration ? await registration.pushManager.getSubscription() : null;
+      if (subscription) {
+        // Säg till servern först: lyckas avregistreringen i webbläsaren men
+        // inte på servern skulle vi fortsätta skicka till en död enhet.
+        await fetch('/api/push/unsubscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        await subscription.unsubscribe();
+      }
+    } catch (error) {
+      console.warn('Kunde inte stänga av notiser:', error);
+    } finally {
+      if (primary) primary.disabled = false;
+      refreshPushUi();
+    }
+  }
+
+  async function sendTestPush() {
+    const test = document.getElementById('settings-push-test');
+    if (test) { test.disabled = true; test.textContent = 'Skickar…'; }
+    try {
+      const response = await fetch('/api/push/test', { method: 'POST' });
+      const payload = await response.json().catch(() => ({}));
+      if (test) test.textContent = response.ok ? 'Skickad ✓' : 'Misslyckades';
+      if (!response.ok) alert(payload.error || 'Testnotisen kunde inte skickas.');
+    } catch (error) {
+      if (test) test.textContent = 'Misslyckades';
+    } finally {
+      setTimeout(() => {
+        if (test) { test.disabled = false; test.textContent = 'Skicka testnotis'; }
+      }, 2500);
+    }
+  }
+
+  // Registrera i bakgrunden vid start så att en redan godkänd prenumeration
+  // överlever en omladdning. Frågar aldrig om lov här — det kräver ett klick.
+  if (pushSupported() && Notification.permission === 'granted') registerPushWorker();
 
   // Bygg kalendern direkt + när Plan-fliken öppnas
   buildCalendar();

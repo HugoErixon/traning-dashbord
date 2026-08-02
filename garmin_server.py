@@ -22,6 +22,10 @@ import yaml
 import re
 import strava_integration
 from apscheduler.schedulers.background import BackgroundScheduler
+try:
+    from pywebpush import webpush, WebPushException
+except ImportError:  # notiser ar valfria - appen ska starta anda
+    webpush, WebPushException = None, Exception
 from werkzeug.exceptions import HTTPException
 from security import LoginRateLimiter, parse_users, verify_user
 from user_store import MemoryUserStore, DbUserStore, DuplicateUserError, UserStoreError
@@ -791,6 +795,21 @@ def migrate_db():
                     ON session_verdicts (user_id, activity_date DESC)''')
             except Exception as e:
                 print('migrate_db session_verdicts:', e)
+            try:
+                # En rad per enhet. Endpoint är unik hos push-tjänsten, så den
+                # duger som nyckel och gör om-prenumeration till en uppdatering
+                # i stället för en dubblett.
+                cur.execute('''CREATE TABLE IF NOT EXISTS push_subscriptions (
+                    endpoint TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    p256dh TEXT NOT NULL,
+                    auth TEXT NOT NULL,
+                    created_at REAL,
+                    last_ok REAL)''')
+                cur.execute('''CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
+                    ON push_subscriptions (user_id)''')
+            except Exception as e:
+                print('migrate_db push_subscriptions:', e)
             try:
                 # När natten började och slutade, plus resten av stadiefördelningen.
                 # Utan tiderna går läggdagsregelbundenhet inte att mäta alls.
@@ -2814,6 +2833,165 @@ def activity_ai_overview(activity_id):
         return _server_error(exc, 'activity.ai_failed', status=502,
                              code='ai_provider_error',
                              message='AI-översikten kunde inte skapas just nu.')
+
+# ─────────────────────────────────────────────
+# WEBBNOTISER (Web Push)
+# ─────────────────────────────────────────────
+# På iPhone måste sajten läggas till på hemskärmen innan Safari ens tillåter
+# att fråga om lov — push från en vanlig flik är blockerat av Apple. Servern
+# märker inget av det; den skickar likadant oavsett plattform.
+VAPID_PUBLIC_KEY  = config.get('VAPID_PUBLIC_KEY', '')
+VAPID_PRIVATE_KEY = config.get('VAPID_PRIVATE_KEY', '')
+VAPID_SUBJECT     = config.get('VAPID_SUBJECT', 'mailto:hugo.erixon13@gmail.com')
+
+
+def push_available():
+    return bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY and webpush is not None)
+
+
+def _forget_subscription(endpoint):
+    """Ta bort en prenumeration som push-tjänsten sagt är död."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM push_subscriptions WHERE endpoint=%s', (endpoint,))
+            conn.commit()
+    except Exception as exc:
+        print('push: kunde inte rensa prenumeration:', exc)
+
+
+def send_push(user_id, title, body, url='/', tag='trainyze'):
+    """Skicka en notis till alla enheter en användare registrerat.
+
+    Returnerar antalet enheter som tog emot den. Prenumerationer som svarar
+    404/410 är permanent döda — då har appen avinstallerats eller ikonen
+    raderats — och rensas bort direkt, annars växer tabellen med skräp."""
+    if not push_available():
+        return 0
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT endpoint, p256dh, auth FROM push_subscriptions
+                    WHERE user_id=%s''', (user_id,))
+                rows = cur.fetchall()
+    except Exception as exc:
+        print('push: kunde inte läsa prenumerationer:', exc)
+        return 0
+
+    payload = json.dumps({'title': title, 'body': body, 'url': url, 'tag': tag})
+    sent = 0
+    for endpoint, p256dh, auth in rows:
+        try:
+            webpush(
+                subscription_info={'endpoint': endpoint,
+                                   'keys': {'p256dh': p256dh, 'auth': auth}},
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={'sub': VAPID_SUBJECT},
+                timeout=15)
+            sent += 1
+            try:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute('UPDATE push_subscriptions SET last_ok=%s WHERE endpoint=%s',
+                                    (time.time(), endpoint))
+                    conn.commit()
+            except Exception:
+                pass
+        except WebPushException as exc:
+            status = getattr(exc.response, 'status_code', None)
+            if status in (404, 410):
+                logger.info('Dropping dead push subscription', extra={
+                    'event': 'push.subscription_gone', 'user_id': user_id, 'status': status})
+                _forget_subscription(endpoint)
+            else:
+                logger.warning('Push delivery failed', extra={
+                    'event': 'push.failed', 'user_id': user_id, 'status': status,
+                    'detail': str(exc)[:200]})
+        except Exception as exc:
+            logger.warning('Push delivery error', extra={
+                'event': 'push.error', 'user_id': user_id, 'detail': str(exc)[:200]})
+    return sent
+
+
+@app.get('/api/push/key')
+def push_public_key():
+    """Publika VAPID-nyckeln som webbläsaren prenumererar med."""
+    return jsonify({'key': VAPID_PUBLIC_KEY, 'available': push_available()})
+
+
+@app.post('/api/push/subscribe')
+def push_subscribe():
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get('endpoint')
+    keys = data.get('keys') or {}
+    p256dh, auth = keys.get('p256dh'), keys.get('auth')
+    if not endpoint or not p256dh or not auth:
+        return _api_error('invalid_subscription', 'Prenumerationen saknar nycklar.', 400)
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                # Samma enhet kan prenumerera om efter en omregistrering; då ska
+                # raden bytas ut, och byter användare på enheten ska den följa med.
+                cur.execute('''INSERT INTO push_subscriptions
+                        (endpoint, user_id, p256dh, auth, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (endpoint) DO UPDATE SET
+                        user_id=EXCLUDED.user_id, p256dh=EXCLUDED.p256dh,
+                        auth=EXCLUDED.auth''',
+                    (endpoint, uid(), p256dh, auth, time.time()))
+            conn.commit()
+    except Exception as exc:
+        return _server_error(exc, 'push.subscribe_failed',
+                             message='Kunde inte spara notisinställningen.')
+    logger.info('Push subscription stored', extra={
+        'event': 'push.subscribed', 'user_id': uid()})
+    return jsonify({'ok': True})
+
+
+@app.post('/api/push/unsubscribe')
+def push_unsubscribe():
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get('endpoint')
+    if not endpoint:
+        return _api_error('invalid_subscription', 'Ingen prenumeration angiven.', 400)
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('DELETE FROM push_subscriptions WHERE endpoint=%s AND user_id=%s',
+                            (endpoint, uid()))
+            conn.commit()
+    except Exception as exc:
+        return _server_error(exc, 'push.unsubscribe_failed',
+                             message='Kunde inte ta bort notisinställningen.')
+    return jsonify({'ok': True})
+
+
+@app.get('/api/push/status')
+def push_status():
+    """Hur många enheter den inloggade användaren har registrerat."""
+    count = 0
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT COUNT(*) FROM push_subscriptions WHERE user_id=%s', (uid(),))
+                count = cur.fetchone()[0]
+    except Exception as exc:
+        print('push status:', exc)
+    return jsonify({'devices': count, 'available': push_available()})
+
+
+@app.post('/api/push/test')
+def push_test():
+    """Skicka en testnotis så att uppsättningen går att verifiera på riktigt."""
+    if not push_available():
+        return _api_error('push_not_configured', 'Notiser är inte konfigurerade på servern.', 503)
+    sent = send_push(uid(), 'Trainyze', 'Testnotis — notiser fungerar.', url='/')
+    if not sent:
+        return _api_error('no_devices',
+                          'Ingen enhet tog emot notisen. Aktivera notiser på enheten först.', 404)
+    return jsonify({'ok': True, 'devices': sent})
+
 
 # ─────────────────────────────────────────────
 # HRV-LOGIK (Garmin HRV Status + personlig baslinje)
