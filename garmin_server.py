@@ -2843,6 +2843,10 @@ def activity_ai_overview(activity_id):
 VAPID_PUBLIC_KEY  = config.get('VAPID_PUBLIC_KEY', '')
 VAPID_PRIVATE_KEY = config.get('VAPID_PRIVATE_KEY', '')
 VAPID_SUBJECT     = config.get('VAPID_SUBJECT', 'mailto:hugo.erixon13@gmail.com')
+# En morgonrapport som kommer kl 20 ar inte en morgonrapport.
+MORNING_REPORT_HOURS = (
+    int(config.get('MORNING_REPORT_FROM', '5')),
+    int(config.get('MORNING_REPORT_TO', '11')))
 
 
 def push_available():
@@ -7023,6 +7027,103 @@ def plan_status():
 # ─────────────────────────────────────────────
 # SCHEDULER — synkar Garmin var tredje timme
 # ─────────────────────────────────────────────
+def _morning_report_text(user_id):
+    """Bygg morgonrapportens rubrik och text, eller (None, None) om det saknas underlag.
+
+    Medvetet räknad ur data i stället för genererad av AI: den här körs i
+    bakgrundsjobbet, och en notis som ibland uteblir för att kvoten är slut är
+    sämre än en som alltid kommer. En låsskärm rymmer heller inte mer än ett par
+    rader, så det finns inget utrymme för resonemang — det står kvar i appen."""
+    parts = []
+
+    # Sömn och beredskap: hela anledningen till att rapporten väntar på synken.
+    sleep_bit = None
+    try:
+        cns, sleep_h = _recent_recovery(user_id)
+        if sleep_h:
+            sleep_bit = f'Sov {sleep_h:.1f} h'.replace('.', ',')
+        if cns is not None:
+            sleep_bit = (sleep_bit + f', beredskap {cns}/100') if sleep_bit \
+                        else f'Beredskap {cns}/100'
+    except Exception as exc:
+        print('morgonrapport: återhämtning saknas:', exc)
+    if sleep_bit:
+        parts.append(sleep_bit)
+
+    # Dagens planerade pass.
+    today = date.today()
+    week, dow = _iso_week_dow(today)
+    session_title = None
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT title, km, type FROM plan_sessions
+                    WHERE week=%s AND dow=%s AND user_id=%s ORDER BY id LIMIT 1''',
+                    (week, dow, user_id))
+                row = cur.fetchone()
+        if row:
+            title, km, kind = row
+            session_title = title
+            if km:
+                session_title += f' {km:.0f} km'.replace('.0 ', ' ')
+        else:
+            session_title = 'Vilodag'
+    except Exception as exc:
+        print('morgonrapport: kunde inte läsa planen:', exc)
+
+    # En varning väger tyngre än allt annat och ska stå först.
+    warning = None
+    try:
+        cns_for_strain, _ = _recent_recovery(user_id)
+        chronic, _ = _load_context(user_id)
+        summary = strain_analysis.strain_summary(
+            _recent_activities(user_id, days=30), readiness=cns_for_strain, chronic=chronic)
+        if summary.get('tone') == 'warn' and summary.get('headline'):
+            warning = summary['headline']
+    except Exception as exc:
+        print('morgonrapport: strain saknas:', exc)
+
+    if warning:
+        parts.append(warning)
+    if not parts and not session_title:
+        return None, None
+
+    headline = session_title or 'God morgon'
+    return headline, ' · '.join(parts) if parts else 'Dagens data är inne.'
+
+
+def maybe_send_morning_report(user_id):
+    """Skicka dagens morgonrapport en gång, när sömndatan väl finns.
+
+    Kroken sitter i den dagliga rutinen, som redan väntar på att dagens
+    hälsodata synkat — därför behövs inget gissat klockslag. Tidsfönstret finns
+    ändå: synkar klockan inte förrän på kvällen är en 'morgonrapport' bara
+    störande, och då är det bättre att hoppa över dagen."""
+    if not push_available():
+        return False
+    today = date.today().isoformat()
+    row = get_cache('morning_report_sent', user_id)
+    if row and row[0].get('date') == today:
+        return False
+
+    hour = datetime.now(LOCAL_TZ).hour
+    if not (MORNING_REPORT_HOURS[0] <= hour < MORNING_REPORT_HOURS[1]):
+        # Markera dagen som avklarad ändå, annars smäller den vid nästa synk
+        # som råkar hamna innanför fönstret — dagen efter är en ny chans.
+        set_cache('morning_report_sent', {'date': today, 'skipped': 'outside_window'}, user_id)
+        return False
+
+    headline, body = _morning_report_text(user_id)
+    if not headline:
+        return False
+
+    sent = send_push(user_id, headline, body, url='/', tag='morning-report')
+    set_cache('morning_report_sent', {'date': today, 'devices': sent}, user_id)
+    logger.info('Morning report sent', extra={
+        'event': 'push.morning_report', 'user_id': user_id, 'devices': sent})
+    return bool(sent)
+
+
 def maybe_run_daily_routine():
     """Den dagliga rutinen körs EN gång per dag — men först när dagens hälsodata
     faktiskt har synkat. Ingen gissad klockslag, inget 'recovery unavailable'.
@@ -7050,6 +7151,11 @@ def maybe_run_daily_routine():
     collect_metric_history(username=first_user)
     clear_cache('insights', user_id=first_uid)
     set_cache('last_daily_history', {'date': today}, first_uid)
+    # Historiken maste vara insamlad forst - rapporten laser samma siffror.
+    try:
+        maybe_send_morning_report(first_uid)
+    except Exception as e:
+        print('Daglig rutin: morgonrapport misslyckades', e)
 
 def auto_sync_job():
     first = next(iter(USERS), None)

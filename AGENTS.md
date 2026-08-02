@@ -99,7 +99,13 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   `VAPID_PRIVATE_KEY` in `.env`; without them the endpoints report unavailable and nothing is
   sent. **On iPhone the site must be added to the Home Screen first** — Safari blocks push from
   an ordinary tab, so the settings card detects that case and says so instead of offering a
-  button that could not work. No triggers are wired up yet beyond `POST /api/push/test`.
+  button that could not work.
+  - **Morning report** is the one live trigger. It hangs off `maybe_run_daily_routine()`,
+    which already waits for today's sleep data to sync rather than guessing a time, so the
+    report arrives once the numbers actually exist. `MORNING_REPORT_FROM`/`_TO` (5–11) stop a
+    late sync from sending a "morning" report at night; a day outside the window is marked
+    done rather than deferred. Text is computed, not AI-generated — a background job must not
+    depend on LLM quota, and a lock screen has no room for reasoning anyway.
 - **Email:** Resend (`RESEND_API_KEY`), domain `trainyze.com` verified via Cloudflare
   integration, used for registration verification emails.
 - **Background sync:** runs every three hours from application startup and syncs Garmin,
