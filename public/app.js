@@ -4895,7 +4895,18 @@ HEALTH DATA (current):
     const detail= document.getElementById('today-session-detail');
     const km    = document.getElementById('today-session-km');
     const type  = document.getElementById('today-session-type');
+    const verdict = document.getElementById('today-session-verdict');
     if (!card || !panel || !dot || !title || !detail || !km || !type) return;
+
+    // Omdömesraden är valfri i DOM:en; varje gren nedan sätter den explicit,
+    // så den töms här för att inte läcka mellan planerat och genomfört pass.
+    const setVerdict = (text, color) => {
+      if (!verdict) return;
+      verdict.textContent = text || '';
+      verdict.style.color = color || '';
+      verdict.style.display = text ? 'block' : 'none';
+    };
+    setVerdict('');
 
     // Rendering can switch between a completed activity and a planned session;
     // always clear the previous interaction before deciding what today contains.
@@ -4973,12 +4984,11 @@ HEALTH DATA (current):
       detail.title = verdictLines.length
         ? [detailStr, ...verdictLines].join('\n')
         : detailStr;
+      type.textContent = 'KLART';
+      type.style.color = '';
       if (execution?.headline) {
-        type.textContent  = execution.headline.toUpperCase();
-        type.style.color  = executionIsPositive(execution) ? 'var(--green)' : 'var(--amber)';
-      } else {
-        type.textContent  = 'KLART';
-        type.style.color  = '';
+        setVerdict(execution.headline.toUpperCase(),
+                   executionIsPositive(execution) ? 'var(--green)' : 'var(--amber)');
       }
       return;
     }
@@ -5005,8 +5015,10 @@ HEALTH DATA (current):
     detail.textContent     = (s.type === 'lift' && s.strength_recommendation_text) || s.detail || '';
     km.textContent         = s.km > 0 ? s.km + ' km' : '';
     km.style.color         = col;
-    const statusSuffix = s.status && s.status !== 'planned' ? '  -  ' + s.status.toUpperCase() : '';
-    type.textContent       = (typeLabels[s.type] || String(s.type || 'PLAN').toUpperCase()) + statusSuffix;
+    // Högerkolumnen rymmer bara en kort etikett — status läggs på omdömesraden
+    // så att den inte tvingar ut kolumnbredden på smala skärmar.
+    type.textContent       = typeLabels[s.type] || String(s.type || 'PLAN').toUpperCase();
+    if (s.status && s.status !== 'planned') setVerdict(s.status.toUpperCase(), 'var(--muted2)');
   }
 
   function openTodayActivity() {
