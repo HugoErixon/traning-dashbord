@@ -201,6 +201,10 @@ LLM_PROVIDER = LLM_CHAIN[0] if LLM_CHAIN else 'gemini'
 _llm_cooldowns = {}
 _llm_cooldown_guard = threading.Lock()
 LLM_TRANSIENT_COOLDOWN = float(config.get('LLM_TRANSIENT_COOLDOWN', '30'))
+# En leverantor som saknar giltigt konto ar inte tillfalligt nere - det ar
+# ingen ide att fraga igen forran nagon gjort nagot at saken.
+LLM_DISABLED_COOLDOWN = float(config.get('LLM_DISABLED_COOLDOWN', '3600'))
+AUTH_FAILURE_CODES = (401, 402, 403)
 
 
 def _llm_cooldown_remaining(name):
@@ -264,6 +268,16 @@ class LLMTransientError(RuntimeError):
     är precis som kvotfel något som ska få kedjan att gå vidare till nästa."""
 
 
+class LLMUnavailableError(RuntimeError):
+    """Leverantören avvisade oss av konto-skäl: ogiltig nyckel, obetald faktura
+    eller saknad behörighet (401/402/403).
+
+    Kedjan ska gå vidare — en leverantör utan konto är oanvändbar, inte ett
+    tecken på att prompten är trasig. Men den ska parkeras länge: det hjälper
+    inte att fråga igen om trettio sekunder när det som saknas är en
+    betalningsmetod."""
+
+
 def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait):
     body = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}
     if system:
@@ -281,6 +295,8 @@ def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait):
         err = rj['error']
         code = err.get('code')
         if code != 429:
+            if code in AUTH_FAILURE_CODES:
+                raise LLMUnavailableError(f"Gemini {code}: {err.get('message')}")
             if isinstance(code, int) and code >= 500:
                 raise LLMTransientError(f"Gemini {code}: {err.get('message')}")
             raise RuntimeError(f"Gemini {code}: {err.get('message')}")
@@ -318,6 +334,8 @@ def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait):
             except (TypeError, ValueError):
                 wait = None
             raise LLMQuotaError(f'Anthropic: {message}', retry_after=wait)
+        if resp.status_code in AUTH_FAILURE_CODES:
+            raise LLMUnavailableError(f'Anthropic {resp.status_code}: {message}')
         if resp.status_code >= 500:
             raise LLMTransientError(f'Anthropic {resp.status_code}: {message}')
         raise RuntimeError(f'Anthropic: {message}')
@@ -341,6 +359,9 @@ def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wai
         except (TypeError, ValueError):
             wait = None
         raise LLMQuotaError(f'{spec["label"]} 429: {resp.text[:200]}', retry_after=wait)
+    if resp.status_code in AUTH_FAILURE_CODES:
+        raise LLMUnavailableError(
+            f'{spec["label"]} {resp.status_code}: {resp.text[:200]}')
     if resp.status_code >= 500:
         raise LLMTransientError(f'{spec["label"]} {resp.status_code}')
     rj = resp.json()
@@ -391,6 +412,12 @@ def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
             logger.warning('LLM provider out of quota', extra={
                 'event': 'llm.quota', 'provider': name,
                 'retry_after_s': exc.retry_after})
+            last_error = exc
+        except LLMUnavailableError as exc:
+            _set_llm_cooldown(name, LLM_DISABLED_COOLDOWN)
+            logger.warning('LLM provider rejected our account', extra={
+                'event': 'llm.unavailable', 'provider': name,
+                'detail': str(exc)[:200]})
             last_error = exc
         except (LLMTransientError, requests.RequestException) as exc:
             _set_llm_cooldown(name, LLM_TRANSIENT_COOLDOWN)

@@ -75,6 +75,10 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
     Anthropic only ever runs if it is named explicitly.
   - `LLM_RETRY_MAX_WAIT` (default 10s) caps how long a provider may make us sleep before we
     give up on it; a wait is only taken at all when no other provider could take over.
+  - 401/402/403 mean the account is unusable, not that the prompt is bad, so the chain moves
+    on and parks that provider for `LLM_DISABLED_COOLDOWN` (default 1h) — asking again in
+    thirty seconds cannot fix a missing payment method. Cerebras returned 402 on every model
+    with a valid key on 2026-08-02, which is what this handling came from.
 - **Garmin auth:** unofficial `garminconnect` library per-user, tokens in
   `~/.garminconnect/<username>/`. Official aggregators (Terra, Junction) were evaluated
   and rejected as too expensive for this use case.

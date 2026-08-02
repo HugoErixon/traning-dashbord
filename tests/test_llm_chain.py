@@ -164,3 +164,69 @@ class ChainFailoverTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ProviderAccountFailureTests(unittest.TestCase):
+    """En leverantör kan vara obrukbar utan att vara trasig.
+
+    Cerebras svarade 402 "Payment required" på varje modell med en giltig
+    nyckel. Det får inte stoppa kedjan — men det är heller ingen idé att
+    fråga igen om en halv minut.
+    """
+
+    def setUp(self):
+        garmin_server.reset_llm_cooldowns()
+        self.specs = {
+            'cerebras': {'kind': 'openai', 'key': 'c', 'model': 'm',
+                         'url': 'https://api.cerebras.ai/v1/chat/completions',
+                         'label': 'Cerebras'},
+            'gemini': {'kind': 'gemini', 'key': 'g', 'model': 'gemini-test',
+                       'label': 'Gemini'},
+        }
+
+    def chain(self, names=('cerebras', 'gemini')):
+        return patch.multiple(garmin_server, LLM_CHAIN=list(names),
+                              _provider_spec=lambda name: self.specs.get(name))
+
+    def test_payment_required_falls_through_instead_of_killing_the_chain(self):
+        payment = FakeResponse({'message': 'Payment required'}, 402,
+                               text='Payment required to access this resource.')
+        with self.chain(), patch.object(requests, 'post',
+                                        side_effect=[payment, gemini_ok()]) as post:
+            self.assertEqual(garmin_server.call_llm('p'), 'svar från gemini')
+        self.assertEqual(post.call_count, 2)
+
+    def test_an_unusable_account_is_parked_for_a_long_time(self):
+        payment = FakeResponse({}, 402, text='Payment required')
+        with self.chain(), patch.object(requests, 'post',
+                                        side_effect=[payment, gemini_ok()]):
+            garmin_server.call_llm('p')
+        # Betydligt längre än den vanliga nedkylningen på 30 s — det hjälper
+        # inte att fråga igen förrän någon åtgärdat kontot.
+        self.assertGreater(garmin_server._llm_cooldown_remaining('cerebras'), 600)
+
+    def test_an_invalid_key_also_falls_through(self):
+        unauthorized = FakeResponse({}, 401, text='Invalid API key')
+        with self.chain(), patch.object(requests, 'post',
+                                        side_effect=[unauthorized, gemini_ok()]) as post:
+            self.assertEqual(garmin_server.call_llm('p'), 'svar från gemini')
+        self.assertEqual(post.call_count, 2)
+
+    def test_a_bad_request_still_stops_the_chain(self):
+        # 400 är fortfarande vårt eget fel och ska inte kosta en andra kvot.
+        bad = FakeResponse({'error': {'message': 'trasig prompt'}}, 400)
+        with self.chain(), patch.object(requests, 'post',
+                                        side_effect=[bad, gemini_ok()]) as post:
+            with self.assertRaises(RuntimeError) as caught:
+                garmin_server.call_llm('p')
+        self.assertNotIsInstance(caught.exception, garmin_server.LLMUnavailableError)
+        self.assertEqual(post.call_count, 1)
+
+    def test_every_provider_unusable_surfaces_the_account_error(self):
+        payment = FakeResponse({}, 402, text='Payment required')
+        gemini_forbidden = FakeResponse(
+            {'error': {'code': 403, 'message': 'API key not valid'}}, 403)
+        with self.chain(), patch.object(requests, 'post',
+                                        side_effect=[payment, gemini_forbidden]):
+            with self.assertRaises(garmin_server.LLMUnavailableError):
+                garmin_server.call_llm('p')
