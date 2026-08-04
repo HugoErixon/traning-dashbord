@@ -7351,12 +7351,42 @@ def water_status():
     return jsonify({'available': True, **_water_state})
 
 
+PUBLIC_DIR = Path(__file__).resolve().parent / 'public'
+
+
+def _asset_version():
+    """Innehållshash av de statiska filerna, som cache-buster i HTML-sidorna.
+
+    Versionen stod tidigare hårdkodad (`?v=push-1`) och skulle bumpas för hand vid
+    varje frontend-ändring. Den 2026-08-04 glömdes det bort: HTML:en är no-cache och
+    uppdaterades, men Cloudflare cachar .js/.css på filändelse, så webbläsaren körde
+    ny HTML mot gammal app.js och halva klimatsidan stod bara och laddade. En hash
+    kan inte glömmas bort.
+    """
+    digest = hashlib.sha256()
+    for name in ('app.js', 'styles.css', 'landing.css', 'landing.js'):
+        try:
+            digest.update((PUBLIC_DIR / name).read_bytes())
+        except OSError:
+            continue
+    return digest.hexdigest()[:12]
+
+
+ASSET_VERSION = _asset_version()
+
+
+def _render_page(filename):
+    """Serverar en HTML-sida med __ASSETV__ utbytt mot aktuell assetversion."""
+    html = (PUBLIC_DIR / filename).read_text(encoding='utf-8')
+    return app.response_class(html.replace('__ASSETV__', ASSET_VERSION), mimetype='text/html')
+
+
 @app.get('/')
 def index():
     _, user = _configured_session_user()
     if not user:
-        return send_from_directory('public', 'landing.html')
-    return send_from_directory('public', 'index.html')
+        return _render_page('landing.html')
+    return _render_page('index.html')
 
 @app.get('/<path:path>')
 def static_files(path):
