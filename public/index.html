@@ -313,7 +313,7 @@
 
     <!-- CLIMATE -->
     <div class="page" id="page-climate">
-      <div class="page-header"><h2>Klimat</h2><p>Rumstemperatur och AC-styrning</p></div>
+      <div class="page-header"><h2>Klimat</h2><p>Temperatur och luftfuktighet i hemmet</p></div>
 
       <div class="bigcard accent-blue" style="margin-bottom:24px;">
         <div class="today-header">
@@ -325,68 +325,21 @@
 
       <div class="bigcard accent-orange" style="margin-bottom:24px;">
         <div class="today-header">
-          <h3 id="ac-headline">Laddar AC…</h3>
-          <span class="today-badge badge-amber" id="ac-badge">AC</span>
+          <h3 id="climate-headline">Laddar rumsklimat…</h3>
+          <span class="today-badge badge-amber" id="climate-badge">INNE</span>
         </div>
-        <p id="ac-body">Läser rumstemperatur…</p>
-        <div class="ac-control-row">
-          <div class="ac-loop-status" id="ac-loop-status">Styrloop: kollar…</div>
-          <button class="ac-loop-btn" id="ac-loop-toggle" data-action="toggle-ac-loop" disabled>Laddar…</button>
+        <p id="climate-body">Läser temperatur och luftfuktighet från sensorerna…</p>
+        <div class="humidity-meter" aria-hidden="true"><div class="humidity-fill" id="humidity-fill"></div></div>
+        <div class="humidity-meta">
+          <span id="humidity-average">24h snitt: –</span>
+          <span id="humidity-range">spann: –</span>
         </div>
-        <div class="ac-setpoint-row">
-          <span class="ac-setpoint-label">Måltemperatur:</span>
-          <input class="ac-setpoint-input" type="number" id="ac-setpoint-input" min="10" max="35" step="0.5" placeholder="–">
-          <button class="ac-setpoint-btn" id="ac-setpoint-btn" data-action="set-ac-setpoint">Sätt</button>
-          <span class="ac-setpoint-status" id="ac-setpoint-status"></span>
-        </div>
-      </div>
-
-      <div class="climate-control-grid">
-        <div class="bigcard accent-blue">
-          <div class="today-header">
-            <h3>Förkylning inför sömn</h3>
-            <span class="today-badge badge-blue" id="ac-bedtime-badge">AUTO</span>
-          </div>
-          <p id="ac-bedtime-body">Använder uträknad läggtid om inget skrivs här.</p>
-          <div class="ac-setpoint-row">
-            <span class="ac-setpoint-label">Läggtid:</span>
-            <input class="ac-setpoint-input ac-time-input" type="text" id="ac-bedtime-input" inputmode="numeric" maxlength="5" placeholder="22:00" autocomplete="off" aria-label="Läggtid i formatet timmar och minuter">
-            <button class="ac-setpoint-btn" id="ac-bedtime-save" data-action="save-ac-bedtime">Spara</button>
-            <button class="ac-setpoint-btn" id="ac-bedtime-clear" data-action="clear-ac-bedtime">Auto</button>
-            <span class="ac-setpoint-status" id="ac-bedtime-status"></span>
-          </div>
-        </div>
-
-        <div class="bigcard accent-orange">
-          <div class="today-header">
-            <h3>Manuell AC</h3>
-            <span class="today-badge badge-amber" id="ac-manual-badge">MANUELL</span>
-          </div>
-          <p id="ac-manual-body">När du skickar ett manuellt kommando stängs automatisk styrning av.</p>
-          <div class="ac-manual-grid">
-            <label class="ac-field">
-              <span>Temperatur</span>
-              <input class="ac-setpoint-input" type="number" id="ac-manual-temp" min="10" max="35" step="0.5" value="18">
-            </label>
-            <label class="ac-field">
-              <span>Läge</span>
-              <select class="ac-select" id="ac-manual-mode">
-                <option value="cool">Kyla</option>
-                <option value="fan">Fläkt</option>
-                <option value="auto">Auto</option>
-                <option value="heat">Värme</option>
-                <option value="off">Av</option>
-              </select>
-            </label>
-            <button class="ac-loop-btn" id="ac-manual-send" data-action="send-ac-command">Skicka</button>
-          </div>
-          <div class="ac-setpoint-status" id="ac-manual-status"></div>
-        </div>
+        <div class="sensor-list" id="sensor-list"></div>
       </div>
 
       <div class="sl">Rumstemperatur – senaste 24h</div>
       <div class="bigcard" style="margin-bottom:24px;">
-        <div id="ac-graph">Laddar temperaturhistorik…</div>
+        <div id="climate-graph">Laddar temperaturhistorik…</div>
       </div>
 
     </div>

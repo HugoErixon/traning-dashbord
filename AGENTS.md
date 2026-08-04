@@ -8,8 +8,8 @@ Read this before making changes so you don't rediscover the same gotchas from sc
 Personal training dashboard: Flask backend (`garmin_server.py`) + vanilla HTML/JS
 (`public/index.html`, `public/app.js`) + local PostgreSQL 17. Pulls Garmin Connect data,
 gives AI-generated training recommendations, manages an adaptive training plan, syncs
-Google Calendar, and also drives an unrelated home AC-control system (Tuya + Zigbee via
-`tuya-ac-keeper`) for the same household.
+Google Calendar, and shows the household's indoor climate (temperature + humidity) read
+straight off Zigbee sensors.
 
 Public site: **https://trainyze.com** (Cloudflare named tunnel).
 
@@ -51,7 +51,20 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
 
 - **Backend:** `garmin_server.py` (Flask), `user_store.py` (DB vs in-memory user store).
 - **DB tables:** `users`, `activities`, `cache`, `strength_exercises`, `user_notes`,
-  `plan_sessions`, `health_history`, `metric_history`, `session_verdicts`.
+  `plan_sessions`, `health_history`, `metric_history`, `session_verdicts`, `sensor_readings`.
+- **Climate:** the app subscribes to MQTT itself (`paho-mqtt`, topic `zigbee2mqtt/+`) and
+  writes every reading to `sensor_readings`; `GET /api/climate` and `/api/climate/history`
+  serve the Climate tab. This replaced `tuya-ac-keeper`, which was decommissioned on
+  2026-08-04 — readings used to arrive through its HTTP API, so pulling AC control also
+  pulled the temperature out of the UI. Three details worth keeping:
+  - zigbee2mqtt republishes cached state on startup and those payloads carry **no
+    `linkquality`**; they are dropped, otherwise old values get re-dated to now and a
+    dead sensor looks alive.
+  - The expected sensor roster comes from the retained `zigbee2mqtt/bridge/devices`
+    topic, so a sensor that stops reporting is shown as silent instead of vanishing
+    from the list. `Tempsensor_3` was dead for 44 days before anyone noticed.
+  - The old `/api/ac*` routes are kept and answer **410 `ac_removed`** on purpose, so a
+    stale open tab gets a real explanation rather than a 404 that looks like an outage.
 - **Strain:** `strain_analysis.py` scores each day 0-100 by weighing that day's Garmin
   `activityTrainingLoad` against the athlete's own chronic load (Garmin's chronic value
   when available, otherwise a 28-day average) — a raw load number means nothing on its

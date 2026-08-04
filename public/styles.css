@@ -558,125 +558,6 @@
     .refresh-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); box-shadow: 0 0 16px rgba(200,241,53,0.1); }
     .refresh-btn:disabled { opacity:0.45; cursor:not-allowed; }
     .mobile-actions .refresh-btn, .mobile-actions .ghost-btn { margin: 0; }
-    .ac-control-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      margin-top: 18px;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
-    }
-    .ac-loop-status {
-      font-size: 12px;
-      color: var(--muted2);
-      font-family: 'IBM Plex Mono', monospace;
-      line-height: 1.5;
-    }
-    .ac-loop-btn {
-      background: var(--bg3);
-      border: 1px solid var(--border2);
-      border-radius: 8px;
-      color: var(--muted2);
-      cursor: pointer;
-      flex-shrink: 0;
-      font-family: var(--font-sans);
-      font-size: 12px;
-      font-weight: 700;
-      padding: 9px 14px;
-      transition: all 0.2s;
-    }
-    .ac-loop-btn:hover { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
-    .ac-loop-btn.is-on { border-color: rgba(74,222,128,0.35); color: var(--green); background: var(--green-dim); }
-    .ac-loop-btn.is-off { border-color: rgba(248,113,113,0.35); color: var(--red); background: var(--red-dim); }
-    .ac-loop-btn:disabled { opacity:0.45; cursor:not-allowed; }
-    .ac-setpoint-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 10px;
-      flex-wrap: wrap;
-    }
-    .ac-setpoint-label {
-      font-size: 11px;
-      color: var(--muted);
-      font-family: 'IBM Plex Mono', monospace;
-      letter-spacing: 0.05em;
-    }
-    .ac-setpoint-input {
-      width: 68px;
-      background: var(--bg3);
-      border: 1px solid var(--border2);
-      border-radius: 6px;
-      color: var(--fg);
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 13px;
-      padding: 4px 8px;
-      text-align: center;
-    }
-    .ac-setpoint-input:focus { outline: none; border-color: var(--blue); }
-    .ac-setpoint-btn {
-      background: var(--bg3);
-      border: 1px solid var(--border2);
-      border-radius: 6px;
-      color: var(--muted3);
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 11px;
-      letter-spacing: 0.06em;
-      padding: 4px 12px;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-    }
-    .ac-setpoint-btn:hover { border-color: var(--blue); color: var(--blue); background: rgba(59,130,246,0.08); }
-    .ac-setpoint-btn:disabled { opacity:0.45; cursor:not-allowed; }
-    .ac-setpoint-status {
-      font-size: 11px;
-      color: var(--muted);
-      font-family: 'IBM Plex Mono', monospace;
-    }
-    .climate-control-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .ac-time-input {
-      width: 92px;
-    }
-    .ac-manual-grid {
-      display: grid;
-      grid-template-columns: minmax(84px, 0.7fr) minmax(118px, 1fr) auto;
-      gap: 10px;
-      align-items: end;
-      margin-top: 12px;
-    }
-    .ac-field {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      min-width: 0;
-    }
-    .ac-field span {
-      color: var(--muted);
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .ac-select {
-      width: 100%;
-      background: var(--bg3);
-      border: 1px solid var(--border2);
-      border-radius: 6px;
-      color: var(--fg);
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 12px;
-      padding: 6px 8px;
-    }
-    .ac-select:focus {
-      outline: none;
-      border-color: var(--blue);
-    }
 
     /* ─── APPBAR ─── */
     /* ─── MAIN ─── */
@@ -2274,9 +2155,6 @@
     }
     @media(max-width:960px) { .hg-row { grid-template-columns: 1fr; } }
 
-    .humidity-card {
-      margin-bottom: 24px;
-    }
     .humidity-meter {
       width: 100%;
       height: 8px;
@@ -2302,6 +2180,45 @@
       font-size: 12px;
       font-family: 'IBM Plex Mono', monospace;
     }
+    .sensor-list {
+      margin-top: 18px;
+      border-top: 1px solid var(--border2);
+    }
+    .sensor-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border2);
+      font-size: 13px;
+    }
+    .sensor-row:last-child { border-bottom: none; }
+    .sensor-name {
+      color: var(--fg);
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sensor-row .sensor-metric {
+      color: var(--muted2);
+      font-family: 'IBM Plex Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      min-width: 58px;
+      text-align: right;
+    }
+    .sensor-state {
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .sensor-state.is-live { color: var(--green); }
+    .sensor-state.is-stale { color: var(--red); }
+    /* En tyst sensor ska se dov ut, men namnet maste ga att lasa - det ar hela
+       poangen med att visa den. */
+    .sensor-row.is-stale .sensor-metric { opacity: 0.45; }
 
     .hg-card {
       background: var(--card-grad), var(--bg2);
@@ -3324,24 +3241,8 @@
         white-space:normal !important;
         overflow:visible !important;
       }
-      .ac-control-row {
-        align-items: stretch;
-        flex-direction: column;
-      }
-      .ac-loop-btn {
-        width: 100%;
-        min-height: 42px;
-      }
-      .climate-control-grid,
-      .ac-manual-grid {
-        grid-template-columns: 1fr;
-      }
-      .ac-field .ac-setpoint-input,
-      .ac-time-input {
-        width: 100%;
-      }
-      #ac-graph { overflow-x: auto; }
-      #ac-graph svg { min-width: 500px; }
+      #climate-graph { overflow-x: auto; }
+      #climate-graph svg { min-width: 500px; }
       .hg-row {
         grid-template-columns: 1fr;
         gap: 12px;

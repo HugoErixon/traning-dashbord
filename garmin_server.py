@@ -26,6 +26,10 @@ try:
     from pywebpush import webpush, WebPushException
 except ImportError:  # notiser ar valfria - appen ska starta anda
     webpush, WebPushException = None, Exception
+try:
+    import paho.mqtt.client as mqtt_client
+except ImportError:  # klimatavlasningar ar valfria - appen ska starta anda
+    mqtt_client = None
 from werkzeug.exceptions import HTTPException
 from security import LoginRateLimiter, parse_users, verify_user
 from user_store import MemoryUserStore, DbUserStore, DuplicateUserError, UserStoreError
@@ -475,15 +479,29 @@ def uname():
 def gcal_token():
     return f'google_token_{uname()}.json'
 
+# Kvar efter att AC-styrningen togs bort: vattenlarmet skriver fortfarande
+# lockout-flaggan bredvid AC-flaggan, och pingar keepern om den skulle vara igång.
 AC_KEEPER_URL = config.get('AC_KEEPER_URL', 'http://127.0.0.1:8089')
-AC_LOOP_SERVICE = config.get('AC_LOOP_SERVICE', 'ac-keeper-loop')
 AC_CONTROL_FLAG = config.get('AC_CONTROL_FLAG', '/home/hugoerixon/tuya-ac-keeper/data/control_enabled')
-AC_KEEPER_CONFIG = config.get('AC_KEEPER_CONFIG', '/home/hugoerixon/tuya-ac-keeper/config.yaml')
-AC_BEDTIME_OVERRIDE = config.get('AC_BEDTIME_OVERRIDE', 'data/ac_bedtime_override.json')
 WATER_TOKEN = config.get('WATER_TOKEN', '')  # delad hemlighet för ESP32-vattensensorn
 AC_BUTTON_TOKEN = config.get('AC_BUTTON_TOKEN', WATER_TOKEN)  # fysisk ESP32-knapp, fallback till vatten-token
 # Lockout-flagga: ligger i samma katalog som AC-flaggan (keeperns data/-katalog).
 WATER_LOCKOUT_FLAG = config.get('WATER_LOCKOUT_FLAG', os.path.join(os.path.dirname(AC_CONTROL_FLAG), 'water_lockout'))
+# --- Klimatsensorer (Zigbee → zigbee2mqtt → MQTT) ---
+# Dashboarden prenumererar sjalv pa MQTT. Tidigare gick avlasningarna omvagen via
+# ac-keeper, vilket band ihop ren avlasning med AC-styrning; nar keepern togs bort
+# forsvann aven temperaturen ur granssnittet.
+MQTT_HOST = config.get('MQTT_HOST', '127.0.0.1')
+MQTT_PORT = int(config.get('MQTT_PORT', '1883'))
+MQTT_USERNAME = config.get('MQTT_USERNAME', '')
+MQTT_PASSWORD = config.get('MQTT_PASSWORD', '')
+MQTT_BASE_TOPIC = config.get('MQTT_BASE_TOPIC', 'zigbee2mqtt')
+MQTT_ENABLED = config.get('MQTT_ENABLED', '1').strip().lower() not in ('0', 'false', 'off', 'no')
+# En sensor som inte horts av pa sa har lange raknas som tyst i granssnittet.
+# SNZB-02P rapporterar normalt var femte minut; en halvtimmes tystnad ar ett fel.
+CLIMATE_STALE_SECONDS = int(config.get('CLIMATE_STALE_SECONDS', '1800'))
+CLIMATE_RETENTION_DAYS = int(config.get('CLIMATE_RETENTION_DAYS', '90'))
+
 WEATHER_LAT = float(config.get('WEATHER_LAT', '58.35593'))
 WEATHER_LON = float(config.get('WEATHER_LON', '11.22411'))
 WEATHER_LOCATION = config.get('WEATHER_LOCATION', 'Smögen')
@@ -559,45 +577,6 @@ def _send_password_reset_email(to_email, username, token):
     except Exception:
         logger.exception('Password reset email send failed', extra={'event': 'mail.send_exception'})
         return False
-
-
-def _normalize_clock(value):
-    """Return a canonical 24-hour clock value, accepting HH:MM or compact HHMM."""
-    if not isinstance(value, str):
-        return None
-    raw = value.strip()
-    match = re.fullmatch(r'(\d{1,2}):(\d{2})', raw)
-    if match:
-        hour, minute = (int(part) for part in match.groups())
-    elif re.fullmatch(r'\d{3,4}', raw):
-        hour, minute = int(raw[:-2]), int(raw[-2:])
-    else:
-        return None
-    if not (0 <= hour <= 23 and 0 <= minute <= 59):
-        return None
-    return f'{hour:02d}:{minute:02d}'
-
-
-def _valid_clock(value):
-    return _normalize_clock(value) is not None
-
-def _read_ac_bedtime_override():
-    try:
-        with open(AC_BEDTIME_OVERRIDE, encoding='utf-8') as f:
-            data = json.load(f) or {}
-        bedtime = data.get('bedtime')
-        if _valid_clock(bedtime):
-            return {'bedtime': bedtime, 'updated_at': data.get('updated_at')}
-    except FileNotFoundError:
-        pass
-    except Exception:
-        pass
-    return {'bedtime': None, 'updated_at': None}
-
-def _write_control_flag(enabled):
-    os.makedirs(os.path.dirname(AC_CONTROL_FLAG), exist_ok=True)
-    with open(AC_CONTROL_FLAG, 'w') as f:
-        f.write('1' if enabled else '0')
 
 WEATHER_CODES = {
     0: 'klart',
@@ -721,6 +700,20 @@ def setup_db():
                 secondary_goal TEXT,
                 start_date TEXT,
                 updated_at REAL)''')
+            # En rad per mottagen sensoravlasning. Ingen user_id: sensorerna sitter
+            # i hemmet, inte hos en anvandare, och sidan ar agarlast anda.
+            cur.execute('''CREATE TABLE IF NOT EXISTS sensor_readings (
+                id BIGSERIAL PRIMARY KEY,
+                sensor TEXT NOT NULL,
+                ts TIMESTAMPTZ NOT NULL,
+                temperature_c REAL,
+                humidity_pct REAL,
+                battery_pct REAL,
+                linkquality INTEGER)''')
+            cur.execute('''CREATE INDEX IF NOT EXISTS sensor_readings_ts_idx
+                ON sensor_readings (ts DESC)''')
+            cur.execute('''CREATE INDEX IF NOT EXISTS sensor_readings_sensor_ts_idx
+                ON sensor_readings (sensor, ts DESC)''')
             cur.execute('''CREATE TABLE IF NOT EXISTS strava_oauth_states (
                 state_hash TEXT PRIMARY KEY,
                 user_id INTEGER NOT NULL,
@@ -849,6 +842,180 @@ if not APP_TESTING:
         migrate_db()
     except Exception:
         logger.exception('Database initialization failed', extra={'event': 'database.initialize_failed'})
+
+# --- Klimatsensorer: MQTT-prenumeration ---
+# Rostern (vilka sensorer som *borde* finnas) kommer fran zigbee2mqtt sjalv via det
+# retainade topicet bridge/devices. Utan den skulle en sensor som slutat skicka bara
+# tystna ur listan i stallet for att flaggas som trasig - vilket ar precis vad som
+# hande med Tempsensor_3, som lag nere i 44 dagar innan nagon markte det.
+_sensor_roster = {}
+_sensor_roster_lock = threading.Lock()
+_mqtt_state = {'connected': False, 'last_error': None, 'last_message_at': None}
+
+
+def _store_sensor_reading(sensor, payload):
+    """Sparar en avlasning. Kastar aldrig - MQTT-traden far inte do av ett db-fel."""
+    temperature = payload.get('temperature')
+    humidity = payload.get('humidity')
+    if temperature is None and humidity is None:
+        return
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    '''INSERT INTO sensor_readings
+                       (sensor, ts, temperature_c, humidity_pct, battery_pct, linkquality)
+                       VALUES (%s, %s, %s, %s, %s, %s)''',
+                    (sensor, datetime.now(timezone.utc), temperature, humidity,
+                     payload.get('battery'), payload.get('linkquality')))
+            conn.commit()
+        _mqtt_state['last_message_at'] = time.time()
+    except Exception:
+        logger.exception('Could not store sensor reading',
+                         extra={'event': 'climate.store_failed', 'sensor': sensor})
+
+
+def _update_sensor_roster(payload):
+    """bridge/devices -> {friendly_name: beskrivning} for alla end devices."""
+    if not isinstance(payload, list):
+        return
+    roster = {}
+    for device in payload:
+        if not isinstance(device, dict) or device.get('type') == 'Coordinator':
+            continue
+        name = device.get('friendly_name')
+        if not name:
+            continue
+        definition = device.get('definition') or {}
+        roster[name] = {
+            'model': definition.get('model'),
+            'vendor': definition.get('vendor'),
+            'description': definition.get('description'),
+        }
+    if roster:
+        with _sensor_roster_lock:
+            _sensor_roster.clear()
+            _sensor_roster.update(roster)
+
+
+def _on_mqtt_message(client, userdata, message):
+    topic = message.topic
+    try:
+        payload = json.loads(message.payload.decode('utf-8'))
+    except Exception:
+        return
+    prefix = f'{MQTT_BASE_TOPIC}/'
+    if not topic.startswith(prefix):
+        return
+    name = topic[len(prefix):]
+    if name == 'bridge/devices':
+        _update_sensor_roster(payload)
+        return
+    if name.startswith('bridge/') or '/' in name:
+        return
+    if not isinstance(payload, dict):
+        return
+    # zigbee2mqtt aterpublicerar sitt cachade lage vid uppstart. De meddelandena
+    # saknar linkquality (det satts forst av radiomottagningen), och att spara dem
+    # skulle datera om gamla varden till nu och dolja att en sensor tystnat.
+    if payload.get('linkquality') is None:
+        return
+    _store_sensor_reading(name, payload)
+
+
+def _on_mqtt_connect(client, userdata, flags, reason_code, properties=None):
+    ok = getattr(reason_code, 'is_failure', None)
+    ok = (not ok) if ok is not None else (reason_code == 0)
+    _mqtt_state['connected'] = bool(ok)
+    if ok:
+        client.subscribe([(f'{MQTT_BASE_TOPIC}/+', 0), (f'{MQTT_BASE_TOPIC}/bridge/devices', 0)])
+        logger.info('MQTT connected', extra={'event': 'climate.mqtt_connected',
+                                             'host': MQTT_HOST, 'port': MQTT_PORT})
+    else:
+        _mqtt_state['last_error'] = f'connect: {reason_code}'
+        logger.warning('MQTT connect refused', extra={'event': 'climate.mqtt_refused',
+                                                      'reason': str(reason_code)})
+
+
+def _on_mqtt_disconnect(client, userdata, *args):
+    _mqtt_state['connected'] = False
+    logger.warning('MQTT disconnected', extra={'event': 'climate.mqtt_disconnected'})
+
+
+def start_mqtt_listener():
+    """Startar MQTT-lyssnaren i bakgrunden. Fel far aldrig stoppa dashboarden."""
+    if not MQTT_ENABLED:
+        return
+    if mqtt_client is None:
+        logger.warning('paho-mqtt not installed, climate readings disabled',
+                       extra={'event': 'climate.mqtt_missing'})
+        _mqtt_state['last_error'] = 'paho-mqtt saknas'
+        return
+    try:
+        client = mqtt_client.Client(mqtt_client.CallbackAPIVersion.VERSION2,
+                                    client_id=f'trainyze-{uuid.uuid4().hex[:8]}')
+        if MQTT_USERNAME:
+            client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+        client.on_connect = _on_mqtt_connect
+        client.on_disconnect = _on_mqtt_disconnect
+        client.on_message = _on_mqtt_message
+        # loop_start ager reconnect sjalv, sa en omstartad broker laker av sig sjalv.
+        client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)
+        client.loop_start()
+        logger.info('MQTT listener started', extra={'event': 'climate.mqtt_starting',
+                                                    'topic': f'{MQTT_BASE_TOPIC}/+'})
+    except Exception as e:
+        _mqtt_state['last_error'] = str(e)
+        logger.exception('Could not start MQTT listener', extra={'event': 'climate.mqtt_failed'})
+
+
+def _bedroom_temp_stats(hours):
+    """(snitt, min, max) för sovrummet, eller None. Bara till AI-kontext."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT avg(temperature_c), min(temperature_c), max(temperature_c)
+                    FROM sensor_readings
+                    WHERE temperature_c IS NOT NULL
+                      AND ts > now() - make_interval(hours => %s)''', (hours,))
+                row = cur.fetchone()
+        if not row or row[0] is None:
+            return None
+        return tuple(round(float(v), 1) for v in row)
+    except Exception:
+        return None
+
+
+def _bedroom_temp_daily(days):
+    """[(datum, dygnssnitt)] för sovrummet. Bara till AI-kontext."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT (ts AT TIME ZONE 'Europe/Stockholm')::date AS day,
+                                      avg(temperature_c)
+                    FROM sensor_readings
+                    WHERE temperature_c IS NOT NULL
+                      AND ts > now() - make_interval(days => %s)
+                    GROUP BY day ORDER BY day''', (days,))
+                return [(str(day), round(float(avg), 1)) for day, avg in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def purge_old_sensor_readings():
+    """Haller sensortabellen liten. Tre sensorer var femte minut blir ~250k rader/ar."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM sensor_readings WHERE ts < now() - make_interval(days => %s)",
+                            (CLIMATE_RETENTION_DAYS,))
+            conn.commit()
+    except Exception:
+        logger.exception('Could not purge sensor readings', extra={'event': 'climate.purge_failed'})
+
+
+if not APP_TESTING:
+    start_mqtt_listener()
 
 # --- Användarlager ---
 # I drift bor användarna i databasen (seedas från .env första gången); .env USERS
@@ -2099,327 +2266,188 @@ def current_weather():
             message='Väderdata kunde inte hämtas.', extra={'ok': False, 'source': 'Open-Meteo'}
         )
 
-@app.get('/api/ac')
-def ac_proxy():
-    """Hämtar aktuell temperatur/AC-status från ac-keeper (på Pi:n via localhost)."""
+# --- Klimat: sensoravläsningar direkt från MQTT ---
+# Avläsningarna kommer från zigbee2mqtt och lagras av MQTT-tråden ovan. Ingen
+# AC-styrning är inblandad: den här sidan läser bara av rummet.
+
+@app.get('/api/climate')
+def climate_current():
+    """Senaste avläsningen per sensor, plus snitt över de som fortfarande svarar."""
     if uid() != 1:
-        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
+        return jsonify({'available': False, 'error': 'Climate data is owner-only'}), 403
     try:
-        r = requests.get(f'{AC_KEEPER_URL}/api/current', timeout=4)
-        return jsonify(r.json())
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT DISTINCT ON (sensor)
+                        sensor, ts, temperature_c, humidity_pct, battery_pct, linkquality
+                    FROM sensor_readings
+                    ORDER BY sensor, ts DESC''')
+                rows = cur.fetchall()
     except Exception as e:
         return _server_error(
-            e, 'ac.current_failed', status=502, code='ac_unavailable',
-            message='AC-status kunde inte hämtas.', extra={'available': False}
+            e, 'climate.current_failed', status=502, code='climate_unavailable',
+            message='Klimatdata kunde inte hämtas.', extra={'available': False, 'sensors': []}
         )
 
-def _aggregate_humidity_points(readings, bucket_seconds=300):
-    buckets = {}
-    raw_points = []
-    for reading in readings:
-        humidity = reading.get('humidity_pct')
-        ts = reading.get('ts')
-        if humidity is None or not ts:
-            continue
-        try:
-            humidity = float(humidity)
-            dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-            bucket = int(dt.timestamp()) // bucket_seconds * bucket_seconds
-        except Exception:
-            continue
-        raw_points.append({'t': ts, 'humidity': humidity, 'sensor': reading.get('sensor_name')})
-        bucket_data = buckets.setdefault(bucket, {'values': [], 'sensors': set()})
-        bucket_data['values'].append(humidity)
-        if reading.get('sensor_name'):
-            bucket_data['sensors'].add(reading.get('sensor_name'))
+    now = datetime.now(timezone.utc)
+    sensors = {}
+    for sensor, ts, temperature, humidity, battery, linkquality in rows:
+        age = (now - ts).total_seconds()
+        sensors[sensor] = {
+            'name': sensor,
+            'temperature_c': round(temperature, 1) if temperature is not None else None,
+            'humidity_pct': round(humidity, 1) if humidity is not None else None,
+            'battery_pct': round(battery) if battery is not None else None,
+            'linkquality': linkquality,
+            'ts': ts.isoformat(),
+            'age_seconds': int(age),
+            'stale': age > CLIMATE_STALE_SECONDS,
+        }
 
-    points = []
-    for bucket, data in sorted(buckets.items()):
-        values = data['values']
-        if not values:
-            continue
-        points.append({
-            't': datetime.fromtimestamp(bucket, timezone.utc).isoformat(),
-            'humidity': round(sum(values) / len(values), 1),
-            'samples': len(values),
-            'sensors': sorted(data['sensors']),
-        })
-    return points, raw_points
+    # En sensor som zigbee2mqtt känner till men som aldrig hört av sig ska synas som
+    # tyst, inte saknas helt — annars märks ett avbrott först när någon undrar varför
+    # snittet ser konstigt ut.
+    with _sensor_roster_lock:
+        roster = dict(_sensor_roster)
+    for name, meta in roster.items():
+        entry = sensors.get(name)
+        if entry is None:
+            entry = {
+                'name': name, 'temperature_c': None, 'humidity_pct': None,
+                'battery_pct': None, 'linkquality': None, 'ts': None,
+                'age_seconds': None, 'stale': True,
+            }
+            sensors[name] = entry
+        entry['model'] = meta.get('model')
+
+    listed = sorted(sensors.values(), key=lambda s: s['name'])
+    live = [s for s in listed if not s['stale']]
+    temperatures = [s['temperature_c'] for s in live if s['temperature_c'] is not None]
+    humidities = [s['humidity_pct'] for s in live if s['humidity_pct'] is not None]
+    return jsonify({
+        'available': True,
+        'sensors': listed,
+        'average': {
+            'temperature_c': round(sum(temperatures) / len(temperatures), 1) if temperatures else None,
+            'humidity_pct': round(sum(humidities) / len(humidities), 1) if humidities else None,
+            'sensor_count': len(live),
+        },
+        'stale_after_seconds': CLIMATE_STALE_SECONDS,
+        'mqtt': {'connected': _mqtt_state['connected'], 'error': _mqtt_state['last_error']},
+    })
+
+
+@app.get('/api/climate/history')
+def climate_history():
+    """Rums- och utetemperatur samt luftfuktighet för klimatgrafen."""
+    if uid() != 1:
+        return jsonify({'available': False, 'error': 'Climate data is owner-only'}), 403
+    try:
+        hours = int(request.args.get('hours', 24))
+    except (TypeError, ValueError):
+        hours = 24
+    hours = max(1, min(168, hours))
+    bucket_seconds = 300
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                # Snittet per femminutersfönster: sensorerna skickar i otakt, så råa
+                # punkter skulle sicksacka mellan sensorer i stället för att visa rummet.
+                cur.execute('''SELECT
+                        to_timestamp(floor(extract(epoch FROM ts) / %s) * %s) AS bucket,
+                        avg(temperature_c), avg(humidity_pct), count(DISTINCT sensor)
+                    FROM sensor_readings
+                    WHERE ts > now() - make_interval(hours => %s)
+                    GROUP BY bucket
+                    ORDER BY bucket''',
+                    (bucket_seconds, bucket_seconds, hours))
+                rows = cur.fetchall()
+    except Exception as e:
+        return _server_error(
+            e, 'climate.history_failed', status=502, code='climate_unavailable',
+            message='Klimathistoriken kunde inte hämtas.',
+            extra={'available': False, 'points': [], 'humidity_points': []}
+        )
+
+    points, humidity_points = [], []
+    for bucket, temperature, humidity, sensor_count in rows:
+        stamp = bucket.isoformat()
+        if temperature is not None:
+            points.append({'t': stamp, 'temp': round(float(temperature), 1), 'sensors': sensor_count})
+        if humidity is not None:
+            humidity_points.append({'t': stamp, 'humidity': round(float(humidity), 1), 'sensors': sensor_count})
+    return jsonify({
+        'available': True,
+        'hours': hours,
+        'points': points,
+        'humidity_points': humidity_points,
+        'outside_points': _get_outdoor_temperature_history(hours),
+        'outside_location': WEATHER_LOCATION,
+    })
+
+
+# --- Avvecklad AC-styrning ---
+# tuya-ac-keeper är borttagen. Rutterna finns kvar och svarar 410 så att en gammal
+# öppen flik, ett bokmärke eller ESP32-knappen får ett begripligt besked i stället
+# för en 404 som ser ut som ett driftfel.
+_AC_REMOVED_MESSAGE = 'AC-styrningen är borttagen. Klimatsidan visar bara sensoravläsningar.'
+
+
+def _ac_removed():
+    return jsonify({
+        'ok': False, 'available': False, 'removed': True,
+        'code': 'ac_removed', 'error': _AC_REMOVED_MESSAGE,
+    }), 410
+
+
+@app.get('/api/ac')
+def ac_proxy():
+    return _ac_removed()
 
 
 @app.get('/api/ac/history')
 def ac_history():
-    """Rumstemperatur + utetemperatur senaste 24h för klimatgrafen."""
-    if uid() != 1:
-        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
-    try:
-        r = requests.get(f'{AC_KEEPER_URL}/api/control-events', params={'hours': 24}, timeout=6)
-        events = r.json()
-    except Exception as e:
-        return _server_error(
-            e, 'ac.history_failed', status=502, code='ac_unavailable',
-            message='Klimathistoriken kunde inte hämtas.', extra={'available': False, 'points': []}
-        )
-    try:
-        rr = requests.get(f'{AC_KEEPER_URL}/api/readings', params={'hours': 24}, timeout=6)
-        readings = rr.json()
-    except Exception:
-        readings = []
-    pts = [{'t': e['ts'], 'temp': e['measured_c']} for e in events if e.get('measured_c') is not None]
-    humidity_pts, humidity_sensor_pts = _aggregate_humidity_points(readings)
-    if len(pts) > 180:
-        step = len(pts) // 180 + 1
-        pts = pts[::step]
-    if len(humidity_pts) > 180:
-        step = len(humidity_pts) // 180 + 1
-        humidity_pts = humidity_pts[::step]
-    # AC-lägesändringar (på/av + setpoint) från den fulla event-listan
-    markers = []
-    prev_cool = None
-    prev_sp = None
-    for e in events:
-        act = (e.get('action') or '').replace('dry_run_', '')
-        cool = (act == 'cool')
-        sp = e.get('requested_setpoint_c')
-        if prev_cool is not None:
-            if cool != prev_cool:
-                if cool:
-                    lab = 'AC on' + (f', setpoint {sp:.0f}°' if sp is not None else '')
-                    markers.append({'t': e['ts'], 'kind': 'on', 'label': lab})
-                else:
-                    markers.append({'t': e['ts'], 'kind': 'off', 'label': 'AC off'})
-            elif cool and sp is not None and prev_sp is not None and sp != prev_sp:
-                markers.append({'t': e['ts'], 'kind': 'setpoint', 'label': f'Setpoint → {sp:.0f}°'})
-        prev_cool = cool
-        prev_sp = sp
-    target = events[-1].get('target_c') if events else None
-    return jsonify({
-        'available': True,
-        'points': pts,
-        'humidity_points': humidity_pts,
-        'humidity_sensor_points': humidity_sensor_pts,
-        'outside_points': _get_outdoor_temperature_history(24),
-        'outside_location': WEATHER_LOCATION,
-        'target': target,
-        'markers': markers,
-    })
+    return _ac_removed()
 
-def _read_control_flag():
-    """Är AC-STYRNINGEN aktiverad? (flagg-fil; saknas → på). Loopen loggar alltid."""
-    try:
-        with open(AC_CONTROL_FLAG) as f:
-            return f.read().strip().lower() not in ('0', 'false', 'off', 'no', '')
-    except FileNotFoundError:
-        return True
-    except Exception:
-        return True
-
-def _ac_loop_status():
-    try:
-        res = subprocess.run(
-            ['systemctl', 'is-active', AC_LOOP_SERVICE],
-            capture_output=True, text=True, timeout=4
-        )
-        running = (res.stdout or '').strip() == 'active'
-    except Exception:
-        running = False
-    return {
-        'available': True,
-        'service': AC_LOOP_SERVICE,
-        'enabled': _read_control_flag(),   # styr om AC:n kommenderas
-        'running': running,                # loggar-loopen igång?
-    }
 
 @app.get('/api/ac/loop')
 def ac_loop_status():
-    if uid() != 1:
-        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
-    return jsonify(_ac_loop_status())
+    return _ac_removed()
+
 
 @app.post('/api/ac/loop')
 def ac_loop_control():
-    if uid() != 1:
-        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
-    data = request.json or {}
-    enabled = bool(data.get('enabled'))
-    try:
-        _write_control_flag(enabled)
-        # Att slå PÅ styrningen igen släpper även vattendunk-låset (manuell kvittering
-        # efter att dunken tömts). Är dunken fortfarande full låser ESP32:n om igen.
-        if enabled:
-            try:
-                with open(WATER_LOCKOUT_FLAG, 'w') as f:
-                    f.write('0')
-                _water_state['ac_disabled'] = False
-            except Exception:
-                pass
-        status = _ac_loop_status()
-        status['ok'] = True
-        return jsonify(status)
-    except Exception as e:
-        return _server_error(
-            e, 'ac.loop_control_failed', message='AC-styrningen kunde inte uppdateras.',
-            extra={
-                'ok': False,
-                'available': False,
-                'service': AC_LOOP_SERVICE,
-                'enabled': _read_control_flag(),
-            },
-        )
+    return _ac_removed()
+
 
 @app.get('/api/ac/bedtime')
 def ac_bedtime_get():
-    if uid() != 1:
-        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
-    override = _read_ac_bedtime_override()
-    return jsonify({
-        'available': True,
-        'bedtime': override['bedtime'],
-        'updated_at': override['updated_at'],
-        'source': 'manual' if override['bedtime'] else 'calculated',
-    })
+    return _ac_removed()
+
 
 @app.post('/api/ac/bedtime')
 def ac_bedtime_set():
-    if uid() != 1:
-        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
-    data = request.json or {}
-    bedtime = data.get('bedtime')
-    try:
-        os.makedirs(os.path.dirname(AC_BEDTIME_OVERRIDE), exist_ok=True)
-        if bedtime in (None, ''):
-            payload = {'bedtime': None, 'updated_at': datetime.now(timezone.utc).isoformat()}
-        else:
-            bedtime = _normalize_clock(str(bedtime))
-            if bedtime is None:
-                return jsonify({'ok': False, 'error': 'Läggtid måste vara HH:MM, exempelvis 22:00'}), 400
-            payload = {'bedtime': bedtime, 'updated_at': datetime.now(timezone.utc).isoformat()}
-        with open(AC_BEDTIME_OVERRIDE, 'w', encoding='utf-8') as f:
-            json.dump(payload, f)
-        return jsonify({'ok': True, 'available': True, **payload, 'source': 'manual' if payload['bedtime'] else 'calculated'})
-    except Exception as e:
-        return _server_error(
-            e, 'ac.bedtime_failed', message='Läggtiden kunde inte sparas.',
-            extra={'ok': False, 'available': False}
-        )
+    return _ac_removed()
+
 
 @app.post('/api/ac/manual-control')
 def ac_manual_control():
-    if uid() != 1:
-        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
-    data = request.json or {}
-    mode = str(data.get('mode') or '').strip().lower()
-    allowed_modes = {'cool', 'fan', 'auto', 'heat', 'off'}
-    if mode not in allowed_modes:
-        return jsonify({'ok': False, 'error': 'Ogiltigt AC-läge'}), 400
+    return _ac_removed()
 
-    payload = {'mode': mode}
-    if mode != 'off':
-        try:
-            setpoint = float(data.get('setpoint_c'))
-        except (ValueError, TypeError):
-            return jsonify({'ok': False, 'error': 'Temperatur saknas eller är ogiltig'}), 400
-        if not (10.0 <= setpoint <= 35.0):
-            return jsonify({'ok': False, 'error': 'Temperatur måste vara 10-35 °C'}), 400
-        payload['setpoint_c'] = round(setpoint * 2) / 2
-
-    try:
-        _write_control_flag(False)
-        r = requests.post(f'{AC_KEEPER_URL}/api/manual-control', json=payload, timeout=8)
-        try:
-            body = r.json()
-        except Exception:
-            body = {}
-        if not r.ok:
-            return _api_error(
-                'ac_command_rejected', 'AC-keeper avvisade kommandot.', r.status_code,
-                extra={'ok': False, 'available': False}
-            )
-        status = _ac_loop_status()
-        return jsonify({'ok': True, 'automatic_enabled': status['enabled'], **body})
-    except Exception as e:
-        return _server_error(
-            e, 'ac.manual_control_failed', message='AC-kommandot kunde inte skickas.',
-            extra={'ok': False, 'available': False}
-        )
-
-def _check_ac_button_token():
-    token = request.headers.get('x-ac-button-token') or request.headers.get('x-water-token') or ''
-    return bool(token and AC_BUTTON_TOKEN and hmac.compare_digest(token, AC_BUTTON_TOKEN))
 
 @app.post('/api/ac/button/off')
 def ac_button_off():
-    """ESP32-knapp: kort tryck stänger av AC:n och den automatiska styrningen."""
-    if not _check_ac_button_token():
-        return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
-    try:
-        _write_control_flag(False)
-        r = requests.post(f'{AC_KEEPER_URL}/api/manual-control', json={'mode': 'off'}, timeout=8)
-        try:
-            body = r.json()
-        except Exception:
-            body = {}
-        if not r.ok:
-            return _api_error(
-                'ac_command_rejected', 'AC-keeper avvisade kommandot.', r.status_code,
-                extra={'ok': False, 'automatic_enabled': False}
-            )
-        return jsonify({'ok': True, 'action': 'off', 'automatic_enabled': False, **body})
-    except Exception as e:
-        return _server_error(
-            e, 'ac.button_off_failed', message='AC:n kunde inte stängas av.',
-            extra={'ok': False, 'automatic_enabled': False}
-        )
+    return _ac_removed()
+
 
 @app.post('/api/ac/button/auto-on')
 def ac_button_auto_on():
-    """ESP32-knapp: långt tryck slår på automatisk AC-styrning igen."""
-    if not _check_ac_button_token():
-        return jsonify({'ok': False, 'error': 'Unauthorized'}), 401
-    try:
-        _write_control_flag(True)
-        try:
-            requests.post(f'{AC_KEEPER_URL}/api/control/once', timeout=6)
-        except Exception:
-            pass
-        return jsonify({'ok': True, 'action': 'auto-on', 'automatic_enabled': True})
-    except Exception as e:
-        return _server_error(
-            e, 'ac.button_auto_failed', message='Automatisk AC-styrning kunde inte startas.',
-            extra={'ok': False, 'automatic_enabled': _read_control_flag()}
-        )
+    return _ac_removed()
+
 
 @app.post('/api/ac/setpoint')
 def ac_setpoint():
-    """Uppdaterar target_c i ac-keepers config.yaml och startar om loopen."""
-    if uid() != 1:
-        return jsonify({'available': False, 'error': 'AC control only available to owner'}), 403
-    data = request.json or {}
-    try:
-        target = float(data['target_c'])
-    except (KeyError, ValueError, TypeError):
-        return jsonify({'ok': False, 'error': 'target_c saknas eller ogiltigt'}), 400
-    if not (10.0 <= target <= 35.0):
-        return jsonify({'ok': False, 'error': 'Temperatur måste vara 10–35 °C'}), 400
-    try:
-        with open(AC_KEEPER_CONFIG, 'r') as f:
-            cfg = yaml.safe_load(f) or {}
-        if 'controller' not in cfg:
-            cfg['controller'] = {}
-        cfg['controller']['target_c'] = round(target * 2) / 2
-        with open(AC_KEEPER_CONFIG, 'w') as f:
-            yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
-        result = subprocess.run(['sudo', 'systemctl', 'restart', AC_LOOP_SERVICE], timeout=10, capture_output=True)
-        if result.returncode != 0:
-            logger.error('AC service restart failed', extra={
-                'event': 'ac.restart_failed',
-                'request_id': _request_id(),
-                'user_id': uid(),
-            })
-            return _api_error('ac_restart_failed', 'AC-tjänsten kunde inte startas om.', 500, extra={'ok': False})
-        return jsonify({'ok': True, 'target_c': cfg['controller']['target_c']})
-    except Exception as e:
-        return _server_error(e, 'ac.setpoint_failed', message='AC-temperaturen kunde inte sparas.', extra={'ok': False})
+    return _ac_removed()
 
 def _interval_work_laps_for_activity(client, activity_id):
     """Return fast 300-550 m work reps from Garmin splits for calendar labels."""
@@ -4490,14 +4518,11 @@ def _build_insights_prompt():
     notes_txt = '\n'.join(f"- [{c}] {t}" for t, c in notes) if notes else 'None'
 
     temp_note = ''
-    try:
-        r = requests.get(f'{AC_KEEPER_URL}/api/control-events', params={'hours': 24}, timeout=4)
-        tps = [e['measured_c'] for e in r.json() if e.get('measured_c') is not None]
-        if tps:
-            temp_note = (f"\nBEDROOM TEMP (last 24h): avg {sum(tps)/len(tps):.1f}°C, "
-                         f"range {min(tps):.1f}-{max(tps):.1f}°C (longer history builds over time).")
-    except Exception:
-        pass
+    stats = _bedroom_temp_stats(24)
+    if stats:
+        avg_c, min_c, max_c = stats
+        temp_note = (f"\nBEDROOM TEMP (last 24h): avg {avg_c:.1f}°C, "
+                     f"range {min_c:.1f}-{max_c:.1f}°C (longer history builds over time).")
 
     return f"""You are a brutal, data-driven performance analyst like WHOOP. 3 weeks of data below. Surface the 3-4 most important patterns — ONLY what the numbers support.
 
@@ -4598,20 +4623,10 @@ def _build_sleep_insights_prompt():
     log = '\n'.join(lines) if lines else 'No history yet.'
 
     temp_note = ''
-    try:
-        r = requests.get(f'{AC_KEEPER_URL}/api/control-events', params={'hours': 168}, timeout=4)
-        events = r.json()
-        if events:
-            by_day = {}
-            for e in events:
-                if e.get('measured_c') is None: continue
-                day = e.get('timestamp', '')[:10]
-                by_day.setdefault(day, []).append(e['measured_c'])
-            daily_temps = {d: round(sum(v)/len(v), 1) for d, v in by_day.items()}
-            temp_lines = [f"{d}: avg {t}°C" for d, t in sorted(daily_temps.items())]
-            temp_note = '\nBEDROOM TEMPERATURE (last 7 nights):\n' + '\n'.join(temp_lines)
-    except Exception:
-        pass
+    daily_temps = _bedroom_temp_daily(7)
+    if daily_temps:
+        temp_lines = [f"{day}: avg {avg_c}°C" for day, avg_c in daily_temps]
+        temp_note = '\nBEDROOM TEMPERATURE (last 7 nights):\n' + '\n'.join(temp_lines)
 
     return f"""You are a blunt sleep coach. Analyze 4 weeks of sleep data. Find the 3-4 most important patterns — only what numbers actually show. Write all output (headline, title, value, detail, action) in Swedish (svenska).
 
@@ -7279,6 +7294,7 @@ scheduler = None
 if not APP_TESTING:
     scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
     scheduler.add_job(auto_sync_job, 'interval', hours=3)
+    scheduler.add_job(purge_old_sensor_readings, 'interval', hours=24)
     scheduler.start()
     logger.info('Scheduler started', extra={'event': 'scheduler.started'})
 

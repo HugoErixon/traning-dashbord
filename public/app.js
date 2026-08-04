@@ -1192,11 +1192,6 @@ function executeAction(trigger, event) {
   else if (action === 'refresh-insights') loadInsights(true);
   else if (action === 'open-trend-breakdown') openTrendBreakdown();
   else if (action === 'close-trend-breakdown') closeTrendBreakdown();
-  else if (action === 'toggle-ac-loop') toggleAcLoop();
-  else if (action === 'set-ac-setpoint') setAcSetpoint();
-  else if (action === 'save-ac-bedtime') saveAcBedtime();
-  else if (action === 'clear-ac-bedtime') clearAcBedtime();
-  else if (action === 'send-ac-command') sendManualAcCommand();
   else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
   else if (action === 'analysis-window') setAnalysisWindow(Number(trigger.dataset.days));
   else if (action === 'analysis-metric') selectAnalysisMetric(trigger.dataset.metric);
@@ -1242,10 +1237,6 @@ document.addEventListener('keydown', event => {
   }
 });
 
-const acSetpointInput = document.getElementById('ac-setpoint-input');
-acSetpointInput?.addEventListener('input', () => { acSetpointInput.dataset.dirty = '1'; });
-acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset.dirty; });
-
   // Navigation
   function goto(id) {
     const page = document.getElementById('page-' + id);
@@ -1267,7 +1258,7 @@ acSetpointInput?.addEventListener('blur', () => { delete acSetpointInput.dataset
     if (id === 'strength') loadStrengthPage();
     if (id === 'journal')  loadJournal();
     if (id === 'upcoming') { checkGcalStatus(); loadPaceProposals(); }
-    if (id === 'climate')  { loadWeatherStatus(); loadAcStatus(); loadAcLoopStatus(); loadAcBedtime(); loadHumidityStatus(); loadAcHistory(); }
+    if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); }
   }
 
@@ -3066,250 +3057,6 @@ HEALTH DATA (current):
   }
   loadTrainingReview();
 
-  let acLoopEnabled = false;
-
-  function renderAcLoopControl(status) {
-    const label = document.getElementById('ac-loop-status');
-    const btn = document.getElementById('ac-loop-toggle');
-    if (!label || !btn) return;
-
-    if (!status || status.available === false) {
-      acLoopEnabled = false;
-      label.textContent = 'Automatisk styrning: otillgänglig';
-      btn.textContent = 'Av';
-      btn.className = 'ac-loop-btn is-off';
-      btn.disabled = true;
-      return;
-    }
-
-    acLoopEnabled = !!status.enabled;
-    label.textContent = 'Automatisk styrning: ' + (acLoopEnabled ? 'på' : 'av') + (status.running === false ? ' – loggningsloop NERE' : '');
-    btn.textContent = acLoopEnabled ? 'På' : 'Av';
-    btn.className = 'ac-loop-btn ' + (acLoopEnabled ? 'is-on' : 'is-off');
-    btn.disabled = false;
-  }
-
-  async function loadAcLoopStatus() {
-    try {
-      const res = await fetch('/api/ac/loop');
-      const status = await res.json();
-      renderAcLoopControl(status);
-    } catch(e) {
-      renderAcLoopControl({ available: false });
-    }
-  }
-
-  async function toggleAcLoop() {
-    const btn = document.getElementById('ac-loop-toggle');
-    const label = document.getElementById('ac-loop-status');
-    if (!btn) return;
-    const nextEnabled = !acLoopEnabled;
-    btn.disabled = true;
-    btn.textContent = nextEnabled ? 'På…' : 'Av…';
-    if (label) label.textContent = 'Automatisk styrning: uppdaterar…';
-
-    try {
-      const res = await fetch('/api/ac/loop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: nextEnabled })
-      });
-      const status = await res.json();
-      if (!res.ok || status.ok === false) throw new Error(status.error || 'Kunde inte uppdatera AC-styrningen');
-      renderAcLoopControl(status);
-      loadAcStatus();
-    } catch(e) {
-      if (label) label.textContent = 'Automatisk styrning: ' + e.message;
-      btn.textContent = acLoopEnabled ? 'På' : 'Av';
-      btn.disabled = false;
-    }
-  }
-
-  async function loadAcBedtime() {
-    const inp = document.getElementById('ac-bedtime-input');
-    const body = document.getElementById('ac-bedtime-body');
-    const badge = document.getElementById('ac-bedtime-badge');
-    if (!inp || !body || !badge) return;
-    try {
-      const res = await fetch('/api/ac/bedtime');
-      const d = await res.json();
-      if (!res.ok || d.available === false) throw new Error(d.error || 'otillgänglig');
-      inp.value = d.bedtime || '';
-      if (d.bedtime) {
-        badge.className = 'today-badge badge-blue';
-        badge.textContent = 'MANUELL';
-        body.textContent = 'AC:n planerar för att rummet ska vara vid måltemperatur till ' + d.bedtime + '.';
-      } else {
-        badge.className = 'today-badge badge-green';
-        badge.textContent = 'AUTO';
-        body.textContent = 'Ingen manuell läggtid satt. Förkylningen använder den uträknade sömntiden.';
-      }
-    } catch(e) {
-      badge.className = 'today-badge badge-red';
-      badge.textContent = 'NERE';
-      body.textContent = 'Kunde inte läsa läggtidsstyrningen.';
-    }
-  }
-
-  function normalizeClockInput(value) {
-    const raw = String(value || '').trim();
-    let match = raw.match(/^(\d{1,2}):(\d{2})$/);
-    if (!match && /^\d{3,4}$/.test(raw)) {
-      match = [raw, raw.slice(0, -2), raw.slice(-2)];
-    }
-    if (!match) return null;
-    const hour = Number(match[1]);
-    const minute = Number(match[2]);
-    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-  }
-
-  async function saveAcBedtime() {
-    const inp = document.getElementById('ac-bedtime-input');
-    const status = document.getElementById('ac-bedtime-status');
-    const btn = document.getElementById('ac-bedtime-save');
-    if (!inp || !status || !btn) return;
-    const bedtime = normalizeClockInput(inp.value);
-    if (!bedtime) {
-      status.textContent = 'Skriv en giltig tid, t.ex. 22:00 eller 2200.';
-      status.style.color = 'var(--amber)';
-      return;
-    }
-    inp.value = bedtime;
-    btn.disabled = true;
-    status.textContent = 'Sparar...';
-    status.style.color = 'var(--muted)';
-    try {
-      const res = await fetch('/api/ac/bedtime', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bedtime })
-      });
-      const d = await res.json();
-      if (!res.ok || !d.ok) throw new Error(d.error || 'Kunde inte spara');
-      status.textContent = '✓ Sparad';
-      status.style.color = 'var(--green)';
-      loadAcBedtime();
-      setTimeout(() => { status.textContent = ''; }, 3500);
-    } catch(e) {
-      status.textContent = e.message;
-      status.style.color = 'var(--red)';
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  async function clearAcBedtime() {
-    const status = document.getElementById('ac-bedtime-status');
-    const btn = document.getElementById('ac-bedtime-clear');
-    if (!status || !btn) return;
-    btn.disabled = true;
-    status.textContent = 'Återställer...';
-    status.style.color = 'var(--muted)';
-    try {
-      const res = await fetch('/api/ac/bedtime', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bedtime: null })
-      });
-      const d = await res.json();
-      if (!res.ok || !d.ok) throw new Error(d.error || 'Kunde inte återställa');
-      status.textContent = '✓ Auto';
-      status.style.color = 'var(--green)';
-      loadAcBedtime();
-      setTimeout(() => { status.textContent = ''; }, 3500);
-    } catch(e) {
-      status.textContent = e.message;
-      status.style.color = 'var(--red)';
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  async function sendManualAcCommand() {
-    const temp = document.getElementById('ac-manual-temp');
-    const mode = document.getElementById('ac-manual-mode');
-    const btn = document.getElementById('ac-manual-send');
-    const status = document.getElementById('ac-manual-status');
-    const badge = document.getElementById('ac-manual-badge');
-    if (!temp || !mode || !btn || !status) return;
-    const payload = { mode: mode.value };
-    if (payload.mode !== 'off') {
-      const setpoint = parseFloat(temp.value);
-      if (isNaN(setpoint) || setpoint < 10 || setpoint > 35) {
-        status.textContent = 'Ange 10-35 °C.';
-        status.style.color = 'var(--red)';
-        return;
-      }
-      payload.setpoint_c = setpoint;
-    }
-    btn.disabled = true;
-    status.textContent = 'Skickar...';
-    status.style.color = 'var(--muted)';
-    try {
-      const res = await fetch('/api/ac/manual-control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const d = await res.json();
-      if (!res.ok || !d.ok) throw new Error(d.error || 'Kunde inte styra AC:n');
-      status.textContent = '✓ Manuellt kommando skickat. Automatisk styrning är av.';
-      status.style.color = 'var(--green)';
-      if (badge) {
-        badge.className = 'today-badge badge-red';
-        badge.textContent = 'AUTO AV';
-      }
-      loadAcLoopStatus();
-      setTimeout(loadAcStatus, 1500);
-      setTimeout(loadAcHistory, 5000);
-    } catch(e) {
-      status.textContent = e.message;
-      status.style.color = 'var(--red)';
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  async function setAcSetpoint() {
-    const inp = document.getElementById('ac-setpoint-input');
-    const btn = document.getElementById('ac-setpoint-btn');
-    const status = document.getElementById('ac-setpoint-status');
-    if (!inp || !btn) return;
-    const val = parseFloat(inp.value);
-    if (isNaN(val) || val < 10 || val > 35) {
-      status.textContent = 'Ange 10–35 °C';
-      status.style.color = 'var(--red)';
-      return;
-    }
-    btn.disabled = true;
-    status.textContent = 'Uppdaterar...';
-    status.style.color = 'var(--muted)';
-    inp.dataset.dirty = '1';
-    try {
-      const res = await fetch('/api/ac/setpoint', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_c: val })
-      });
-      const d = await res.json();
-      if (!res.ok || !d.ok) throw new Error(d.error || 'Misslyckades');
-      inp.value = d.target_c;
-      status.textContent = '✓ Satt till ' + d.target_c + ' °C';
-      status.style.color = 'var(--green)';
-      delete inp.dataset.dirty;
-      setTimeout(() => { status.textContent = ''; }, 4000);
-      loadAcStatus();
-      setTimeout(loadAcHistory, 5000);
-    } catch(e) {
-      status.textContent = e.message;
-      status.style.color = 'var(--red)';
-      delete inp.dataset.dirty;
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
   // Outdoor weather - fetched through the dashboard proxy (/api/weather/current)
   async function loadWeatherStatus() {
     const hl = document.getElementById('weather-headline');
@@ -3345,227 +3092,129 @@ HEALTH DATA (current):
   loadWeatherStatus();
   setInterval(whileAuthenticated(loadWeatherStatus), 300000);
 
-  function formatAcNumber(value, digits) {
-    return Number(value).toLocaleString('sv-SE', {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits
-    });
-  }
-
-  function formatAcMode(mode) {
-    const modes = {
-      cool: 'kyla',
-      cold: 'kyla',
-      heat: 'värme',
-      hot: 'värme',
-      dry: 'avfuktning',
-      fan: 'fläkt',
-      auto: 'auto'
-    };
-    const key = String(mode || '').toLowerCase();
-    return modes[key] || (mode || '-');
-  }
-
-  function formatAcReason(reason) {
-    if (!reason) return '';
-
-    let m = reason.match(/^Room ([\d.]+)C vs target ([\d.]+)C -> cool, AC setpoint ([\d.]+)C\.$/);
-    if (m) {
-      return `Rum ${formatAcNumber(m[1], 2)} °C jämfört med mål ${formatAcNumber(m[2], 1)} °C → kyler, AC-mål ${formatAcNumber(m[3], 1)} °C.`;
-    }
-
-    m = reason.match(/^Room ([\d.]+)C at\/below target ([\d.]+)C -> keep AC on at target for stable overnight temperature\.$/);
-    if (m) {
-      return `Rum ${formatAcNumber(m[1], 2)} °C är vid eller under målet ${formatAcNumber(m[2], 1)} °C → behåller AC:n på för stabil nattemperatur.`;
-    }
-
-    m = reason.match(/^Room ([\d.]+)C at\/below target ([\d.]+)C -> AC off\.$/);
-    if (m) {
-      return `Rum ${formatAcNumber(m[1], 2)} °C är vid eller under målet ${formatAcNumber(m[2], 1)} °C → AC av.`;
-    }
-
-    m = reason.match(/^Pre-cool waits until ([\d:]+) for bedtime ([\d:]+) \(wake ([\d:]+), room ([\d.]+)C, target ([\d.]+)C(.*)\)$/);
-    if (m) {
-      return `Förkylning väntar till ${m[1]} inför läggdags ${m[2]} (uppstigning ${m[3]}, rum ${formatAcNumber(m[4], 2)} °C, mål ${formatAcNumber(m[5], 1)} °C).`;
-    }
-
-    if (reason.toLowerCase().includes('water') && reason.toLowerCase().includes('lockout')) {
-      return 'Vattenlås aktivt → tvingar AC:n av tills dunken är tömd och styrningen kvitteras.';
-    }
-
-    return reason
-      .replaceAll('Room', 'Rum')
-      .replaceAll('target', 'mål')
-      .replaceAll('AC setpoint', 'AC-mål')
-      .replaceAll('cooling rate', 'kylhastighet')
-      .replaceAll('cool', 'kyler')
-      .replaceAll('AC off', 'AC av')
-      .replaceAll('C', ' °C');
-  }
-
-  function formatAcMarkerLabel(label) {
-    if (!label) return '';
-    let m = label.match(/^Setpoint → ([\d.]+)°$/);
-    if (m) return `Mål → ${formatAcNumber(m[1], 0)}°`;
-    m = label.match(/^AC on, setpoint ([\d.]+)°$/);
-    if (m) return `AC på, mål ${formatAcNumber(m[1], 0)}°`;
-    if (label === 'AC on') return 'AC på';
-    if (label === 'AC off') return 'AC av';
-    return label;
-  }
-
-  function ensureHumidityCard() {
-    let card = document.getElementById('humidity-card');
-    if (card) return card;
-    const graph = document.getElementById('ac-graph');
-    const graphCard = graph ? graph.closest('.bigcard') : null;
-    const page = document.getElementById('page-climate');
-    if (!page) return null;
-    card = document.createElement('div');
-    card.className = 'bigcard accent-blue humidity-card';
-    card.id = 'humidity-card';
-    card.innerHTML = `
-      <div class="today-header">
-        <h3 id="humidity-headline">Laddar luftfuktighet...</h3>
-        <span class="today-badge badge-amber" id="humidity-badge">FUKT</span>
-      </div>
-      <p id="humidity-body">L&auml;ser luftfuktighet fr&aring;n tempsensorerna...</p>
-      <div class="humidity-meter" aria-hidden="true"><div class="humidity-fill" id="humidity-fill"></div></div>
-      <div class="humidity-meta">
-        <span id="humidity-average">24h snitt: -</span>
-        <span id="humidity-range">spann: -</span>
-      </div>`;
-    if (graphCard) page.insertBefore(card, graphCard);
-    else page.appendChild(card);
-    return card;
-  }
-
   function humidityVerdict(value) {
-    if (!Number.isFinite(value)) return ['badge-amber', 'OKANT', 'Ingen luftfuktighet fr\u00e5n sensorerna \u00e4n.'];
-    if (value < 30) return ['badge-amber', 'TORRT', 'Torr luft. Sikta helst p\u00e5 40-55% f\u00f6r sovrumskomfort.'];
-    if (value <= 60) return ['badge-green', 'BRA', 'Inom ett bra spann f\u00f6r komfort och \u00e5terh\u00e4mtning.'];
-    if (value <= 70) return ['badge-amber', 'FUKTIGT', 'Lite h\u00f6g luftfuktighet. Ventilation eller avfuktning kan hj\u00e4lpa.'];
-    return ['badge-red', 'HOGT', 'H\u00f6g luftfuktighet. Risk f\u00f6r kvav k\u00e4nsla och s\u00e4mre komfort.'];
+    if (!Number.isFinite(value)) return ['badge-amber', 'OKANT', 'Ingen luftfuktighet från sensorerna än.'];
+    if (value < 30) return ['badge-amber', 'TORRT', 'Torr luft. Sikta helst på 40-55% för sovrumskomfort.'];
+    if (value <= 60) return ['badge-green', 'BRA', 'Inom ett bra spann för komfort och återhämtning.'];
+    if (value <= 70) return ['badge-amber', 'FUKTIGT', 'Lite hög luftfuktighet. Ventilation eller avfuktning kan hjälpa.'];
+    return ['badge-red', 'HOGT', 'Hög luftfuktighet. Risk för kvav känsla och sämre komfort.'];
   }
 
-  async function loadHumidityStatus() {
-    const card = ensureHumidityCard();
-    if (!card) return;
-    const hl = document.getElementById('humidity-headline');
-    const body = document.getElementById('humidity-body');
-    const badge = document.getElementById('humidity-badge');
+  function formatSensorAge(seconds) {
+    if (seconds == null) return 'aldrig';
+    if (seconds < 90) return 'nyss';
+    if (seconds < 5400) return Math.round(seconds / 60) + ' min';
+    if (seconds < 172800) return Math.round(seconds / 3600) + ' h';
+    return Math.round(seconds / 86400) + ' d';
+  }
+
+  function renderSensorList(sensors) {
+    const el = document.getElementById('sensor-list');
+    if (!el) return;
+    if (!sensors || !sensors.length) {
+      el.innerHTML = '<div class="sensor-row"><span class="sensor-name">Inga sensorer hittade</span></div>';
+      return;
+    }
+    el.innerHTML = sensors.map(s => {
+      const temp = s.temperature_c != null ? s.temperature_c.toFixed(1) + '°' : '–';
+      const humidity = s.humidity_pct != null ? s.humidity_pct.toFixed(0) + '%' : '–';
+      const age = formatSensorAge(s.age_seconds);
+      const state = s.stale
+        ? `<span class="sensor-state is-stale" title="Senast: ${age}">tyst ${age}</span>`
+        : `<span class="sensor-state is-live" title="Senast: ${age}">${age}</span>`;
+      return `<div class="sensor-row${s.stale ? ' is-stale' : ''}">
+        <span class="sensor-name">${escapeHtml(s.name)}</span>
+        <span class="sensor-metric">${temp}</span>
+        <span class="sensor-metric">${humidity}</span>
+        ${state}
+      </div>`;
+    }).join('');
+  }
+
+  // Rumsklimat - las direkt fran sensorerna via /api/climate. Ingen AC-styrning
+  // inblandad; sidan visar bara vad givarna rapporterar.
+  async function loadClimateStatus() {
+    const hl = document.getElementById('climate-headline');
+    const body = document.getElementById('climate-body');
+    const badge = document.getElementById('climate-badge');
     const fill = document.getElementById('humidity-fill');
+    if (!hl || !body || !badge) return;
+    try {
+      const res = await fetch('/api/climate');
+      const d = await res.json();
+      if (!res.ok || !d.available) throw new Error(d.error || 'Klimatdata otillgänglig');
+      const sensors = d.sensors || [];
+      renderSensorList(sensors);
+      const avg = d.average || {};
+      const temp = avg.temperature_c;
+      const humidity = avg.humidity_pct;
+      const [badgeClass, badgeText, verdict] = humidityVerdict(humidity);
+
+      if (temp == null && humidity == null) {
+        hl.textContent = 'Inga aktuella värden';
+        badge.className = 'today-badge badge-red';
+        badge.textContent = 'TYST';
+        const silent = sensors.length;
+        body.textContent = silent
+          ? `Ingen av ${silent} sensor${silent === 1 ? '' : 'er'} har hört av sig på sistone.`
+          : 'Inga sensorer har rapporterat än.';
+        if (fill) fill.style.width = '0%';
+        return;
+      }
+
+      hl.textContent = 'Inne ' + (temp != null ? temp.toFixed(1) + '°C' : '–') +
+        (humidity != null ? ' · fukt ' + humidity.toFixed(0) + '%' : '');
+      badge.className = 'today-badge ' + badgeClass;
+      badge.textContent = badgeText;
+      const stale = sensors.filter(s => s.stale).length;
+      const count = avg.sensor_count || 0;
+      const source = count > 1 ? ` Snitt från ${count} sensorer.` : count === 1 ? ' Från 1 sensor.' : '';
+      const warn = stale ? ` ${stale} sensor${stale === 1 ? '' : 'er'} tyst.` : '';
+      body.textContent = verdict + source + warn;
+      if (fill) fill.style.width = Math.max(0, Math.min(100, humidity || 0)).toFixed(0) + '%';
+    } catch(e) {
+      hl.textContent = 'Rumsklimat otillgängligt';
+      body.textContent = 'Kunde inte hämta sensordata just nu.';
+      badge.className = 'today-badge badge-red';
+      badge.textContent = 'NERE';
+      if (fill) fill.style.width = '0%';
+    }
+  }
+  loadClimateStatus();
+  setInterval(whileAuthenticated(loadClimateStatus), 120000);
+
+  async function loadClimateHistory() {
+    const el = document.getElementById('climate-graph');
+    if (!el) return;
     const avgEl = document.getElementById('humidity-average');
     const rangeEl = document.getElementById('humidity-range');
     try {
-      const [currentRes, historyRes] = await Promise.all([fetch('/api/ac'), fetch('/api/ac/history')]);
-      const current = await currentRes.json();
-      const history = await historyRes.json();
-      const latestReadings = (current.latest_readings || [])
-        .filter(r => r.humidity_pct != null)
-        .sort((a, b) => new Date(b.ts) - new Date(a.ts));
-      const points = (history.humidity_points || []).filter(p => p.humidity != null);
-      const latestVals = latestReadings.map(r => Number(r.humidity_pct)).filter(Number.isFinite);
-      const value = latestVals.length
-        ? latestVals.reduce((a, b) => a + b, 0) / latestVals.length
-        : (points.length ? Number(points[points.length - 1].humidity) : NaN);
-      const [badgeClass, badgeText, verdict] = humidityVerdict(value);
-      badge.className = 'today-badge ' + badgeClass;
-      badge.textContent = badgeText;
-      if (Number.isFinite(value)) {
-        hl.textContent = 'Luftfuktighet ' + value.toFixed(0) + '%';
-        const sensorText = latestVals.length > 1 ? ' Snitt fr\u00e5n ' + latestVals.length + ' sensorer.' :
-          latestVals.length === 1 ? ' Fr\u00e5n ' + (latestReadings[0].sensor_name || '1 sensor') + '.' : '';
-        body.textContent = verdict + sensorText;
-        if (fill) fill.style.width = Math.max(0, Math.min(100, value)).toFixed(0) + '%';
-      } else {
-        hl.textContent = 'Luftfuktighet saknas';
-        body.textContent = 'Sensorerna skickar temperatur, men ingen luftfuktighet \u00e4nnu.';
-        if (fill) fill.style.width = '0%';
-      }
-      if (points.length) {
-        const vals = points.map(p => Number(p.humidity)).filter(Number.isFinite);
-        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-        avgEl.textContent = '24h snitt: ' + avg.toFixed(0) + '%';
-        rangeEl.textContent = 'spann: ' + Math.min(...vals).toFixed(0) + '-' + Math.max(...vals).toFixed(0) + '%';
-      } else {
-        avgEl.textContent = '24h snitt: -';
-        rangeEl.textContent = 'spann: -';
-      }
-    } catch(e) {
-      hl.textContent = 'Luftfuktighet otillg\u00e4nglig';
-      body.textContent = 'Kunde inte h\u00e4mta luftfuktighet fr\u00e5n AC-keeper just nu.';
-      badge.className = 'today-badge badge-red';
-      badge.textContent = 'NERE';
-    }
-  }
-
-  // AC / room temperature - fetched from ac-keeper through the dashboard proxy (/api/ac)
-  async function loadAcStatus() {
-    try {
-      const res = await fetch('/api/ac');
-      const d = await res.json();
-      const hl = document.getElementById('ac-headline');
-      const body = document.getElementById('ac-body');
-      const badge = document.getElementById('ac-badge');
-      const ev = d.latest_control_event;
-      if (d.error || !ev) {
-        hl.textContent = 'AC otillgänglig';
-        body.textContent = 'Kunde inte nå AC-styrenheten på Pi:n.';
-        badge.className = 'today-badge badge-red'; badge.textContent = 'NERE';
-        return;
-      }
-      const ac = d.latest_ac_status || {};
-      const measured = ev.measured_c;
-      hl.textContent = 'Rum ' + (measured != null ? measured.toFixed(1) : '-') + '\u00B0C → mål ' + ev.target_c + '\u00B0C';
-      const inp = document.getElementById('ac-setpoint-input');
-      if (inp && !inp.dataset.dirty) inp.value = ev.target_c;
-      const action = ev.action || '';
-      const dry = action.indexOf('dry_run_') === 0;
-      const base = action.replace('dry_run_', '');
-      const map = {
-        cool:['badge-amber','KYLER'],
-        hold_cool:['badge-amber','HÅLLER KYLA'],
-        heat:['badge-amber','VÄRMER'],
-        off:['badge-green','AV'],
-        hold:['badge-green','OK'],
-        defer:['badge-amber','VÄNTAR'],
-        pre_cool_wait:['badge-amber','VÄNTAR'],
-        no_sensor_data:['badge-red','INGEN DATA'],
-        water_lockout:['badge-red','VATTENLÅS']
-      };
-      const m = map[base] || ['badge-amber', base.toUpperCase()];
-      badge.className = 'today-badge ' + m[0];
-      badge.textContent = (dry ? 'TEST – ' : '') + m[1];
-      const acState = ac.power ? ('AC på (' + formatAcMode(ac.mode) + ')') : 'AC av';
-      body.textContent = acState + '. ' + (dry ? 'Testläge – styr inte den riktiga AC:n än. ' : '') + formatAcReason(ev.reason);
-    } catch(e) {}
-  }
-  loadAcStatus();
-  loadHumidityStatus();
-  loadAcLoopStatus();
-  loadAcBedtime();
-  setInterval(whileAuthenticated(loadAcStatus), 60000);
-  setInterval(whileAuthenticated(loadHumidityStatus), 60000);
-  setInterval(whileAuthenticated(loadAcLoopStatus), 60000);
-
-  // 24h rumstemperatur-graf (inline SVG, ingen extern lib) — med klockslag + hover/touch
-  async function loadAcHistory() {
-    const el = document.getElementById('ac-graph');
-    if (!el) return;
-    try {
-      const res = await fetch('/api/ac/history');
+      const res = await fetch('/api/climate/history?hours=24');
       const d = await res.json();
       const raw = (d.points || []).filter(p => p.temp != null);
+      const humidityRaw = (d.humidity_points || []).filter(p => p.humidity != null);
+
+      // 24h-sammanfattningen for fuktkortet hor ihop med grafens data, sa den
+      // uppdateras har i stallet for i ytterligare ett anrop.
+      if (avgEl && rangeEl) {
+        const vals = humidityRaw.map(p => Number(p.humidity)).filter(Number.isFinite);
+        if (vals.length) {
+          const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+          avgEl.textContent = '24h snitt: ' + mean.toFixed(0) + '%';
+          rangeEl.textContent = 'spann: ' + Math.min(...vals).toFixed(0) + '-' + Math.max(...vals).toFixed(0) + '%';
+        } else {
+          avgEl.textContent = '24h snitt: –';
+          rangeEl.textContent = 'spann: –';
+        }
+      }
+
       if (!raw.length) { el.textContent = d.error ? 'Temperaturhistorik otillgänglig.' : 'Samlar temperaturdata...'; return; }
       const outsideRaw = (d.outside_points || []).filter(p => p.temp != null);
-      const humidityRaw = (d.humidity_points || []).filter(p => p.humidity != null);
       const temps = raw.map(p => p.temp);
       const outsideTemps = outsideRaw.map(p => p.temp);
       const humidityVals = humidityRaw.map(p => Number(p.humidity)).filter(Number.isFinite);
       const allTemps = temps.concat(outsideTemps);
-      let lo = Math.min(...allTemps), hi = Math.max(...allTemps);
-      if (d.target != null) { lo = Math.min(lo, d.target); hi = Math.max(hi, d.target); }
+      const lo = Math.min(...allTemps), hi = Math.max(...allTemps);
       const pad = Math.max(0.5, (hi - lo) * 0.15);
       const yLo = lo - pad, yHi = hi + pad;
       const W = 600, H = 195, padL = 34, padR = humidityVals.length ? 44 : 12, padT = 10, padB = 30;
@@ -3586,9 +3235,9 @@ HEALTH DATA (current):
       }
       const YH = v => padT + (1 - (v - hLo) / Math.max(1, hHi - hLo)) * innerH;
       const fmt = ms => new Date(ms).toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
-      const P = raw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; });
+      const P = raw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp), sensors: p.sensors || 0 }; });
       const OP = outsideRaw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; }).filter(p => p.ms >= t0 && p.ms <= t1);
-      const HP = humidityRaw.map(p => { const ms = new Date(p.t).getTime(); const humidity = Number(p.humidity); return { ms, humidity, x: X(ms), y: YH(humidity), sensors: p.sensors || [], samples: p.samples || 1 }; }).filter(p => Number.isFinite(p.humidity) && p.ms >= t0 && p.ms <= t1);
+      const HP = humidityRaw.map(p => { const ms = new Date(p.t).getTime(); const humidity = Number(p.humidity); return { ms, humidity, x: X(ms), y: YH(humidity), sensors: p.sensors || 0 }; }).filter(p => Number.isFinite(p.humidity) && p.ms >= t0 && p.ms <= t1);
       const outsidePath = OP.map((p,i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
       const humidityPath = HP.map((p,i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
       // Bryt linjen där det finns ett glapp i datan (annars ritas en falsk "trendlinje" över hål)
@@ -3603,35 +3252,6 @@ HEALTH DATA (current):
       const cur = temps[temps.length-1];
       const outsideCur = outsideTemps.length ? outsideTemps[outsideTemps.length-1] : null;
       const humidityCur = HP.length ? HP[HP.length - 1].humidity : null;
-      // AC-kylperioder som mjuka band i bakgrunden (istället för en massa streck per på/av)
-      const trans = (d.markers || []).filter(m => m.kind === 'on' || m.kind === 'off')
-        .map(m => ({ ms: new Date(m.t).getTime(), kind: m.kind })).sort((a,b) => a.ms - b.ms);
-      const bands = []; let openTs = null;
-      if (trans.length && trans[0].kind === 'off') openTs = t0; // var på redan vid start
-      for (const tr of trans) {
-        if (tr.kind === 'on' && openTs === null) openTs = tr.ms;
-        else if (tr.kind === 'off' && openTs !== null) { bands.push([openTs, tr.ms]); openTs = null; }
-      }
-      if (openTs !== null) bands.push([openTs, t1]);
-      const bandHtml = bands.map(([a,b]) => {
-        const x1 = X(Math.max(a, t0)), x2 = X(Math.min(b, t1));
-        const w = Math.max(0, x2 - x1);
-        return `<rect x="${x1.toFixed(1)}" y="${padT}" width="${w.toFixed(1)}" height="${innerH}" fill="var(--blue)" opacity="0.10"/>`;
-      }).join('');
-      const inBand = ms => bands.some(([a,b]) => ms >= a && ms <= b);
-      // Bara setpoint-ändringar markeras som små prickar (på/av syns redan via banden)
-      const mcolor = () => 'var(--amber)';
-      const yAt = ms => { let b = P[0], bd = Infinity; for (const p of P) { const dd = Math.abs(p.ms - ms); if (dd < bd) { bd = dd; b = p; } } return b.y; };
-      const MK = (d.markers || []).filter(m => m.kind === 'setpoint')
-        .map(m => { const ms = new Date(m.t).getTime(); return { ms, x: X(ms), y: yAt(ms), kind: m.kind, label: formatAcMarkerLabel(m.label) }; });
-      const mhtml = MK.map(m =>
-        `<circle cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="2.5" fill="var(--amber)" stroke="var(--bg2)" stroke-width="1"/>`
-      ).join('');
-      let tline = '';
-      if (d.target != null) {
-        const ty = Y(d.target).toFixed(1);
-        tline = `<line x1="${padL}" y1="${ty}" x2="${W-padR}" y2="${ty}" stroke="var(--blue)" stroke-width="1" stroke-dasharray="4 3" opacity="0.6"/><text x="${W-padR}" y="${(+ty)-3}" text-anchor="end" font-size="9" fill="var(--blue)">mål ${d.target}°</text>`;
-      }
       // tidsaxel med klockslag (5 markeringar)
       let xaxis = '', N = 4;
       for (let i = 0; i <= N; i++) {
@@ -3647,7 +3267,6 @@ HEALTH DATA (current):
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
           <span style="font-size:22px;font-weight:800;">${cur.toFixed(1)}°C</span>
           <span style="font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center;">
-            ${bands.length ? '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--blue);opacity:0.25;display:inline-block;"></span>kyler</span>' : ''}
             ${humidityCur != null ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--amber);display:inline-block;"></span>fukt ${humidityCur.toFixed(0)}%</span>` : ''}
             <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--green);display:inline-block;"></span>inne ${cur.toFixed(1)}°C</span>
             ${outsideCur != null ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--blue);display:inline-block;"></span>ute ${outsideCur.toFixed(1)}°C</span>` : ''}
@@ -3655,25 +3274,22 @@ HEALTH DATA (current):
           </span>
         </div>
         <div style="position:relative;">
-          <svg id="ac-svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block;touch-action:none;cursor:crosshair;">
-            ${bandHtml}
+          <svg id="climate-svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block;touch-action:none;cursor:crosshair;">
             ${xaxis}
             <text x="${padL-5}" y="${Y(hi).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${hi.toFixed(1)}</text>
             <text x="${padL-5}" y="${Y(lo).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${lo.toFixed(1)}</text>
             ${hAxis}
-            ${tline}
             ${outsidePath ? `<path d="${outsidePath}" fill="none" stroke="var(--blue)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>` : ''}
             ${humidityPath ? `<path d="${humidityPath}" fill="none" stroke="var(--amber)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>` : ''}
             <path d="${path}" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-            ${mhtml}
-            <line id="ac-cross" y1="${padT}" y2="${H-padB}" stroke="var(--muted2)" stroke-width="1" opacity="0"/>
-            <circle id="ac-dot" r="3.5" fill="var(--green)" stroke="var(--bg2)" stroke-width="1.5" opacity="0"/>
+            <line id="climate-cross" y1="${padT}" y2="${H-padB}" stroke="var(--muted2)" stroke-width="1" opacity="0"/>
+            <circle id="climate-dot" r="3.5" fill="var(--green)" stroke="var(--bg2)" stroke-width="1.5" opacity="0"/>
             <circle id="humidity-dot" r="3.2" fill="var(--amber)" stroke="var(--bg2)" stroke-width="1.5" opacity="0"/>
           </svg>
-          <div id="ac-tip" style="position:absolute;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;white-space:nowrap;opacity:0;transform:translate(-50%,-135%);z-index:5;"></div>
+          <div id="climate-tip" style="position:absolute;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;white-space:nowrap;opacity:0;transform:translate(-50%,-135%);z-index:5;"></div>
         </div>`;
-      const svg = document.getElementById('ac-svg');
-      const cross = document.getElementById('ac-cross'), dot = document.getElementById('ac-dot'), humDot = document.getElementById('humidity-dot'), tip = document.getElementById('ac-tip');
+      const svg = document.getElementById('climate-svg');
+      const cross = document.getElementById('climate-cross'), dot = document.getElementById('climate-dot'), humDot = document.getElementById('humidity-dot'), tip = document.getElementById('climate-tip');
       const at = clientX => {
         const rect = svg.getBoundingClientRect();
         const vbX = ((clientX - rect.left) / rect.width) * W;
@@ -3695,13 +3311,9 @@ HEALTH DATA (current):
         tip.style.left = (best.x / W * rect.width) + 'px';
         tip.style.top = (best.y / H * rect.height) + 'px';
         tip.style.opacity = '1';
-        let mk = null, md = Infinity;
-        for (const m of MK) { const dd = Math.abs(m.x - vbX); if (dd < md) { md = dd; mk = m; } }
-        const humidityLabel = (humidity && hd < 12) ? `<br><span style="color:var(--amber);">fukt ${humidity.humidity.toFixed(0)}%${humidity.sensors.length ? ' · ' + humidity.sensors.length + ' sensorer' : ''}</span>` : '';
-        const mkLabel = humidityLabel + ((mk && md < 7) ? `<br><span style="color:var(--amber);">${escapeHtml(mk.label)}</span>`
-          : (inBand(best.ms) ? '<br><span style="color:var(--blue);">kyler</span>' : ''));
+        const humidityLabel = (humidity && hd < 12) ? `<br><span style="color:var(--amber);">fukt ${humidity.humidity.toFixed(0)}%${humidity.sensors > 1 ? ' · ' + humidity.sensors + ' sensorer' : ''}</span>` : '';
         const outsideLabel = outside ? `<br><span style="color:var(--blue);">ute ${outside.temp.toFixed(1)}°C</span>` : '';
-        tip.innerHTML = `<strong>inne ${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${outsideLabel}${mkLabel}`;
+        tip.innerHTML = `<strong>inne ${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${outsideLabel}${humidityLabel}`;
       };
       const hide = () => { cross.setAttribute('opacity','0'); dot.setAttribute('opacity','0'); if (humDot) humDot.setAttribute('opacity','0'); tip.style.opacity='0'; };
       svg.addEventListener('pointermove', e => at(e.clientX));
@@ -3709,8 +3321,8 @@ HEALTH DATA (current):
       svg.addEventListener('pointerleave', hide);
     } catch(e) { el.textContent = 'Temperaturhistorik otillgänglig.'; }
   }
-  loadAcHistory();
-  setInterval(whileAuthenticated(loadAcHistory), 300000);
+  loadClimateHistory();
+  setInterval(whileAuthenticated(loadClimateHistory), 300000);
 
   function renderInsightCards(items) {
     if (!items || !items.length) return '<div style="font-size:12px;color:var(--muted3);">Inga mönster hittade ännu.</div>';
