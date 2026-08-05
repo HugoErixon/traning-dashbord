@@ -4746,7 +4746,9 @@ def _get_sleep_insights(force=False):
     try:
         row = get_cache('sleep_insights', uid())
         if row and not force and (time.time() - row[1]) < 12 * 3600:
-            return jsonify(row[0])
+            # Rå dict, aldrig ett färdigt svar: chatten bygger in analysen i sin
+            # prompt med json.dumps och en Response går inte att serialisera.
+            return row[0]
         with db() as conn:
             with conn.cursor() as cur:
                 cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
@@ -4855,8 +4857,7 @@ def sleep_overview():
 @app.get('/api/sleep/insights')
 def sleep_insights_endpoint():
     try:
-        data = _get_sleep_insights(force=request.args.get('force') == '1')
-        return data if hasattr(data, 'status_code') else jsonify(data)
+        return jsonify(_get_sleep_insights(force=request.args.get('force') == '1'))
     except Exception as e:
         return _server_error(e, 'sleep.insights_failed', message='Sömnanalysen kunde inte skapas.')
 

@@ -3505,14 +3505,27 @@ HEALTH DATA (current):
     const priorTurns = history.slice();
     try {
       const res = await fetch('/api/assistant', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:buildCTX(), history:priorTurns }) });
-      const data = await res.json();
-      const raw = data.reply || data.error || 'Inget svar.';
-      aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(raw);
-      // Först när svaret finns är utbytet komplett; ett halvt utbyte i
-      // historiken skulle följa med in i nästa fråga som en obesvarad tur.
-      history.push({ role:'user', content:msg }, { role:'assistant', content:raw });
-      saveChatHistory();
-      if (data.planAdjusted) loadPlan();
+      // Ett felsvar behöver inte vara JSON — en proxy emellan kan svara med
+      // en egen HTML-sida. Då ska statuskoden synas i stället för att allt
+      // buntas ihop till "kunde inte nå servern", som pekar åt fel håll.
+      let data = null;
+      try { data = await res.json(); } catch (_) { data = null; }
+      const reply = data && data.reply;
+      const failure = data && !reply
+        ? (data.error || 'Inget svar.')
+        : (res.ok ? null : 'Servern svarade ' + res.status + '.');
+      if (reply) {
+        aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(reply);
+        // Först när svaret finns är utbytet komplett; ett halvt utbyte i
+        // historiken skulle följa med in i nästa fråga som en obesvarad tur.
+        // Ett fel är ingen coachreplik och sparas därför inte — annars svarar
+        // modellen på sitt eget felmeddelande i nästa fråga.
+        history.push({ role:'user', content:msg }, { role:'assistant', content:reply });
+        saveChatHistory();
+        if (data.planAdjusted) loadPlan();
+      } else {
+        aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(failure || 'Inget svar.');
+      }
     } catch(e) {
       aDiv.innerHTML = '<div class="msg-from">COACH</div>Kunde inte nå servern.';
     }
