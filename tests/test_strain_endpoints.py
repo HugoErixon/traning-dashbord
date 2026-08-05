@@ -50,7 +50,7 @@ class StrainEndpointTests(unittest.TestCase):
         with patch.object(garmin_server, '_recent_activities',
                           return_value=[activity(today, 200)]), \
              patch.object(garmin_server, '_load_context', return_value=(100, 1.1)), \
-             patch.object(garmin_server, '_recent_recovery', return_value=(75, 7.5)):
+             patch.object(garmin_server, '_recent_recovery', return_value=(75, 7.5, None)):
             response = self.client.get('/api/strain')
 
         self.assertEqual(response.status_code, 200)

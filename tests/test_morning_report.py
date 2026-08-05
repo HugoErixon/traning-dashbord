@@ -6,7 +6,7 @@ underlag.
 """
 import os
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
@@ -19,6 +19,10 @@ os.environ['USERS'] = f'hugo:{generate_password_hash("test-password")}'
 os.environ['DATABASE_URL'] = 'postgresql://unused-in-tests'
 
 import garmin_server  # noqa: E402
+
+
+TODAY = date.today().isoformat()
+YESTERDAY = (date.today() - timedelta(days=1)).isoformat()
 
 
 def at_hour(hour):
@@ -41,7 +45,7 @@ class MorningReportTextTests(unittest.TestCase):
 
     def test_the_report_leads_with_the_session_and_carries_the_numbers(self):
         self.plan_row(('Intervaller', 10.0, 'run'))
-        with patch.object(garmin_server, '_recent_recovery', return_value=(78, 7.25)), \
+        with patch.object(garmin_server, '_recent_recovery', return_value=(78, 7.25, TODAY)), \
              patch.object(garmin_server, '_load_context', return_value=(400, 1.0)), \
              patch.object(garmin_server, '_recent_activities', return_value=[]), \
              patch.object(garmin_server.strain_analysis, 'strain_summary',
@@ -57,7 +61,7 @@ class MorningReportTextTests(unittest.TestCase):
 
     def test_a_warning_is_included_because_it_changes_the_day(self):
         self.plan_row(('Tröskelpass', 12.0, 'run'))
-        with patch.object(garmin_server, '_recent_recovery', return_value=(52, 5.0)), \
+        with patch.object(garmin_server, '_recent_recovery', return_value=(52, 5.0, TODAY)), \
              patch.object(garmin_server, '_load_context', return_value=(400, 1.5)), \
              patch.object(garmin_server, '_recent_activities', return_value=[]), \
              patch.object(garmin_server.strain_analysis, 'strain_summary',
@@ -70,7 +74,7 @@ class MorningReportTextTests(unittest.TestCase):
     def test_a_title_that_already_states_the_distance_is_left_alone(self):
         # Riktig plantitel fran produktionen; distansen stod dubbelt forr.
         self.plan_row(('Tröskelpass på löpband · 10 km', 10.0, 'run'))
-        with patch.object(garmin_server, '_recent_recovery', return_value=(84, 9.9)), \
+        with patch.object(garmin_server, '_recent_recovery', return_value=(84, 9.9, TODAY)), \
              patch.object(garmin_server, '_load_context', return_value=(None, None)), \
              patch.object(garmin_server, '_recent_activities', return_value=[]), \
              patch.object(garmin_server.strain_analysis, 'strain_summary',
@@ -82,7 +86,7 @@ class MorningReportTextTests(unittest.TestCase):
 
     def test_a_rest_day_still_produces_a_report(self):
         self.plan_row(None)
-        with patch.object(garmin_server, '_recent_recovery', return_value=(80, 8.0)), \
+        with patch.object(garmin_server, '_recent_recovery', return_value=(80, 8.0, TODAY)), \
              patch.object(garmin_server, '_load_context', return_value=(None, None)), \
              patch.object(garmin_server, '_recent_activities', return_value=[]), \
              patch.object(garmin_server.strain_analysis, 'strain_summary',
@@ -91,6 +95,21 @@ class MorningReportTextTests(unittest.TestCase):
 
         self.assertEqual(headline, 'Vilodag')
         self.assertIn('8,0 h', body)
+
+    def test_a_night_that_has_not_synced_is_not_reported_as_last_night(self):
+        # Garmin publicerar beredskapen före sömnen. Rapporten läste då gårdagens
+        # natt och skrev "Sov 3,9 h" på låsskärmen för en natt som inte var slut.
+        self.plan_row(('Lugn löpning', 8.0, 'easy'))
+        with patch.object(garmin_server, '_recent_recovery',
+                          return_value=(52, 3.87, YESTERDAY)), \
+             patch.object(garmin_server, '_load_context', return_value=(None, None)), \
+             patch.object(garmin_server, '_recent_activities', return_value=[]), \
+             patch.object(garmin_server.strain_analysis, 'strain_summary',
+                          return_value={'tone': 'neutral'}):
+            _, body = garmin_server._morning_report_text(1)
+
+        self.assertNotIn('Sov', body)
+        self.assertNotIn('3,9', body)
 
     def test_missing_recovery_does_not_break_the_report(self):
         self.plan_row(('Lugn löpning', 8.0, 'easy'))
@@ -130,10 +149,26 @@ class MorningReportSendingTests(unittest.TestCase):
         # Dagen markeras som avklarad så den inte smäller vid nästa synk.
         self.assertEqual(store.call_args[0][1]['skipped'], 'outside_window')
 
+    def test_it_waits_rather_than_report_a_night_that_has_not_synced(self):
+        # Hälsocachen kan ligga kvar på gårdagen även när Garmin har i natt.
+        # Dagen får inte markeras som avklarad — nästa synk ska ta rapporten.
+        with patch.object(garmin_server, 'push_available', return_value=True), \
+             patch.object(garmin_server, 'get_cache', return_value=None), \
+             patch.object(garmin_server, 'set_cache') as store, \
+             patch.object(garmin_server, '_recent_recovery',
+                          return_value=(52, 3.87, YESTERDAY)), \
+             patch.object(garmin_server, 'send_push') as send, \
+             at_hour(7):
+            self.assertFalse(garmin_server.maybe_send_morning_report(1))
+
+        send.assert_not_called()
+        store.assert_not_called()
+
     def test_a_morning_sync_sends_it_and_records_the_day(self):
         with patch.object(garmin_server, 'push_available', return_value=True), \
              patch.object(garmin_server, 'get_cache', return_value=None), \
              patch.object(garmin_server, 'set_cache') as store, \
+             patch.object(garmin_server, '_recent_recovery', return_value=(78, 7.2, TODAY)), \
              patch.object(garmin_server, '_morning_report_text',
                           return_value=('Intervaller 10 km', 'Sov 7,2 h')), \
              patch.object(garmin_server, 'send_push', return_value=1) as send, \
@@ -150,6 +185,7 @@ class MorningReportSendingTests(unittest.TestCase):
         with patch.object(garmin_server, 'push_available', return_value=True), \
              patch.object(garmin_server, 'get_cache', return_value=None), \
              patch.object(garmin_server, 'set_cache') as store, \
+             patch.object(garmin_server, '_recent_recovery', return_value=(78, 7.2, TODAY)), \
              patch.object(garmin_server, '_morning_report_text', return_value=(None, None)), \
              patch.object(garmin_server, 'send_push') as send, \
              at_hour(7):

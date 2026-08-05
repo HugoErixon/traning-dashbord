@@ -116,6 +116,26 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
     Bump `REVIEW_SCHEMA_VERSION` when that shape changes. Note the two separate checks in
     `training_review()`: serving the cache straight requires the *current* version, while the
     stale fallback accepts *any* version — an older answer still beats an error message.
+- **The night that has not synced yet.** Garmin publishes training readiness for the day
+  well before the night's sleep is final, so `/api/health` deliberately falls back to the
+  previous night to avoid an empty dashboard. That fallback is flagged on the sleep block
+  (`sleep.fallback` / `sleep.sourceDate`), **not** on the payload root — only the DB
+  snapshot from `latest_health_snapshot()` flags the root. Always ask
+  `health_sleep_is_fallback()`; a plain `payload.get('fallback')` silently reads False for
+  exactly the case the flag exists for. That bug wrote yesterday's sleep into today's
+  `health_history` row, and the morning report and daily review then described it as
+  "i natt" (seen 2026-08-05: a 3.9 h night reported on a day the athlete slept 11.7 h).
+  `_recent_recovery()` returns `(cns, sleep_hours, sleep_source_date)` so callers can tell
+  the difference — the morning report waits for the real night rather than reporting the
+  old one, and `maybe_run_daily_routine()` collects history on readiness alone but holds
+  the push until sleep lands (retrying on later syncs inside the morning window).
+- **Plan adjustment pins exactly one session to today.** When the request says "idag", the
+  coach otherwise moves the requested workout away for ACWR reasons, so the apply loop
+  forces it onto today. That pin must hit a single change — `_change_to_pin_on_today()`
+  picks it (an `add` if there is one, else the coach's first change). Pinning every change
+  collapsed a whole week onto one day: on 2026-08-04 three sessions the coach had placed on
+  Wednesday, Thursday and Tuesday all landed on Tuesday and were marked `missed` the next
+  morning, leaving "Kommande 7 dagar" empty.
 - **Garmin auth:** unofficial `garminconnect` library per-user, tokens in
   `~/.garminconnect/<username>/`. Official aggregators (Terra, Junction) were evaluated
   and rejected as too expensive for this use case.

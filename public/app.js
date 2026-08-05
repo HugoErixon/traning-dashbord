@@ -2004,11 +2004,15 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const { start, end } = getWeekBounds();
     const planned = PLAN_SESSIONS.filter(s => s.week === week);
 
-    // Deduplicate by dow: after reseed, DB can have both a 'completed' and a
-    // 'planned' row for the same slot. Prefer 'planned'; fall back to any.
+    // Deduplicate by slot: after reseed, DB can have both a 'completed' and a
+    // 'planned' row for the same session. Prefer 'planned'; fall back to any.
+    // The key includes type and title — deduplicating on the day alone hid
+    // every session but one whenever a day held both a lift and a run, and the
+    // week's planned distance was understated by the ones it dropped.
     const dedupMap = new Map();
     for (const s of planned) {
-      if (!dedupMap.has(s.dow) || s.status === 'planned') dedupMap.set(s.dow, s);
+      const slot = `${s.dow}|${s.type}|${s.title}`;
+      if (!dedupMap.has(slot) || s.status === 'planned') dedupMap.set(slot, s);
     }
     const uniquePlanned = [...dedupMap.values()];
     const plannedKm = uniquePlanned.reduce((sum, s) => sum + (s.km || 0), 0);

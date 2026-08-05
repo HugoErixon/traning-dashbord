@@ -3178,6 +3178,27 @@ def has_sleep_levels(result):
     return bool(((result or {}).get('sleep') or {}).get('levels'))
 
 
+def health_sleep_is_fallback(result):
+    """Kommer sömnen i payloaden från en tidigare natt än den den visas som?
+
+    Flaggan sätts på två ställen med olika form: ögonblicksbilden ur databasen
+    märker hela payloaden, medan det live-hämtade svaret bara märker sömnblocket
+    (`sleep.fallback`) eftersom resten av dagens siffror är färska. Ett enkelt
+    `result.get('fallback')` missar därför precis det fall flaggan finns för —
+    natten som ännu inte hunnit synka från klockan."""
+    if not isinstance(result, dict):
+        return False
+    return bool(result.get('fallback') or (result.get('sleep') or {}).get('fallback'))
+
+
+def health_sleep_source_date(result):
+    """Vilken natt sömnen i payloaden faktiskt kommer från (ISO-datum)."""
+    if not isinstance(result, dict):
+        return None
+    sleep = result.get('sleep') or {}
+    return sleep.get('sourceDate') or result.get('sourceDate') or result.get('date')
+
+
 def latest_health_snapshot(user_id, display_date):
     with db() as conn:
         with conn.cursor() as cur:
@@ -3220,7 +3241,8 @@ def latest_health_snapshot(user_id, display_date):
 def health_data():
     today = date.today().isoformat()
     row = get_cache('health', uid())
-    if row and (time.time() - row[1]) < 10 * 60 and has_health_payload(row[0]) and (not row[0].get('fallback') or has_sleep_levels(row[0])):
+    if row and (time.time() - row[1]) < 10 * 60 and has_health_payload(row[0]) and (
+            not health_sleep_is_fallback(row[0]) or has_sleep_levels(row[0])):
         return jsonify(row[0])
 
     if not _garmin_connected(uname()):
@@ -3333,9 +3355,13 @@ def health_data():
         if has_payload:
             set_cache('health', result, uid())
 
-        # Spara även till health_history så Analysis-fliken får dagens data direkt
+        # Spara även till health_history så Analysis-fliken får dagens data direkt.
+        # En natt som fallit tillbaka på gårdagen får aldrig skrivas under dagens
+        # datum — då står gårdagens sömn som i natt tills den riktiga natten
+        # synkar, och allt som läser historiken (morgonrapport, dagens analys)
+        # bygger sitt omdöme på fel natt.
         try:
-            if not has_payload or result.get('fallback'):
+            if not has_payload or health_sleep_is_fallback(result):
                 return jsonify(result)
             sl = result['sleep']
             with db() as conn:
@@ -4140,11 +4166,20 @@ def _recovery_prompt_block(user_id):
     saknad datakälla aldrig får sänka hela analysen."""
     lines, cns, chronic = [], None, None
     try:
-        cns, sleep_h = _recent_recovery(user_id)
+        cns, sleep_h, sleep_date = _recent_recovery(user_id)
+        stale_night = bool(sleep_h) and sleep_date != date.today().isoformat()
         if cns is not None:
-            lines.append(f'CNS readiness: {cns}/100')
-        if sleep_h:
+            lines.append(f'CNS readiness: {cns}/100'
+                         + (f' (computed from the night of {sleep_date})' if stale_night else ''))
+        if sleep_h and not stale_night:
             lines.append(f'Sleep last night: {sleep_h} h')
+        elif sleep_h:
+            # Att kalla gårdagens natt för "i natt" gav omdömen som "med bara
+            # 3,9 timmars sömn i natt" på en natt atleten faktiskt sov ut.
+            lines.append(
+                f'Sleep on the night of {sleep_date}: {sleep_h} h — LAST NIGHT HAS NOT '
+                'SYNCED FROM THE WATCH YET. Do not describe this as last night, and do '
+                'not build the recommendation on it as if it were tonight\'s recovery.')
     except Exception as exc:
         print('review recovery block:', exc)
 
@@ -6549,25 +6584,29 @@ def _load_context(user_id):
 
 
 def _recent_recovery(user_id):
-    """CNS-beredskapen och sömnlängden som belastningen vägs mot.
+    """CNS-beredskapen, sömnlängden och natten siffrorna kommer från.
 
     Samma källa som mobilwidgeten: hälsocachen först, annars den senaste
     sparade natten. Kolumnen health_history.readiness ser ut att duga men
     fylls aldrig av collect_health_history — den är NULL i varje rad.
-    """
+
+    Datumet följer med eftersom Garmin publicerar dagens sömn först en stund
+    efter uppvaknandet. Fram till dess är siffrorna gårdagens, och den som
+    presenterar dem som 'i natt' talar osanning."""
     try:
         row = get_cache('health', user_id)
         health = (row[0] if row else None) or {}
         if not health:
             health = latest_health_snapshot(user_id, date.today().isoformat()) or {}
         if not health:
-            return None, None
+            return None, None, None
         sleep_sec = (health.get('sleep') or {}).get('totalSec')
         return (_cns_score_from_health(health),
-                round(sleep_sec / 3600, 2) if sleep_sec else None)
+                round(sleep_sec / 3600, 2) if sleep_sec else None,
+                health_sleep_source_date(health))
     except Exception as e:
         print('Kunde inte läsa återhämtningsdata:', e)
-        return None, None
+        return None, None, None
 
 
 def _unseen_activity_ids(activities, user_id):
@@ -6687,7 +6726,7 @@ def record_session_verdicts(activity_ids, user_id=1, max_age_days=3):
         return 0
 
     chronic, acwr = _load_context(user_id)
-    readiness, sleep_hours = _recent_recovery(user_id)
+    readiness, sleep_hours, _ = _recent_recovery(user_id)
     reference = strain_analysis.reference_load(_recent_activities(user_id), chronic=chronic)
 
     written = 0
@@ -6720,7 +6759,7 @@ def strain_today():
     """Dagens belastning vägd mot vad kroppen normalt tål."""
     try:
         chronic, _ = _load_context(uid())
-        readiness, _ = _recent_recovery(uid())
+        readiness, _, _ = _recent_recovery(uid())
         summary = strain_analysis.strain_summary(
             _recent_activities(uid()), readiness=readiness, chronic=chronic)
         return jsonify(summary)
@@ -6789,6 +6828,29 @@ def run_sync(count=50, username=None, user_id=1):
 # ─────────────────────────────────────────────
 # AI-JUSTERARE
 # ─────────────────────────────────────────────
+def _change_to_pin_on_today(changes):
+    """Vilken enda ändring som ska tvingas till idag när användaren bett om det.
+
+    Coachen vägrade annars lägga det efterfrågade passet på idag och sköt det
+    till en lugnare dag, så begäran behöver en garanti. Men garantin gällde
+    tidigare varje ändring i svaret: bad man om ett pass idag flyttades även
+    lördagens och söndagens pass hit, hela veckan hamnade på en och samma dag
+    och tömdes sedan på 'missed' dagen efter. Det är ett pass användaren ber
+    om — resten av omplaneringen är coachens jobb och ska stå kvar som den
+    planerats."""
+    candidates = [
+        change for change in changes or []
+        if change.get('action') in ('add', 'modify', 'reschedule')
+        and (not change.get('session_id') or change.get('new_title')
+             or change.get('new_detail') or change.get('new_km') is not None)
+    ]
+    if not candidates:
+        return None
+    # Ett tillagt pass är per definition det som efterfrågades; annars är det
+    # coachens första ändring, som prompten ber den lägga först.
+    return next((c for c in candidates if c.get('action') == 'add'), candidates[0])
+
+
 def ai_adjust_plan(user_request=None):
     """
     Kärnan i planjusteringen som användaren startar via träningsassistenten.
@@ -7120,14 +7182,13 @@ Return ONLY this JSON, with no comments outside it:
     # 7. Applicera ändringarna på DB
     changes_applied = 0
     applied_actions = []
+    pinned_change = _change_to_pin_on_today(result.get('changes', [])) if explicit_today_request else None
     with db() as conn:
         with conn.cursor() as cur:
             for change in result.get('changes', []):
                 sid    = change.get('session_id')
                 action = change.get('action')
-                if explicit_today_request and action in ('add', 'modify', 'reschedule') and (
-                    not sid or change.get('new_title') or change.get('new_detail') or change.get('new_km') is not None
-                ):
+                if change is pinned_change:
                     change['new_week'] = iso_week
                     change['new_dow'] = today_dow
                     reason = change.get('reason') or ''
@@ -7272,8 +7333,10 @@ def _morning_report_text(user_id):
     # Sömn och beredskap: hela anledningen till att rapporten väntar på synken.
     sleep_bit = None
     try:
-        cns, sleep_h = _recent_recovery(user_id)
-        if sleep_h:
+        cns, sleep_h, sleep_date = _recent_recovery(user_id)
+        # Rapporten handlar om natten som var. Har den inte synkat är gårdagens
+        # siffror inget att skicka till en låsskärm som "sov 3,9 h".
+        if sleep_h and sleep_date == date.today().isoformat():
             sleep_bit = f'Sov {sleep_h:.1f} h'.replace('.', ',')
         if cns is not None:
             sleep_bit = (sleep_bit + f', beredskap {cns}/100') if sleep_bit \
@@ -7309,7 +7372,7 @@ def _morning_report_text(user_id):
     # En varning väger tyngre än allt annat och ska stå först.
     warning = None
     try:
-        cns_for_strain, _ = _recent_recovery(user_id)
+        cns_for_strain, _, _ = _recent_recovery(user_id)
         chronic, _ = _load_context(user_id)
         summary = strain_analysis.strain_summary(
             _recent_activities(user_id, days=30), readiness=cns_for_strain, chronic=chronic)
@@ -7348,6 +7411,14 @@ def maybe_send_morning_report(user_id):
         set_cache('morning_report_sent', {'date': today, 'skipped': 'outside_window'}, user_id)
         return False
 
+    # Hälsocachen kan fortfarande ligga kvar på gårdagens natt även när Garmin
+    # har dagens. Då är det bättre att låta nästa synk skicka rapporten än att
+    # skicka gårdagens siffror — dagen markeras medvetet inte som avklarad.
+    _, _, sleep_date = _recent_recovery(user_id)
+    if sleep_date and sleep_date != today:
+        print('Morgonrapport: hälsodatan är från', sleep_date, '— väntar på i natt')
+        return False
+
     headline, body = _morning_report_text(user_id)
     if not headline:
         return False
@@ -7365,10 +7436,13 @@ def maybe_run_daily_routine():
     Drivs av autosynken (var 3:e timme) + varje manuell synk. Kör bara för user_id=1."""
     first_user = list(USERS.keys())[0] if USERS else 'hugo'
     first_uid  = USERS.get(first_user, {}).get('id', 1)
-    row = get_cache('last_daily_history', first_uid)
-    if row and row[0].get('date') == date.today().isoformat():
-        return  # redan kört idag
     today = date.today().isoformat()
+    history_row = get_cache('last_daily_history', first_uid)
+    history_done = bool(history_row and history_row[0].get('date') == today)
+    report_row = get_cache('morning_report_sent', first_uid)
+    report_done = bool(report_row and report_row[0].get('date') == today)
+    if history_done and report_done:
+        return  # redan klart för idag
     try:
         client = get_garmin(first_user)
         readiness = client.get_training_readiness(today)
@@ -7381,12 +7455,21 @@ def maybe_run_daily_routine():
     if not (sleep_ok or ready_ok):
         print('Daglig rutin: dagens hälsodata inte synkad än — väntar till nästa synk')
         return
-    print('Daglig rutin: dagens data finns → matchning + historik')
-    collect_health_history(username=first_user)
-    collect_metric_history(username=first_user)
-    clear_cache('insights', user_id=first_uid)
-    set_cache('last_daily_history', {'date': today}, first_uid)
+    if not history_done:
+        print('Daglig rutin: dagens data finns → matchning + historik')
+        collect_health_history(username=first_user)
+        collect_metric_history(username=first_user)
+        clear_cache('insights', user_id=first_uid)
+        set_cache('last_daily_history', {'date': today}, first_uid)
     # Historiken maste vara insamlad forst - rapporten laser samma siffror.
+    # Beredskapspoängen publiceras före sömnen, så en rapport som skickas på
+    # enbart den rapporterar gårdagens natt som i natt. Rapporten får vänta på
+    # sömnen; nästa synk inom morgonfönstret tar den istället.
+    if report_done:
+        return
+    if not sleep_ok:
+        print('Daglig rutin: dagens sömn har inte synkat än — morgonrapporten väntar')
+        return
     try:
         maybe_send_morning_report(first_uid)
     except Exception as e:

@@ -20,13 +20,15 @@ os.environ['USERS'] = f'hugo:{generate_password_hash("test-password")}'
 os.environ['DATABASE_URL'] = 'postgresql://unused-in-tests'
 
 import garmin_server  # noqa: E402
+
+TODAY = date.today().isoformat()
 from security import parse_users  # noqa: E402
 from user_store import MemoryUserStore  # noqa: E402
 
 
 class RecoveryBlockTests(unittest.TestCase):
     def test_recovery_numbers_reach_the_prompt(self):
-        with patch.object(garmin_server, '_recent_recovery', return_value=(64, 5.5)), \
+        with patch.object(garmin_server, '_recent_recovery', return_value=(64, 5.5, TODAY)), \
              patch.object(garmin_server, 'latest_health_snapshot',
                           return_value={'restingHR': {'value': 47},
                                         'hrv': {'lastNightAvg': 68}}), \
@@ -49,7 +51,7 @@ class RecoveryBlockTests(unittest.TestCase):
 
     def test_a_broken_source_does_not_take_the_whole_block_down(self):
         # Sömndatan finns, belastningen kraschar. Analysen ska ändå bli av.
-        with patch.object(garmin_server, '_recent_recovery', return_value=(70, 7.0)), \
+        with patch.object(garmin_server, '_recent_recovery', return_value=(70, 7.0, TODAY)), \
              patch.object(garmin_server, 'latest_health_snapshot', return_value={}), \
              patch.object(garmin_server, '_load_context', side_effect=RuntimeError('db nere')), \
              patch.object(garmin_server, '_recent_activities', side_effect=RuntimeError('db nere')):
@@ -59,7 +61,7 @@ class RecoveryBlockTests(unittest.TestCase):
         self.assertNotIn('Chronic training load', block)
 
     def test_missing_data_tells_the_model_not_to_speculate(self):
-        with patch.object(garmin_server, '_recent_recovery', return_value=(None, None)), \
+        with patch.object(garmin_server, '_recent_recovery', return_value=(None, None, None)), \
              patch.object(garmin_server, 'latest_health_snapshot', return_value={}), \
              patch.object(garmin_server, '_load_context', return_value=(None, None)), \
              patch.object(garmin_server, '_recent_activities', return_value=[]), \
