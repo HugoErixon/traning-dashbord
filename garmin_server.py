@@ -286,8 +286,57 @@ class LLMUnavailableError(RuntimeError):
     betalningsmetod."""
 
 
-def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait):
-    body = {'contents': [{'role': 'user', 'parts': [{'text': prompt}]}]}
+# Chatten ska hänga ihop över flera frågor, så tidigare turer följer med in i
+# anropet. Historiken kommer från klienten och normaliseras därför hårt: både
+# leverantörerna (som kräver att första turen är användarens och att rollerna
+# växlar) och prompt-kostnaden sätter gränser.
+CHAT_HISTORY_MAX_MESSAGES = 16
+CHAT_HISTORY_MAX_CHARS = 8000
+CHAT_MESSAGE_MAX_CHARS = 2000
+
+
+def normalize_history(history):
+    """Gör klientens samtalshistorik till en säker, strikt växlande lista.
+
+    Resultatet börjar alltid på en användartur och slutar på en assistenttur —
+    den aktuella frågan skickas separat och läggs till efteråt. Blir samtalet
+    för långt faller de äldsta turerna bort först; det är sista utbytena som
+    bär "det"/"den" som frågan syftar på."""
+    if not isinstance(history, list):
+        return []
+
+    cleaned = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        role, content = item.get('role'), item.get('content')
+        if role not in ('user', 'assistant') or not isinstance(content, str):
+            continue
+        content = content.strip()[:CHAT_MESSAGE_MAX_CHARS]
+        if not content:
+            continue
+        if cleaned and cleaned[-1]['role'] == role:
+            # Två turer i rad från samma part avvisas av flera leverantörer.
+            cleaned[-1]['content'] = f"{cleaned[-1]['content']}\n\n{content}"[:CHAT_MESSAGE_MAX_CHARS]
+            continue
+        cleaned.append({'role': role, 'content': content})
+
+    # En avslutande användartur är den aktuella frågan igen — släng den hellre
+    # än att låta modellen se samma fråga två gånger.
+    while cleaned and cleaned[-1]['role'] == 'user':
+        cleaned.pop()
+
+    del cleaned[:-CHAT_HISTORY_MAX_MESSAGES]
+    while cleaned and (cleaned[0]['role'] == 'assistant'
+                       or sum(len(m['content']) for m in cleaned) > CHAT_HISTORY_MAX_CHARS):
+        cleaned.pop(0)
+    return cleaned
+
+
+def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait, history=None):
+    turns = [{'role': 'model' if m['role'] == 'assistant' else 'user',
+              'parts': [{'text': m['content']}]} for m in (history or [])]
+    body = {'contents': turns + [{'role': 'user', 'parts': [{'text': prompt}]}]}
     if system:
         body['system_instruction'] = {'parts': [{'text': system}]}
 
@@ -324,9 +373,9 @@ def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait):
         raise RuntimeError(f'Gemini gav tomt svar (finishReason: {finish})') from exc
 
 
-def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait):
+def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait, history=None):
     payload = {'model': spec['model'], 'max_tokens': max_tokens,
-               'messages': [{'role': 'user', 'content': prompt}]}
+               'messages': list(history or []) + [{'role': 'user', 'content': prompt}]}
     if system:
         payload['system'] = system
     resp = requests.post('https://api.anthropic.com/v1/messages',
@@ -353,10 +402,10 @@ def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait):
         raise RuntimeError('Anthropic gav tomt svar') from exc
 
 
-def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wait):
+def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wait, history=None):
     """Groq, Cerebras, OpenRouter, Mistral — samma chat-completions-format."""
     messages = ([{'role': 'system', 'content': system}] if system else []) + \
-               [{'role': 'user', 'content': prompt}]
+               list(history or []) + [{'role': 'user', 'content': prompt}]
     resp = requests.post(spec['url'],
         json={'model': spec['model'], 'max_tokens': max_tokens, 'messages': messages},
         headers={'Authorization': f"Bearer {spec['key']}",
@@ -387,8 +436,12 @@ _LLM_CALLERS = {'gemini': _call_gemini, 'anthropic': _call_anthropic,
                 'openai': _call_openai_compatible}
 
 
-def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
+def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None):
     """Skicka en prompt till leverantörskedjan och returnera svarstexten.
+
+    `history` är tidigare turer i samma samtal ({'role', 'content'}), redan
+    normaliserade med normalize_history() — de skickas som riktiga chattturer
+    så att uppföljningsfrågor förstår vad "det" syftar på.
 
     Går igenom LLM_CHAIN i ordning och hoppar över leverantörer som nyligen
     svarat 429. Faller vidare vid kvot- och nätverksfel; ett riktigt fel (trasig
@@ -409,7 +462,7 @@ def call_llm(prompt, max_tokens=1024, system=None, timeout=45):
         caller = _LLM_CALLERS[spec['kind']]
         try:
             text = caller(prompt, max_tokens, system, timeout, spec,
-                          allow_wait=(position == len(order) - 1))
+                          allow_wait=(position == len(order) - 1), history=history)
             if position > 0:
                 logger.info('LLM served by fallback provider', extra={
                     'event': 'llm.fallback_used', 'provider': name,
@@ -4904,16 +4957,78 @@ def _build_sleep_coach():
     }
 
 
-def _is_plan_change_request(message):
-    """Only apply a plan change when the user clearly asks for one."""
+_PLAN_ACTIONS = ('justera', 'ändra', 'flytta', 'schemalägg', 'planera in', 'lägg in',
+                 'ta bort', 'byt ut')
+_PLAN_WORDS = ('plan', 'pass', 'träning', 'vilodag', 'löpning', 'styrka', 'intervall')
+_SLEEP_WORDS = ('sömn', 'sov', 'läggdags', 'lägga mig', 'vakna', 'natt')
+
+# Ord ett rent medhåll får bestå av. Allt utanför listan betyder att svaret
+# säger något mer än "ja" — och då är det ingen bekräftelse längre.
+_AFFIRMATION_VOCAB = {'ja', 'jo', 'japp', 'javisst', 'jajemen', 'yes', 'ok', 'okej',
+                      'okey', 'absolut', 'visst', 'gärna', 'tack', 'kör', 'gör', 'göra',
+                      'på', 'det', 'den', 'så', 'snälla', 'kan', 'du', 'vi'}
+_AFFIRMATION_CORE = {'ja', 'jo', 'japp', 'javisst', 'jajemen', 'yes', 'ok', 'okej',
+                     'okey', 'absolut', 'visst', 'gärna', 'kör', 'gör'}
+
+
+def _last_message(history, role):
+    for msg in reversed(history or []):
+        if msg['role'] == role:
+            return msg['content'].lower()
+    return ''
+
+
+def _is_affirmation(message):
+    """"ja", "kör på", "ja gör det" — svar som bara bekräftar föregående tur.
+
+    Varje ord måste rymmas i medhållsordlistan, annars är det en ny fråga:
+    "ja men varför då?" ska inte tolkas som ett klartecken."""
+    words = re.findall(r'[\wåäöéÅÄÖ]+', message.lower())
+    return (bool(words) and len(words) <= 5
+            and all(word in _AFFIRMATION_VOCAB for word in words)
+            and any(word in _AFFIRMATION_CORE for word in words))
+
+
+def _is_plan_change_request(message, history=None):
+    """Only apply a plan change when the user clearly asks for one.
+
+    Med samtalet i handen räcker "flytta det till torsdag" eller "ja, kör på" —
+    men bara när coachens föregående svar faktiskt handlade om planen. En
+    planändring skriver om schemat, så otydliga fall ska hellre bli ett vanligt
+    chattsvar."""
     text = message.lower()
-    actions = ('justera', 'ändra', 'flytta', 'schemalägg', 'planera in', 'lägg in', 'ta bort', 'byt ut')
-    plan_words = ('plan', 'pass', 'träning', 'vilodag', 'löpning', 'styrka', 'intervall')
-    return any(action in text for action in actions) and any(word in text for word in plan_words)
+    has_action = any(action in text for action in _PLAN_ACTIONS)
+    if has_action and any(word in text for word in _PLAN_WORDS):
+        return True
+    reply = _last_message(history, 'assistant')
+    if not any(word in reply for word in _PLAN_WORDS):
+        return False
+    # Coachen frågade något om planen och löparen sa ja — då är ett klartecken
+    # lika tydligt som en fullständig begäran.
+    return has_action or ('?' in reply and _is_affirmation(message))
 
 
-def _is_sleep_request(message):
-    return any(word in message.lower() for word in ('sömn', 'sov', 'läggdags', 'lägga mig', 'vakna', 'natt'))
+def _is_sleep_request(message, history=None):
+    if any(word in message.lower() for word in _SLEEP_WORDS):
+        return True
+    # "varför då?" strax efter en sömnfråga handlar fortfarande om sömn, så
+    # sömnunderlaget måste följa med även om ordet inte upprepas.
+    previous = _last_message(history, 'user')
+    return len(message) <= 80 and any(word in previous for word in _SLEEP_WORDS)
+
+
+def _plan_request_text(message, history):
+    """Ge planändraren samtalet som begäran lutar sig mot.
+
+    "flytta det till torsdag" betyder ingenting utan de föregående turerna."""
+    if not history:
+        return message
+    tail = '\n'.join(
+        ('Runner: ' if msg['role'] == 'user' else 'Coach: ')
+        + msg['content'][:400].replace('"', "'")
+        for msg in history[-4:])
+    return (f'{message}\n\nEarlier in the same conversation (this is what the request '
+            f'refers to):\n{tail}')
 
 
 @app.post('/api/assistant')
@@ -4921,6 +5036,7 @@ def assistant_chat():
     data = request.get_json(silent=True) or {}
     message = str(data.get('message') or '').strip()
     context = str(data.get('context') or 'You are a personal training coach. Always respond in Swedish (svenska).')
+    history = normalize_history(data.get('history'))
     if not message:
         return _api_error('message_required', 'Skriv en fråga först.', 400)
     if len(message) > 500 or len(context) > 30000:
@@ -4928,15 +5044,25 @@ def assistant_chat():
     if not llm_available():
         return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
     try:
-        if _is_plan_change_request(message):
-            result = _apply_plan_request(message)
+        if _is_plan_change_request(message, history):
+            result = _apply_plan_request(_plan_request_text(message, history))
             changes = result.get('changes', 0)
             summary = result.get('summary') or ('Planen justerad.' if changes else 'Inga ändringar behövdes.')
             notes = result.get('coaching_notes') or ''
             reply = f"{summary}\n\n{notes}".strip()
             return jsonify({'reply': reply, 'planAdjusted': True})
 
-        if _is_sleep_request(message):
+        if history:
+            context += (
+                "\n\nThis is an ongoing conversation with the same athlete — the turns "
+                "before this message are included. Answer the latest message as a direct "
+                "continuation: resolve references like 'det', 'den' or 'samma pass' "
+                "against what was already said, keep any advice you have already given "
+                "unless new information changes it, and do not repeat greetings or "
+                "context the athlete has just been told."
+            )
+
+        if _is_sleep_request(message, history):
             sleep = _build_sleep_coach()
             insights = _get_sleep_insights()
             context += "\n\nSÖMNSCHEMA (hämta från aktuell Garmin- och kalenderdata):\n" + json.dumps(sleep, ensure_ascii=False)
@@ -4969,7 +5095,8 @@ def assistant_chat():
                     "along with what would have to change. Do not encourage the goal as if it "
                     "were within reach."
                 )
-        return jsonify({'reply': call_llm(message, max_tokens=1024, system=context)})
+        return jsonify({'reply': call_llm(message, max_tokens=1024, system=context,
+                                          history=history)})
     except Exception as e:
         return _server_error(
             e, 'assistant.provider_failed', status=502, code='ai_provider_error',

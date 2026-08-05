@@ -584,6 +584,9 @@ async function saveGoalAndRebuildPlan() {
 }
 
 async function performLogout() {
+  // Coachsamtalet är personligt — det får inte ligga kvar i fliken åt nästa
+  // användare som loggar in på samma dator.
+  clearChatHistory();
   try {
     await fetch('/api/logout', {method: 'POST'});
   } catch (_) {
@@ -1201,6 +1204,7 @@ function executeAction(trigger, event) {
   else if (action === 'save-journal') saveJournalEntry();
   else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
   else if (action === 'send-chat') send();
+  else if (action === 'reset-chat') resetChat();
   else if (action === 'edit-journal') editJournalDate(trigger.dataset.date);
   else if (action === 'delete-journal') deleteJournalEntry(event, Number(trigger.dataset.id));
   else if (action === 'apply-strength-rx') applyStrengthRecommendation(trigger.dataset.context, Number(trigger.dataset.index));
@@ -3415,7 +3419,73 @@ HEALTH DATA (current):
   }
   loadInsights();
 
-  const history = [];
+  // Samtalet ska hänga ihop under hela besöket, inte börja om vid varje fråga.
+  // sessionStorage lever kvar genom omladdningar och navigering i samma flik
+  // men följer inte med till nästa besök — och en utloggning rensar den, så
+  // nästa användare på samma dator aldrig ser föregående coachsamtal.
+  const CHAT_KEY = 'trainyze:chat';
+  const CHAT_MAX_TURNS = 20;
+  const chatIntroHtml = document.getElementById('messages')?.innerHTML || '';
+  let history = loadChatHistory();
+
+  function loadChatHistory() {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(CHAT_KEY) || '[]');
+      if (!Array.isArray(stored)) return [];
+      return stored
+        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .slice(-CHAT_MAX_TURNS);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveChatHistory() {
+    history = history.slice(-CHAT_MAX_TURNS);
+    // Privat läge och full kvot kan neka skrivningen; samtalet ska ändå fungera
+    // i den här sidvisningen.
+    try { sessionStorage.setItem(CHAT_KEY, JSON.stringify(history)); } catch (e) {}
+  }
+
+  function clearChatHistory() {
+    try { sessionStorage.removeItem(CHAT_KEY); } catch (e) {}
+  }
+
+  function formatCoachReply(raw) {
+    return escapeHtml(raw)
+      .replace(/\*\*(.*?)\*\*/gs, '$1')
+      .replace(/\*(.*?)\*/gs, '$1')
+      .replace(/#{1,3} (.*)/g, '$1')
+      .replace(/\n/g, '<br>');
+  }
+
+  function appendChatMessage(role, html) {
+    const box = document.getElementById('messages');
+    if (!box) return null;
+    const div = document.createElement('div');
+    div.className = role === 'user' ? 'msg user' : 'msg ai';
+    div.innerHTML = `<div class="msg-from">${role === 'user' ? 'DU' : 'COACH'}</div>` + html;
+    box.appendChild(div);
+    return div;
+  }
+
+  function restoreChatTranscript() {
+    const box = document.getElementById('messages');
+    if (!box || !history.length) return;
+    box.innerHTML = '';
+    history.forEach(m => appendChatMessage(
+      m.role, m.role === 'user' ? escapeHtml(m.content) : formatCoachReply(m.content)));
+    box.scrollTop = box.scrollHeight;
+  }
+  restoreChatTranscript();
+
+  function resetChat() {
+    history = [];
+    clearChatHistory();
+    const box = document.getElementById('messages');
+    if (box) box.innerHTML = chatIntroHtml;
+    document.getElementById('chat-input')?.focus();
+  }
 
   async function send(txt) {
     const inp = document.getElementById('chat-input');
@@ -3423,27 +3493,21 @@ HEALTH DATA (current):
     if (!msg) return;
     inp.value = '';
     const box = document.getElementById('messages');
-    const uDiv = document.createElement('div');
-    uDiv.className = 'msg user';
-    uDiv.innerHTML = '<div class="msg-from">DU</div>' + escapeHtml(msg);
-    box.appendChild(uDiv);
-    const aDiv = document.createElement('div');
-    aDiv.className = 'msg ai';
-    aDiv.innerHTML = '<div class="msg-from">COACH</div><span style="color:var(--muted)">Thinking...</span>';
-    box.appendChild(aDiv);
+    appendChatMessage('user', escapeHtml(msg));
+    const aDiv = appendChatMessage('assistant', '<span style="color:var(--muted)">Thinking...</span>');
     box.scrollTop = box.scrollHeight;
-    history.push({ role:'user', content:msg });
+    // Historiken skickas som den såg ut före den här frågan — frågan själv
+    // ligger i message-fältet, och en dubblett skulle bara förvirra modellen.
+    const priorTurns = history.slice();
     try {
-      const res = await fetch('/api/assistant', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:buildCTX(), history }) });
+      const res = await fetch('/api/assistant', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:buildCTX(), history:priorTurns }) });
       const data = await res.json();
       const raw = data.reply || data.error || 'Inget svar.';
-      const reply = escapeHtml(raw)
-        .replace(/\*\*(.*?)\*\*/gs, '$1')
-        .replace(/\*(.*?)\*/gs, '$1')
-        .replace(/#{1,3} (.*)/g, '$1')
-        .replace(/\n/g, '<br>');
-      aDiv.innerHTML = '<div class="msg-from">COACH</div>' + reply;
-      history.push({ role:'assistant', content:raw });
+      aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(raw);
+      // Först när svaret finns är utbytet komplett; ett halvt utbyte i
+      // historiken skulle följa med in i nästa fråga som en obesvarad tur.
+      history.push({ role:'user', content:msg }, { role:'assistant', content:raw });
+      saveChatHistory();
       if (data.planAdjusted) loadPlan();
     } catch(e) {
       aDiv.innerHTML = '<div class="msg-from">COACH</div>Kunde inte nå servern.';

@@ -88,6 +88,21 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
     Anthropic only ever runs if it is named explicitly.
   - `LLM_RETRY_MAX_WAIT` (default 10s) caps how long a provider may make us sleep before we
     give up on it; a wait is only taken at all when no other provider could take over.
+  - **Chat memory:** `/api/assistant` takes a `history` of earlier turns in the same
+    conversation, runs it through `normalize_history()`, and passes it to `call_llm(...,
+    history=...)`, which every adapter sends as real chat turns. The client keeps the
+    conversation in `sessionStorage` (`trainyze:chat`), so it survives reloads and
+    navigation within the visit but not the next one, and `performLogout()` clears it —
+    a shared computer must not hand the next user someone else's coach conversation.
+    The history is untrusted input: it is capped at `CHAT_HISTORY_MAX_MESSAGES` /
+    `CHAT_HISTORY_MAX_CHARS`, forced to alternate user/assistant, and may never start
+    with an assistant turn or end with a user turn — Gemini and Anthropic reject the
+    first, and the second would show the model the current question twice.
+  - Follow-ups are routed with the conversation in hand: "flytta det till fredag" or
+    "ja, kör på" counts as a plan change only when the coach's previous reply was about
+    the plan (`_is_plan_change_request`), and `_plan_request_text()` hands `ai_adjust_plan`
+    the last turns so it knows what "det" refers to. A plan change rewrites the schedule,
+    so anything ambiguous must fall through to an ordinary chat answer instead.
   - 401/402/403 mean the account is unusable, not that the prompt is bad, so the chain moves
     on and parks that provider for `LLM_DISABLED_COOLDOWN` (default 1h) — asking again in
     thirty seconds cannot fix a missing payment method. Cerebras returned 402 on every model

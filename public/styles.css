@@ -2075,6 +2075,18 @@
     .chat-dot { width:8px; height:8px; background:var(--blue); border-radius:50%; }
     .chat-title { font-size: 14px; font-weight: 700; letter-spacing: -0.2px; }
     .chat-sub   { font-size: 10.5px; color: var(--muted); margin-left: auto; }
+    .chat-reset {
+      font-size: 10.5px;
+      font-family: 'IBM Plex Mono', monospace;
+      padding: 4px 10px;
+      border-radius: 99px;
+      border: 1px solid var(--border2);
+      background: none;
+      color: var(--muted2);
+      cursor: pointer;
+      transition: color .15s, border-color .15s;
+    }
+    .chat-reset:hover { color: var(--text); border-color: var(--muted2); }
     .qprompts   { display:flex; gap:7px; flex-wrap:wrap; padding:14px 22px 6px; }
     .qp {
       font-size: 11px;
@@ -3286,6 +3298,7 @@
         padding-right: 14px;
       }
       .chat-sub { display:none; }
+      .chat-reset { margin-left: auto; }
       .messages {
         min-height: 240px;
         max-height: 50vh;
