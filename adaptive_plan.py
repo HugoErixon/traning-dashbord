@@ -138,6 +138,25 @@ def evaluate(snapshot, today=None):
     checkin = snapshot.get('checkin') or {}
     load = snapshot.get('load') or {}
     signals = _health_signals(health, checkin)
+    recent_feedback = snapshot.get('recent_feedback') or []
+    latest_feedback = next((item for item in recent_feedback
+                            if item.get('age_days') is not None and 0 <= item['age_days'] <= 2), None)
+    if latest_feedback:
+        feedback = latest_feedback.get('data') or {}
+        feeling = _number(feedback.get('feeling'))
+        effort = _number(feedback.get('effort'))
+        if (feeling is not None and feeling <= 2) or (effort is not None and effort >= 9):
+            strong_feedback = feeling == 1 or effort == 10
+            details = []
+            if feeling is not None:
+                details.append(f'känsla {feeling:.0f}/5')
+            if effort is not None:
+                details.append(f'ansträngning {effort:.0f}/10')
+            signals.append(_signal(
+                'previous_session_feedback', 'Senaste passkänsla', details,
+                'strong_negative' if strong_feedback else 'negative',
+                -2 if strong_feedback else -1,
+                'Senaste passet rapporterades som ' + ' och '.join(details) + '.'))
     hard_days = int(_number(load.get('hard_days_last_3')) or 0)
     if hard_days >= 2:
         signals.append(_signal('hard_days', 'Nylig intensitet', hard_days, 'negative', -1,
