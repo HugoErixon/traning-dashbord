@@ -63,6 +63,12 @@ class FrontendSecurityTests(unittest.TestCase):
         self.assertIn('activityAiOverviewPlaceholder()', self.app)
         self.assertIn('retry-activity-ai', self.app)
 
+    def test_activity_detail_has_quick_post_workout_feedback(self):
+        self.assertIn('id="activity-feedback"', self.app)
+        self.assertIn('set-activity-feeling', self.app)
+        self.assertIn('save-activity-feedback', self.app)
+        self.assertNotIn('id="lifestyle-card"', self.index)
+
     def test_integrations_live_on_a_dedicated_settings_page(self):
         self.assertIn('id="page-settings"', self.index)
         self.assertIn('id="settings-garmin-state"', self.index)

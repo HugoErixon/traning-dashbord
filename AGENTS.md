@@ -154,14 +154,15 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
     late sync from sending a "morning" report at night; a day outside the window is marked
     done rather than deferred. Text is computed, not AI-generated — a background job must not
     depend on LLM quota, and a lock screen has no room for reasoning anyway.
-  - **Activity synced** fires from `run_sync()` for genuinely new activities, carrying the
+  - **Activity synced** fires from the shared Garmin ingestion path for genuinely new activities, carrying the
     deterministic `session_verdict` headline. Two guards matter more than the feature: only
     activities newer than `ACTIVITY_PUSH_MAX_AGE_HOURS` (30) qualify, and more than two at
     once collapse into a single summary. A backfill or first sync finds the whole history,
     and fifty notifications is a good way to make someone turn notifications off.
 - **Email:** Resend (`RESEND_API_KEY`), domain `trainyze.com` verified via Cloudflare
   integration, used for registration verification emails.
-- **Background sync:** runs every three hours from application startup and syncs Garmin,
+- **Background sync:** runs every 15 minutes (configurable with `GARMIN_SYNC_MINUTES`, bounded
+  to 5–180) and syncs Garmin,
   matches recent planned sessions against actual activities, and stores health/metric
   history once daily when Garmin has published fresh sleep or readiness data.
 - **Plan adjustment:** runs only when a user explicitly asks the training assistant to

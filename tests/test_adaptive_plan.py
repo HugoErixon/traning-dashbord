@@ -78,6 +78,14 @@ class AdaptiveDecisionTests(unittest.TestCase):
         self.assertEqual(result['action'], 'reduce')
         self.assertIn('35 minuter', result['reasons'][0])
 
+    def test_very_bad_recent_session_feedback_changes_a_quality_day(self):
+        data = snapshot('threshold', readiness=75)
+        data['recent_feedback'] = [{'age_days': 1, 'data': {'feeling': 1, 'effort': 10}}]
+        result = evaluate(data, today=TODAY)
+        self.assertEqual(result['action'], 'reschedule')
+        self.assertTrue(any(signal['key'] == 'previous_session_feedback'
+                            for signal in result['signals']))
+
 
 class AdaptiveStoreTests(unittest.TestCase):
     def test_checkin_is_bounded_and_round_trips(self):

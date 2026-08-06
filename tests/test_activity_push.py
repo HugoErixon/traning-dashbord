@@ -103,6 +103,8 @@ class NotifyNewActivitiesTests(unittest.TestCase):
         send, _ = self.send([activity(11, 2), activity(22, 1)])
         tags = {call.kwargs['tag'] for call in send.call_args_list}
         self.assertEqual(tags, {'activity-11', 'activity-22'})
+        urls = {call.kwargs['url'] for call in send.call_args_list}
+        self.assertEqual(urls, {'/?activity=11&source=garmin', '/?activity=22&source=garmin'})
 
     def test_activities_we_did_not_ask_about_are_ignored(self):
         send, count = self.send([activity(1, 1), activity(2, 1)], ids=[1])
@@ -134,6 +136,22 @@ class NotifyNewActivitiesTests(unittest.TestCase):
 
         self.assertEqual(count, 1)
         self.assertIn('10,0 km', mock.call_args[0][2])
+
+
+class ActivityIngestionTests(unittest.TestCase):
+    def test_any_garmin_import_announces_before_the_activity_can_become_old(self):
+        activities = [{'activityId': 42}]
+        with patch.object(garmin_server, '_unseen_activity_ids', return_value={42}) as unseen, \
+             patch.object(garmin_server, 'save_activities') as save, \
+             patch.object(garmin_server, 'record_session_verdicts') as verdict, \
+             patch.object(garmin_server, 'notify_new_activities', return_value=1) as notify:
+            fresh = garmin_server.ingest_activities(activities, user_id=7)
+
+        self.assertEqual(fresh, {42})
+        unseen.assert_called_once_with(activities, 7)
+        save.assert_called_once_with(activities, 7)
+        verdict.assert_called_once_with({42}, 7)
+        notify.assert_called_once_with({42}, 7)
 
 
 if __name__ == '__main__':

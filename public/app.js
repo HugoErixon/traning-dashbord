@@ -18,7 +18,6 @@ let stravaConnected = false;
 let stravaAthlete = null;
 let calendarConnected = false;
 let userGoal = null;
-let lifestyleData = null;
 let goalPromptShownThisLoad = false;
 let authResolved = false;
 let sessionExpired = false;
@@ -420,6 +419,18 @@ async function initializeAuth() {
 }
 
 initializeAuth();
+
+authReady.then(() => {
+  const params = new URLSearchParams(window.location.search);
+  const activityId = Number(params.get('activity'));
+  if (!Number.isSafeInteger(activityId) || activityId <= 0) return;
+  const source = params.get('source') === 'strava' ? 'strava' : 'garmin';
+  params.delete('activity');
+  params.delete('source');
+  const query = params.toString();
+  history.replaceState({}, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
+  openActivityDetails(activityId, source);
+});
 
 // --- Träningsmål per användare ---
 async function loadUserGoal() {
@@ -1240,130 +1251,6 @@ async function saveAdaptiveCheckin() {
   }
 }
 
-function localIsoDate(value) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function lifestyleNumber(id) {
-  const value = document.getElementById(id)?.value;
-  return value === '' || value == null ? null : Number(value);
-}
-
-function lifestyleBool(id) {
-  const value = document.getElementById(id)?.value;
-  return value === '' || value == null ? null : value === 'true';
-}
-
-function renderLifestyleInsights(analysis) {
-  const box = document.getElementById('lifestyle-insights');
-  if (!box) return;
-  const all = analysis?.insights || [];
-  const ready = all.filter(item => item.ready).sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
-  if (ready.length) {
-    box.replaceChildren(...ready.slice(0, 4).map(item => {
-      const card = document.createElement('div');
-      card.className = `lifestyle-impact ${item.impact >= 0 ? 'positive' : 'negative'}`;
-      const top = document.createElement('div');
-      const label = document.createElement('span'); label.textContent = item.label;
-      const value = document.createElement('b'); value.textContent = `${item.impact > 0 ? '+' : ''}${item.impact} p`;
-      top.append(label, value);
-      const meta = document.createElement('small');
-      meta.textContent = `${item.yesDays} med · ${item.noDays} utan · samband, inte bevisad orsak`;
-      card.append(top, meta);
-      return card;
-    }));
-    return;
-  }
-  const closest = all
-    .filter(item => item.yesDays || item.noDays)
-    .sort((a, b) => Math.min(b.yesDays, b.noDays) - Math.min(a.yesDays, a.noDays))[0];
-  box.replaceChildren();
-  if (closest) {
-    const progress = document.createElement('div');
-    progress.className = 'lifestyle-impact';
-    progress.textContent = `${closest.label}: ${closest.yesDays}/5 dagar med, ${closest.noDays}/5 utan`;
-    box.append(progress);
-  }
-}
-
-function renderLifestyle(payload) {
-  const dateField = document.getElementById('lifestyle-date');
-  if (!dateField) return;
-  dateField.value = payload.date;
-  const entry = payload.entry || {};
-  lifestyleData = {date: payload.date, entry, insights: payload.insights || {}};
-  const fields = {
-    'life-alcohol': entry.alcohol_drinks, 'life-water': entry.water_liters,
-    'life-nutrition': entry.nutrition_quality, 'life-caffeine-time': entry.caffeine_last_time,
-    'life-fruit-veg': entry.fruit_veg_servings, 'life-caffeine': entry.caffeine_servings,
-    'life-alcohol-time': entry.alcohol_last_time, 'life-outdoors': entry.outdoor_minutes,
-    'life-meditation': entry.meditation_minutes, 'life-note': entry.note,
-  };
-  Object.entries(fields).forEach(([id, value]) => {
-    const field = document.getElementById(id); if (field) field.value = value ?? '';
-  });
-  const bools = {
-    'life-protein': entry.protein_target, 'life-late-meal': entry.late_meal,
-    'life-screen': entry.screen_before_bed, 'life-travel': entry.travel,
-    'life-medication': entry.medication_change,
-  };
-  Object.entries(bools).forEach(([id, value]) => {
-    const field = document.getElementById(id); if (field) field.value = value == null ? '' : String(value);
-  });
-  const status = document.getElementById('lifestyle-status');
-  if (status) status.textContent = Object.keys(entry).length ? 'Dagen är loggad' : 'Inte loggat ännu';
-  const button = document.querySelector('[data-action="save-lifestyle"]');
-  if (button) button.textContent = 'Spara dagen';
-  renderLifestyleInsights(payload.insights);
-}
-
-async function loadLifestyle(dateValue) {
-  const fallback = new Date(); fallback.setDate(fallback.getDate() - 1);
-  const selected = dateValue || document.getElementById('lifestyle-date')?.value || localIsoDate(fallback);
-  try {
-    const response = await fetch(`/api/lifestyle?date=${encodeURIComponent(selected)}`);
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || 'Kunde inte ladda livsstilsloggen.');
-    renderLifestyle(payload);
-  } catch (error) {
-    const status = document.getElementById('lifestyle-status');
-    if (status) status.textContent = error.message;
-  }
-}
-
-async function saveLifestyle() {
-  const button = document.querySelector('[data-action="save-lifestyle"]');
-  const status = document.getElementById('lifestyle-status');
-  const payload = {
-    date: document.getElementById('lifestyle-date')?.value,
-    alcohol_drinks: lifestyleNumber('life-alcohol'), alcohol_last_time: document.getElementById('life-alcohol-time')?.value || null,
-    water_liters: lifestyleNumber('life-water'), nutrition_quality: lifestyleNumber('life-nutrition'),
-    caffeine_servings: lifestyleNumber('life-caffeine'), caffeine_last_time: document.getElementById('life-caffeine-time')?.value || null,
-    fruit_veg_servings: lifestyleNumber('life-fruit-veg'), protein_target: lifestyleBool('life-protein'),
-    late_meal: lifestyleBool('life-late-meal'), outdoor_minutes: lifestyleNumber('life-outdoors'),
-    meditation_minutes: lifestyleNumber('life-meditation'), screen_before_bed: lifestyleBool('life-screen'),
-    travel: lifestyleBool('life-travel'), medication_change: lifestyleBool('life-medication'),
-    note: document.getElementById('life-note')?.value.trim() || '',
-  };
-  if (button) { button.disabled = true; button.textContent = 'Analyserar…'; }
-  if (status) status.textContent = 'Sparar…';
-  try {
-    const response = await fetch('/api/lifestyle', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || 'Kunde inte spara livsstilsloggen.');
-    renderLifestyle(result);
-    if (status) status.textContent = 'Sparat och kopplat till din återhämtning';
-    loadAdaptivePlan();
-  } catch (error) {
-    if (status) status.textContent = error.message;
-  } finally {
-    if (button) { button.disabled = false; button.textContent = 'Spara dagen'; }
-  }
-}
-
 function executeAction(trigger, event) {
   const action = trigger.dataset.action;
   if (action === 'goto') goto(trigger.dataset.page);
@@ -1398,7 +1285,8 @@ function executeAction(trigger, event) {
   else if (action === 'open-ai-control') location.href = '/ai';
   else if (action === 'refresh-data') refreshData();
   else if (action === 'save-adaptive-checkin') saveAdaptiveCheckin();
-  else if (action === 'save-lifestyle') saveLifestyle();
+  else if (action === 'set-activity-feeling') setActivityFeeling(Number(trigger.dataset.value));
+  else if (action === 'save-activity-feedback') saveActivityFeedback();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'open-activity') openActivityDetails(
     Number(trigger.dataset.activityId), trigger.dataset.activitySource);
@@ -1442,7 +1330,6 @@ document.addEventListener('click', event => {
   if (trigger) executeAction(trigger, event);
 });
 
-document.getElementById('lifestyle-date')?.addEventListener('change', event => loadLifestyle(event.target.value));
 
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && document.getElementById('activity-overlay')?.classList.contains('is-open')) {
@@ -1489,7 +1376,6 @@ document.addEventListener('keydown', event => {
   // Nedräkning och målrad ritas av renderGoalUi() när målet laddats.
   loadHealth();
   loadAdaptivePlan();
-  loadLifestyle();
 
 
 function setHG(scoreId, barId, badgeId, descId, score, desc) {
@@ -2748,7 +2634,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan(), loadStrain(), loadSessionVerdict(), loadAdaptivePlan(), loadLifestyle()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan(), loadStrain(), loadSessionVerdict(), loadAdaptivePlan()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2800,32 +2686,6 @@ HEALTH DATA (current):
 
   function buildCTX() {
     let ctx = baseCtx();
-
-    if (lifestyleData?.entry && Object.keys(lifestyleData.entry).length) {
-      const labels = {
-        nutrition_quality:'matkvalitet (1-5)', fruit_veg_servings:'portioner frukt/grönt',
-        protein_target:'proteinmål', late_meal:'sen måltid', alcohol_drinks:'glas alkohol',
-        alcohol_last_time:'sista alkohol', caffeine_servings:'koffeinportioner',
-        caffeine_last_time:'sista koffein', water_liters:'liter vätska',
-        outdoor_minutes:'minuter utomhus', meditation_minutes:'minuter nedvarvning',
-        screen_before_bed:'skärm sista timmen', travel:'resdag',
-        medication_change:'ändrad medicin', note:'egen kommentar',
-      };
-      const facts = Object.entries(lifestyleData.entry)
-        .filter(([, value]) => value !== null && value !== '' && value !== undefined)
-        .map(([key, value]) => `${labels[key] || key}: ${typeof value === 'boolean' ? (value ? 'ja' : 'nej') : value}`);
-      if (facts.length) {
-        ctx += `\n\nSELF-REPORTED LIFESTYLE (${lifestyleData.date}):\n- ${facts.join('\n- ')}`;
-        ctx += '\nTreat this as context that the wearable cannot measure. Do not claim causation from a single day.';
-      }
-      const impacts = (lifestyleData.insights?.insights || []).filter(item => item.ready);
-      if (impacts.length) {
-        ctx += '\nPERSONAL 90-DAY ASSOCIATIONS (observational, not causal):';
-        impacts.slice(0, 5).forEach(item => {
-          ctx += `\n- ${item.label}: ${item.impact > 0 ? '+' : ''}${item.impact} recovery-proxy points (${item.yesDays} with/${item.noDays} without)`;
-        });
-      }
-    }
 
     // Lägg in arbetsschema för kommande 7 dagar
     if (gcalEvents.length > 0) {
@@ -5669,6 +5529,91 @@ HEALTH DATA (current):
     </section>`;
   }
 
+  function activityFeedbackCard() {
+    const feelings = [['1','😣','Tungt'],['2','😕','Segt'],['3','😐','Okej'],['4','🙂','Bra'],['5','🔥','Toppen']];
+    return `<section class="ad-feedback" id="activity-feedback">
+      <div class="ad-feedback-head"><div><span>DIN PASSKÄNSLA</span><h3>Hur kändes passet?</h3></div><small>Hjälper framtida träningsbeslut</small></div>
+      <div class="ad-feeling-buttons" role="group" aria-label="Känsla efter passet">
+        ${feelings.map(([value,emoji,label]) => `<button type="button" data-action="set-activity-feeling" data-value="${value}" title="${label}"><b>${emoji}</b><span>${label}</span></button>`).join('')}
+      </div>
+      <div class="ad-feedback-fields">
+        <label><span>Ansträngning</span><select id="activity-feedback-effort"><option value="">Valfritt</option>${Array.from({length:10},(_,i)=>`<option value="${i+1}">${i+1}/10</option>`).join('')}</select></label>
+        <label><span>Mat före</span><select id="activity-feedback-meal"><option value="">Inte angivet</option><option value="none">Ingen</option><option value="light">Något litet</option><option value="normal">Normal måltid</option><option value="heavy">Stor måltid</option></select></label>
+        <label><span>Vätska</span><select id="activity-feedback-hydration"><option value="">Inte angivet</option><option value="low">För lite</option><option value="okay">Okej</option><option value="good">Bra</option></select></label>
+      </div>
+      <label class="ad-feedback-notes"><span>Övriga anteckningar</span><textarea id="activity-feedback-notes" rows="2" maxlength="1500" placeholder="Ont någonstans, magen, energi eller annat…"></textarea></label>
+      <div class="ad-feedback-save"><small id="activity-feedback-status">Tar bara några sekunder.</small><button type="button" data-action="save-activity-feedback">Spara</button></div>
+    </section>`;
+  }
+
+  function setActivityFeeling(value) {
+    const card = document.getElementById('activity-feedback');
+    if (!card) return;
+    card.dataset.feeling = String(value);
+    card.querySelectorAll('[data-action="set-activity-feeling"]').forEach(button => {
+      button.classList.toggle('is-selected', Number(button.dataset.value) === Number(value));
+    });
+  }
+
+  function renderActivityFeedback(feedback) {
+    setActivityFeeling(feedback?.feeling || '');
+    const values = {
+      'activity-feedback-effort': feedback?.effort,
+      'activity-feedback-meal': feedback?.meal_before,
+      'activity-feedback-hydration': feedback?.hydration,
+      'activity-feedback-notes': feedback?.notes,
+    };
+    Object.entries(values).forEach(([id, value]) => {
+      const field = document.getElementById(id); if (field) field.value = value ?? '';
+    });
+    if (feedback && Object.values(feedback).some(value => value !== null && value !== '')) {
+      const status = document.getElementById('activity-feedback-status');
+      if (status) status.textContent = 'Sparat för det här passet.';
+    }
+  }
+
+  async function loadActivityFeedback(activityId, source, requestNumber) {
+    try {
+      const response = await fetch(`/api/activities/${activityId}/feedback?source=${encodeURIComponent(source)}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Kunde inte ladda passkänslan.');
+      if (requestNumber === activityDetailRequest) renderActivityFeedback(payload.feedback || {});
+    } catch (error) {
+      const status = document.getElementById('activity-feedback-status');
+      if (status && requestNumber === activityDetailRequest) status.textContent = error.message;
+    }
+  }
+
+  async function saveActivityFeedback() {
+    if (!activeActivityAi) return;
+    const card = document.getElementById('activity-feedback');
+    const button = card?.querySelector('[data-action="save-activity-feedback"]');
+    const status = document.getElementById('activity-feedback-status');
+    const numeric = id => document.getElementById(id)?.value ? Number(document.getElementById(id).value) : null;
+    const payload = {
+      feeling: card?.dataset.feeling ? Number(card.dataset.feeling) : null,
+      effort: numeric('activity-feedback-effort'),
+      meal_before: document.getElementById('activity-feedback-meal')?.value || null,
+      hydration: document.getElementById('activity-feedback-hydration')?.value || null,
+      notes: document.getElementById('activity-feedback-notes')?.value.trim() || '',
+    };
+    if (button) { button.disabled = true; button.textContent = 'Sparar…'; }
+    try {
+      const response = await fetch(`/api/activities/${activeActivityAi.id}/feedback?source=${encodeURIComponent(activeActivityAi.source)}`, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Kunde inte spara.');
+      renderActivityFeedback(result.feedback);
+      if (status) status.textContent = 'Sparat – används i framtida beslut.';
+      loadAdaptivePlan();
+    } catch (error) {
+      if (status) status.textContent = error.message;
+    } finally {
+      if (button) { button.disabled = false; button.textContent = 'Spara'; }
+    }
+  }
+
   function renderActivityAiOverview(overview) {
     const highlights = Array.isArray(overview?.highlights)
       ? overview.highlights.filter(Boolean).slice(0, 4) : [];
@@ -5786,7 +5731,7 @@ HEALTH DATA (current):
       ['Enhet', activity.device || '–'],
     ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
     const zoneColors = ['#7fd6c4','#2dd4bf','#c8f135','#ffb84d','#ff4d6d'];
-    return `${heading}${activityAiOverviewPlaceholder()}<div class="ad-metrics">${primary}</div>
+    return `${heading}${activityAiOverviewPlaceholder()}${activityFeedbackCard()}<div class="ad-metrics">${primary}</div>
       <div class="ad-grid ad-strength-grid">${activityStrengthWorkout(activity)}
         <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
       <div class="ad-chart-grid ad-strength-charts">
@@ -5831,7 +5776,7 @@ HEALTH DATA (current):
         <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}${sourceUrl ? ` · <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Visa på Strava</a>` : ''}</div></div>
         ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>`;
     if (isStrengthActivity(activity)) return renderStrengthActivityDetail(activity, heading);
-    return `${heading}${activityAiOverviewPlaceholder()}
+    return `${heading}${activityAiOverviewPlaceholder()}${activityFeedbackCard()}
       <div class="ad-metrics">${primary}</div>
       <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från ${sourceName}</span></div></div>
           <div class="ad-route">${activityRouteMap(activity.route)}</div></section>
@@ -5876,6 +5821,7 @@ HEALTH DATA (current):
       content.innerHTML = renderActivityDetail(activity);
       initializeActivityMap(activity.route);
       activeActivityAi = {id:activityId, source:normalizedSource};
+      loadActivityFeedback(activityId, normalizedSource, requestNumber);
       loadActivityAiOverview(activityId, normalizedSource, requestNumber);
       overlay.querySelector('.activity-dialog').scrollTop = 0;
     } catch (error) {
@@ -5895,11 +5841,6 @@ HEALTH DATA (current):
     document.body.classList.remove('activity-modal-open');
     if (activityModalPreviousFocus?.focus) activityModalPreviousFocus.focus();
     activityModalPreviousFocus = null;
-  }
-
-  const linkedActivityId = Number(new URLSearchParams(window.location.search).get('activity'));
-  if (Number.isSafeInteger(linkedActivityId) && linkedActivityId > 0) {
-    setTimeout(() => openActivityDetails(linkedActivityId), 0);
   }
 
   // ─── MÅLTEMPON ──────────────────────────────────────────────

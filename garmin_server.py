@@ -38,6 +38,7 @@ from user_store import MemoryUserStore, DbUserStore, DuplicateUserError, UserSto
 from ai_control import AiControlStore
 from adaptive_plan import AdaptivePlanStore, evaluate as evaluate_adaptive_plan
 from lifestyle import LifestyleStore, analyze_impacts
+from activity_feedback import ActivityFeedbackStore
 from strength_progression import (
     build_default_recommendations,
     build_strength_recommendations,
@@ -94,7 +95,8 @@ class _JsonLogFormatter(logging.Formatter):
             'message': record.getMessage(),
             'logger': record.name,
         }
-        for field in ('event', 'request_id', 'method', 'path', 'status', 'duration_ms', 'user_id'):
+        for field in ('event', 'request_id', 'method', 'path', 'status', 'duration_ms',
+                      'user_id', 'activity_id', 'activities', 'delivered'):
             value = getattr(record, field, None)
             if value is not None:
                 payload[field] = value
@@ -1151,6 +1153,13 @@ if not APP_TESTING:
         LIFESTYLE_STORE.ensure_schema()
     except Exception:
         logger.exception('Lifestyle store unavailable', extra={'event': 'lifestyle.store_failed'})
+
+ACTIVITY_FEEDBACK_STORE = ActivityFeedbackStore(None if APP_TESTING else db)
+if not APP_TESTING:
+    try:
+        ACTIVITY_FEEDBACK_STORE.ensure_schema()
+    except Exception:
+        logger.exception('Activity feedback store unavailable', extra={'event': 'activity_feedback.store_failed'})
 
 # --- Garmin ---
 # Token migration note for Pi: if Hugo's existing tokens are at ~/.garminconnect/,
@@ -2945,7 +2954,7 @@ def activities():
     if request.args.get('refresh') == '1' and garmin_connected:
         try:
             client = get_garmin(uname())
-            save_activities(client.get_activities(0, 100), uid())
+            ingest_activities(client.get_activities(0, 100), uid())
         except Exception as e:
             print('activities refresh failed', e)
     with db() as conn:
@@ -2992,7 +3001,7 @@ def activities():
     try:
         client = get_garmin(uname())
         acts = client.get_activities(0, 50)
-        save_activities(acts, uid())
+        ingest_activities(acts, uid())
         return jsonify({'activities': acts, 'source': 'garmin'})
     except Exception as e:
         return _server_error(e, 'activities.load_failed', message='Aktiviteterna kunde inte hämtas.')
@@ -3118,6 +3127,43 @@ def activity_details(activity_id):
                              message='Passdetaljerna kunde inte hämtas.')
 
 
+def _feedback_source(raw):
+    return 'strava' if str(raw or '').lower() == 'strava' else 'garmin'
+
+
+def _feedback_activity_owned(activity_id, source, user_id, username):
+    if source == 'garmin':
+        return _stored_activity_for_user(activity_id, user_id) is not None
+    return _strava_connected(username)
+
+
+@app.get('/api/activities/<int:activity_id>/feedback')
+def activity_feedback_get(activity_id):
+    source = _feedback_source(request.args.get('source'))
+    if not _feedback_activity_owned(activity_id, source, uid(), uname()):
+        return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
+    return jsonify({'activityId': activity_id, 'source': source,
+                    'feedback': ACTIVITY_FEEDBACK_STORE.get(uid(), source, activity_id)})
+
+
+@app.put('/api/activities/<int:activity_id>/feedback')
+def activity_feedback_save(activity_id):
+    source = _feedback_source(request.args.get('source'))
+    if not _feedback_activity_owned(activity_id, source, uid(), uname()):
+        return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
+    try:
+        value = ACTIVITY_FEEDBACK_STORE.save(
+            uid(), source, activity_id, request.get_json(silent=True) or {})
+        clear_cache(f'activity-ai:v1:{source}:{activity_id}', user_id=uid())
+        return jsonify({'ok': True, 'activityId': activity_id, 'source': source,
+                        'feedback': value})
+    except (TypeError, ValueError) as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return _server_error(exc, 'activity_feedback.save_failed',
+                             message='Passkänslan kunde inte sparas.')
+
+
 def _activity_ai_detail(activity_id, source, user_id, username):
     """Load an owned activity from the detail cache used by the open modal."""
     if source == 'strava':
@@ -3187,7 +3233,7 @@ def _activity_ai_series_summary(series):
     }
 
 
-def _activity_ai_prompt(activity, planned):
+def _activity_ai_prompt(activity, planned, feedback=None):
     evidence = {
         'activity': {
             'name': activity.get('name'), 'type': activity.get('type'),
@@ -3201,6 +3247,7 @@ def _activity_ai_prompt(activity, planned):
             'exerciseSets': (activity.get('exerciseSets') or [])[:80],
         },
         'plannedSession': planned,
+        'athleteFeedback': feedback or None,
     }
     return f'''Analyze one completed workout retrospectively. Be an evidence-driven running and
 strength coach. Use only the supplied measurements. Compare against the planned session when one
@@ -3280,7 +3327,8 @@ def activity_ai_overview(activity_id):
                 return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
             activity['source'] = source
             planned = _activity_ai_plan_context(activity, uid())
-            text = call_llm(_activity_ai_prompt(activity, planned), max_tokens=800)
+            feedback = ACTIVITY_FEEDBACK_STORE.get(uid(), source, activity_id)
+            text = call_llm(_activity_ai_prompt(activity, planned, feedback), max_tokens=800)
             cleaned = text.strip().replace('```json', '').replace('```', '').strip()
             overview = _normalize_activity_ai_response(json.loads(cleaned))
             set_cache(cache_key, overview, uid())
@@ -4284,15 +4332,71 @@ def _recent_execution_block(user_id, days=14, limit=6):
             continue
         blocks.append(f"- {header}\n{body}")
 
-    if not blocks:
-        return ''
-    return (
+    execution_text = '' if not blocks else (
         "\n\nHOW RECENT SESSIONS WERE ACTUALLY EXECUTED "
         "(measured against what the plan asked for — use this to give specific "
         "feedback such as running easy days too fast, fading across reps, or "
         "lifting below the calculated target, instead of generic praise):\n"
         + '\n'.join(blocks)
     )
+    return execution_text + _recent_activity_feedback_block(user_id, days=days, limit=limit)
+
+
+def _recent_activity_feedback(user_id, days=21, limit=10):
+    cutoff = time.time() - days * 86400
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT f.activity_id,f.source,f.data,f.updated_at,
+                                      a.name,a.date,a.type
+                    FROM activity_feedback f
+                    LEFT JOIN activities a ON f.source='garmin'
+                        AND a.id=f.activity_id AND a.user_id=f.user_id
+                    WHERE f.user_id=%s AND f.updated_at >= %s
+                    ORDER BY COALESCE(a.date, '') DESC, f.updated_at DESC LIMIT %s''',
+                    (user_id, cutoff, limit))
+                rows = [dict(row) for row in cur.fetchall()]
+    except Exception as exc:
+        print('Kunde inte läsa passkänsla:', exc)
+        return []
+    today = date.today()
+    for row in rows:
+        row['data'] = dict(row.get('data') or {})
+        try:
+            row['age_days'] = (today - date.fromisoformat(str(row.get('date') or '')[:10])).days
+        except (TypeError, ValueError):
+            row['age_days'] = None
+        row['activity_id'] = int(row['activity_id'])
+        row['updated_at'] = float(row['updated_at'])
+    return rows
+
+
+def _recent_activity_feedback_block(user_id, days=21, limit=10):
+    rows = _recent_activity_feedback(user_id, days=days, limit=limit)
+    if not rows:
+        return ''
+    meal_labels = {'none': 'ingen mat', 'light': 'lätt mål', 'normal': 'normal måltid', 'heavy': 'stor måltid'}
+    hydration_labels = {'low': 'för lite', 'okay': 'okej', 'good': 'bra'}
+    lines = []
+    for row in rows:
+        feedback = row['data']
+        parts = []
+        if feedback.get('feeling') is not None:
+            parts.append(f"känsla {feedback['feeling']}/5")
+        if feedback.get('effort') is not None:
+            parts.append(f"ansträngning {feedback['effort']}/10")
+        if feedback.get('meal_before'):
+            parts.append('mat före: ' + meal_labels.get(feedback['meal_before'], feedback['meal_before']))
+        if feedback.get('hydration'):
+            parts.append('vätska: ' + hydration_labels.get(feedback['hydration'], feedback['hydration']))
+        if feedback.get('notes'):
+            parts.append('anteckning: ' + feedback['notes'])
+        if parts:
+            lines.append(f"- {str(row.get('date') or '')[:10]} {row.get('name') or 'pass'}: " + ', '.join(parts))
+    if not lines:
+        return ''
+    return ('\n\nATHLETE POST-WORKOUT FEEDBACK (self-reported; use it to explain patterns '
+            'and future decisions, but do not invent causation):\n' + '\n'.join(lines))
 
 
 def _build_refresh_prompt(acts):
@@ -4525,7 +4629,7 @@ def refresh():
     try:
         client = get_garmin(uname())
         acts = client.get_activities(0, 10)
-        save_activities(acts, uid())
+        ingest_activities(acts, uid())
     except Exception as e:
         return _server_error(e, 'analysis.garmin_failed', message='Garmin-datan kunde inte hämtas.')
 
@@ -4684,7 +4788,7 @@ def _build_review_prompt():
     # latest activity/lap data rather than stale DB rows.
     try:
         client = get_garmin(uname())
-        save_activities(client.get_activities(0, 20), uid())
+        ingest_activities(client.get_activities(0, 20), uid())
     except Exception as e:
         print('training review: Garmin refresh failed', e)
 
@@ -7087,6 +7191,7 @@ def build_adaptive_snapshot(user_id):
         # Gårdagens val sparas som förklarande kontext. Motorn dubbelräknar dem
         # inte mot dagens HRV/sömn innan personens egna samband har validerats.
         'lifestyle': LIFESTYLE_STORE.get(user_id, today - timedelta(days=1)),
+        'recent_feedback': _recent_activity_feedback(user_id, days=14, limit=5),
         'load': {
             'hard_days_last_3': hard_days,
             'chronic': chronic,
@@ -7192,10 +7297,45 @@ def _unseen_activity_ids(activities, user_id):
     return {i for i in ids if i not in known}
 
 
+def ingest_activities(activities, user_id=1, announce=True):
+    """Spara Garmin-pass och behandla nya pass i samma atomära arbetsflöde.
+
+    Tidigare sparade flera vyer aktiviteter direkt. Då hann nästa synk se dem
+    som gamla och notifieringen försvann. All Garmin-import går nu genom denna
+    enda ingång, oavsett om den startades av schemat eller av användaren.
+    """
+    activities = activities or []
+    try:
+        fresh_ids = _unseen_activity_ids(activities, user_id)
+    except Exception as exc:
+        logger.exception('Could not identify new activities', extra={
+            'event': 'activity.ingest_detection_failed', 'user_id': user_id})
+        fresh_ids = set()
+    save_activities(activities, user_id)
+    if not fresh_ids:
+        return fresh_ids
+    try:
+        record_session_verdicts(fresh_ids, user_id)
+    except Exception:
+        logger.exception('Activity verdict failed', extra={
+            'event': 'activity.verdict_failed', 'user_id': user_id})
+    if announce:
+        try:
+            delivered = notify_new_activities(fresh_ids, user_id)
+            logger.info('New activity notification handled', extra={
+                'event': 'push.activity_synced', 'user_id': user_id,
+                'activities': len(fresh_ids), 'delivered': delivered})
+        except Exception:
+            logger.exception('Activity notification failed', extra={
+                'event': 'push.activity_failed', 'user_id': user_id})
+    return fresh_ids
+
+
 # Ett pass som dyker upp tre dagar sent behover ingen notis - da har du redan
 # levt vidare. Fonstret ar snavare an for omdomena av just den anledningen.
 ACTIVITY_PUSH_MAX_AGE_HOURS = float(config.get('ACTIVITY_PUSH_MAX_AGE_HOURS', '30'))
 ACTIVITY_PUSH_MAX_INDIVIDUAL = 2
+GARMIN_SYNC_MINUTES = min(max(int(config.get('GARMIN_SYNC_MINUTES', '15')), 5), 180)
 
 
 def _activity_started_at(activity):
@@ -7236,7 +7376,9 @@ def notify_new_activities(activity_ids, user_id=1):
     if not push_available() or not activity_ids:
         return 0
     wanted = set(activity_ids)
-    cutoff = datetime.now() - timedelta(hours=ACTIVITY_PUSH_MAX_AGE_HOURS)
+    # Garmin's local timestamps are stored without an offset. Compare them in
+    # the same timezone instead of the server's system timezone.
+    cutoff = datetime.now(LOCAL_TZ).replace(tzinfo=None) - timedelta(hours=ACTIVITY_PUSH_MAX_AGE_HOURS)
     try:
         candidates = []
         for activity in _recent_activities(user_id, days=3):
@@ -7273,7 +7415,8 @@ def notify_new_activities(activity_ids, user_id=1):
         if not body:
             body = 'Passet finns nu i Trainyze.'
         # Egen tagg per pass sa att tva pass samma dag inte ersatter varandra.
-        sent += 1 if send_push(user_id, title, body, url='/',
+        sent += 1 if send_push(user_id, title, body,
+                               url=f'/?activity={activity.get("id")}&source=garmin',
                                tag=f"activity-{activity.get('id')}") else 0
     return sent
 
@@ -7364,21 +7507,7 @@ def run_sync(count=50, username=None, user_id=1):
         username = list(USERS.keys())[0] if USERS else 'hugo'
     client = get_garmin(username)
     acts = client.get_activities(0, count)
-    try:
-        fresh_ids = _unseen_activity_ids(acts, user_id)
-    except Exception as e:
-        print('Kunde inte avgöra nya pass:', e)
-        fresh_ids = set()
-    save_activities(acts, user_id)
-    try:
-        record_session_verdicts(fresh_ids, user_id)
-    except Exception as e:
-        print('Passomdöme fel:', e)
-    # Efter omdömena, så att notisen kan bära med sig ett av dem.
-    try:
-        notify_new_activities(fresh_ids, user_id)
-    except Exception as e:
-        print('Passnotis fel:', e)
+    ingest_activities(acts, user_id)
     try:
         link_manual_exercises_to_activities(user_id)
     except Exception as e:
@@ -7450,7 +7579,7 @@ def ai_adjust_plan(user_request=None):
     try:
         client = get_garmin(first_user)
         acts = client.get_activities(0, 20)
-        save_activities(acts, first_uid)
+        ingest_activities(acts, first_uid)
         # Rensa hälso-cache så färsk sömndata hämtas
         clear_cache('health', 'training_load', user_id=first_uid)
     except Exception as e:
@@ -8073,7 +8202,9 @@ def auto_sync_job():
 scheduler = None
 if not APP_TESTING:
     scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
-    scheduler.add_job(auto_sync_job, 'interval', hours=3)
+    scheduler.add_job(auto_sync_job, 'interval', minutes=GARMIN_SYNC_MINUTES,
+                      next_run_time=datetime.now() + timedelta(seconds=30),
+                      coalesce=True, max_instances=1)
     scheduler.add_job(purge_old_sensor_readings, 'interval', hours=24)
     scheduler.start()
     logger.info('Scheduler started', extra={'event': 'scheduler.started'})
