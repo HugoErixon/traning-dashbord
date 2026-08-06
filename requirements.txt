@@ -9,3 +9,4 @@ google-auth-oauthlib==1.4.0
 google-api-python-client==2.197.0
 PyYAML==6.0.2
 pywebpush==2.3.0
+webauthn==2.2.0

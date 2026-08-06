@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d0f14">
+  <title>Trainyze AI Control</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/ai.css?v=1">
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand"><span class="brand-mark">T</span><span>TRAINYZE</span></a>
+    <div class="security-state" id="security-state"><i></i><span>Kontrollerar säkerhet…</span></div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">G3 · OWNER CONTROL</p>
+        <h1>Utveckla Trainyze<br>direkt från mobilen.</h1>
+        <p class="lead">Varje session låses upp med din passkey och Face ID. Välj Codex eller Claude; uppdraget körs i ett isolerat checkout på G3.</p>
+      </div>
+      <button id="lock-button" class="quiet-button" type="button" hidden>Lås nu</button>
+    </section>
+
+    <section id="notice" class="notice" hidden></section>
+
+    <section id="setup-card" class="gate-card" hidden>
+      <div class="gate-icon">⌁</div>
+      <p class="eyebrow">FÖRSTA AKTIVERINGEN</p>
+      <h2>Koppla Face ID</h2>
+      <p>Klistra in bootstrap-koden från G3 en enda gång. Därefter kan koden tas bort från serverkonfigurationen.</p>
+      <label>Bootstrap-kod
+        <input id="bootstrap-token" type="password" autocomplete="off" spellcheck="false" placeholder="Lång engångskod">
+      </label>
+      <button id="register-button" class="primary-button" type="button">Aktivera passkey med Face ID</button>
+    </section>
+
+    <section id="unlock-card" class="gate-card" hidden>
+      <div class="gate-icon">◉</div>
+      <p class="eyebrow">SÄKERHETSVERIFIERING</p>
+      <h2>Lås upp AI Control</h2>
+      <p>Face ID krävs innan instruktioner eller resultat kan skickas mellan Trainyze och G3.</p>
+      <button id="unlock-button" class="primary-button" type="button">Fortsätt med Face ID</button>
+    </section>
+
+    <div id="workspace" hidden>
+      <section class="composer-card">
+        <div class="composer-head">
+          <div><p class="eyebrow">NYTT UPPDRAG</p><h2>Vad ska förbättras?</h2></div>
+          <span class="agent-pill" id="agent-pill">G3</span>
+        </div>
+        <div class="provider-buttons" aria-label="Välj AI">
+          <button class="provider-button active" data-provider="codex" type="button">/codex</button>
+          <button class="provider-button" data-provider="claude" type="button">/claude</button>
+        </div>
+        <textarea id="prompt" maxlength="4000" rows="7" placeholder="/codex Felsök varför dagens träningspass inte sparas…">/codex </textarea>
+        <div class="composer-footer">
+          <p>Agenten får ändra och testa projektet men inte använda sudo, publicera eller starta om tjänster.</p>
+          <button id="submit-job" class="primary-button" type="button">Skicka till G3 <span>→</span></button>
+        </div>
+      </section>
+
+      <section class="jobs-section">
+        <div class="section-head"><div><p class="eyebrow">UPPDRAGSKÖ</p><h2>Senaste körningar</h2></div><button id="refresh-jobs" class="icon-button" type="button" aria-label="Uppdatera">↻</button></div>
+        <div id="jobs" class="jobs"><p class="empty">Inga uppdrag ännu.</p></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/ai.js?v=1"></script>
+</body>
+</html>

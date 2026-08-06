@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, send_from_directory, g as flask_g, se
 from garminconnect import Garmin
 from pathlib import Path
 from dotenv import dotenv_values
+from urllib.parse import urlparse
+import base64
 import hmac
 import hashlib
 import json
@@ -29,6 +31,7 @@ except ImportError:  # notiser ar valfria - appen ska starta anda
 from werkzeug.exceptions import HTTPException
 from security import LoginRateLimiter, parse_users, verify_user
 from user_store import MemoryUserStore, DbUserStore, DuplicateUserError, UserStoreError
+from ai_control import AiControlStore
 from strength_progression import (
     build_default_recommendations,
     build_strength_recommendations,
@@ -40,6 +43,26 @@ import sleep_analysis
 import strain_analysis
 import training_analysis
 from activity_detail import normalize_activity_detail
+
+try:
+    from webauthn import (
+        base64url_to_bytes,
+        generate_authentication_options,
+        generate_registration_options,
+        options_to_json,
+        verify_authentication_response,
+        verify_registration_response,
+    )
+    from webauthn.helpers.structs import (
+        AuthenticatorAttachment,
+        AuthenticatorSelectionCriteria,
+        PublicKeyCredentialDescriptor,
+        ResidentKeyRequirement,
+        UserVerificationRequirement,
+    )
+    WEBAUTHN_AVAILABLE = True
+except ImportError:
+    WEBAUTHN_AVAILABLE = False
 
 # Google Calendar (valfritt — kräver google_credentials.json)
 try:
@@ -460,6 +483,14 @@ FORGOT_PASSWORD_LIMITER = LoginRateLimiter(
 RESEND_API_KEY = config.get('RESEND_API_KEY', '')
 MAIL_FROM = config.get('MAIL_FROM', 'Trainyze <noreply@trainyze.com>')
 PUBLIC_BASE_URL = config.get('PUBLIC_BASE_URL', 'https://trainyze.com')
+_public_url = urlparse(PUBLIC_BASE_URL)
+AI_CONTROL_ENABLED = _as_bool(config.get('AI_CONTROL_ENABLED'))
+AI_RP_ID = str(config.get('AI_RP_ID') or _public_url.hostname or 'trainyze.com').strip()
+AI_ORIGIN = str(config.get('AI_ORIGIN') or
+                f'{_public_url.scheme or "https"}://{_public_url.netloc or AI_RP_ID}').rstrip('/')
+AI_PASSKEY_BOOTSTRAP_TOKEN = str(config.get('AI_PASSKEY_BOOTSTRAP_TOKEN') or '')
+AI_AGENT_TOKEN = str(config.get('AI_AGENT_TOKEN') or '')
+AI_STEP_UP_TTL_SECONDS = min(max(int(config.get('AI_STEP_UP_TTL_SECONDS', '600')), 60), 1800)
 STRAVA_CLIENT_ID = str(config.get('STRAVA_CLIENT_ID') or '').strip()
 STRAVA_CLIENT_SECRET = str(config.get('STRAVA_CLIENT_SECRET') or '').strip()
 STRAVA_REDIRECT_URI = str(config.get('STRAVA_REDIRECT_URI') or
@@ -874,6 +905,15 @@ def refresh_users():
 
 refresh_users()
 
+# AI-kontrollen har ett separat lager eftersom dess passkeys och jobb aldrig
+# får blandas ihop med träningsassistentens vanliga chattdata.
+AI_CONTROL_STORE = AiControlStore(None if APP_TESTING else db)
+if not APP_TESTING:
+    try:
+        AI_CONTROL_STORE.ensure_schema()
+    except Exception:
+        logger.exception('AI control store unavailable', extra={'event': 'ai.store_failed'})
+
 # --- Garmin ---
 # Token migration note for Pi: if Hugo's existing tokens are at ~/.garminconnect/,
 # run: mv ~/.garminconnect ~/.garminconnect_bak && mkdir ~/.garminconnect && mv ~/.garminconnect_bak ~/.garminconnect/hugo
@@ -1023,6 +1063,8 @@ def check_auth():
         '/api/water', '/api/ac/button/off', '/api/ac/button/auto-on'
     ):
         return  # Hardware endpoints authenticate with separate, scoped tokens.
+    if request.path.startswith('/api/ai/agent/'):
+        return  # G3-agenten verifieras med en separat, lång bearer-token i varje endpoint.
 
     if request.method == 'GET' and request.path in (
         '/api/ac/bedtime', '/api/weather/current', '/api/sleep-coach'
@@ -1387,6 +1429,337 @@ def revoke_widget_token():
 def _current_is_admin():
     user = USERS.get(uname())
     return bool(user and user.get('is_admin'))
+
+
+# --- Ägarens fjärrstyrda utvecklingsagent ----------------------------------
+def _ai_owner_error(require_enabled=True):
+    if uid() != 1 or not _current_is_admin():
+        return _api_error('forbidden', 'Endast Trainyzes ägare har åtkomst.', 403)
+    if require_enabled and not AI_CONTROL_ENABLED:
+        return _api_error('ai_control_disabled', 'AI-kontrollen är inte aktiverad på servern.', 503)
+    if not WEBAUTHN_AVAILABLE:
+        return _api_error('webauthn_unavailable', 'Passkey-stödet saknas på servern.', 503)
+    return None
+
+
+def _ai_is_unlocked(now=None):
+    now = time.time() if now is None else now
+    verified_at = float(session.get('ai_verified_at') or 0)
+    return verified_at > 0 and now - verified_at <= AI_STEP_UP_TTL_SECONDS
+
+
+def _ai_secret_configured(value):
+    value = str(value or '')
+    return len(value) >= 32 and not value.lower().startswith(('replace-', 'change-', 'example-'))
+
+
+def _ai_unlock_error():
+    owner_error = _ai_owner_error()
+    if owner_error:
+        return owner_error
+    if not _ai_is_unlocked():
+        return _api_error('passkey_required', 'Verifiera dig med Face ID för att fortsätta.', 403)
+    return None
+
+
+def _b64url(value):
+    return base64.urlsafe_b64encode(bytes(value)).rstrip(b'=').decode('ascii')
+
+
+def _pop_passkey_challenge(name):
+    encoded = session.pop(name, None)
+    expires = float(session.pop(f'{name}_expires', 0) or 0)
+    if not encoded or expires < time.time():
+        return None
+    try:
+        return base64url_to_bytes(encoded)
+    except Exception:
+        return None
+
+
+def _store_passkey_challenge(name, challenge):
+    session[name] = _b64url(challenge)
+    session[f'{name}_expires'] = time.time() + 300
+
+
+def _agent_auth_error():
+    if not AI_CONTROL_ENABLED:
+        return _api_error('ai_control_disabled', 'AI-kontrollen är inte aktiverad.', 503)
+    authorization = request.headers.get('Authorization', '')
+    supplied = authorization[7:].strip() if authorization.lower().startswith('bearer ') else ''
+    if not _ai_secret_configured(AI_AGENT_TOKEN):
+        return _api_error('agent_unavailable', 'G3-agenten är inte konfigurerad.', 503)
+    if not supplied or not hmac.compare_digest(AI_AGENT_TOKEN, supplied):
+        return _api_error('invalid_agent_token', 'Ogiltig agenttoken.', 401)
+    return None
+
+
+@app.get('/api/ai/status')
+def ai_control_status():
+    owner_error = _ai_owner_error(require_enabled=False)
+    if owner_error and owner_error[1] == 403:
+        return owner_error
+    credentials = AI_CONTROL_STORE.credentials_for_user(uid()) if WEBAUTHN_AVAILABLE else []
+    unlocked = AI_CONTROL_ENABLED and WEBAUTHN_AVAILABLE and _ai_is_unlocked()
+    verified_at = float(session.get('ai_verified_at') or 0)
+    return jsonify({
+        'enabled': AI_CONTROL_ENABLED,
+        'webauthnAvailable': WEBAUTHN_AVAILABLE,
+        'configured': bool(credentials),
+        'credentialCount': len(credentials),
+        'registrationAllowed': bool(
+            AI_CONTROL_ENABLED and WEBAUTHN_AVAILABLE and
+            ((_ai_is_unlocked() and credentials) or
+             (not credentials and _ai_secret_configured(AI_PASSKEY_BOOTSTRAP_TOKEN)))
+        ),
+        'unlocked': unlocked,
+        'unlockedUntil': verified_at + AI_STEP_UP_TTL_SECONDS if unlocked else None,
+        'agentConfigured': _ai_secret_configured(AI_AGENT_TOKEN),
+        'rpId': AI_RP_ID,
+    })
+
+
+@app.post('/api/ai/passkeys/register/options')
+def ai_passkey_registration_options():
+    owner_error = _ai_owner_error()
+    if owner_error:
+        return owner_error
+    credentials = AI_CONTROL_STORE.credentials_for_user(uid())
+    if credentials:
+        if not _ai_is_unlocked():
+            return _api_error('passkey_required', 'Verifiera befintlig passkey först.', 403)
+    else:
+        supplied = str((request.get_json(silent=True) or {}).get('bootstrapToken') or '')
+        if not _ai_secret_configured(AI_PASSKEY_BOOTSTRAP_TOKEN):
+            return _api_error('bootstrap_unavailable', 'Bootstrap-token saknas på servern.', 503)
+        if not supplied or not hmac.compare_digest(AI_PASSKEY_BOOTSTRAP_TOKEN, supplied):
+            return _api_error('invalid_bootstrap_token', 'Bootstrap-koden är ogiltig.', 403)
+
+    options = generate_registration_options(
+        rp_id=AI_RP_ID,
+        rp_name='Trainyze AI Control',
+        user_id=f'trainyze-owner:{uid()}'.encode('utf-8'),
+        user_name=uname(),
+        user_display_name='Trainyze ägare',
+        timeout=60000,
+        exclude_credentials=[PublicKeyCredentialDescriptor(id=value['credential_id'])
+                             for value in credentials],
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
+        ),
+    )
+    _store_passkey_challenge('ai_registration_challenge', options.challenge)
+    session['ai_registration_authorized'] = True
+    return app.response_class(options_to_json(options), mimetype='application/json')
+
+
+@app.post('/api/ai/passkeys/register/verify')
+def ai_passkey_registration_verify():
+    owner_error = _ai_owner_error()
+    if owner_error:
+        return owner_error
+    challenge = _pop_passkey_challenge('ai_registration_challenge')
+    authorized = bool(session.pop('ai_registration_authorized', False))
+    if not challenge or not authorized:
+        return _api_error('passkey_challenge_expired', 'Registreringen har gått ut. Försök igen.', 400)
+    data = request.get_json(silent=True) or {}
+    credential = data.get('credential')
+    if not isinstance(credential, dict):
+        return _api_error('invalid_passkey_response', 'Passkey-svaret saknas.', 400)
+    try:
+        verification = verify_registration_response(
+            credential=credential,
+            expected_challenge=challenge,
+            expected_rp_id=AI_RP_ID,
+            expected_origin=AI_ORIGIN,
+            require_user_verification=True,
+        )
+        transports = ((credential.get('response') or {}).get('transports') or [])
+        AI_CONTROL_STORE.add_credential(
+            uid(), verification.credential_id, verification.credential_public_key,
+            verification.sign_count, transports=transports,
+            label=str(data.get('label') or 'Face ID')[:80],
+        )
+    except Exception:
+        logger.warning('Passkey registration failed', extra={
+            'event': 'ai.passkey_registration_failed', 'request_id': _request_id(),
+            'user_id': uid(),
+        })
+        return _api_error('invalid_passkey_response', 'Passkeyn kunde inte verifieras.', 400)
+    session['ai_verified_at'] = time.time()
+    logger.info('AI passkey registered', extra={
+        'event': 'ai.passkey_registered', 'request_id': _request_id(), 'user_id': uid(),
+    })
+    return jsonify({'ok': True, 'unlockedForSeconds': AI_STEP_UP_TTL_SECONDS})
+
+
+@app.post('/api/ai/passkeys/auth/options')
+def ai_passkey_authentication_options():
+    owner_error = _ai_owner_error()
+    if owner_error:
+        return owner_error
+    credentials = AI_CONTROL_STORE.credentials_for_user(uid())
+    if not credentials:
+        return _api_error('passkey_not_configured', 'Ingen passkey är registrerad.', 409)
+    options = generate_authentication_options(
+        rp_id=AI_RP_ID,
+        timeout=60000,
+        allow_credentials=[PublicKeyCredentialDescriptor(id=value['credential_id'])
+                           for value in credentials],
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+    _store_passkey_challenge('ai_authentication_challenge', options.challenge)
+    return app.response_class(options_to_json(options), mimetype='application/json')
+
+
+@app.post('/api/ai/passkeys/auth/verify')
+def ai_passkey_authentication_verify():
+    owner_error = _ai_owner_error()
+    if owner_error:
+        return owner_error
+    challenge = _pop_passkey_challenge('ai_authentication_challenge')
+    if not challenge:
+        return _api_error('passkey_challenge_expired', 'Verifieringen har gått ut. Försök igen.', 400)
+    credential = (request.get_json(silent=True) or {}).get('credential')
+    if not isinstance(credential, dict):
+        return _api_error('invalid_passkey_response', 'Passkey-svaret saknas.', 400)
+    try:
+        credential_id = base64url_to_bytes(str(credential.get('rawId') or credential.get('id') or ''))
+        stored = AI_CONTROL_STORE.credential(credential_id)
+        if not stored or stored['user_id'] != uid():
+            raise ValueError('Unknown credential')
+        verification = verify_authentication_response(
+            credential=credential,
+            expected_challenge=challenge,
+            expected_rp_id=AI_RP_ID,
+            expected_origin=AI_ORIGIN,
+            credential_public_key=stored['public_key'],
+            credential_current_sign_count=stored['sign_count'],
+            require_user_verification=True,
+        )
+        AI_CONTROL_STORE.update_credential_counter(credential_id, verification.new_sign_count)
+    except Exception:
+        logger.warning('Passkey authentication failed', extra={
+            'event': 'ai.passkey_authentication_failed', 'request_id': _request_id(),
+            'user_id': uid(),
+        })
+        return _api_error('invalid_passkey_response', 'Face ID-verifieringen misslyckades.', 403)
+    session['ai_verified_at'] = time.time()
+    logger.info('AI control unlocked', extra={
+        'event': 'ai.unlocked', 'request_id': _request_id(), 'user_id': uid(),
+    })
+    return jsonify({'ok': True, 'unlockedForSeconds': AI_STEP_UP_TTL_SECONDS})
+
+
+@app.post('/api/ai/lock')
+def ai_control_lock():
+    owner_error = _ai_owner_error()
+    if owner_error:
+        return owner_error
+    session.pop('ai_verified_at', None)
+    return jsonify({'ok': True})
+
+
+@app.get('/api/ai/jobs')
+def ai_jobs_list():
+    unlock_error = _ai_unlock_error()
+    if unlock_error:
+        return unlock_error
+    return jsonify({'jobs': AI_CONTROL_STORE.list_jobs(uid())})
+
+
+@app.post('/api/ai/jobs')
+def ai_jobs_create():
+    unlock_error = _ai_unlock_error()
+    if unlock_error:
+        return unlock_error
+    prompt = str((request.get_json(silent=True) or {}).get('prompt') or '').strip()
+    if not prompt or len(prompt) > 4000:
+        return _api_error('invalid_prompt', 'Instruktionen måste vara 1–4000 tecken.', 400)
+    provider = 'codex'
+    if prompt.startswith('/'):
+        command, _, instruction = prompt.partition(' ')
+        provider = command[1:].lower()
+        if provider not in ('codex', 'claude'):
+            return _api_error(
+                'invalid_ai_provider', 'Börja med /codex eller /claude.', 400,
+            )
+        prompt = instruction.strip()
+        if not prompt:
+            return _api_error('invalid_prompt', 'Skriv en instruktion efter AI-valet.', 400)
+    job = AI_CONTROL_STORE.create_job(uid(), prompt, provider=provider)
+    logger.info('AI job queued', extra={
+        'event': 'ai.job_queued', 'request_id': _request_id(), 'user_id': uid(),
+        'job_id': job['id'], 'provider': provider,
+    })
+    return jsonify({'job': job}), 201
+
+
+@app.get('/api/ai/jobs/<uuid:job_id>')
+def ai_job_detail(job_id):
+    unlock_error = _ai_unlock_error()
+    if unlock_error:
+        return unlock_error
+    job = AI_CONTROL_STORE.get_job(str(job_id), uid())
+    if not job:
+        return _api_error('job_not_found', 'Uppdraget finns inte.', 404)
+    return jsonify({'job': job})
+
+
+@app.post('/api/ai/jobs/<uuid:job_id>/cancel')
+def ai_job_cancel(job_id):
+    unlock_error = _ai_unlock_error()
+    if unlock_error:
+        return unlock_error
+    job = AI_CONTROL_STORE.get_job(str(job_id), uid())
+    if not job:
+        return _api_error('job_not_found', 'Uppdraget finns inte.', 404)
+    if job['status'] != 'pending':
+        return _api_error('job_already_started', 'Uppdraget har redan startat.', 409)
+    AI_CONTROL_STORE.finish_job(str(job_id), 'cancelled')
+    return jsonify({'ok': True})
+
+
+@app.post('/api/ai/agent/jobs/next')
+def ai_agent_next_job():
+    auth_error = _agent_auth_error()
+    if auth_error:
+        return auth_error
+    data = request.get_json(silent=True) or {}
+    job = AI_CONTROL_STORE.claim_next(str(data.get('agentId') or 'g3'))
+    return jsonify({'job': job})
+
+
+@app.post('/api/ai/agent/jobs/<uuid:job_id>/events')
+def ai_agent_job_event(job_id):
+    auth_error = _agent_auth_error()
+    if auth_error:
+        return auth_error
+    data = request.get_json(silent=True) or {}
+    if not AI_CONTROL_STORE.append_event(str(job_id), data.get('kind'), data.get('message')):
+        return _api_error('job_not_found', 'Uppdraget finns inte.', 404)
+    return jsonify({'ok': True})
+
+
+@app.post('/api/ai/agent/jobs/<uuid:job_id>/finish')
+def ai_agent_finish_job(job_id):
+    auth_error = _agent_auth_error()
+    if auth_error:
+        return auth_error
+    data = request.get_json(silent=True) or {}
+    status = str(data.get('status') or '')
+    if status not in ('completed', 'failed'):
+        return _api_error('invalid_job_status', 'Ogiltig jobbstatus.', 400)
+    if not AI_CONTROL_STORE.finish_job(
+            str(job_id), status, result=data.get('result'), error=data.get('error')):
+        return _api_error('job_not_found', 'Uppdraget finns inte eller är redan klart.', 404)
+    logger.info('AI job finished', extra={
+        'event': 'ai.job_finished', 'request_id': _request_id(),
+        'job_id': str(job_id), 'status': status,
+    })
+    return jsonify({'ok': True})
 
 
 def _garmin_token_dir(username):
@@ -7342,8 +7715,19 @@ def index():
         return send_from_directory('public', 'landing.html')
     return send_from_directory('public', 'index.html')
 
+@app.get('/ai')
+def ai_control_page():
+    _, user = _configured_session_user()
+    if not user or user['id'] != 1 or not user.get('is_admin'):
+        return send_from_directory('public', 'landing.html'), 403
+    return send_from_directory('public', 'ai.html')
+
 @app.get('/<path:path>')
 def static_files(path):
+    if path == 'ai.html':
+        _, user = _configured_session_user()
+        if not user or user['id'] != 1 or not user.get('is_admin'):
+            return 'Not Found', 404
     return send_from_directory('public', path)
 
 if __name__ == '__main__':

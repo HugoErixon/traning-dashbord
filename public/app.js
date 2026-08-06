@@ -48,6 +48,8 @@ function completeAuth(data) {
   if (settingsClimate) settingsClimate.style.display = currentUserIsAdmin ? '' : 'none';
   const settingsUsers = document.getElementById('settings-users-link');
   if (settingsUsers) settingsUsers.style.display = currentUserIsAdmin ? '' : 'none';
+  const settingsAi = document.getElementById('settings-ai-link');
+  if (settingsAi) settingsAi.style.display = currentUserIsAdmin ? '' : 'none';
   updateGarminSidebar();
   updateStravaSidebar();
   loadSettingsPage();
@@ -1178,6 +1180,7 @@ function executeAction(trigger, event) {
   else if (action === 'save-goal') saveGoalFromForm();
   else if (action === 'save-goal-rebuild') saveGoalAndRebuildPlan();
   else if (action === 'logout') performLogout();
+  else if (action === 'open-ai-control') location.href = '/ai';
   else if (action === 'refresh-data') refreshData();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'open-activity') openActivityDetails(
