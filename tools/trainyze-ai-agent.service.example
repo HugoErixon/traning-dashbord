@@ -1,0 +1,24 @@
+[Unit]
+Description=Trainyze owner-approved Codex and Claude agent
+After=network-online.target dashboard.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trainyze-agent
+Group=trainyze-agent
+WorkingDirectory=/opt/trainyze-agent/traning-dashbord
+EnvironmentFile=/etc/trainyze/ai-agent.env
+Environment=CODEX_HOME=/var/lib/trainyze-agent/codex
+Environment=CLAUDE_CONFIG_DIR=/var/lib/trainyze-agent/claude
+ExecStart=/opt/trainyze-agent/venv/bin/python /opt/trainyze-agent/traning-dashbord/tools/trainyze_ai_agent.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/trainyze-agent/workspace /var/lib/trainyze-agent
+
+[Install]
+WantedBy=multi-user.target
