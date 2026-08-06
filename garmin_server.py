@@ -36,6 +36,7 @@ from werkzeug.exceptions import HTTPException
 from security import LoginRateLimiter, parse_users, verify_user
 from user_store import MemoryUserStore, DbUserStore, DuplicateUserError, UserStoreError
 from ai_control import AiControlStore
+from adaptive_plan import AdaptivePlanStore, evaluate as evaluate_adaptive_plan
 from strength_progression import (
     build_default_recommendations,
     build_strength_recommendations,
@@ -1133,6 +1134,15 @@ if not APP_TESTING:
         AI_CONTROL_STORE.ensure_schema()
     except Exception:
         logger.exception('AI control store unavailable', extra={'event': 'ai.store_failed'})
+
+# Den adaptiva motorn sparar beslutsunderlag separat från själva planen. Under
+# skuggläget kan vi därför utvärdera råden utan att något pass skrivs om.
+ADAPTIVE_PLAN_STORE = AdaptivePlanStore(None if APP_TESTING else db)
+if not APP_TESTING:
+    try:
+        ADAPTIVE_PLAN_STORE.ensure_schema()
+    except Exception:
+        logger.exception('Adaptive plan store unavailable', extra={'event': 'adaptive.store_failed'})
 
 # --- Garmin ---
 # Token migration note for Pi: if Hugo's existing tokens are at ~/.garminconnect/,
@@ -6981,6 +6991,135 @@ def _recent_recovery(user_id):
     except Exception as e:
         print('Kunde inte läsa återhämtningsdata:', e)
         return None, None, None
+
+
+def _adaptive_health_context(user_id):
+    """Färska dagsvärden plus en robust personlig 28-dagarsbaslinje."""
+    today = date.today()
+    row = get_cache('health', user_id)
+    health = (row[0] if row else None) or {}
+    if not health:
+        health = latest_health_snapshot(user_id, today.isoformat()) or {}
+
+    sleep = health.get('sleep') or {}
+    hrv = health.get('hrv') or {}
+    resting_hr = health.get('restingHR') or {}
+    sleep_sec = sleep.get('totalSec')
+    baseline = {'hrv': None, 'resting_hr': None, 'sleep_hours': None}
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT AVG(hrv_avg), AVG(resting_hr), AVG(sleep_hours)
+                    FROM health_history
+                    WHERE user_id=%s AND date >= %s AND date < %s''',
+                    (user_id, today - timedelta(days=28), today))
+                values = cur.fetchone() or (None, None, None)
+        baseline = {
+            'hrv': float(values[0]) if values[0] is not None else None,
+            'resting_hr': float(values[1]) if values[1] is not None else None,
+            'sleep_hours': float(values[2]) if values[2] is not None else None,
+        }
+    except Exception:
+        logger.exception('Adaptive health baseline failed', extra={
+            'event': 'adaptive.baseline_failed', 'user_id': user_id})
+
+    return {
+        'sleep_hours': round(float(sleep_sec) / 3600, 2) if sleep_sec else None,
+        'sleep_stale': health_sleep_is_fallback(health),
+        'sleep_source_date': health_sleep_source_date(health),
+        'readiness': (health.get('readiness') or {}).get('score'),
+        'hrv': hrv.get('lastNightAvg'),
+        'hrv_baseline': hrv.get('weeklyAvg') or baseline['hrv'],
+        'resting_hr': resting_hr.get('value'),
+        'resting_hr_baseline': resting_hr.get('sevenDayAvg') or baseline['resting_hr'],
+        'baseline_days': 28,
+    }
+
+
+def _adaptive_today_session(user_id):
+    today = date.today()
+    week, dow = _iso_week_dow(today)
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT id,week,dow,type,km,title,detail,status
+                FROM plan_sessions
+                WHERE user_id=%s AND week=%s AND dow=%s AND status='planned'
+                ORDER BY id DESC LIMIT 1''', (user_id, week, dow))
+            row = cur.fetchone()
+    if not row:
+        return None
+    result = dict(row)
+    result['km'] = float(result['km']) if result.get('km') is not None else None
+    result['kind'] = session_analysis.classify_session(result)
+    result['is_quality'] = result['kind'] in ('threshold', 'interval', 'race')
+    if result.get('km'):
+        pace_minutes = 7 if result['kind'] in ('easy', 'long') else 6
+        result['estimated_minutes'] = max(20, round(result['km'] * pace_minutes))
+    elif result.get('type') in ('lift', 'strength'):
+        result['estimated_minutes'] = 60
+    else:
+        result['estimated_minutes'] = 45
+    return result
+
+
+def build_adaptive_snapshot(user_id):
+    """Bygg samma strukturerade underlag varje gång, så beslut kan spelas om."""
+    today = date.today()
+    activities = _recent_activities(user_id, days=30)
+    chronic, ratio = _load_context(user_id)
+    reference = strain_analysis.reference_load(activities, today=today, chronic=chronic)
+    series = strain_analysis.strain_series(activities, today=today, days=4, reference=reference)
+    past_three = series[:-1]
+    hard_days = sum(1 for point in past_three if point.get('strain', 0) >= strain_analysis.HIGH_STRAIN)
+    return {
+        'date': today.isoformat(),
+        'session': _adaptive_today_session(user_id),
+        'health': _adaptive_health_context(user_id),
+        'checkin': ADAPTIVE_PLAN_STORE.get_checkin(user_id, today),
+        'load': {
+            'hard_days_last_3': hard_days,
+            'chronic': chronic,
+            # Kvoten visas bara som kontext; beslutsmotorn använder den inte som
+            # en fristående skaderisk eftersom det saknar vetenskapligt stöd.
+            'acute_chronic_ratio': ratio,
+            'reference_load': reference,
+        },
+    }
+
+
+def generate_adaptive_decision(user_id):
+    snapshot = build_adaptive_snapshot(user_id)
+    decision = evaluate_adaptive_plan(snapshot)
+    stored = ADAPTIVE_PLAN_STORE.save_decision(
+        user_id, snapshot['date'], snapshot, decision)
+    return {
+        'mode': 'shadow',
+        'decisionId': stored['id'],
+        'decision': decision,
+        'checkin': snapshot['checkin'],
+        'lastEvaluatedAt': stored['created_at'],
+    }
+
+
+@app.get('/api/adaptive-plan/today')
+def adaptive_plan_today():
+    try:
+        return jsonify(generate_adaptive_decision(uid()))
+    except Exception as exc:
+        return _server_error(exc, 'adaptive.evaluate_failed',
+                             message='Dagens anpassning kunde inte räknas ut.')
+
+
+@app.post('/api/adaptive-plan/checkin')
+def adaptive_plan_checkin():
+    try:
+        ADAPTIVE_PLAN_STORE.save_checkin(uid(), date.today(), request.json or {})
+        return jsonify({'ok': True, **generate_adaptive_decision(uid())})
+    except (TypeError, ValueError) as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return _server_error(exc, 'adaptive.checkin_failed',
+                             message='Incheckningen kunde inte sparas.')
 
 
 def _unseen_activity_ids(activities, user_id):

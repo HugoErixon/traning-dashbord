@@ -1152,6 +1152,93 @@ async function deleteUser(userId, username) {
   }
 }
 
+function adaptiveNumber(id) {
+  const value = document.getElementById(id)?.value;
+  return value === '' || value == null ? null : Number(value);
+}
+
+function renderAdaptivePlan(payload) {
+  const card = document.getElementById('adaptive-plan-card');
+  const decision = payload?.decision;
+  if (!card || !decision) return;
+  card.dataset.tone = decision.action === 'rest' ? 'stop'
+    : ['reduce', 'reschedule'].includes(decision.action) ? 'warn' : 'good';
+  document.getElementById('adaptive-plan-title').textContent = decision.headline;
+  document.getElementById('adaptive-plan-detail').textContent = decision.detail;
+  const qualityNames = {high:'HÖGT', medium:'MEDEL', low:'LÅGT'};
+  document.getElementById('adaptive-confidence').textContent =
+    `UNDERLAG ${qualityNames[decision.confidence] || '–'}`;
+  const reasons = document.getElementById('adaptive-reasons');
+  reasons.replaceChildren(...(decision.reasons || []).slice(0, 4).map(reason => {
+    const item = document.createElement('li');
+    item.textContent = reason;
+    return item;
+  }));
+  const safety = document.getElementById('adaptive-safety');
+  safety.textContent = (decision.warnings || []).join(' ') ||
+    'Skuggläge: förslaget loggas för utvärdering men ändrar inte din plan automatiskt.';
+
+  const checkin = payload.checkin || {};
+  const fields = {
+    'adaptive-energy': checkin.energy, 'adaptive-soreness': checkin.soreness,
+    'adaptive-pain': checkin.pain, 'adaptive-stress': checkin.stress,
+    'adaptive-minutes': checkin.available_minutes, 'adaptive-pain-area': checkin.pain_area,
+    'adaptive-note': checkin.note,
+  };
+  Object.entries(fields).forEach(([id, value]) => {
+    const field = document.getElementById(id);
+    if (field && value != null) field.value = value;
+  });
+  const illness = document.getElementById('adaptive-illness');
+  if (illness) illness.checked = !!checkin.illness;
+}
+
+async function loadAdaptivePlan() {
+  try {
+    const response = await fetch('/api/adaptive-plan/today');
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Kunde inte räkna dagens anpassning.');
+    renderAdaptivePlan(payload);
+  } catch (error) {
+    const title = document.getElementById('adaptive-plan-title');
+    const detail = document.getElementById('adaptive-plan-detail');
+    if (title) title.textContent = 'Anpassningen är tillfälligt otillgänglig';
+    if (detail) detail.textContent = error.message;
+  }
+}
+
+async function saveAdaptiveCheckin() {
+  const button = document.querySelector('[data-action="save-adaptive-checkin"]');
+  const status = document.getElementById('adaptive-checkin-status');
+  const note = document.getElementById('adaptive-note')?.value.trim() || '';
+  const payload = {
+    energy: adaptiveNumber('adaptive-energy'),
+    soreness: adaptiveNumber('adaptive-soreness'),
+    pain: adaptiveNumber('adaptive-pain'),
+    stress: adaptiveNumber('adaptive-stress'),
+    available_minutes: adaptiveNumber('adaptive-minutes'),
+    pain_area: document.getElementById('adaptive-pain-area')?.value.trim() || '',
+    illness: !!document.getElementById('adaptive-illness')?.checked,
+    illness_symptoms: note,
+    note,
+  };
+  if (button) { button.disabled = true; button.textContent = 'Räknar om…'; }
+  if (status) status.textContent = 'Sparar dagens känsla…';
+  try {
+    const response = await fetch('/api/adaptive-plan/checkin', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Incheckningen kunde inte sparas.');
+    renderAdaptivePlan(result);
+    if (status) status.textContent = 'Sparad – dagens råd är omräknat.';
+  } catch (error) {
+    if (status) status.textContent = error.message;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Spara och räkna om'; }
+  }
+}
+
 function executeAction(trigger, event) {
   const action = trigger.dataset.action;
   if (action === 'goto') goto(trigger.dataset.page);
@@ -1185,6 +1272,7 @@ function executeAction(trigger, event) {
   else if (action === 'logout') performLogout();
   else if (action === 'open-ai-control') location.href = '/ai';
   else if (action === 'refresh-data') refreshData();
+  else if (action === 'save-adaptive-checkin') saveAdaptiveCheckin();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'open-activity') openActivityDetails(
     Number(trigger.dataset.activityId), trigger.dataset.activitySource);
@@ -1267,10 +1355,12 @@ document.addEventListener('keydown', event => {
     if (id === 'upcoming') { checkGcalStatus(); loadPaceProposals(); }
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); }
+    if (id === 'home') loadAdaptivePlan();
   }
 
   // Nedräkning och målrad ritas av renderGoalUi() när målet laddats.
   loadHealth();
+  loadAdaptivePlan();
 
 
 function setHG(scoreId, barId, badgeId, descId, score, desc) {
@@ -2529,7 +2619,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan(), loadStrain(), loadSessionVerdict()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan(), loadStrain(), loadSessionVerdict(), loadAdaptivePlan()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
