@@ -64,7 +64,7 @@ def provider_command(provider, instruction):
     if provider == 'codex':
         return ([
             'codex', 'exec', '--ephemeral', '--json', '--color', 'never',
-            '--sandbox', 'workspace-write', '--ask-for-approval', 'never',
+            '--sandbox', 'workspace-write',
             '-C', str(WORKSPACE), '-',
         ], instruction)
     if provider == 'claude':
