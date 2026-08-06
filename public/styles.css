@@ -690,6 +690,42 @@
     @media (max-width:880px) { .adaptive-plan-card { grid-template-columns:1fr; } .adaptive-checkin { border-left:0; border-top:1px solid var(--border); padding:18px 0 0; } }
     @media (max-width:520px) { .adaptive-plan-card { padding:19px 18px; } .adaptive-plan-heading { display:block; } .adaptive-confidence { margin-top:8px; } }
 
+    .lifestyle-card { margin-bottom:var(--section-gap); padding:22px 24px; background:var(--card-grad),var(--bg2); border:1px solid var(--border); border-radius:var(--radius-xl); box-shadow:var(--shadow-card); }
+    .lifestyle-head { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; }
+    .lifestyle-kicker { color:#9b8cff; font-size:10px; font-weight:750; letter-spacing:.12em; }
+    .lifestyle-head h3 { font-size:19px; margin:7px 0 4px; }
+    .lifestyle-head p { color:var(--muted2); font-size:12px; margin:0; line-height:1.5; }
+    .lifestyle-date { display:grid; gap:5px; color:var(--muted); font-size:9.5px; }
+    .lifestyle-card input,.lifestyle-card select { box-sizing:border-box; border:1px solid var(--border2); background:var(--bg3); color:var(--text); border-radius:8px; padding:9px 10px; font:12px var(--font-num); min-width:0; }
+    .lifestyle-quick-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:18px; }
+    .lifestyle-card label { display:grid; gap:6px; color:var(--muted2); font-size:10px; }
+    .lifestyle-unit { display:flex; align-items:stretch; }
+    .lifestyle-unit input { width:100%; border-radius:8px 0 0 8px; }
+    .lifestyle-unit b { display:flex; align-items:center; padding:0 9px; border:1px solid var(--border2); border-left:0; border-radius:0 8px 8px 0; background:rgba(255,255,255,.025); color:var(--muted); font-size:9px; font-weight:500; }
+    .lifestyle-more { margin-top:14px; border-top:1px solid var(--border); padding-top:13px; }
+    .lifestyle-more summary { list-style:none; cursor:pointer; display:flex; justify-content:space-between; gap:15px; color:var(--muted2); font-size:11px; font-weight:650; }
+    .lifestyle-more summary::-webkit-details-marker { display:none; }
+    .lifestyle-more summary span { color:var(--muted); font-weight:400; }
+    .lifestyle-fields { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:16px; }
+    .lifestyle-fields fieldset { border:0; padding:0; margin:0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+    .lifestyle-fields legend { grid-column:1/-1; color:var(--text); font-size:11px; font-weight:700; margin-bottom:5px; }
+    .lifestyle-note { margin-top:12px; }
+    .lifestyle-footer { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
+    .lifestyle-footer div { display:grid; gap:3px; }
+    .lifestyle-footer strong { font-size:11px; }
+    .lifestyle-footer small { color:var(--muted); font-size:9.5px; }
+    .lifestyle-footer button { border:0; border-radius:8px; padding:10px 14px; background:#9b8cff; color:#0e0c19; font-weight:750; cursor:pointer; white-space:nowrap; }
+    .lifestyle-footer button:disabled { opacity:.6; cursor:wait; }
+    .lifestyle-insights { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px; margin-top:14px; }
+    .lifestyle-impact { border:1px solid var(--border); border-radius:9px; padding:10px 11px; background:rgba(255,255,255,.018); }
+    .lifestyle-impact div { display:flex; justify-content:space-between; gap:8px; font-size:10.5px; }
+    .lifestyle-impact b { font-family:var(--font-num); }
+    .lifestyle-impact small { display:block; color:var(--muted); margin-top:5px; font-size:9px; }
+    .lifestyle-impact.positive b { color:var(--green); }
+    .lifestyle-impact.negative b { color:var(--red); }
+    @media (max-width:880px) { .lifestyle-quick-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .lifestyle-fields { grid-template-columns:1fr; } }
+    @media (max-width:520px) { .lifestyle-card { padding:19px 18px; } .lifestyle-head { display:grid; } .lifestyle-date input { width:100%; } .lifestyle-footer { align-items:stretch; flex-direction:column; } .lifestyle-footer button { width:100%; } }
+
     /* ─── STAT CARDS ─── */
     .grid {
       display: grid;

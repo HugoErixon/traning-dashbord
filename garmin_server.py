@@ -37,6 +37,7 @@ from security import LoginRateLimiter, parse_users, verify_user
 from user_store import MemoryUserStore, DbUserStore, DuplicateUserError, UserStoreError
 from ai_control import AiControlStore
 from adaptive_plan import AdaptivePlanStore, evaluate as evaluate_adaptive_plan
+from lifestyle import LifestyleStore, analyze_impacts
 from strength_progression import (
     build_default_recommendations,
     build_strength_recommendations,
@@ -1143,6 +1144,13 @@ if not APP_TESTING:
         ADAPTIVE_PLAN_STORE.ensure_schema()
     except Exception:
         logger.exception('Adaptive plan store unavailable', extra={'event': 'adaptive.store_failed'})
+
+LIFESTYLE_STORE = LifestyleStore(None if APP_TESTING else db)
+if not APP_TESTING:
+    try:
+        LIFESTYLE_STORE.ensure_schema()
+    except Exception:
+        logger.exception('Lifestyle store unavailable', extra={'event': 'lifestyle.store_failed'})
 
 # --- Garmin ---
 # Token migration note for Pi: if Hugo's existing tokens are at ~/.garminconnect/,
@@ -7076,6 +7084,9 @@ def build_adaptive_snapshot(user_id):
         'session': _adaptive_today_session(user_id),
         'health': _adaptive_health_context(user_id),
         'checkin': ADAPTIVE_PLAN_STORE.get_checkin(user_id, today),
+        # Gårdagens val sparas som förklarande kontext. Motorn dubbelräknar dem
+        # inte mot dagens HRV/sömn innan personens egna samband har validerats.
+        'lifestyle': LIFESTYLE_STORE.get(user_id, today - timedelta(days=1)),
         'load': {
             'hard_days_last_3': hard_days,
             'chronic': chronic,
@@ -7120,6 +7131,52 @@ def adaptive_plan_checkin():
     except Exception as exc:
         return _server_error(exc, 'adaptive.checkin_failed',
                              message='Incheckningen kunde inte sparas.')
+
+
+def _lifestyle_date(raw=None):
+    if not raw:
+        return date.today() - timedelta(days=1)
+    try:
+        value = date.fromisoformat(str(raw))
+    except ValueError as exc:
+        raise ValueError('Ogiltigt datum.') from exc
+    if value > date.today() or value < date.today() - timedelta(days=365):
+        raise ValueError('Datumet måste ligga inom de senaste 365 dagarna.')
+    return value
+
+
+def _lifestyle_insights(user_id):
+    since = date.today() - timedelta(days=90)
+    return analyze_impacts(LIFESTYLE_STORE.rows_with_outcomes(user_id, since))
+
+
+@app.get('/api/lifestyle')
+def lifestyle_get():
+    try:
+        log_date = _lifestyle_date(request.args.get('date'))
+        return jsonify({'date': log_date.isoformat(),
+                        'entry': LIFESTYLE_STORE.get(uid(), log_date),
+                        'insights': _lifestyle_insights(uid())})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return _server_error(exc, 'lifestyle.load_failed',
+                             message='Livsstilsloggen kunde inte laddas.')
+
+
+@app.post('/api/lifestyle')
+def lifestyle_save():
+    try:
+        payload = request.json or {}
+        log_date = _lifestyle_date(payload.get('date'))
+        entry = LIFESTYLE_STORE.save(uid(), log_date, payload)
+        return jsonify({'ok': True, 'date': log_date.isoformat(), 'entry': entry,
+                        'insights': _lifestyle_insights(uid())})
+    except (TypeError, ValueError) as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return _server_error(exc, 'lifestyle.save_failed',
+                             message='Livsstilsloggen kunde inte sparas.')
 
 
 def _unseen_activity_ids(activities, user_id):
