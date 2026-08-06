@@ -8203,7 +8203,11 @@ scheduler = None
 if not APP_TESTING:
     scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
     scheduler.add_job(auto_sync_job, 'interval', minutes=GARMIN_SYNC_MINUTES,
-                      next_run_time=datetime.now() + timedelta(seconds=30),
+                      # APScheduler interprets a naive datetime in its own
+                      # timezone. G3's system timezone differs from Stockholm,
+                      # so an aware value is required to avoid an hours-long
+                      # delay after restart.
+                      next_run_time=datetime.now(LOCAL_TZ) + timedelta(seconds=30),
                       coalesce=True, max_instances=1)
     scheduler.add_job(purge_old_sensor_readings, 'interval', hours=24)
     scheduler.start()
