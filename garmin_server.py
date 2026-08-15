@@ -7209,12 +7209,76 @@ def generate_adaptive_decision(user_id):
     stored = ADAPTIVE_PLAN_STORE.save_decision(
         user_id, snapshot['date'], snapshot, decision)
     return {
-        'mode': 'shadow',
+        'mode': 'live',
         'decisionId': stored['id'],
         'decision': decision,
         'checkin': snapshot['checkin'],
         'lastEvaluatedAt': stored['created_at'],
     }
+
+
+# Rubriker per åtgärd. Motorn skriver redan en mening själv, men den är
+# formulerad som ett förslag ("Flytta kvalitetspasset"). När motorn är dagens
+# enda domare ska rubriken vara ett besked, inte ett förslag bland flera.
+_TODAY_TONE = {
+    'keep':       ('Kör dagens pass', 'good'),
+    'reduce':     ('Lätta på dagens pass', 'warn'),
+    'reschedule': ('Flytta dagens kvalitetspass', 'warn'),
+    'rest':       ('Vila i dag', 'bad'),
+    'no_session': ('Ingen träning planerad', 'neutral'),
+}
+
+
+@app.get('/api/today')
+def today_view():
+    """Dagens enda besked.
+
+    Hela Idag-vyn läser det här svaret. Det är själva poängen: så länge varje
+    kort räknade fram sin egen bedömning kunde de säga emot varandra, och det
+    gjorde de. Beredskapstalet, beslutet och skälen kommer nu ur samma
+    utvärdering, så det finns inget sätt för dem att glida isär.
+    """
+    try:
+        adaptive = generate_adaptive_decision(uid())
+    except Exception as exc:
+        return _server_error(exc, 'today.evaluate_failed',
+                             message='Dagens besked kunde inte räknas ut.')
+
+    decision = adaptive.get('decision') or {}
+    action = decision.get('action') or 'no_session'
+    fallback_headline, tone = _TODAY_TONE.get(action, (decision.get('headline'), 'neutral'))
+
+    # Beredskapen hämtas ur samma hälsopayload som allt annat, inte ur en egen
+    # formel i webbläsaren. Går hälsodatan inte att läsa ska beskedet ändå
+    # levereras — motorn klarar sig på det underlag den har.
+    readiness = None
+    try:
+        health = latest_health_snapshot(uid(), date.today().isoformat()) or {}
+        readiness = _cns_score_from_health(health)
+    except Exception:
+        logger.warning('today: beredskap kunde inte läsas',
+                       extra={'event': 'today.readiness_failed'})
+
+    return jsonify({
+        'date': decision.get('date'),
+        'mode': adaptive.get('mode'),
+        'action': action,
+        'tone': tone,
+        'headline': decision.get('headline') or fallback_headline,
+        'summary': fallback_headline,
+        'detail': decision.get('detail'),
+        'reasons': decision.get('reasons') or [],
+        'signals': decision.get('signals') or [],
+        'warnings': decision.get('warnings') or [],
+        'confidence': decision.get('confidence'),
+        'dataQuality': decision.get('dataQuality'),
+        'session': decision.get('session'),
+        'proposedChange': decision.get('proposedChange'),
+        'readiness': readiness,
+        'checkin': adaptive.get('checkin') or {},
+        'decisionId': adaptive.get('decisionId'),
+        'lastEvaluatedAt': adaptive.get('lastEvaluatedAt'),
+    })
 
 
 @app.get('/api/adaptive-plan/today')

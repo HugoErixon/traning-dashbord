@@ -3,20 +3,20 @@
 Run from the repo root:  python3 tools/make_icons.py
 
 The mark is a running track seen from above — four concentric lanes in the
-brand green on a near-black plate. Both the raster set and the SVG are
+vitt på en koboltblå platta. Both the raster set and the SVG are
 produced from the constants below, so the two can never drift apart.
 
-At 16 px the lanes merge into a single green oval, which is what should
-happen: that size only has to be a recognisable silhouette, and a green
-shape against dark reads far better than fine lines ever could.
+At 16 px the lanes merge into a single pale oval, which is what should
+happen: that size only has to be a recognisable silhouette, and a solid
+blue shape reads far better than fine lines ever could.
 """
 
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-ACCENT = (200, 241, 53, 255)      # --accent
-PLATE = (13, 15, 20, 255)         # --bg
+ACCENT = (255, 255, 255, 255)     # banan stansas ur plattan
+PLATE = (18, 86, 224, 255)        # --accent (kobolt)
 SUPERSAMPLE = 8                   # draw large, downscale for clean edges
 
 LANES = 4
@@ -50,6 +50,11 @@ def draw_icon(size):
     return image.resize((size, size), Image.LANCZOS)
 
 
+def _hex(rgba):
+    """RGBA-konstant till hexkod, så SVG:n och rasterbilderna delar färg."""
+    return '#{:02X}{:02X}{:02X}'.format(*rgba[:3])
+
+
 def build_svg():
     """The same track as scalable vector, for browsers that prefer it."""
     view = 64
@@ -69,8 +74,8 @@ def build_svg():
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {view} {view}" '
         f'role="img" aria-label="Trainyze">\n'
-        f'  <rect width="{view}" height="{view}" rx="{PLATE_RADIUS * view:.1f}" fill="#0D0F14"/>\n'
-        f'  <g fill="none" stroke="#C8F135" stroke-width="{stroke:.2f}">\n'
+        f'  <rect width="{view}" height="{view}" rx="{PLATE_RADIUS * view:.1f}" fill="{_hex(PLATE)}"/>\n'
+        f'  <g fill="none" stroke="{_hex(ACCENT)}" stroke-width="{stroke:.2f}">\n'
         + '\n'.join(lanes) + '\n'
         f'  </g>\n</svg>\n'
     )

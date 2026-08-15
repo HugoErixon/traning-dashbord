@@ -23,7 +23,7 @@ let authResolved = false;
 let sessionExpired = false;
 let resolveAuth;
 const authReady = new Promise(resolve => { resolveAuth = resolve; });
-dashboardShell.style.display = 'none';
+dashboardShell.hidden = true;
 
 function clearLegacyCredentials() {
   localStorage.removeItem('sitePassword');
@@ -56,7 +56,7 @@ function completeAuth(data) {
   loadUserGoal();
   const screen = document.getElementById('login-screen');
   if (screen) screen.remove();
-  dashboardShell.style.display = 'flex';
+  dashboardShell.hidden = false;
   if (!authResolved) {
     authResolved = true;
     resolveAuth();
@@ -73,7 +73,7 @@ function whileAuthenticated(callback) {
 }
 
 function showLogin(message) {
-  dashboardShell.style.display = 'none';
+  dashboardShell.hidden = true;
   const existing = document.getElementById('login-screen');
   if (existing) {
     const error = document.getElementById('login-error');
@@ -92,7 +92,7 @@ function showLogin(message) {
           <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Logga in för att fortsätta</p>
           <input id="login-user" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Användarnamn" style="${inputStyle}" />
           <input id="login-input" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord" style="${inputStyle}margin-bottom:12px;" />
-          <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
+          <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
           <p id="login-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel användarnamn eller lösenord</p>
           <p style="margin-top:10px;font-size:12.5px;">
             <a id="show-forgot-link" href="#" style="color:var(--blue);">Glömt lösenord?</a>
@@ -105,7 +105,7 @@ function showLogin(message) {
           <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Glömt lösenord</h2>
           <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Vi mejlar en återställningslänk</p>
           <input id="forgot-email" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="E-postadress" style="${inputStyle}margin-bottom:12px;" />
-          <button id="forgot-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Skicka återställningslänk</button>
+          <button id="forgot-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Skicka återställningslänk</button>
           <p id="forgot-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
           <p id="forgot-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
           <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
@@ -117,7 +117,7 @@ function showLogin(message) {
           <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Välj ett nytt lösenord</p>
           <input id="reset-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Nytt lösenord (minst 8 tecken)" style="${inputStyle}" />
           <input id="reset-password-confirm" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Upprepa lösenord" style="${inputStyle}margin-bottom:12px;" />
-          <button id="reset-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Spara nytt lösenord</button>
+          <button id="reset-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Spara nytt lösenord</button>
           <p id="reset-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
           <p id="reset-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
         </div>
@@ -127,7 +127,7 @@ function showLogin(message) {
           <input id="register-user" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Användarnamn" style="${inputStyle}" />
           <input id="register-email" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="E-postadress" style="${inputStyle}" />
           <input id="register-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord (minst 8 tecken)" style="${inputStyle}margin-bottom:12px;" />
-          <button id="register-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Registrera dig</button>
+          <button id="register-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Registrera dig</button>
           <p id="register-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
           <p id="register-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
           <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
@@ -510,7 +510,7 @@ function openGoalModal(isOnboarding) {
         <input id="goal-best-input" type="text" maxlength="200" placeholder="t.ex. 48:30 (Vårruset)" value="${escapeHtml(g.current_best || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
         <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Sekundärt mål (valfritt)</label>
         <input id="goal-secondary-input" type="text" maxlength="300" placeholder="t.ex. Styrka 2 pass/vecka" value="${escapeHtml(g.secondary_goal || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:16px;box-sizing:border-box;" />
-        <button type="button" data-action="save-goal" id="goal-save-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Spara mål</button>
+        <button type="button" data-action="save-goal" id="goal-save-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Spara mål</button>
         <button type="button" data-action="save-goal-rebuild" id="goal-rebuild-btn" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;margin-top:8px;">Spara mål & bygg om schemat</button>
         ${isOnboarding ? '<button type="button" data-action="close-goal-modal" style="width:100%;background:none;border:none;color:var(--muted2);font-size:12px;margin-top:10px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace;">Hoppa över — jag sätter det senare</button>' : ''}
         <p id="goal-modal-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;color:var(--red);"></p>
@@ -648,17 +648,17 @@ function openGarminConnectModal() {
           <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Logga in med ditt Garmin-konto. Lösenordet används en gång för att skapa en nyckel och sparas aldrig.</p>
           <input id="garmin-email" type="email" autocomplete="off" placeholder="E-post (Garmin)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:8px;box-sizing:border-box;" />
           <input id="garmin-password" type="password" autocomplete="off" placeholder="Lösenord (Garmin)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:10px;box-sizing:border-box;" />
-          <button type="button" data-action="garmin-connect-submit" id="garmin-connect-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Anslut</button>
+          <button type="button" data-action="garmin-connect-submit" id="garmin-connect-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Anslut</button>
         </div>
         <div id="garmin-step-mfa" style="display:none;">
           <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Garmin har skickat en engångskod till din e-post. Ange den här.</p>
           <input id="garmin-mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Engångskod" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:15px;letter-spacing:0.2em;text-align:center;outline:none;margin-bottom:10px;box-sizing:border-box;" />
-          <button type="button" data-action="garmin-mfa-submit" id="garmin-mfa-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Verifiera</button>
+          <button type="button" data-action="garmin-mfa-submit" id="garmin-mfa-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Verifiera</button>
         </div>
         <div id="garmin-step-done" style="display:none;text-align:center;">
           <p style="font-size:14px;font-weight:700;margin-bottom:8px;">Garmin kopplat! ✓</p>
           <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Din träningsdata hämtas nu i bakgrunden — sidan laddas om automatiskt om en stund.</p>
-          <button type="button" data-action="garmin-reload-now" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:#081018;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Ladda om nu</button>
+          <button type="button" data-action="garmin-reload-now" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Ladda om nu</button>
         </div>
         <p id="garmin-modal-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;"></p>
       </div>
@@ -1170,26 +1170,11 @@ function adaptiveNumber(id) {
 }
 
 function renderAdaptivePlan(payload) {
+  // Kortet är inte längre en andra domare — beslutet står i panelen ovanför.
+  // Här fyller vi bara i vad användaren redan svarat i dag, så att formuläret
+  // visar dagens svar i stället för att se tomt ut.
   const card = document.getElementById('adaptive-plan-card');
-  const decision = payload?.decision;
-  if (!card || !decision) return;
-  card.dataset.tone = decision.action === 'rest' ? 'stop'
-    : ['reduce', 'reschedule'].includes(decision.action) ? 'warn' : 'good';
-  document.getElementById('adaptive-plan-title').textContent = decision.headline;
-  document.getElementById('adaptive-plan-detail').textContent = decision.detail;
-  const qualityNames = {high:'HÖGT', medium:'MEDEL', low:'LÅGT'};
-  document.getElementById('adaptive-confidence').textContent =
-    `UNDERLAG ${qualityNames[decision.confidence] || '–'}`;
-  const reasons = document.getElementById('adaptive-reasons');
-  reasons.replaceChildren(...(decision.reasons || []).slice(0, 4).map(reason => {
-    const item = document.createElement('li');
-    item.textContent = reason;
-    return item;
-  }));
-  const safety = document.getElementById('adaptive-safety');
-  safety.textContent = (decision.warnings || []).join(' ') ||
-    'Skuggläge: förslaget loggas för utvärdering men ändrar inte din plan automatiskt.';
-
+  if (!card || !payload) return;
   const checkin = payload.checkin || {};
   const fields = {
     'adaptive-energy': checkin.energy, 'adaptive-soreness': checkin.soreness,
@@ -1212,11 +1197,90 @@ async function loadAdaptivePlan() {
     if (!response.ok) throw new Error(payload.error || 'Kunde inte räkna dagens anpassning.');
     renderAdaptivePlan(payload);
   } catch (error) {
-    const title = document.getElementById('adaptive-plan-title');
     const detail = document.getElementById('adaptive-plan-detail');
-    if (title) title.textContent = 'Anpassningen är tillfälligt otillgänglig';
     if (detail) detail.textContent = error.message;
   }
+}
+
+// ── Dagens besked ────────────────────────────────────────────────────────
+// En enda plats i gränssnittet som säger vad du ska göra i dag. Talet,
+// rubriken och skälen kommer ur samma svar från /api/today, så de kan inte
+// glida isär. AI-texten från /api/training-review skrivs fortfarande ut, men
+// som motivering bakom "Varför?" — den fäller inte längre en egen dom.
+const DECISION_BADGE = {
+  keep: 'KÖR', reduce: 'LÄTTA', reschedule: 'FLYTTA',
+  rest: 'VILA', no_session: 'VILODAG',
+};
+const CONFIDENCE_TEXT = { high: 'starkt underlag', medium: 'tunt underlag', low: 'svagt underlag' };
+
+function renderToday(payload) {
+  if (!payload) return;
+  const panel = document.getElementById('today-panel');
+  if (panel) panel.dataset.tone = payload.tone || 'neutral';
+
+  const badge = document.getElementById('review-badge');
+  if (badge) {
+    badge.textContent = DECISION_BADGE[payload.action] || '–';
+    badge.className = 'today-badge badge-' +
+      ({ good: 'green', warn: 'amber', bad: 'red' }[payload.tone] || 'amber');
+  }
+
+  const confidence = document.getElementById('decision-confidence');
+  if (confidence) confidence.textContent = CONFIDENCE_TEXT[payload.confidence] || '';
+
+  const headline = document.getElementById('review-headline');
+  if (headline) headline.textContent = payload.headline || payload.summary || 'Väntar på underlag';
+  const body = document.getElementById('review-body');
+  if (body) body.textContent = payload.detail || '';
+
+  // Skälen är motorns egna, i den ordning den viktade dem. De ersätter de
+  // lösryckta "begränsningarna" som tidigare räknades fram separat i klienten.
+  const reasons = document.getElementById('decision-reasons');
+  if (reasons) {
+    reasons.replaceChildren(...(payload.reasons || []).slice(0, 4).map(text => {
+      const chip = document.createElement('span');
+      chip.className = 'decision-chip';
+      chip.textContent = text;
+      return chip;
+    }));
+  }
+
+  const warning = document.getElementById('decision-warning');
+  if (warning) {
+    const text = (payload.warnings || []).join(' ');
+    warning.textContent = text;
+    warning.style.display = text ? '' : 'none';
+  }
+
+  // Ringen visar samma beredskapstal som beslutet vilar på. Räknades det fram
+  // separat här kunde ring och besked hamna på olika sidor om en gräns.
+  if (payload.readiness != null) setReadinessRing(payload.readiness);
+}
+
+function setReadinessRing(score) {
+  const val = document.getElementById('readiness-ring-val');
+  const prog = document.getElementById('readiness-ring-prog');
+  if (val) val.textContent = Math.round(score);
+  if (prog) {
+    const circumference = 239;
+    prog.style.strokeDashoffset = circumference * (1 - Math.max(0, Math.min(100, score)) / 100);
+  }
+}
+
+async function loadToday() {
+  try {
+    const response = await fetch('/api/today');
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.message || payload.error || 'Dagens besked kunde inte hämtas.');
+    renderToday(payload);
+  } catch (error) {
+    const headline = document.getElementById('review-headline');
+    const body = document.getElementById('review-body');
+    if (headline) headline.textContent = 'Dagens besked är tillfälligt otillgängligt';
+    if (body) body.textContent = error.message;
+  }
+  // Incheckningsfältens sparade svar ligger i den adaptiva payloaden.
+  loadAdaptivePlan();
 }
 
 async function saveAdaptiveCheckin() {
@@ -1251,9 +1315,43 @@ async function saveAdaptiveCheckin() {
   }
 }
 
+// ── Dag- och nattläge ────────────────────────────────────────────────────
+// Utan sparat val följer appen systemet. Först när man växlar manuellt
+// skrivs ett val ner, och då ska det valet vinna över systemet på alla
+// enheter man är inloggad på — därav data-theme på <html>, inte en klass.
+function currentTheme() {
+  const forced = document.documentElement.getAttribute('data-theme');
+  if (forced === 'light' || forced === 'dark') return forced;
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('trainyze:theme', theme); } catch (e) { /* privat läge */ }
+  renderThemeToggle();
+}
+
+function renderThemeToggle() {
+  const icon = document.getElementById('theme-toggle-icon');
+  const label = document.getElementById('theme-toggle-label');
+  if (!icon || !label) return;
+  const dark = currentTheme() === 'dark';
+  // Knappen visar vad den byter TILL, inte vad som gäller nu — annars läser
+  // man den som en statusindikator och trycker åt fel håll.
+  label.textContent = dark ? 'Dagläge' : 'Nattläge';
+  icon.innerHTML = dark
+    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/></svg>'
+    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
+}
+
+function toggleTheme() {
+  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+}
+
 function executeAction(trigger, event) {
   const action = trigger.dataset.action;
   if (action === 'goto') goto(trigger.dataset.page);
+  else if (action === 'toggle-theme') toggleTheme();
   else if (action === 'open-users') openUsersPanel();
   else if (action === 'close-users') closeUsersPanel();
   else if (action === 'create-user') createUserFromForm();
@@ -1348,34 +1446,52 @@ document.addEventListener('keydown', event => {
 });
 
   // Navigation
+  // Vilken toppflik en sida hör under. Styrka, Sömn och Dagbok har inga egna
+  // toppflikar längre, men de är fortfarande egna sidor — kartan är det som
+  // gör att rätt flik lyser upp när man landar på en undervy.
+  const NAV_SECTION = {
+    upcoming: 'upcoming', strength: 'upcoming',
+    health: 'health', sleep: 'health', journal: 'health',
+    analysis: 'analysis', home: 'home',
+    settings: 'settings', climate: 'settings',
+  };
+
   function goto(id) {
     const page = document.getElementById('page-' + id);
     if (!page) return;
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     page.classList.add('active');
+    const section = NAV_SECTION[id] || id;
     document.querySelectorAll('.nav-item').forEach(n => {
-      if (n.dataset.page === id) n.classList.add('active');
+      if (n.dataset.page === section) n.classList.add('active');
     });
-    if (phoneMedia.matches && ['strength', 'sleep', 'journal', 'climate'].includes(id)) {
-      document.querySelector('.nav-settings')?.classList.add('active');
-    }
+    document.querySelectorAll('.subnav-item').forEach(n => {
+      n.classList.toggle('active', n.dataset.page === id);
+    });
     document.querySelector('.topbar-account')?.classList.toggle('is-active', id === 'settings');
     window.scrollTo(0, 0);
     if (id === 'health')   loadHealth();
     if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
-    if (id === 'analysis') loadAnalysis();
+    if (id === 'analysis') { loadAnalysis(); loadInsights(); }
     if (id === 'strength') loadStrengthPage();
     if (id === 'journal')  loadJournal();
     if (id === 'upcoming') { checkGcalStatus(); loadPaceProposals(); }
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); }
-    if (id === 'home') loadAdaptivePlan();
+    if (id === 'home') loadToday();
   }
+
+  renderThemeToggle();
+  // Har man inte valt läge själv ska appen följa systemet direkt när det byter,
+  // utan omladdning. Har man valt är bytet redan låst av data-theme.
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (!document.documentElement.getAttribute('data-theme')) renderThemeToggle();
+  });
 
   // Nedräkning och målrad ritas av renderGoalUi() när målet laddats.
   loadHealth();
-  loadAdaptivePlan();
+  loadToday();
 
 
 function setHG(scoreId, barId, badgeId, descId, score, desc) {
@@ -1468,10 +1584,10 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   // Nattens siffror kommer från /api/health, historik och härledda mått
   // från /api/sleep (se sleep_analysis.py).
   const SL_STAGES = [
-    {key: 'deep',  label: 'Djup',  color: '#EC4899', target: '15–25%'},
-    {key: 'rem',   label: 'REM',   color: '#38BDF8', target: '20–25%'},
-    {key: 'light', label: 'Lätt',  color: '#10B981', target: ''},
-    {key: 'awake', label: 'Vaken', color: '#EF4444', target: ''},
+    {key: 'deep',  label: 'Djup',  color: 'var(--stage-deep)', target: '15–25%'},
+    {key: 'rem',   label: 'REM',   color: 'var(--stage-rem)', target: '20–25%'},
+    {key: 'light', label: 'Lätt',  color: 'var(--stage-light)', target: ''},
+    {key: 'awake', label: 'Vaken', color: 'var(--stage-awake)', target: ''},
   ];
 
   function slFmtHours(seconds) {
@@ -1775,15 +1891,15 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       timesEl.style.display = 'flex';
       const sEl = document.getElementById('sleep-chart-t-start');
       const eEl = document.getElementById('sleep-chart-t-end');
-      if (sEl) sEl.innerHTML = `<span style="color:var(--muted3);">Somnade</span> <span style="color:#CBD5E1;">${fmtLocal(chartStart)}</span>`;
-      if (eEl) eEl.innerHTML = `<span style="color:var(--muted3);">Vaknade</span> <span style="color:#CBD5E1;">${fmtLocal(chartEnd)}</span>`;
+      if (sEl) sEl.innerHTML = `<span style="color:var(--muted3);">Somnade</span> <span style="color:var(--muted3);">${fmtLocal(chartStart)}</span>`;
+      if (eEl) eEl.innerHTML = `<span style="color:var(--muted3);">Vaknade</span> <span style="color:var(--muted3);">${fmtLocal(chartEnd)}</span>`;
     }
 
     const STAGE = {
-      0: { color: '#EC4899', name: 'Djup' },
-      1: { color: '#10B981', name: 'Lätt' },
-      2: { color: '#EF4444', name: 'Vaken' },
-      3: { color: '#38BDF8', name: 'REM' },
+      0: { color: 'var(--stage-deep)', name: 'Djup' },
+      1: { color: 'var(--stage-light)', name: 'Lätt' },
+      2: { color: 'var(--stage-awake)', name: 'Vaken' },
+      3: { color: 'var(--stage-rem)', name: 'REM' },
     };
 
     const W = container.clientWidth || 600;
@@ -1824,8 +1940,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       const tx = (((t - startMs) / totalMs) * W).toFixed(1);
       if (parseFloat(tx) < 0 || parseFloat(tx) > W) continue;
       const label = fmtLocal(new Date(t));
-      parts.push(`<line x1="${tx}" y1="${BAR_H}" x2="${tx}" y2="${BAR_H + 5}" stroke="#64748B" stroke-width="1"/>`);
-      parts.push(`<text x="${tx}" y="${BAR_H + 16}" text-anchor="middle" font-size="11" fill="#CBD5E1" font-family="var(--font-mono,monospace)">${label}</text>`);
+      parts.push(`<line x1="${tx}" y1="${BAR_H}" x2="${tx}" y2="${BAR_H + 5}" style="stroke:var(--muted)" stroke-width="1"/>`);
+      parts.push(`<text x="${tx}" y="${BAR_H + 16}" text-anchor="middle" font-size="11" style="fill:var(--muted3)" font-family="var(--font-mono,monospace)">${label}</text>`);
     }
 
     parts.push('</svg>');
@@ -2066,9 +2182,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     svg.innerHTML = `
       <defs>
         <linearGradient id="stress-area-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#FBBF24" stop-opacity="0.28"/>
-          <stop offset="72%" stop-color="#FBBF24" stop-opacity="0.04"/>
-          <stop offset="100%" stop-color="#FBBF24" stop-opacity="0"/>
+          <stop offset="0%" style="stop-color:var(--amber)" stop-opacity="0.28"/>
+          <stop offset="72%" style="stop-color:var(--amber)" stop-opacity="0.04"/>
+          <stop offset="100%" style="stop-color:var(--amber)" stop-opacity="0"/>
         </linearGradient>
         <filter id="stress-line-glow" x="-10%" y="-80%" width="120%" height="260%">
           <feGaussianBlur stdDeviation="2.2" result="blur"/>
@@ -2143,73 +2259,29 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   }
 
   function renderTrainingCockpit() {
-    const primary = document.getElementById('cockpit-primary');
-    if (!primary) return;
+    // Det som fanns här var appens fjärde domare: fyra if-satser på CNS och
+    // ACWR som skrev ut ett eget "träningsbeslut" bredvid motorns. Talet det
+    // visade var dessutom exakt samma CNS-tal som ringen, under ett annat
+    // namn. Beslutet ägs nu av /api/today; kvar är veckans lista.
+    const list = document.getElementById('cockpit-next-list');
+    if (!list) return;
 
-    const h = currentHealthData;
-    const cns = computeCnsScore(h);
     const stats = getWeekTrainingStats();
     const next = getNextSessions(5);
-    const nextKey = next.find(s => ['run','race'].includes(s.type)) || next[0];
-    const ratio = trainingLoadData?.ratio != null ? Number(trainingLoadData.ratio) : null;
-    const projectedRatio = trainingLoadData?.chronic
-      ? (Number(trainingLoadData.acute || 0) + stats.remainingLoad) / Number(trainingLoadData.chronic)
-      : null;
-    let color = 'var(--amber)';
-    let title = 'Bygg, men håll måtta';
-    let copy = 'Kör det planerade passet om inte sömn, HRV eller belastningsrisk säger annat.';
-    let tagClass = 'warn';
-    if (cns == null) {
-      title = 'Väntar på återhämtningsdata';
-      copy = 'Synka Garmin för att låsa upp dagens beslut, belastningsrisk och planjusteringar.';
-    } else if (cns >= 70 && (ratio == null || ratio <= 1.3)) {
-      color = 'var(--green)';
-      title = 'Grönt ljus för kvalitet';
-      copy = nextKey && ['run','race'].includes(nextKey.type)
-        ? 'Återhämtning och belastning ser bra ut. Kör nyckelpasset, men skydda de lugna dagarna runt det.'
-        : 'Återhämtningen är bra. Du kan träna normalt och lägga till kvalitet bara om planen kräver det.';
-      tagClass = 'good';
-    } else if (cns < 45 || (ratio && ratio > 1.5)) {
-      color = 'var(--red)';
-      title = 'Växla ner idag';
-      copy = 'Återhämtning eller belastningsrisk är hög. Byt intensitet mot vila, rörlighet eller mycket lugn Z2.';
-      tagClass = 'bad';
-    } else if (ratio && ratio > 1.3) {
-      color = 'var(--amber)';
-      title = 'Håll volymen kontrollerad';
-      copy = 'Aktuell ACWR ligger över det normala. Håll lugna pass lugna och undvik extra volym.';
-      tagClass = 'warn';
-    }
 
-    primary.style.setProperty('--cockpit-color', color);
-    document.getElementById('cockpit-score').textContent = cns == null ? '--' : cns;
-    document.getElementById('cockpit-decision-title').textContent = title;
-    document.getElementById('cockpit-decision-copy').textContent = copy;
-    document.getElementById('cockpit-week-volume').textContent =
-      stats.plannedKm ? `${stats.completedKm.toFixed(1)} / ${stats.plannedKm} km` : `${stats.completedKm.toFixed(1)} km`;
-    document.getElementById('cockpit-load-risk').textContent =
-      ratio != null ? `ACWR ${ratio.toFixed(2)}` : 'Ingen belastning';
-    document.getElementById('cockpit-key-session').textContent = nextKey ? nextKey.title : 'Inget pass';
-
+    // "Kvar av veckan" i stället för planföljsamhet i procent. Procentsatsen
+    // mätte hur väl du lydde en plan som skrevs innan veckan började, och sjönk
+    // varje gång verkligheten kom emellan.
     const compliance = document.getElementById('cockpit-compliance');
-    const progress = stats.plannedKm ? stats.completedKm / stats.plannedKm : 0;
-    compliance.textContent = stats.plannedKm ? `${Math.round(clamp(progress, 0, 1.2) * 100)}% av veckan` : 'Ingen plan';
-    compliance.className = 'cockpit-tag ' + (progress > 1.1 ? 'warn' : progress >= 0.6 ? 'good' : 'warn');
+    const remaining = stats.remaining?.length ?? 0;
+    compliance.textContent = stats.plannedKm
+      ? (remaining ? `${remaining} pass kvar` : 'Veckan är körd')
+      : 'Ingen plan';
+    compliance.className = 'cockpit-tag ' + (remaining ? 'good' : 'warn');
 
-    document.getElementById('cockpit-week-title').textContent =
-      stats.plannedKm ? `V${stats.week}: ${stats.plannedKm} km planerat` : `V${stats.week}: plan saknas`;
-
-    const limiters = [];
-    if (h?.hrv) limiters.push({ text: getHrvStatusText(h.hrv), cls: getHrvClass(h.hrv) });
-    if (h?.sleep?.score != null) limiters.push({ text: `Sömn ${h.sleep.score}`, cls: h.sleep.score >= 80 ? 'good' : h.sleep.score >= 60 ? 'warn' : 'bad' });
-    if (h?.bodyBattery?.current != null) limiters.push({ text: `Batteri ${h.bodyBattery.current}`, cls: h.bodyBattery.current >= 60 ? 'good' : h.bodyBattery.current >= 30 ? 'warn' : 'bad' });
-    if (h?.stress?.avg != null) limiters.push({ text: `Stress ${h.stress.avg}`, cls: h.stress.avg <= 35 ? 'good' : h.stress.avg <= 60 ? 'warn' : 'bad' });
-    if (ratio != null) limiters.push({ text: `Belastning ${ratio.toFixed(2)}`, cls: ratio <= 1.3 ? 'good' : ratio <= 1.5 ? 'warn' : 'bad' });
-    if (projectedRatio && projectedRatio > ratio + 0.15) limiters.push({ text: `Veckoprognos ${projectedRatio.toFixed(2)}`, cls: 'warn' });
-    if (!limiters.length) limiters.push({ text: 'Synka Garmin för begränsningar', cls: 'warn' });
-    document.getElementById('cockpit-limiters').innerHTML = limiters
-      .map(l => `<span class="cockpit-limiter ${l.cls}">${escapeHtml(l.text)}</span>`)
-      .join('');
+    document.getElementById('cockpit-week-title').textContent = stats.plannedKm
+      ? `V${stats.week}: ${stats.completedKm.toFixed(1)} av ${stats.plannedKm} km`
+      : `V${stats.week}: plan saknas`;
 
     const typeClass = s => s.type === 'race' ? 'bad' : s.type === 'run' ? 'warn' : s.type === 'lift' ? 'warn' : 'good';
     const typeLabel = s => ({ run:'KVALITET', easy:'LUGNT', lift:'STYRKA', race:'LOPP', rest:'VILA' }[s.type] || String(s.type || 'PLAN').toUpperCase());
@@ -2241,10 +2313,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         }
       } catch(e2) {}
     } catch(e) {
-      const titleEl = document.getElementById('cockpit-decision-title');
-      const copyEl = document.getElementById('cockpit-decision-copy');
-      if (titleEl) titleEl.textContent = 'Översikten behöver ses över';
-      if (copyEl) copyEl.textContent = e.message || 'Kunde inte rita upp översikten.';
+      const titleEl = document.getElementById('cockpit-week-title');
+      if (titleEl) titleEl.textContent = 'Veckan kunde inte ritas upp';
       console.error('Cockpit render error:', e);
     }
   }
@@ -2585,22 +2655,20 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const r = document.getElementById(s.barId);  if (r) { r.style.width = (s.pct||0) + '%'; r.style.background = s.col; }
       });
 
-      // CNS-poäng i hem-hero (ersätter Garmin-beredskap)
-      const cnsHero = computeCnsScore(h);
-      const ringVal = document.getElementById('readiness-ring-val');
-      const ringProg = document.getElementById('readiness-ring-prog');
-      if (ringVal && ringProg && cnsHero != null) {
-        const col = cnsHero >= 70 ? 'var(--accent)' : cnsHero >= 45 ? 'var(--amber)' : 'var(--red)';
-        const circ = 239;
-        ringVal.textContent = cnsHero;
-        ringVal.style.color = col;
-        // Keep gradient stroke — only update dashoffset
-        ringProg.style.strokeDashoffset = circ * (1 - Math.max(0, Math.min(100, cnsHero)) / 100);
-        const sub = document.getElementById('snap-readiness-sub');
-        if (sub) {
-          sub.textContent = cnsHero >= 70 ? 'Redo för kvalitetspass' : cnsHero >= 45 ? 'Normalt pass ok' : 'Vila eller Z2 idag';
-          sub.style.color = col;
-        }
+      // Beredskapstalet kommer från servern (h.cns.score) i stället för att
+      // räknas fram en tredje gång här. Ringen ritas av setReadinessRing, samma
+      // funktion som /api/today använder, så talet kan inte hamna på olika
+      // sidor om en gräns beroende på vem som ritade det sist.
+      const readinessScore = h.cns?.score ?? computeCnsScore(h);
+      if (readinessScore != null) setReadinessRing(readinessScore);
+      // Raden under ringen sa tidigare "Redo för kvalitetspass" / "Vila eller
+      // Z2 idag" — ännu en dom om dagen, uträknad ur enbart CNS. Den säger nu
+      // bara vad talet är i förhållande till din egen normalnivå; själva
+      // beskedet står i panelen bredvid.
+      const sub = document.getElementById('snap-readiness-sub');
+      if (sub && readinessScore != null) {
+        sub.textContent = `${readinessScore} av 100`;
+        sub.style.color = '';
       }
 
       safeRenderTrainingCockpit();
@@ -2634,7 +2702,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadInsights(), loadPlan(), loadStrain(), loadSessionVerdict(), loadAdaptivePlan()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadPlan(), loadStrain(), loadSessionVerdict(), loadToday()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -3141,12 +3209,22 @@ HEALTH DATA (current):
       const res = await fetch('/api/training-review' + (force ? '?force=1' : ''));
       const d = await res.json();
       if (d.error) return;
-      if (d.headline) document.getElementById('review-headline').textContent = d.headline;
+      // AI-texten skriver inte längre över rubriken och brödtexten — de ägs av
+      // beslutsmotorn via /api/today. Coachens ord ligger som motivering bakom
+      // "Varför?", där de fördjupar beskedet i stället för att konkurrera med
+      // det. Två rubriker om samma dag var precis det som gjorde vyn rörig.
+      const coachLines = [];
+      if (d.headline) coachLines.push(d.headline);
       if (d.body) {
         // Servern faller tillbaka på en utgången analys när AI-kvoten är slut.
         // Säg det rakt ut i stället för att låtsas att den är färsk.
         const age = d._stale ? ` (analys från ${d._stale_age_min} min sedan — AI-kvoten är slut just nu)` : '';
-        document.getElementById('review-body').textContent = d.body + age;
+        coachLines.push(d.body + age);
+      }
+      const coach = document.getElementById('review-coach');
+      if (coach) {
+        coach.textContent = coachLines.join(' ');
+        coach.style.display = coachLines.length ? 'block' : 'none';
       }
       // Fälten nedan saknas i analyser som cachades före det utökade formatet,
       // så varje rad visas bara när den faktiskt har innehåll.
@@ -3162,13 +3240,11 @@ HEALTH DATA (current):
         if (assessment) assessment.textContent = d.assessment || '';
         setLine('review-adjust', 'Justera:', d.adjust);
         setLine('review-next', 'Nästa pass:', d.next);
-        more.style.display = (d.assessment || d.adjust || d.next) ? 'block' : 'none';
+        more.style.display = (d.assessment || d.adjust || d.next || coachLines.length) ? 'block' : 'none';
       }
-      const map = { done:['badge-green','DONE'], pending:['badge-amber','TO DO'], missed:['badge-red','MISSED'], rest:['badge-green','REST'], other:['badge-amber','OTHER'] };
-      const m = map[d.status] || ['badge-amber','TODAY'];
-      const badge = document.getElementById('review-badge');
-      badge.className = 'today-badge ' + m[0];
-      badge.textContent = m[1];
+      // Statusmärket ägs av beslutsmotorn (KÖR/LÄTTA/FLYTTA/VILA). Passets
+      // status skrivs inte längre in där — då stod det "TO DO" bredvid ett
+      // besked som sa "vila i dag".
     } catch(e) {}
   }
   loadTrainingReview();
@@ -3529,7 +3605,6 @@ HEALTH DATA (current):
       list.innerHTML = renderInsightCards(d.insights);
     } catch(e) { list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">Could not load insights.</div>'; }
   }
-  loadInsights();
 
   // Samtalet ska hänga ihop under hela besöket, inte börja om vid varje fråga.
   // sessionStorage lever kvar genom omladdningar och navigering i samma flik
@@ -3731,7 +3806,7 @@ HEALTH DATA (current):
     const dm = ANALYSIS_DIRECTIONS[metric.direction] || ANALYSIS_DIRECTIONS.unknown;
     note.textContent = `${dm[0]} ${dm[1]} · ${analysisRate(metric)}`;
     chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${escapeHtml(metric.label)} över tid">
-      <defs><linearGradient id="an-chart-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C8F135" stop-opacity=".18"/><stop offset="1" stop-color="#C8F135" stop-opacity="0"/></linearGradient></defs>
+      <defs><linearGradient id="an-chart-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--accent)" stop-opacity=".18"/><stop offset="1" style="stop-color:var(--accent)" stop-opacity="0"/></linearGradient></defs>
       ${[0,.5,1].map(f => `<line class="an-chart-grid" x1="${left}" x2="${W-right}" y1="${(top+f*(H-top-bottom)).toFixed(1)}" y2="${(top+f*(H-top-bottom)).toFixed(1)}"/>`).join('')}
       <path class="an-chart-area" d="${area}"/><path class="an-chart-line" d="${line}" vector-effect="non-scaling-stroke"/>
       <circle class="an-chart-dot" cx="${pts.at(-1)[0].toFixed(1)}" cy="${pts.at(-1)[1].toFixed(1)}" r="4" vector-effect="non-scaling-stroke"/>
@@ -5447,10 +5522,10 @@ HEALTH DATA (current):
     const gradient = `ad-grad-${key}`;
     const topValue = invert ? lo : hi, bottomValue = invert ? hi : lo;
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
-      <defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+      <defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:${color}"/><stop offset="1" style="stop-color:${color}" stop-opacity="0"/></linearGradient></defs>
       ${[0,.5,1].map(f => `<line class="ad-chart-gridline" x1="${left}" x2="${W-right}" y1="${top+f*(H-top-bottom)}" y2="${top+f*(H-top-bottom)}"/>`).join('')}
       <path class="ad-chart-area" d="${area}" fill="url(#${gradient})"/>
-      <path class="ad-chart-line" d="${line}" stroke="${color}"/>
+      <path class="ad-chart-line" d="${line}" style="stroke:${color}"/>
       <text class="ad-chart-label" x="${left-6}" y="${top+4}" text-anchor="end">${escapeHtml(formatter(topValue))}</text>
       <text class="ad-chart-label" x="${left-6}" y="${H-bottom}" text-anchor="end">${escapeHtml(formatter(bottomValue))}</text>
       <text class="ad-chart-label" x="${left}" y="${H-6}">0:00</text>
@@ -5730,12 +5805,12 @@ HEALTH DATA (current):
       ['Body Battery', o.bodyBatteryImpact ?? '–'],
       ['Enhet', activity.device || '–'],
     ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
-    const zoneColors = ['#7fd6c4','#2dd4bf','#c8f135','#ffb84d','#ff4d6d'];
+    const zoneColors = ['var(--zone-1)','var(--zone-2)','var(--zone-3)','var(--zone-4)','var(--zone-5)'];
     return `${heading}${activityAiOverviewPlaceholder()}${activityFeedbackCard()}<div class="ad-metrics">${primary}</div>
       <div class="ad-grid ad-strength-grid">${activityStrengthWorkout(activity)}
         <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
       <div class="ad-chart-grid ad-strength-charts">
-        ${activityChartCard('Puls', 'Slag per minut under styrkepasset', activity.series, 'heartRate', '#ff4d6d', value => String(Math.round(value)))}
+        ${activityChartCard('Puls', 'Slag per minut under styrkepasset', activity.series, 'heartRate', 'var(--red)', value => String(Math.round(value)))}
         ${activityZones('Pulszoner', 'bpm', activity.heartRateZones, zoneColors)}
       </div>`;
   }
@@ -5770,7 +5845,7 @@ HEALTH DATA (current):
       ['Kadens', o.averageCadence != null ? `${o.averageCadence} spm` : '–'],
       ['VO₂ max', o.vo2max ?? '–'],
     ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
-    const zoneColors = ['#7fd6c4','#2dd4bf','#c8f135','#ffb84d','#ff4d6d'];
+    const zoneColors = ['var(--zone-1)','var(--zone-2)','var(--zone-3)','var(--zone-4)','var(--zone-5)'];
     const secondary = activitySecondaryMetrics(activity);
     const heading = `<div class="ad-head"><div><div class="ad-kicker">${escapeHtml(type)}</div>
         <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}${sourceUrl ? ` · <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Visa på Strava</a>` : ''}</div></div>
@@ -5782,10 +5857,10 @@ HEALTH DATA (current):
           <div class="ad-route">${activityRouteMap(activity.route)}</div></section>
         <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
       <div class="ad-chart-grid">
-        ${activityChartCard('Tempo', 'Minuter per kilometer', activity.series, 'pace', '#c8f135', value => formatActivityPace(value), true)}
-        ${activityChartCard('Puls', 'Slag per minut', activity.series, 'heartRate', '#ff4d6d', value => String(Math.round(value)))}
-        ${activityChartCard('Höjdprofil', 'Meter över havet', activity.series, 'elevation', '#7fd6c4', value => String(Math.round(value)))}
-        ${activityChartCard('Löpeffekt', 'Watt', activity.series, 'power', '#ffb84d', value => String(Math.round(value)))}
+        ${activityChartCard('Tempo', 'Minuter per kilometer', activity.series, 'pace', 'var(--accent)', value => formatActivityPace(value), true)}
+        ${activityChartCard('Puls', 'Slag per minut', activity.series, 'heartRate', 'var(--red)', value => String(Math.round(value)))}
+        ${activityChartCard('Höjdprofil', 'Meter över havet', activity.series, 'elevation', 'var(--stage-rem)', value => String(Math.round(value)))}
+        ${activityChartCard('Löpeffekt', 'Watt', activity.series, 'power', 'var(--amber)', value => String(Math.round(value)))}
       </div>
       <div class="ad-zones">
         ${activityZones('Pulszoner', 'bpm', activity.heartRateZones, zoneColors)}

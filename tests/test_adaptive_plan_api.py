@@ -46,16 +46,39 @@ class AdaptivePlanApiTests(unittest.TestCase):
     def test_today_requires_login(self):
         self.assertEqual(self.client.get('/api/adaptive-plan/today').status_code, 401)
 
-    def test_today_returns_a_shadow_decision(self):
+    def test_today_returns_a_live_decision(self):
         self.login()
         with patch.object(garmin_server, 'build_adaptive_snapshot', return_value=self.snapshot()):
             response = self.client.get('/api/adaptive-plan/today')
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(payload['mode'], 'shadow')
+        # Motorn är dagens enda domare och kör inte längre i skuggläge.
+        self.assertEqual(payload['mode'], 'live')
         self.assertEqual(payload['decision']['action'], 'keep')
         self.assertTrue(payload['decisionId'])
+
+    def test_today_view_answers_with_one_verdict(self):
+        """Idag-vyn ska få beredskap, beslut och skäl ur samma utvärdering.
+
+        Det är hela poängen med endpointen: räknar korten fram sina egna
+        bedömningar var för sig kan de säga emot varandra, och det gjorde de.
+        """
+        self.login()
+        with patch.object(garmin_server, 'build_adaptive_snapshot', return_value=self.snapshot()):
+            response = self.client.get('/api/today')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload['action'], 'keep')
+        self.assertEqual(payload['mode'], 'live')
+        self.assertEqual(payload['summary'], 'Kör dagens pass')
+        self.assertEqual(payload['tone'], 'good')
+        self.assertTrue(payload['reasons'])
+        self.assertIn('readiness', payload)
+
+    def test_today_view_requires_login(self):
+        self.assertEqual(self.client.get('/api/today').status_code, 401)
 
     def test_checkin_requires_csrf_and_recalculates(self):
         csrf = self.login()

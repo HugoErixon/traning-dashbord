@@ -4,7 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Trainyze samlar Garmin, sömn, HRV och din träningsplan på ett ställe – och ger dig ett tydligt svar på vad kroppen klarar idag.">
-  <meta name="theme-color" content="#0D0F14">
+  <meta name="theme-color" content="#F2F6FC" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0A1220" media="(prefers-color-scheme: dark)">
+  <script>
+    /* Samma lägesval som i appen. Utan det här mötte den som valt dagläge en
+       mörk landningssida och en ljus app i samma besök. */
+    (function () {
+      try {
+        var saved = localStorage.getItem('trainyze:theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+        }
+      } catch (e) { /* privat läge: följ systemet i stället */ }
+    })();
+  </script>
   <title>Trainyze – all din träningsdata, ett tydligt svar</title>
   <link rel="icon" href="/favicon.ico" sizes="48x48">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -82,8 +95,8 @@
                 <svg viewBox="0 0 96 96" width="118" height="118" aria-hidden="true">
                   <defs>
                     <linearGradient id="lp-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stop-color="#C8F135"/>
-                      <stop offset="100%" stop-color="#2dd4bf"/>
+                      <stop offset="0%" style="stop-color:var(--accent)"/>
+                      <stop offset="100%" style="stop-color:var(--green)"/>
                     </linearGradient>
                   </defs>
                   <circle class="lp-ring-track" cx="48" cy="48" r="41" fill="none" stroke-width="7"/>
@@ -91,7 +104,7 @@
                 </svg>
                 <div class="lp-ring-label">
                   <strong data-count="78">0</strong>
-                  <span>CNS</span>
+                  <span>BEREDSKAP</span>
                 </div>
               </div>
               <div class="lp-mock-verdict">
@@ -130,12 +143,12 @@
               <svg class="lp-spark" viewBox="0 0 320 56" preserveAspectRatio="none" aria-hidden="true">
                 <defs>
                   <linearGradient id="lp-spark-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="rgba(200,241,53,.28)"/>
-                    <stop offset="100%" stop-color="rgba(200,241,53,0)"/>
+                    <stop offset="0%" style="stop-color:var(--accent)" stop-opacity=".28"/>
+                    <stop offset="100%" style="stop-color:var(--accent)" stop-opacity="0"/>
                   </linearGradient>
                 </defs>
                 <path class="lp-spark-area" d="M0,44 L28,40 L56,42 L84,33 L112,35 L140,26 L168,29 L196,20 L224,22 L252,14 L280,16 L320,8 L320,56 L0,56 Z" fill="url(#lp-spark-fill)"/>
-                <path class="lp-spark-line" d="M0,44 L28,40 L56,42 L84,33 L112,35 L140,26 L168,29 L196,20 L224,22 L252,14 L280,16 L320,8" fill="none" stroke="#C8F135" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path class="lp-spark-line" d="M0,44 L28,40 L56,42 L84,33 L112,35 L140,26 L168,29 L196,20 L224,22 L252,14 L280,16 L320,8" fill="none" style="stroke:var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </div>
           </div>
@@ -178,7 +191,7 @@
           <article class="lp-card lp-card-wide lp-reveal">
             <div class="lp-card-body">
               <span class="lp-card-tag">Återhämtning</span>
-              <h3>CNS-score istället för magkänsla</h3>
+              <h3>Ett beredskapstal i stället för magkänsla</h3>
               <p>En sammanvägd beredskapssiffra av HRV, sömnkvalitet, Garmins readiness och stress – med tydlig färgkod för om dagen tål kvalitet, normalt pass eller vila.</p>
             </div>
             <div class="lp-card-viz lp-viz-cns" aria-hidden="true">
