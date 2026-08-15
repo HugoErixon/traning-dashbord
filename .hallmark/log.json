@@ -1,0 +1,13 @@
+[
+  {
+    "date": "2026-08-15",
+    "macrostructure": "Bento Grid",
+    "theme": "Cobalt",
+    "theme_axes": "light-cool / grotesk-sans / electric-cobalt",
+    "genre": "modern-minimal",
+    "nav": "N3 Side-rail",
+    "footer": "none (app scope)",
+    "enrichment": "none",
+    "brief": "Trainyze · full visual rebuild of the training dashboard app shell (9 pages), design.md-managed"
+  }
+]

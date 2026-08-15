@@ -1327,7 +1327,13 @@ function executeAction(trigger, event) {
 
 document.addEventListener('click', event => {
   const trigger = event.target.closest('[data-action]');
-  if (trigger) executeAction(trigger, event);
+  if (!trigger) return;
+  // Ett <summary> inuti ett klickbart kort ska bara fälla ut sitt eget
+  // innehåll. Utan den här spärren öppnade "Varför?" i dagens-kortet också
+  // passdetaljen, så utfällningen doldes av modalen i samma klick.
+  const summary = event.target.closest('summary');
+  if (summary && trigger !== summary && trigger.contains(summary)) return;
+  executeAction(trigger, event);
 });
 
 
@@ -2594,7 +2600,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         const circ = 239;
         ringVal.textContent = cnsHero;
         ringVal.style.color = col;
-        // Keep gradient stroke — only update dashoffset
+        // Ringen har en fast datafärg från stilmallen — accentfärgen är
+        // reserverad för det som går att klicka på. Tillståndet bärs av
+        // siffran inuti, som sätts ovan. Rör bara dashoffset här.
         ringProg.style.strokeDashoffset = circ * (1 - Math.max(0, Math.min(100, cnsHero)) / 100);
         const sub = document.getElementById('snap-readiness-sub');
         if (sub) {

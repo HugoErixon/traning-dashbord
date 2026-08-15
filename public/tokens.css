@@ -1,0 +1,291 @@
+/* Hallmark · tokens · genre: modern-minimal · theme: Cobalt (app-scope, dual-ground)
+ * Portable token layer for Trainyze. Every colour, face, step and easing in the
+ * app resolves through a name declared here. styles.css must never inline a raw
+ * colour or font-family — if a value is missing, add it here first.
+ *
+ * Structure, and why it is in this order:
+ *   1. :root            — the complete LIGHT palette + all theme-independent scales
+ *   2. prefers dark     — redefines ONLY colour tokens, guarded so an explicit
+ *                         light choice still wins over a dark OS
+ *   3. [data-theme]     — the same two sets again, so a future in-app toggle wins
+ *                         in both directions
+ *   4. legacy aliases   — the old variable names, mapped onto the new tokens
+ *
+ * A colour whose only definition lives inside a media query renders one theme's
+ * ink on the other theme's paper. Keep every colour defined at :root first.
+ */
+
+:root {
+  /* ── Ground ──────────────────────────────────────────────────────────────
+     Cool engineered near-white, hue ~250. Never #fff — pure white reads as
+     "unstyled default", and the faint blue cast is what makes the greys look
+     chosen rather than inherited. */
+  --color-paper:      oklch(98.5% 0.004 250);
+  --color-paper-2:    oklch(96.6% 0.005 252);   /* sunk wells, table stripes   */
+  --color-paper-3:    oklch(94.4% 0.006 252);   /* pressed / hover on quiet    */
+  --color-surface:    oklch(99.6% 0.002 250);   /* raised cards                */
+
+  /* ── Ink ─────────────────────────────────────────────────────────────────
+     Cool charcoal, never #000. Three steps: headings, body, meta. */
+  --color-ink:        oklch(24% 0.020 258);
+  --color-ink-2:      oklch(34% 0.018 257);
+  --color-ink-3:      oklch(52% 0.015 256);
+  --color-ink-4:      oklch(64% 0.013 255);     /* placeholder / disabled      */
+
+  /* ── Structure ───────────────────────────────────────────────────────────
+     Hairlines carry the whole design. No shadows on cards. */
+  --color-rule:       oklch(90% 0.008 254);
+  --color-rule-2:     oklch(94% 0.006 252);     /* internal / lighter division */
+  --color-rule-3:     oklch(84% 0.010 254);     /* emphasised / input border   */
+
+  /* ── Signal accent ───────────────────────────────────────────────────────
+     Electric cobalt. Marks INTERACTION ONLY — active nav, focus ring, the one
+     primary button, a hovered link. Never used to encode data. Under 5% of any
+     viewport. */
+  --color-accent:      oklch(58% 0.20 256);
+  --color-accent-hover:oklch(52% 0.20 256);
+  --color-accent-ink:  oklch(99% 0.005 256);    /* text on an accent fill      */
+  --color-accent-soft: oklch(95.5% 0.030 256);  /* accent wash, selected rows  */
+  --color-accent-line: oklch(78% 0.110 256);    /* accent hairline             */
+  --color-focus:       oklch(58% 0.20 256);
+
+  /* ── Semantic state — deliberately NOT the accent ────────────────────────
+     These encode data: recovery good, load high, session missed. Keeping them
+     off the accent hue is what lets a red warning and a blue control coexist
+     without competing. */
+  --color-good:       oklch(58% 0.130 162);
+  --color-good-soft:  oklch(95% 0.035 162);
+  --color-warn:       oklch(66% 0.130 74);
+  --color-warn-soft:  oklch(95.5% 0.045 78);
+  --color-crit:       oklch(56% 0.170 25);
+  --color-crit-soft:  oklch(95.5% 0.035 25);
+  --color-info:       oklch(58% 0.20 256);
+  --color-info-soft:  oklch(95.5% 0.030 256);
+
+  /* Data-visualisation ramp — sleep stages, zones, chart series. Ordered
+     deep → light so a stage bar reads top-to-bottom as depth. */
+  --color-viz-1:      oklch(45% 0.130 264);     /* deep      */
+  --color-viz-2:      oklch(60% 0.120 210);     /* rem       */
+  --color-viz-3:      oklch(74% 0.075 232);     /* light     */
+  --color-viz-4:      oklch(84% 0.030 250);     /* awake     */
+  --color-viz-track:  oklch(93% 0.006 252);     /* empty bar */
+
+  /* ── Type faces ──────────────────────────────────────────────────────────
+     Three roles, no more. Space Grotesk is the instrument voice; Inter reads
+     long; JetBrains Mono takes every digit and every uppercase label. */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-body:    'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* ── Type scale ──────────────────────────────────────────────────────────
+     Anchored at 16px body. Display steps clamp so a phone never gets a headline
+     that wraps to four lines. */
+  --text-2xs:     0.6875rem;   /* 11px — mono eyebrows, units          */
+  --text-xs:      0.75rem;     /* 12px — meta, captions                */
+  --text-sm:      0.8125rem;   /* 13px — dense UI, table cells         */
+  --text-base:    0.9375rem;   /* 15px — body in cards                 */
+  --text-md:      1rem;        /* 16px — running body                  */
+  --text-lg:      1.125rem;    /* 18px — card titles                   */
+  --text-xl:      1.375rem;    /* 22px — page section heads            */
+  --text-2xl:     1.75rem;     /* 28px — page titles                   */
+  --text-3xl:     clamp(2rem, 1.4rem + 2.2vw, 2.75rem);
+  --text-score:   clamp(2.5rem, 1.8rem + 3vw, 3.5rem);  /* hero numerals */
+
+  --leading-tight: 1.15;
+  --leading-snug:  1.35;
+  --leading-body:  1.6;
+
+  --tracking-display: -0.02em;
+  --tracking-tight:   -0.01em;
+  --tracking-label:    0.08em;   /* uppercase mono eyebrows */
+
+  /* ── Space — 4pt scale ───────────────────────────────────────────────── */
+  --space-3xs: 0.25rem;
+  --space-2xs: 0.5rem;
+  --space-xs:  0.75rem;
+  --space-sm:  1rem;
+  --space-md:  1.5rem;
+  --space-lg:  2rem;
+  --space-xl:  3rem;
+  --space-2xl: 4.5rem;
+  --space-3xl: 7rem;
+
+  /* ── Radii — drawn with a ruler ──────────────────────────────────────── */
+  --radius-xs:   4px;
+  --radius-sm:   6px;    /* buttons, inputs, chips */
+  --radius-md:  10px;    /* cards                  */
+  --radius-lg:  14px;    /* overlays, sheets       */
+  --radius-full: 999px;  /* dots and status pips only — never a CTA */
+
+  /* ── Motion ──────────────────────────────────────────────────────────── */
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in:     cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast:  120ms;
+  --dur-base:  200ms;
+  --dur-slow:  340ms;
+
+  /* ── The one permitted lift, and the scrim behind an overlay ─────────── */
+  --lift-overlay: 0 1px 2px oklch(24% 0.02 258 / 0.10),
+                  0 12px 32px oklch(24% 0.02 258 / 0.14);
+  --color-scrim:  oklch(24% 0.02 258 / 0.45);
+
+  /* ── Layout ──────────────────────────────────────────────────────────── */
+  --rail-w:      232px;
+  --tabbar-h:     64px;
+  --content-max: 1240px;
+}
+
+/* ── Dark, via OS preference ───────────────────────────────────────────────
+   Guarded on :not([data-theme="light"]) so an explicit in-app light choice
+   still beats a dark operating system. Only colour tokens are redefined —
+   scales, faces and easings are theme-independent and stay at :root. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-paper:      oklch(20% 0.016 260);
+    --color-paper-2:    oklch(17% 0.014 260);
+    --color-paper-3:    oklch(26% 0.017 260);
+    --color-surface:    oklch(23.5% 0.016 260);
+
+    --color-ink:        oklch(95% 0.006 250);
+    --color-ink-2:      oklch(84% 0.010 252);
+    --color-ink-3:      oklch(64% 0.014 254);
+    --color-ink-4:      oklch(52% 0.014 256);
+
+    --color-rule:       oklch(30% 0.016 258);
+    --color-rule-2:     oklch(26% 0.015 259);
+    --color-rule-3:     oklch(38% 0.018 258);
+
+    --color-accent:      oklch(70% 0.160 256);
+    --color-accent-hover:oklch(77% 0.150 256);
+    --color-accent-ink:  oklch(18% 0.030 258);
+    --color-accent-soft: oklch(29% 0.055 258);
+    --color-accent-line: oklch(45% 0.110 257);
+    --color-focus:       oklch(74% 0.150 256);
+
+    --color-good:       oklch(74% 0.130 162);
+    --color-good-soft:  oklch(28% 0.045 165);
+    --color-warn:       oklch(80% 0.120 78);
+    --color-warn-soft:  oklch(30% 0.045 74);
+    --color-crit:       oklch(70% 0.150 25);
+    --color-crit-soft:  oklch(29% 0.055 25);
+    --color-info:       oklch(70% 0.160 256);
+    --color-info-soft:  oklch(29% 0.055 258);
+
+    --color-viz-1:      oklch(56% 0.140 264);
+    --color-viz-2:      oklch(68% 0.115 210);
+    --color-viz-3:      oklch(78% 0.070 232);
+    --color-viz-4:      oklch(46% 0.020 252);
+    --color-viz-track:  oklch(27% 0.014 258);
+
+    --lift-overlay: 0 1px 2px oklch(0% 0 0 / 0.40),
+                    0 16px 40px oklch(0% 0 0 / 0.50);
+    --color-scrim:  oklch(0% 0 0 / 0.60);
+  }
+}
+
+/* ── Dark, via explicit choice ─────────────────────────────────────────────
+   Repeated so a future in-app toggle wins over a light OS. Kept byte-identical
+   to the block above; if you edit one, edit both. */
+:root[data-theme="dark"] {
+  --color-paper:      oklch(20% 0.016 260);
+  --color-paper-2:    oklch(17% 0.014 260);
+  --color-paper-3:    oklch(26% 0.017 260);
+  --color-surface:    oklch(23.5% 0.016 260);
+
+  --color-ink:        oklch(95% 0.006 250);
+  --color-ink-2:      oklch(84% 0.010 252);
+  --color-ink-3:      oklch(64% 0.014 254);
+  --color-ink-4:      oklch(52% 0.014 256);
+
+  --color-rule:       oklch(30% 0.016 258);
+  --color-rule-2:     oklch(26% 0.015 259);
+  --color-rule-3:     oklch(38% 0.018 258);
+
+  --color-accent:      oklch(70% 0.160 256);
+  --color-accent-hover:oklch(77% 0.150 256);
+  --color-accent-ink:  oklch(18% 0.030 258);
+  --color-accent-soft: oklch(29% 0.055 258);
+  --color-accent-line: oklch(45% 0.110 257);
+  --color-focus:       oklch(74% 0.150 256);
+
+  --color-good:       oklch(74% 0.130 162);
+  --color-good-soft:  oklch(28% 0.045 165);
+  --color-warn:       oklch(80% 0.120 78);
+  --color-warn-soft:  oklch(30% 0.045 74);
+  --color-crit:       oklch(70% 0.150 25);
+  --color-crit-soft:  oklch(29% 0.055 25);
+  --color-info:       oklch(70% 0.160 256);
+  --color-info-soft:  oklch(29% 0.055 258);
+
+  --color-viz-1:      oklch(56% 0.140 264);
+  --color-viz-2:      oklch(68% 0.115 210);
+  --color-viz-3:      oklch(78% 0.070 232);
+  --color-viz-4:      oklch(46% 0.020 252);
+  --color-viz-track:  oklch(27% 0.014 258);
+
+  --lift-overlay: 0 1px 2px oklch(0% 0 0 / 0.40),
+                  0 16px 40px oklch(0% 0 0 / 0.50);
+  --color-scrim:  oklch(0% 0 0 / 0.60);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LEGACY COMPATIBILITY LAYER
+
+   app.js injects markup carrying inline styles that reference the previous
+   build's variable names — the goal modal, the users modal, the activity
+   detail sheet, roughly forty call sites. Rather than rewrite 6 300 lines of
+   JavaScript to land a visual redesign, the old names are kept alive here and
+   pointed at the new tokens. Injected markup therefore inherits the new palette
+   for free.
+
+   This layer is load-bearing. Delete it only once app.js stops emitting inline
+   styles; see design.md § Legacy compatibility layer.
+   ═════════════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:      var(--color-paper);
+  --bg2:     var(--color-surface);
+  --bg3:     var(--color-paper-2);
+  --bg4:     var(--color-paper-3);
+
+  --border:  var(--color-rule-2);
+  --border2: var(--color-rule);
+  --border3: var(--color-rule-3);
+
+  --text:    var(--color-ink);
+  --muted:   var(--color-ink-3);
+  --muted2:  var(--color-ink-2);
+  --muted3:  var(--color-ink-2);
+
+  --green:      var(--color-good);
+  --green-dim:  var(--color-good-soft);
+  --green-glow: var(--color-good-soft);
+
+  --amber:      var(--color-warn);
+  --amber-dim:  var(--color-warn-soft);
+
+  --red:        var(--color-crit);
+  --red-dim:    var(--color-crit-soft);
+
+  --accent:      var(--color-accent);
+  --accent-dim:  var(--color-accent-soft);
+  --accent-glow: var(--color-accent-soft);
+  --accent-ink:  var(--color-accent-ink);
+
+  --blue:       var(--color-info);
+  --blue-dim:   var(--color-info-soft);
+  --purple:     var(--color-viz-1);
+  --purple-dim: var(--color-accent-soft);
+  --orange:     var(--color-warn);
+  --orange-dim: var(--color-warn-soft);
+
+  /* --font-mono keeps its name from the new layer above; aliasing it to itself
+     would be a cyclic custom-property reference and resolve to nothing. */
+  --font-sans: var(--font-body);
+  --font-num:  var(--font-mono);
+
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+}

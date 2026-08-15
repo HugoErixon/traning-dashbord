@@ -8279,7 +8279,7 @@ def _asset_version():
     kan inte glömmas bort.
     """
     digest = hashlib.sha256()
-    for name in ('app.js', 'styles.css', 'landing.css', 'landing.js'):
+    for name in ('app.js', 'tokens.css', 'styles.css', 'landing.css', 'landing.js'):
         try:
             digest.update((PUBLIC_DIR / name).read_bytes())
         except OSError:

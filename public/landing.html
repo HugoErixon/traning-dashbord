@@ -13,6 +13,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- tokens.css måste ligga före styles.css: den deklarerar varje variabel som
+       både styles.css och landing.css läser. Utan den blir sidan ostilad. -->
+  <link rel="stylesheet" href="tokens.css?v=__ASSETV__">
   <link rel="stylesheet" href="styles.css?v=__ASSETV__">
   <link rel="stylesheet" href="landing.css?v=__ASSETV__">
 </head>
