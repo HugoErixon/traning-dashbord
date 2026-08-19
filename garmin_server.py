@@ -7037,20 +7037,34 @@ def _build_session_execution(planned, acts, day, user_id, username=None,
         history = strength_history or []
         day_str = day.isoformat()
         logged = [entry for entry in history if entry.get('date') == day_str]
-        if not logged:
-            return None
-        try:
-            recommendations = build_strength_recommendations(
-                planned.get('detail', ''), history, before_date=day_str)
-            if not recommendations:
-                recommendations = build_default_recommendations(
-                    history, before_date=day_str, limit=6)
-        except (TypeError, ValueError):
-            recommendations = []
-        analysis = session_analysis.analyze_strength(logged, recommendations)
-        analysis['discipline'] = 'strength'
-        analysis['headline'] = session_analysis.headline_for(analysis)
-        return analysis
+        if logged:
+            try:
+                recommendations = build_strength_recommendations(
+                    planned.get('detail', ''), history, before_date=day_str)
+                if not recommendations:
+                    recommendations = build_default_recommendations(
+                        history, before_date=day_str, limit=6)
+            except (TypeError, ValueError):
+                recommendations = []
+            analysis = session_analysis.analyze_strength(logged, recommendations)
+            analysis['discipline'] = 'strength'
+            analysis['headline'] = session_analysis.headline_for(analysis)
+            return analysis
+
+        lifts = [a for a in acts
+                 if (a.get('activityType') or {}).get('typeKey', '') in lift_types]
+        if lifts:
+            act = lifts[0]
+            dur_min = round((act.get('duration') or 0) / 60)
+            return {
+                'discipline': 'strength',
+                'activityId': act.get('activityId') or act.get('id'),
+                'activityName': act.get('activityName') or 'Styrketräning',
+                'durationMin': dur_min,
+                'avgHr': act.get('averageHR'),
+                'headline': f"Styrkepass {dur_min} min genomfört",
+            }
+        return None
 
     return None
 
@@ -7100,7 +7114,7 @@ def match_activities_to_plan(days_back=7, user_id=1, username=None):
 
             did_run  = any((a.get('activityType') or {}).get('typeKey', '') in run_types for a in acts)
             did_bike = any((a.get('activityType') or {}).get('typeKey', '') in bike_types for a in acts)
-            did_lift = any((a.get('activityType') or {}).get('typeKey', '') in lift_types for a in acts)
+            did_lift = any((a.get('activityType') or {}).get('typeKey', '') in lift_types for a in acts) or any(entry.get('date') == day.isoformat() for entry in strength_history)
 
             with conn.cursor() as cur:
                 for p in planned:
