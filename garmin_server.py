@@ -7391,21 +7391,22 @@ def generate_coach_briefing(session, health=None, readiness=None, pace_anchor=No
     if not session:
         return {
             'purpose': 'Aktiv återhämtning och vila för muskeluppbyggnad och nervsystem.',
-            'execution': 'Ingen schemalagd hård träning idag. Njut av vilan eller ta en lugn promenad och stretcha lätt.',
+            'execution': 'Ingen schemalagd träning idag. Njut av vilodagen eller ta en lugn promenad och stretcha lätt.',
             'rpe': 'RPE 1–2/10 (vila)',
-            'tips': 'Prioritera bra näring, god sömn och hydrering inför morgondagens utmaning.',
+            'tips': 'Prioritera bra näring, god sömn och hydrering inför kommande träningspass.',
             'fueling': 'Normal näringsrik kost och ordentligt med vätska.',
         }
 
     name = session.get('name') or session.get('title') or 'Dagens pass'
-    desc = session.get('detail') or session.get('description') or ''
+    detail = (session.get('detail') or session.get('description') or '').strip()
     km = session.get('km') or session.get('distance')
-    name_lower = (name + ' ' + desc).lower()
+    kind = str(session.get('kind') or session.get('type') or '').lower()
+    full_text = f"{name} {detail}".lower()
 
+    # Hämta måltempon från ankare om de inte redan står i passets detalj
     anchor = (pace_anchor or {}).get('anchor') or {}
     lt_sec = anchor.get('ltPaceSec')
     easy_sec = anchor.get('easyPaceSec')
-    interval_sec = anchor.get('intervalPaceSec')
 
     def _fmt(s):
         if not s: return None
@@ -7414,35 +7415,57 @@ def generate_coach_briefing(session, health=None, readiness=None, pace_anchor=No
 
     lt_str = _fmt(lt_sec) or "3:55–4:05/km"
     easy_str = _fmt(easy_sec) or "4:50–5:15/km"
-    interval_str = _fmt(interval_sec) or "3:40–3:50/km"
 
-    if 'intervall' in name_lower or '1000m' in name_lower or 'tröskel' in name_lower or 'fartlek' in name_lower or 'tempo' in name_lower:
-        purpose = "Höja din laktattröskel (LT2), optimera syreupptagningsförmågan (VO2max) och träna löpekonomi i tävlingsfart."
-        execution = f"15 min uppvärmning (Zon 1-2) + 3 korta stegringslopp. Huvuddel: Håll jämn fart runt {lt_str} ({interval_str} vid korta intervaller). Jogga vilan långsamt – gå inte. 10 min lugn nedjogg."
+    # Analysera passets karaktär
+    is_short_intervals = any(x in full_text for x in ('200m', '300m', '400m', '500m', '600m', '800m'))
+    is_long_intervals = any(x in full_text for x in ('1000m', '1500m', '2000m', '3000m', 'tusingar', 'tröskel', 'threshold', 'tempo'))
+    is_interval = is_short_intervals or is_long_intervals or 'intervall' in full_text or 'fartlek' in full_text or kind in ('interval', 'threshold')
+    is_long_run = 'långpass' in full_text or (km and km >= 14) or kind == 'long'
+    is_strength = 'styrka' in full_text or 'gym' in full_text or 'lift' in full_text or kind in ('lift', 'strength')
+    is_recovery = 'återhämtning' in full_text or 'vila' in full_text or 'lätt' in full_text or kind in ('easy', 'rest')
+
+    # 1. Utförande & Fart: Synka 100% med passets faktiska detaljer och planerade tempon
+    if detail:
+        execution = detail
+        if not execution.endswith('.'):
+            execution += '.'
+    elif is_interval:
+        execution = f"15 min uppvärmning (Zon 1–2) + 3 korta stegringslopp. Huvuddel i tröskeltempo ({lt_str}). 10 min lugn nedjogg."
+    elif is_long_run:
+        execution = f"Löpning i lugnt och kontrollerat Zon 2-tempo ({easy_str}). Jämn ansträngning hela vägen."
+    elif is_strength:
+        execution = "Styrketräning med fokus på knäböj, utfall, enbens marklyft, tåhävningar och core-planka. 3–4 set med god form."
+    else:
+        execution = f"Genomför passet med kontrollerad ansträngning i behagligt distanstempo ({easy_str})."
+
+    # 2. Syfte, RPE och Coachtips
+    if is_short_intervals:
+        purpose = "Maximal syreupptagningsförmåga (VO2max), snabbhet, anaerob kapacitet och löpekonomi i hög fart."
+        rpe = "RPE 8–9/10 (mycket ansträngande – hög hastighet)"
+        tips = "Gå inte ut för hårt på de första repetitionerna. Håll jämn fart genom alla repetitioner och utnyttja vilan för att återhämta pulsen."
+        fueling = "Lätt kolhydratmellanmål (t.ex. banan/havregrynsgröt) 1.5–2h innan passet. Drick 4–5 dl vatten."
+    elif is_long_intervals:
+        purpose = "Höja din laktattröskel (LT2) och träna kroppen på att transportera bort mjölksyra i tävlingsfart."
         rpe = "RPE 7.5–8.5/10 (kontrollerat ansträngande – inte maxning)"
-        tips = "Starta inte för fort på första repet! Den sista intervallen ska gå i samma eller snabbare fart än den första."
-        fueling = "Lätt kolhydratmellanmål (t.ex. banan/havregrynsgröt) 1.5–2h innan passet. Drick 4–5 dl vätska."
-    elif 'långpass' in name_lower or (km and km >= 14):
-        purpose = "Utveckla aerob bas, fettförbränningseffektivitet, mitokondrietäthet och mental/muskulär uthållighet."
-        execution = f"Spring i jämnt och behagligt Zon 2-tempo ({easy_str}). Tempot ska kännas löjligt lätt de första kilometrarna."
+        tips = "Fokusera på avslappnad överkropp och hög stegfrekvens (175–182 spm). Sista repet ska gå minst lika snabbt som det första."
+        fueling = "Lätt kolhydratmellanmål 1.5–2h innan passet. Drick 4–5 dl vätska med elektrolyter."
+    elif is_long_run:
+        purpose = "Utveckla aerob bas, mitokondrietäthet och fettförbränningseffektivitet under längre duration."
         rpe = "RPE 5–6/10 (konversationstempo – obehindrad andning)"
-        tips = "Var stenhård med farten i motlut och backar. Sänk tempot så att pulsen stannar i Zon 2."
-        fueling = "Ta med 1 gel eller sportdryck per 40 min om passet är över 75 minuter. Drick regelbundet små klunkar."
-    elif 'styrka' in name_lower or 'gym' in name_lower or 'lift' in name_lower:
+        tips = "Var disciplinerad i backar och motlut så att pulsen inte rusar in i tröskelzon. Sänk farten vid behov."
+        fueling = "Ta med vätska och 1 gel per 40–45 min om passet överstiger 75 minuter. Drick regelbundet."
+    elif is_strength:
         purpose = "Stärka höftstabilitet, sätesmuskulatur, bål och fotleder för explosivt frånskjut och skadefrihet."
-        execution = "Knäböj/utfall, enbens marklyft, tåhävningar och core-planka. 3–4 set med 6–10 kontrollerade repetitioner."
-        rpe = "RPE 7/10 (bra form och kraft, inte utmattning till failure)"
-        tips = "Styrketräning för löpare handlar om kraftöverföring och ledstabilitet. Fokusera på perfekt teknik framför tunga vikter."
-        fueling = "Inta protein (20-30g) och kolhydrater inom 45 min efter passet för optimal återhämtning."
-    elif 'återhämtning' in name_lower or 'lugn' in name_lower or 'z2' in name_lower or 'easy' in name_lower:
-        purpose = "Öka kapillärblodflödet till musklerna, rensa slaggprodukter och stimulera nervsystemets återhämtning."
-        execution = f"Mycket lätt och avslappnad löpning i Zon 1-2 ({easy_str}). Släpp alla krav på fart."
-        rpe = "RPE 3–4/10 (väldigt lätt)"
-        tips = "Låt pulsen styra helt, inte GPS-farten. Känns det tungt, sakta ner ännu mer."
+        rpe = "RPE 7/10 (kvalitet och kontroll, undvik failure)"
+        tips = "Styrketräning för löpare handlar om kraftöverföring och ledstabilitet. Prioritera teknik framför tunga vikter."
+        fueling = "Inta protein (20–30g) och kolhydrater inom 45 min efter passet för snabb återhämtning."
+    elif is_recovery:
+        purpose = "Aktiv återhämtning, öka kapillärblodflödet till musklerna och rensa slaggprodukter i Zon 1–2."
+        rpe = "RPE 3–4/10 (mycket lätt)"
+        tips = "Släpp alla krav på fart – låt pulsen och känslan styra helt. Känns det tungt, sakta ner ytterligare."
         fueling = "Bra hydrering under dagen och näringsrik mat."
     else:
-        purpose = "Kontinuitet och grundläggande konditionsuppbyggnad."
-        execution = f"Genomför passet med kontrollerad ansträngning i {easy_str}."
+        purpose = "Upprätthålla träningskontinuitet och bygga grundläggande aerob kapacitet."
         rpe = "RPE 5–6/10 (medelansträngande)"
         tips = "Tänk på stolt hållning och att landa med foten under kroppens tyngdpunkt."
         fueling = "Vanlig måltidsordning och bra vätskebalans."
