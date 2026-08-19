@@ -262,6 +262,41 @@
           <p id="review-adjust" class="review-more-line" style="display:none;"></p>
           <p id="review-next" class="review-more-line" style="display:none;"></p>
         </details>
+
+        <!-- COACHENS GENOMGÅNG INFÖR PASSET -->
+        <div class="coach-briefing-box" id="coach-briefing-box">
+          <div class="coach-briefing-head">
+            <div class="coach-briefing-title-row">
+              <span class="coach-briefing-dot"></span>
+              <span class="coach-briefing-kicker">COACHENS GENOMGÅNG</span>
+            </div>
+            <span class="coach-briefing-badge" id="coach-briefing-rpe">RPE 7.5/10</span>
+          </div>
+          <div class="coach-briefing-grid">
+            <div class="coach-briefing-item">
+              <span class="coach-briefing-label">🎯 Syfte &amp; Fysiologi</span>
+              <p id="coach-briefing-purpose">Bygger laktattolerans och lyfter din tröskelfart.</p>
+            </div>
+            <div class="coach-briefing-item">
+              <span class="coach-briefing-label">⏱️ Utförande &amp; Fart</span>
+              <p id="coach-briefing-execution">15 min uppvärmning + huvuddel i måltempo + 10 min nedjogg.</p>
+            </div>
+            <div class="coach-briefing-item">
+              <span class="coach-briefing-label">💡 Coachtips</span>
+              <p id="coach-briefing-tips">Håll hög frekvens och avslappnade axlar.</p>
+            </div>
+            <div class="coach-briefing-item">
+              <span class="coach-briefing-label">🍌 Energi &amp; Vätska</span>
+              <p id="coach-briefing-fueling">Lätt kolhydratmellanmål 1.5h innan passet.</p>
+            </div>
+          </div>
+          <div class="coach-quick-actions">
+            <button type="button" class="coach-action-btn" data-action="coach-ask-pacing">⏱️ Fråga om pacing</button>
+            <button type="button" class="coach-action-btn" data-action="coach-ask-shorten">⚡ Ont om tid? Korta</button>
+            <button type="button" class="coach-action-btn" data-action="coach-ask-tired">🧘 Känns tungt? Anpassa</button>
+            <button type="button" class="coach-action-btn" data-action="coach-ask-switch">🏋️ Byt till styrka</button>
+          </div>
+        </div>
       </div>
 
       <section class="adaptive-plan-card" id="adaptive-plan-card" aria-labelledby="adaptive-plan-title">
@@ -296,15 +331,16 @@
       <section class="chat-wrap home-assistant" aria-label="Träningsassistent">
         <div class="chat-top">
           <div class="chat-dot"></div>
-          <span class="chat-title">Träningsassistent</span>
-          <span class="chat-sub">Träning, plan och sömn</span>
+          <span class="chat-title">Personlig AI-Coach</span>
+          <span class="chat-sub">Fysiologi, passupplägg, pacing och progression</span>
           <button type="button" class="chat-reset" data-action="reset-chat" title="Börja ett nytt samtal — coachen glömmer det ni sagt hittills">Nytt samtal</button>
         </div>
         <div class="qprompts">
-          <button class="qp" data-action="quick-prompt" data-prompt="Ska jag springa eller köra styrka idag?">Springa eller styrka?</button>
-          <button class="qp" data-action="quick-prompt" data-prompt="Justera dagens plan: jag vill köra styrka i stället för löpning.">Justera dagens plan</button>
-          <button class="qp" data-action="quick-prompt" data-prompt="När bör jag lägga mig i kväll och varför?">Sömnschema i kväll</button>
-          <button class="qp" data-action="quick-prompt" data-prompt="Vilka sömnmönster ser du i min data?">Mina sömnmönster</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur ska jag lägga upp dagens pass optimalt vad gäller tempo, vila och pulszoner?">🎯 Pacing inför dagens pass</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Vad är min största utvecklingspotential och flaskhals just nu utifrån min träningsdata?">📈 Min utvecklingspotential</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur har min tröskelfart och snabbhet utvecklats under den senaste månaden?">⚡ Min tröskelutveckling</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till mot mitt loppmål och vad bör jag fokusera på kommande 4 veckor?">🏁 Loppanalys &amp; 4v fokus</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur ska jag optimera sömnen och återhämtningen ikväll efter dagens belastning?">😴 Optimera återhämtning</button>
         </div>
         <div class="messages" id="messages">
           <div class="msg ai"><div class="msg-from">COACH</div><span>Fråga om träning, ändra eller schemalägg pass, eller be mig tolka ditt sömnschema och dina sömnmönster.</span></div>

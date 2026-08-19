@@ -5710,11 +5710,10 @@ def _plan_request_text(message, history):
 def assistant_chat():
     data = request.get_json(silent=True) or {}
     message = str(data.get('message') or '').strip()
-    context = str(data.get('context') or 'You are a personal training coach. Always respond in Swedish (svenska).')
     history = normalize_history(data.get('history'))
     if not message:
         return _api_error('message_required', 'Skriv en fråga först.', 400)
-    if len(message) > 500 or len(context) > 30000:
+    if len(message) > 500:
         return _api_error('request_too_large', 'Coachfrågan är för lång.', 400)
     if not llm_available():
         return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
@@ -5726,6 +5725,37 @@ def assistant_chat():
             notes = result.get('coaching_notes') or ''
             reply = f"{summary}\n\n{notes}".strip()
             return jsonify({'reply': reply, 'planAdjusted': True})
+
+        custom_ctx = str(data.get('context') or '').strip()
+        if custom_ctx:
+            context = custom_ctx
+        else:
+            context = (
+                "Du är Trainyzes personliga elittränare och fysiologiska coach för löpning och konditionsidrott.\n"
+                "Ditt uppdrag är att hjälpa löparen att utvecklas maximalt över tid: bygga aerob bas, höja tröskelfarten, "
+                "optimera löpekonomin och undvika överbelastning eller skador.\n\n"
+                "COACHNINGSPRINCIPER:\n"
+                "1. Tydliga, handfasta råd: Ange alltid konkreta tempon (min/km), pulszoner, repetitioner och vilolängd. Flumma aldrig.\n"
+                "2. Fysiologisk precision: Förklara pedagogiskt *varför* en viss intensitet eller ett visst pass behövs (laktattröskel, "
+                "mitokondrietäthet, kapillarisering i Zon 2, VO2max, RPE).\n"
+                "3. Progressionsfokus: Identifiera löparens utvecklingsområden och ge råd som leder till långsiktiga PB.\n"
+                "4. Lyssna och anpassa: Om löparen känner sig sliten eller har ont om tid, ge en omedelbar justerad plan.\n"
+                "5. Språk och ton: Professionell, engagerad, empatisk och rak svensk löparcoach.\n"
+            )
+
+        # Lägg till dagens hälso- och belastningskontext
+        try:
+            today_str = date.today().isoformat()
+            h_snap = latest_health_snapshot(uid(), today_str) or {}
+            cns = _cns_score_from_health(h_snap)
+            rot = compute_bevel_rest_or_train(h_snap)
+            context += f"\nDAGENS STATUS FÖR LÖPAREN ({today_str}):\n"
+            context += f"- Beredskap (CNS): {cns}/100\n"
+            context += f"- Dagens rekommendation: {rot.get('headline')} ({rot.get('badge')})\n"
+            context += f"- Mål-Strain idag: {rot.get('targetStrain', {}).get('label')}\n"
+            context += f"- Sömnskuld: {rot.get('sleepDebtMinutes', 0)} min\n"
+        except Exception:
+            pass
 
         if history:
             context += (
@@ -5740,19 +5770,14 @@ def assistant_chat():
         if _is_sleep_request(message, history):
             sleep = _build_sleep_coach()
             insights = _get_sleep_insights()
-            context += "\n\nSÖMNSCHEMA (hämta från aktuell Garmin- och kalenderdata):\n" + json.dumps(sleep, ensure_ascii=False)
-            context += "\n\nSÖMNINSIKTER (presentera bara det som är relevant för frågan):\n" + json.dumps(insights, ensure_ascii=False)
+            context += "\n\nSÖMNSCHEMA:\n" + json.dumps(sleep, ensure_ascii=False)
+            context += "\n\nSÖMNINSIKTER:\n" + json.dumps(insights, ensure_ascii=False)
 
-        # Frågor om ett specifikt pass ("hur såg 6×6 min ut i förrgår?") kräver
-        # de faktiska varv- och pulssiffrorna, annars blir svaret allmänt beröm.
         execution_context = _recent_execution_block(uid(), days=21, limit=10)
         if execution_context:
             context += execution_context + (
-                "\n\nWhen the athlete asks how a specific session went, answer with the "
-                "measured numbers above — rep paces, heart rate, drift, and how they compare "
-                "to the target. Name what was off. Never invent paces, rep counts or heart "
-                "rates that are not listed, and if the session they ask about is not in the "
-                "list above, say plainly that you do not have the details for it."
+                "\n\nNär löparen frågar om ett specifikt genomfört pass, använd de uppmätta siffrorna ovan "
+                "(splittar, puls, tempo) och analysera utförandet ärligt."
             )
 
         # Tempofrågor ska besvaras mot uppmätt tröskel, och ett mål som ligger
@@ -7361,6 +7386,76 @@ def generate_adaptive_decision(user_id):
     }
 
 
+def generate_coach_briefing(session, health=None, readiness=None, pace_anchor=None):
+    """Genererar en strukturerad, handfast och motiverande coachningsbriefing inför dagens pass."""
+    if not session:
+        return {
+            'purpose': 'Aktiv återhämtning och vila för muskeluppbyggnad och nervsystem.',
+            'execution': 'Ingen schemalagd hård träning idag. Njut av vilan eller ta en lugn promenad och stretcha lätt.',
+            'rpe': 'RPE 1–2/10 (vila)',
+            'tips': 'Prioritera bra näring, god sömn och hydrering inför morgondagens utmaning.',
+            'fueling': 'Normal näringsrik kost och ordentligt med vätska.',
+        }
+
+    name = session.get('name') or session.get('title') or 'Dagens pass'
+    desc = session.get('detail') or session.get('description') or ''
+    km = session.get('km') or session.get('distance')
+    name_lower = (name + ' ' + desc).lower()
+
+    anchor = (pace_anchor or {}).get('anchor') or {}
+    lt_sec = anchor.get('ltPaceSec')
+    easy_sec = anchor.get('easyPaceSec')
+    interval_sec = anchor.get('intervalPaceSec')
+
+    def _fmt(s):
+        if not s: return None
+        m, sec = divmod(int(round(s)), 60)
+        return f"{m}:{sec:02d}/km"
+
+    lt_str = _fmt(lt_sec) or "3:55–4:05/km"
+    easy_str = _fmt(easy_sec) or "4:50–5:15/km"
+    interval_str = _fmt(interval_sec) or "3:40–3:50/km"
+
+    if 'intervall' in name_lower or '1000m' in name_lower or 'tröskel' in name_lower or 'fartlek' in name_lower or 'tempo' in name_lower:
+        purpose = "Höja din laktattröskel (LT2), optimera syreupptagningsförmågan (VO2max) och träna löpekonomi i tävlingsfart."
+        execution = f"15 min uppvärmning (Zon 1-2) + 3 korta stegringslopp. Huvuddel: Håll jämn fart runt {lt_str} ({interval_str} vid korta intervaller). Jogga vilan långsamt – gå inte. 10 min lugn nedjogg."
+        rpe = "RPE 7.5–8.5/10 (kontrollerat ansträngande – inte maxning)"
+        tips = "Starta inte för fort på första repet! Den sista intervallen ska gå i samma eller snabbare fart än den första."
+        fueling = "Lätt kolhydratmellanmål (t.ex. banan/havregrynsgröt) 1.5–2h innan passet. Drick 4–5 dl vätska."
+    elif 'långpass' in name_lower or (km and km >= 14):
+        purpose = "Utveckla aerob bas, fettförbränningseffektivitet, mitokondrietäthet och mental/muskulär uthållighet."
+        execution = f"Spring i jämnt och behagligt Zon 2-tempo ({easy_str}). Tempot ska kännas löjligt lätt de första kilometrarna."
+        rpe = "RPE 5–6/10 (konversationstempo – obehindrad andning)"
+        tips = "Var stenhård med farten i motlut och backar. Sänk tempot så att pulsen stannar i Zon 2."
+        fueling = "Ta med 1 gel eller sportdryck per 40 min om passet är över 75 minuter. Drick regelbundet små klunkar."
+    elif 'styrka' in name_lower or 'gym' in name_lower or 'lift' in name_lower:
+        purpose = "Stärka höftstabilitet, sätesmuskulatur, bål och fotleder för explosivt frånskjut och skadefrihet."
+        execution = "Knäböj/utfall, enbens marklyft, tåhävningar och core-planka. 3–4 set med 6–10 kontrollerade repetitioner."
+        rpe = "RPE 7/10 (bra form och kraft, inte utmattning till failure)"
+        tips = "Styrketräning för löpare handlar om kraftöverföring och ledstabilitet. Fokusera på perfekt teknik framför tunga vikter."
+        fueling = "Inta protein (20-30g) och kolhydrater inom 45 min efter passet för optimal återhämtning."
+    elif 'återhämtning' in name_lower or 'lugn' in name_lower or 'z2' in name_lower or 'easy' in name_lower:
+        purpose = "Öka kapillärblodflödet till musklerna, rensa slaggprodukter och stimulera nervsystemets återhämtning."
+        execution = f"Mycket lätt och avslappnad löpning i Zon 1-2 ({easy_str}). Släpp alla krav på fart."
+        rpe = "RPE 3–4/10 (väldigt lätt)"
+        tips = "Låt pulsen styra helt, inte GPS-farten. Känns det tungt, sakta ner ännu mer."
+        fueling = "Bra hydrering under dagen och näringsrik mat."
+    else:
+        purpose = "Kontinuitet och grundläggande konditionsuppbyggnad."
+        execution = f"Genomför passet med kontrollerad ansträngning i {easy_str}."
+        rpe = "RPE 5–6/10 (medelansträngande)"
+        tips = "Tänk på stolt hållning och att landa med foten under kroppens tyngdpunkt."
+        fueling = "Vanlig måltidsordning och bra vätskebalans."
+
+    return {
+        'purpose': purpose,
+        'execution': execution,
+        'rpe': rpe,
+        'tips': tips,
+        'fueling': fueling,
+    }
+
+
 # Rubriker per åtgärd. Motorn skriver redan en mening själv, men den är
 # formulerad som ett förslag ("Flytta kvalitetspasset"). När motorn är dagens
 # enda domare ska rubriken vara ett besked, inte ett förslag bland flera.
@@ -7392,16 +7487,23 @@ def today_view():
     action = decision.get('action') or 'no_session'
     fallback_headline, tone = _TODAY_TONE.get(action, (decision.get('headline'), 'neutral'))
 
-    # Beredskapen hämtas ur samma hälsopayload som allt annat, inte ur en egen
-    # formel i webbläsaren. Går hälsodatan inte att läsa ska beskedet ändå
-    # levereras — motorn klarar sig på det underlag den har.
     readiness = None
+    health = None
     try:
         health = latest_health_snapshot(uid(), date.today().isoformat()) or {}
         readiness = _cns_score_from_health(health)
     except Exception:
         logger.warning('today: beredskap kunde inte läsas',
                        extra={'event': 'today.readiness_failed'})
+
+    pace_ctx = None
+    try:
+        pace_ctx = _pace_context(uid())
+    except Exception:
+        pass
+
+    session = decision.get('session')
+    briefing = generate_coach_briefing(session, health, readiness, pace_ctx)
 
     return jsonify({
         'date': decision.get('date'),
@@ -7422,6 +7524,7 @@ def today_view():
         'checkin': adaptive.get('checkin') or {},
         'decisionId': adaptive.get('decisionId'),
         'lastEvaluatedAt': adaptive.get('lastEvaluatedAt'),
+        'coachBriefing': briefing,
     })
 
 

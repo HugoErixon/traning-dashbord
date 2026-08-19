@@ -806,9 +806,98 @@
     }
     /* Tonen på hela panelen följer beslutet, så färgen och orden aldrig kan
        säga olika saker om samma dag. */
-    #today-panel[data-tone="good"] { border-color:color-mix(in srgb, var(--green) 26%, transparent); }
-    #today-panel[data-tone="warn"] { border-color:color-mix(in srgb, var(--amber) 30%, transparent); }
-    #today-panel[data-tone="bad"]  { border-color:color-mix(in srgb, var(--red) 32%, transparent); }
+    /* ─── COACH BRIEFING BOX ─── */
+    .coach-briefing-box {
+      margin-top: 16px;
+      padding: 16px 18px;
+      border-radius: var(--radius-lg);
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .coach-briefing-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .coach-briefing-title-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .coach-briefing-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent-glow);
+    }
+    .coach-briefing-kicker {
+      font: 700 10.5px 'IBM Plex Mono', monospace;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .coach-briefing-badge {
+      font: 600 10px 'IBM Plex Mono', monospace;
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+      background: color-mix(in srgb, var(--text) 4%, transparent);
+      color: var(--muted3);
+      border: 1px solid var(--border);
+    }
+    .coach-briefing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .coach-briefing-item {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .coach-briefing-label {
+      font: 600 10px 'IBM Plex Mono', monospace;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .coach-briefing-item p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--text);
+    }
+    .coach-quick-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .coach-action-btn {
+      padding: 6px 12px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border2);
+      background: var(--bg2);
+      color: var(--muted3);
+      font: 500 11px 'IBM Plex Mono', monospace;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .coach-action-btn:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      background: var(--accent-dim);
+    }
 
     /* ─── UNDERFLIKAR ─── */
     .subnav {

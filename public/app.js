@@ -1252,6 +1252,22 @@ function renderToday(payload) {
     warning.style.display = text ? '' : 'none';
   }
 
+  // Coach Briefing
+  if (payload.coachBriefing) {
+    const cb = payload.coachBriefing;
+    const rpeEl = document.getElementById('coach-briefing-rpe');
+    const purpEl = document.getElementById('coach-briefing-purpose');
+    const execEl = document.getElementById('coach-briefing-execution');
+    const tipsEl = document.getElementById('coach-briefing-tips');
+    const fuelEl = document.getElementById('coach-briefing-fueling');
+
+    if (rpeEl && cb.rpe) rpeEl.textContent = cb.rpe;
+    if (purpEl && cb.purpose) purpEl.textContent = cb.purpose;
+    if (execEl && cb.execution) execEl.textContent = cb.execution;
+    if (tipsEl && cb.tips) tipsEl.textContent = cb.tips;
+    if (fuelEl && cb.fueling) fuelEl.textContent = cb.fueling;
+  }
+
   // Ringen visar samma beredskapstal som beslutet vilar på. Räknades det fram
   // separat här kunde ring och besked hamna på olika sidor om en gräns.
   if (payload.readiness != null) setReadinessRing(payload.readiness);
@@ -1404,6 +1420,22 @@ function executeAction(trigger, event) {
   else if (action === 'pace-generate') generatePaceProposals();
   else if (action === 'pace-decide') decidePaceProposals(trigger.dataset.decision, trigger.dataset.id);
   else if (action === 'calc-load-pace') loadPaceIntoCalculator(trigger.dataset.pace);
+  else if (action === 'coach-ask-pacing') {
+    qa('Hur ska jag lägga upp dagens pass vad gäller farthållning, intervallsplittar och pulszoner?');
+    document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
+  }
+  else if (action === 'coach-ask-shorten') {
+    qa('Jag har ont om tid idag. Hur kan jag korta ner dagens pass och behålla den viktigaste träningseffekten?');
+    document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
+  }
+  else if (action === 'coach-ask-tired') {
+    qa('Jag känner mig lite sliten idag. Hur anpassar vi dagens pass eller intensitet bäst?');
+    document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
+  }
+  else if (action === 'coach-ask-switch') {
+    qa('Jag vill köra styrketräning för löpare istället för dagens löppass. Kan du justera planen och ge ett pass?');
+    document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
+  }
   else if (action === 'strength-tab') strengthTab(trigger.dataset.tab);
   else if (action === 'save-journal') saveJournalEntry();
   else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
