@@ -1,5 +1,10 @@
 let csrfToken = '';
 let pollTimer = null;
+// Kon ritas om var tredje sekund. Utan det har skulle ett oppnat uppdrag fallas
+// ihop vid varje omritning, precis medan man foljer korningen som pagar.
+const openJobs = new Set();
+const jobBodies = new Map();
+let renderedSignature = null;
 
 const byId = id => document.getElementById(id);
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({
@@ -192,6 +197,12 @@ function formatTime(timestamp) {
 
 function renderJobs(jobs) {
   const container = byId('jobs');
+  const signature = jobs.map(job => `${job.id}:${job.status}`).join('|');
+  if (signature === renderedSignature) return;
+  renderedSignature = signature;
+  const known = new Set(jobs.map(job => job.id));
+  openJobs.forEach(id => { if (!known.has(id)) openJobs.delete(id); });
+  jobBodies.forEach((_, id) => { if (!known.has(id)) jobBodies.delete(id); });
   if (!jobs.length) {
     container.innerHTML = '<p class="empty">Inga uppdrag ännu.</p>';
     return;
@@ -205,15 +216,34 @@ function renderJobs(jobs) {
       </summary>
       <div class="job-body"><p class="empty">Öppna för att ladda körningen…</p></div>
     </details>`).join('');
-  container.querySelectorAll('details').forEach(element => element.addEventListener('toggle', () => {
-    if (element.open) loadJobDetail(element);
-  }));
+  container.querySelectorAll('details').forEach(element => {
+    const jobId = element.dataset.jobId;
+    element.addEventListener('toggle', () => {
+      if (element.open) { openJobs.add(jobId); loadJobDetail(element); }
+      else openJobs.delete(jobId);
+    });
+    if (!openJobs.has(jobId)) return;
+    // Aterstall det tidigare innehallet direkt, sa omritningen inte blinkar
+    // tillbaka till "Oppna for att ladda korningen" medan hamtningen pagar.
+    const cached = jobBodies.get(jobId);
+    if (cached) element.querySelector('.job-body').innerHTML = cached;
+    element.open = true;
+  });
 }
 
 async function loadJobs() {
   try {
     const data = await api('/api/ai/jobs');
-    renderJobs(data.jobs || []);
+    const jobs = data.jobs || [];
+    renderJobs(jobs);
+    // Ett uppdrag som fortfarande kor far nya handelser aven nar sjalva
+    // listraden ser oforandrad ut, sa dess detaljvy maste hamtas om.
+    await Promise.all(jobs
+      .filter(job => openJobs.has(job.id) && (job.status === 'pending' || job.status === 'running'))
+      .map(job => {
+        const element = byId('jobs').querySelector(`details[data-job-id="${CSS.escape(job.id)}"]`);
+        return element ? loadJobDetail(element) : null;
+      }));
   } catch (error) {
     if (error.code === 'passkey_required') await loadStatus();
     else notice(error.message, true);
@@ -225,10 +255,12 @@ async function loadJobDetail(element) {
     const data = await api(`/api/ai/jobs/${element.dataset.jobId}`);
     const job = data.job;
     const events = (job.events || []).map(event => `[${statusLabel(event.kind)}] ${event.message}`).join('\n\n');
-    element.querySelector('.job-body').innerHTML = `
+    const body = `
       ${job.result ? `<h3>RESULTAT</h3><div class="job-result">${escapeHtml(job.result)}</div>` : ''}
       ${job.error ? `<h3>FEL</h3><div class="job-result">${escapeHtml(job.error)}</div>` : ''}
       <h3>HÄNDELSER</h3><div class="job-events">${escapeHtml(events || 'Inga händelser ännu.')}</div>`;
+    jobBodies.set(element.dataset.jobId, body);
+    element.querySelector('.job-body').innerHTML = body;
   } catch (error) {
     element.querySelector('.job-body').textContent = error.message;
   }

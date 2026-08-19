@@ -117,6 +117,24 @@ Finish with a concise Swedish summary of changed files, tests, and anything the 
             ACTIVE_PROCESS.stdin.close()
         selector = selectors.DefaultSelector()
         selector.register(ACTIVE_PROCESS.stdout, selectors.EVENT_READ)
+
+        def consume(line):
+            nonlocal last_message
+            line = line.rstrip()
+            if not line:
+                return
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                emit(session, job_id, 'output', line)
+                return
+            message = final_agent_message(provider, event)
+            if message:
+                last_message = message
+            event_type = event.get('type', 'event')
+            if event_type in ('item.completed', 'result', 'turn.failed', 'error'):
+                emit(session, job_id, event_type, line)
+
         while ACTIVE_PROCESS.poll() is None:
             if STOPPING:
                 raise RuntimeError('Agenttjänsten stoppades.')
@@ -124,20 +142,18 @@ Finish with a concise Swedish summary of changed files, tests, and anything the 
                 ACTIVE_PROCESS.terminate()
                 raise TimeoutError(f'Uppdraget överskred {JOB_TIMEOUT} sekunder.')
             for key, _ in selector.select(timeout=1):
-                line = key.fileobj.readline()
-                if not line:
-                    continue
-                line = line.rstrip()
-                try:
-                    event = json.loads(line)
-                    message = final_agent_message(provider, event)
-                    if message:
-                        last_message = message
-                    event_type = event.get('type', 'event')
-                    if event_type in ('item.completed', 'result', 'turn.failed', 'error'):
-                        emit(session, job_id, event_type, line)
-                except json.JSONDecodeError:
-                    emit(session, job_id, 'output', line)
+                consume(key.fileobj.readline())
+        # Sammanfattningen skrivs sist av allt - Claudes "result" och Codex sista
+        # agent_message ligger kvar i roret nar processen redan har avslutats.
+        # Lases den inte har rapporteras ett slutfort jobb utan sitt resultat.
+        drain_deadline = time.monotonic() + 10
+        while time.monotonic() < drain_deadline:
+            if not selector.select(timeout=0.2):
+                break
+            line = ACTIVE_PROCESS.stdout.readline()
+            if not line:
+                break
+            consume(line)
         return_code = ACTIVE_PROCESS.wait()
         if return_code != 0:
             raise RuntimeError(f'{provider_name} avslutades med kod {return_code}.')
@@ -152,6 +168,12 @@ Finish with a concise Swedish summary of changed files, tests, and anything the 
         except requests.RequestException:
             pass
     finally:
+        # En timeout eller ett stopp lamnar annars korningen vid liv, och nasta
+        # jobb skulle da starta en andra agent i samma checkout.
+        if ACTIVE_PROCESS and ACTIVE_PROCESS.poll() is None:
+            ACTIVE_PROCESS.kill()
+        if ACTIVE_PROCESS:
+            ACTIVE_PROCESS.wait()
         ACTIVE_PROCESS = None
 
 
