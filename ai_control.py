@@ -269,7 +269,9 @@ class AiControlStore:
                 if job_id not in self._jobs:
                     return False
                 events = self._events.setdefault(job_id, [])
-                events.append({'seq': len(events) + 1, 'kind': kind,
+                # Numret ar strikt vaxande i databasen (BIGSERIAL) och far inte
+                # borja om nar de aldsta handelserna trillar av listan.
+                events.append({'seq': events[-1]['seq'] + 1 if events else 1, 'kind': kind,
                                'message': message, 'created_at': now})
                 del events[:-250]
             return True
