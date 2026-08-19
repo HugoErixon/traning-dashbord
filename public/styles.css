@@ -3033,6 +3033,14 @@
       background: color-mix(in srgb, var(--text) 3%, transparent);
       color: var(--muted2);
       font: 500 10.5px 'IBM Plex Mono', monospace;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .pace-band:hover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--text);
     }
     .pace-band b { color: var(--text); font-weight: 600; margin-right: 4px; }
     .pace-goal {
@@ -3119,11 +3127,173 @@
       line-height: 1.6;
       padding-top: 4px;
     }
+
+    /* ─── INTERVALL- & LÖPBANDSKALKYLATOR ─── */
+    .pace-calc-wrap {
+      margin-top: 14px;
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+    .pace-calc-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      list-style: none;
+      font-size: 13px;
+      font-weight: 650;
+      color: var(--text);
+      user-select: none;
+      padding: 4px 0;
+    }
+    .pace-calc-toggle::-webkit-details-marker { display: none; }
+    .pace-calc-toggle-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .pace-calc-toggle-title svg { color: var(--accent); }
+    .pace-calc-toggle-hint {
+      font-size: 10.5px;
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 500;
+    }
+    .pace-calc-body {
+      margin-top: 14px;
+      padding: 16px;
+      border-radius: var(--radius);
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .pace-calc-inputs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+    }
+    .pace-calc-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted2);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .pace-calc-input-group {
+      display: inline-flex;
+      align-items: center;
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 6px 10px;
+      gap: 4px;
+      width: fit-content;
+    }
+    .pace-calc-input-group:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
+    }
+    .pace-calc-input-group input[type="number"] {
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font: 700 15px 'IBM Plex Mono', monospace;
+      width: 48px;
+      text-align: center;
+      padding: 2px 0;
+      outline: none;
+      -moz-appearance: textfield;
+    }
+    .pace-calc-input-group input[type="number"]::-webkit-outer-spin-button,
+    .pace-calc-input-group input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .pace-calc-sep {
+      font: 700 15px 'IBM Plex Mono', monospace;
+      color: var(--muted);
+    }
+    .pace-calc-unit {
+      font: 500 11px 'IBM Plex Mono', monospace;
+      color: var(--muted);
+      margin-left: 4px;
+    }
+    .pace-calc-results {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .pace-calc-block {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+    }
+    .pace-calc-block-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
+    }
+    .pace-calc-splits {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .pace-split-pill {
+      background: color-mix(in srgb, var(--text) 2.5%, transparent);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .split-dist {
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .split-val {
+      font: 700 12.5px 'IBM Plex Mono', monospace;
+      color: var(--text);
+    }
+    .pace-calc-races {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .pace-race-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 8px;
+      border-radius: var(--radius-sm);
+      background: color-mix(in srgb, var(--text) 2%, transparent);
+    }
+    .race-name {
+      font-size: 11.5px;
+      color: var(--muted2);
+      font-weight: 500;
+    }
+    .race-val {
+      font: 700 12.5px 'IBM Plex Mono', monospace;
+      color: var(--accent);
+    }
     @media (max-width: 720px) {
       .pace-panel { padding: 16px; }
       .pace-generate-btn { width: 100%; }
       .pace-row-actions { width: 100%; }
       .pace-row-actions .pace-btn { flex: 1; }
+      .pace-calc-splits { grid-template-columns: repeat(2, 1fr); }
     }
 
     /* Hur passet faktiskt kördes mot planen — se session_analysis.py */

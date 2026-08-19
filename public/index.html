@@ -753,7 +753,7 @@
       <div class="pace-panel" id="pace-panel" style="display:none;">
         <div class="pace-panel-head">
           <div>
-            <div class="pace-panel-title">Måltempon</div>
+            <div class="pace-panel-title">Måltempon &amp; zoner</div>
             <div class="pace-panel-sub" id="pace-anchor-sub">Laddar…</div>
           </div>
           <button class="refresh-btn pace-generate-btn" id="pace-generate-btn" data-action="pace-generate" type="button">Räkna om måltempon</button>
@@ -761,6 +761,60 @@
         <div id="pace-bands" class="pace-bands"></div>
         <div id="pace-goal" class="pace-goal" style="display:none;"></div>
         <div id="pace-proposals"></div>
+
+        <details class="pace-calc-wrap" id="pace-calc-wrap">
+          <summary class="pace-calc-toggle">
+            <span class="pace-calc-toggle-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>Intervall- &amp; löpbandskalkylator</span>
+            </span>
+            <span class="pace-calc-toggle-hint">Klicka för splittar &amp; km/h</span>
+          </summary>
+          <div class="pace-calc-body">
+            <div class="pace-calc-inputs">
+              <div class="pace-calc-field">
+                <label for="pace-calc-min">Km-tempo</label>
+                <div class="pace-calc-input-group">
+                  <input type="number" id="pace-calc-min" min="2" max="15" value="4" step="1" aria-label="Minuter per km">
+                  <span class="pace-calc-sep">:</span>
+                  <input type="number" id="pace-calc-sec" min="0" max="59" value="00" step="1" aria-label="Sekunder per km">
+                  <span class="pace-calc-unit">/km</span>
+                </div>
+              </div>
+              <div class="pace-calc-field">
+                <label for="pace-calc-speed">Löpbandshastighet</label>
+                <div class="pace-calc-input-group">
+                  <input type="number" id="pace-calc-speed" min="4" max="30" step="0.1" value="15.0" aria-label="Hastighet i km/h">
+                  <span class="pace-calc-unit">km/h</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="pace-calc-results">
+              <div class="pace-calc-block">
+                <div class="pace-calc-block-title">Intervallsplittar</div>
+                <div class="pace-calc-splits">
+                  <div class="pace-split-pill"><span class="split-dist">200m</span><strong class="split-val" id="split-200">0:48</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">400m</span><strong class="split-val" id="split-400">1:36</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">800m</span><strong class="split-val" id="split-800">3:12</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">1000m</span><strong class="split-val" id="split-1000">4:00</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">1500m</span><strong class="split-val" id="split-1500">6:00</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">2000m</span><strong class="split-val" id="split-2000">8:00</strong></div>
+                </div>
+              </div>
+
+              <div class="pace-calc-block">
+                <div class="pace-calc-block-title">Loppdistanser vid detta tempo</div>
+                <div class="pace-calc-races">
+                  <div class="pace-race-item"><span class="race-name">5 km</span><strong class="race-val" id="race-5k">20:00</strong></div>
+                  <div class="pace-race-item"><span class="race-name">10 km</span><strong class="race-val" id="race-10k">40:00</strong></div>
+                  <div class="pace-race-item"><span class="race-name">Halvmaraton</span><strong class="race-val" id="race-half">1:24:23</strong></div>
+                  <div class="pace-race-item"><span class="race-name">Maraton</span><strong class="race-val" id="race-full">2:48:47</strong></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
 
       <div class="cal-tabs" role="tablist" aria-label="Kalendervy">

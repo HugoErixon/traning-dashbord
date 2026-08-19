@@ -1403,6 +1403,7 @@ function executeAction(trigger, event) {
   else if (action === 'analysis-metric') selectAnalysisMetric(trigger.dataset.metric);
   else if (action === 'pace-generate') generatePaceProposals();
   else if (action === 'pace-decide') decidePaceProposals(trigger.dataset.decision, trigger.dataset.id);
+  else if (action === 'calc-load-pace') loadPaceIntoCalculator(trigger.dataset.pace);
   else if (action === 'strength-tab') strengthTab(trigger.dataset.tab);
   else if (action === 'save-journal') saveJournalEntry();
   else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
@@ -5939,17 +5940,132 @@ HEALTH DATA (current):
     }
   }
 
+  function formatSplitSeconds(sec) {
+    if (!sec || isNaN(sec) || sec <= 0) return '–';
+    const total = Math.round(sec);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function formatRaceSeconds(sec) {
+    if (!sec || isNaN(sec) || sec <= 0) return '–';
+    const total = Math.round(sec);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) {
+      return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function updatePaceCalculatorFromSeconds(totalSec, source) {
+    if (!totalSec || isNaN(totalSec) || totalSec <= 0) return;
+    const minInput = document.getElementById('pace-calc-min');
+    const secInput = document.getElementById('pace-calc-sec');
+    const speedInput = document.getElementById('pace-calc-speed');
+
+    if (source !== 'tempo' && minInput && secInput) {
+      minInput.value = Math.floor(totalSec / 60);
+      secInput.value = String(Math.round(totalSec % 60)).padStart(2, '0');
+    }
+    if (source !== 'speed' && speedInput) {
+      const speed = 3600 / totalSec;
+      speedInput.value = speed.toFixed(1);
+    }
+
+    const s200 = document.getElementById('split-200');
+    const s400 = document.getElementById('split-400');
+    const s800 = document.getElementById('split-800');
+    const s1000 = document.getElementById('split-1000');
+    const s1500 = document.getElementById('split-1500');
+    const s2000 = document.getElementById('split-2000');
+
+    if (s200) s200.textContent = formatSplitSeconds(totalSec * 0.2);
+    if (s400) s400.textContent = formatSplitSeconds(totalSec * 0.4);
+    if (s800) s800.textContent = formatSplitSeconds(totalSec * 0.8);
+    if (s1000) s1000.textContent = formatSplitSeconds(totalSec * 1.0);
+    if (s1500) s1500.textContent = formatSplitSeconds(totalSec * 1.5);
+    if (s2000) s2000.textContent = formatSplitSeconds(totalSec * 2.0);
+
+    const r5k = document.getElementById('race-5k');
+    const r10k = document.getElementById('race-10k');
+    const rHalf = document.getElementById('race-half');
+    const rFull = document.getElementById('race-full');
+
+    if (r5k) r5k.textContent = formatRaceSeconds(totalSec * 5);
+    if (r10k) r10k.textContent = formatRaceSeconds(totalSec * 10);
+    if (rHalf) rHalf.textContent = formatRaceSeconds(totalSec * 21.0975);
+    if (rFull) rFull.textContent = formatRaceSeconds(totalSec * 42.195);
+  }
+
+  let paceCalculatorInitialized = false;
+  function initPaceCalculator() {
+    if (paceCalculatorInitialized) return;
+    const minInput = document.getElementById('pace-calc-min');
+    const secInput = document.getElementById('pace-calc-sec');
+    const speedInput = document.getElementById('pace-calc-speed');
+    if (!minInput || !secInput || !speedInput) return;
+
+    paceCalculatorInitialized = true;
+
+    function onTempoChange() {
+      const min = parseInt(minInput.value, 10) || 0;
+      const sec = parseInt(secInput.value, 10) || 0;
+      const total = min * 60 + sec;
+      if (total > 0) updatePaceCalculatorFromSeconds(total, 'tempo');
+    }
+
+    function onSpeedChange() {
+      const speed = parseFloat(speedInput.value) || 0;
+      if (speed > 0) {
+        const total = 3600 / speed;
+        updatePaceCalculatorFromSeconds(total, 'speed');
+      }
+    }
+
+    minInput.addEventListener('input', onTempoChange);
+    secInput.addEventListener('input', onTempoChange);
+    speedInput.addEventListener('input', onSpeedChange);
+
+    onTempoChange();
+  }
+
+  function loadPaceIntoCalculator(paceText) {
+    if (!paceText) return;
+    const match = String(paceText).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return;
+    const min = parseInt(match[1], 10);
+    const sec = parseInt(match[2], 10);
+    const total = min * 60 + sec;
+
+    const wrap = document.getElementById('pace-calc-wrap');
+    if (wrap) wrap.open = true;
+
+    initPaceCalculator();
+
+    const minInput = document.getElementById('pace-calc-min');
+    const secInput = document.getElementById('pace-calc-sec');
+    if (minInput) minInput.value = min;
+    if (secInput) secInput.value = String(sec).padStart(2, '0');
+
+    updatePaceCalculatorFromSeconds(total, 'direct');
+  }
+
   function renderPacePanel(data) {
     const panel = document.getElementById('pace-panel');
     const anchor = data.anchor || {};
     if (!anchor.ltPaceSec) { panel.style.display = 'none'; return; }
     panel.style.display = '';
 
+    initPaceCalculator();
+
     document.getElementById('pace-anchor-sub').textContent =
       `Tröskel ${anchor.ltPace} · källa: ${anchor.source} · konfidens: ${anchor.confidence}`;
 
     document.getElementById('pace-bands').innerHTML = Object.entries(data.bands || {})
-      .map(([kind, band]) => `<span class="pace-band">`
+      .map(([kind, band]) => `<span class="pace-band" data-action="calc-load-pace" data-pace="${escapeHtml(band.text)}" role="button" tabindex="0" title="Klicka för att beräkna splittar &amp; löpband">`
         + `<b>${escapeHtml(PACE_KIND_LABELS[kind] || kind)}</b> ${escapeHtml(band.text)}</span>`)
       .join('');
 
