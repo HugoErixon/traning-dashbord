@@ -3658,9 +3658,12 @@
     }
     .csp-run  { background: var(--green-dim);  color: var(--green);  border: 1px solid color-mix(in srgb, var(--green) 18%, transparent); }
     .csp-easy { background: color-mix(in srgb, var(--green) 4%, transparent); color: var(--muted2); border: 1px solid color-mix(in srgb, var(--green) 10%, transparent); }
+    .csp-bike { background: var(--blue-dim);   color: var(--blue);   border: 1px solid color-mix(in srgb, var(--blue) 18%, transparent); }
     .csp-lift { background: var(--orange-dim); color: var(--orange); border: 1px solid color-mix(in srgb, var(--orange) 18%, transparent); }
     .csp-race { background: var(--red-dim);    color: var(--red);    border: 1px solid color-mix(in srgb, var(--red) 20%, transparent); }
     .csp-rest { background: var(--blue-dim);   color: var(--blue);   border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); }
+    .csp-walk { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--muted2); border: 1px solid var(--border); }
+    .csp-swim { background: var(--blue-dim);   color: var(--blue);   border: 1px solid color-mix(in srgb, var(--blue) 18%, transparent); }
     .csp-done { background: var(--green-dim);  color: var(--green);  border: 1px solid var(--green); font-weight: 700; }
     .csp-actual { box-shadow: inset 3px 0 0 currentColor; }
     .csp-actual[data-action="open-activity"] { cursor:pointer; transition:transform .15s ease, filter .15s ease; }

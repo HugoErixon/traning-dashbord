@@ -6992,9 +6992,11 @@ def _build_session_execution(planned, acts, day, user_id, username=None,
     Returnerar ett dict som sparas i plan_sessions.execution och matas både
     till AI-prompterna och till gränssnittet.
     """
-    run_types = {'running', 'track_running', 'treadmill_running', 'trail_running'}
+    run_types  = {'running', 'track_running', 'treadmill_running', 'trail_running', 'virtual_run', 'street_running', 'obstacle_course_racing'}
+    bike_types = {'cycling', 'road_biking', 'gravel_cycling', 'indoor_cycling', 'mountain_biking', 'virtual_ride', 'e_biking', 'cyclocross', 'bmx'}
+    lift_types = {'strength_training', 'fitness_equipment', 'weight_training'}
 
-    if planned['type'] in ('run', 'easy', 'race'):
+    if planned['type'] in ('run', 'easy', 'race', 'interval', 'threshold', 'long'):
         runs = [a for a in acts
                 if (a.get('activityType') or {}).get('typeKey', '') in run_types]
         if not runs:
@@ -7012,7 +7014,26 @@ def _build_session_execution(planned, acts, day, user_id, username=None,
         analysis['headline'] = session_analysis.headline_for(analysis)
         return analysis
 
-    if planned['type'] == 'lift':
+    if planned['type'] in ('bike', 'cycling'):
+        bikes = [a for a in acts
+                 if (a.get('activityType') or {}).get('typeKey', '') in bike_types]
+        if not bikes:
+            return None
+        activity = max(bikes, key=lambda a: a.get('distance') or 0)
+        dist_km = round((activity.get('distance') or 0) / 1000, 1)
+        dur_min = round((activity.get('duration') or 0) / 60)
+        analysis = {
+            'discipline': 'bike',
+            'activityId': activity.get('activityId') or activity.get('id'),
+            'activityName': activity.get('activityName') or 'Cykelpass',
+            'distanceKm': dist_km,
+            'durationMin': dur_min,
+            'avgHr': activity.get('averageHR'),
+            'headline': f"Cykelpass {dist_km} km genomfört",
+        }
+        return analysis
+
+    if planned['type'] in ('lift', 'strength'):
         history = strength_history or []
         day_str = day.isoformat()
         logged = [entry for entry in history if entry.get('date') == day_str]
@@ -7041,12 +7062,14 @@ def match_activities_to_plan(days_back=7, user_id=1, username=None):
     (om en aktivitet synkats i efterhand) men rör aldrig skipped/rescheduled.
     Idag hoppas över eftersom dagen inte är slut. Körs efter varje synk.
 
-    För genomförda pass sparas dessutom en utvärdering av HUR passet kördes
-    (tempo mot måltempo, varv, pulsdrift, vikter mot progressionsmål).
+    Endast löppass och cykelpass (samt styrka för styrkepass) räknas som
+    att ett schemalagt pass är genomfört. Promenader, simning, vardagsmotion
+    räknas inte mot planerade löp-/cykelpass.
     """
     today = date.today()
-    run_types  = {'running','track_running','treadmill_running','trail_running'}
-    lift_types = {'strength_training','fitness_equipment'}
+    run_types  = {'running', 'track_running', 'treadmill_running', 'trail_running', 'virtual_run', 'street_running', 'obstacle_course_racing'}
+    bike_types = {'cycling', 'road_biking', 'gravel_cycling', 'indoor_cycling', 'mountain_biking', 'virtual_ride', 'e_biking', 'cyclocross', 'bmx'}
+    lift_types = {'strength_training', 'fitness_equipment', 'weight_training'}
 
     lactate_hr = _latest_lactate_hr(user_id)
     try:
@@ -7075,24 +7098,27 @@ def match_activities_to_plan(days_back=7, user_id=1, username=None):
                     (day.isoformat(), (day + timedelta(days=1)).isoformat(), user_id))
                 acts = [r['raw'] for r in cur.fetchall()]
 
-            did_run  = any(a.get('activityType',{}).get('typeKey','') in run_types for a in acts)
-            did_lift = any(a.get('activityType',{}).get('typeKey','') in lift_types for a in acts)
+            did_run  = any((a.get('activityType') or {}).get('typeKey', '') in run_types for a in acts)
+            did_bike = any((a.get('activityType') or {}).get('typeKey', '') in bike_types for a in acts)
+            did_lift = any((a.get('activityType') or {}).get('typeKey', '') in lift_types for a in acts)
 
             with conn.cursor() as cur:
                 for p in planned:
                     if p['status'] == 'completed':
-                        # Hämtat enbart för att fylla i utvärderingen — ett
-                        # genomfört pass ska aldrig kunna nedgraderas här.
                         new_status = 'completed'
                     else:
-                        if p['type'] in ('run','easy','race'):
+                        p_type = str(p.get('type') or '').lower()
+                        if p_type in ('run', 'easy', 'race', 'interval', 'threshold', 'long'):
                             completed = did_run
-                        elif p['type'] == 'lift':
+                        elif p_type in ('bike', 'cycling'):
+                            completed = did_bike
+                        elif p_type in ('lift', 'strength'):
                             completed = did_lift
-                        elif p['type'] == 'rest':
+                        elif p_type == 'rest':
                             completed = True  # vilodag räknas alltid som genomförd
                         else:
                             completed = False
+
                         if completed:
                             new_status = 'completed'
                         elif i == 0:
@@ -7105,8 +7131,6 @@ def match_activities_to_plan(days_back=7, user_id=1, username=None):
                         cur.execute('''UPDATE plan_sessions SET status = %s, modified_at = %s
                             WHERE id = %s AND user_id = %s''', (new_status, time.time(), p['id'], user_id))
 
-                    # Utvärderingen görs en gång per pass — den kostar ett
-                    # Garmin-anrop och ändrar sig inte i efterhand.
                     if new_status == 'completed' and not p.get('execution'):
                         try:
                             execution = _build_session_execution(

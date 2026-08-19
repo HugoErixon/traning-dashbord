@@ -4763,10 +4763,30 @@ HEALTH DATA (current):
 
   function calendarActivityType(activity) {
     const key = String(activity.activityType?.typeKey || activity.type || '').toLowerCase();
+    if (/cycling|biking|bike|ride/.test(key)) return 'bike';
     if (/strength|fitness|weight/.test(key)) return 'lift';
     if (/race/.test(key)) return 'race';
     if (/track|running|treadmill|trail/.test(key)) return 'run';
-    return 'rest';
+    if (/walk|hiking|hike/.test(key)) return 'walk';
+    if (/swim/.test(key)) return 'swim';
+    return 'other';
+  }
+
+  function isQualifyingActivityForSession(activity, plannedSession) {
+    if (!activity || !plannedSession) return false;
+    const actType = calendarActivityType(activity);
+    const pType = String(plannedSession.type || '').toLowerCase();
+
+    if (['run', 'easy', 'race', 'interval', 'threshold', 'long'].includes(pType)) {
+      return actType === 'run' || actType === 'race';
+    }
+    if (['bike', 'cycling'].includes(pType)) {
+      return actType === 'bike';
+    }
+    if (['lift', 'strength'].includes(pType)) {
+      return actType === 'lift';
+    }
+    return false;
   }
 
   function calendarActivityLabel(activity) {
@@ -4798,51 +4818,29 @@ HEALTH DATA (current):
   }
 
   // Utvärderingen av ett genomfört pass (se session_analysis.py). Allt utom
-  // dessa två flaggor är något att åtgärda, inte att berömma.
-  const EXECUTION_POSITIVE_FLAGS = new Set([
-    'negative_split_reps', 'strength_on_target', 'easy_run_slower_than_target',
-  ]);
-
-  function executionIsPositive(execution) {
-    const flags = execution?.flags || [];
-    return !flags.length || flags.every(flag => EXECUTION_POSITIVE_FLAGS.has(flag));
-  }
-
+  // styrketräning kommer från Garmin-anropet; styrkan utvärderas mot
+  // loggboken i databasen.
   function executionDetailLines(execution) {
     if (!execution) return [];
     const lines = [];
-
-    if (execution.discipline === 'strength') {
-      (execution.exercises || []).forEach(item => {
-        if (!item.weight) return;
-        const target = item.targetWeight ? ` mot mål ${item.targetWeight} kg` : '';
-        const delta = item.deltaPct != null ? ` (${item.deltaPct > 0 ? '+' : ''}${item.deltaPct}%)` : '';
-        lines.push(`${item.exercise}: ${item.weight} kg${target}${delta}`);
-      });
-      return lines;
+    if (execution.splits?.length) {
+      lines.push(execution.splits.map(s => s.pace || s.label).join('  ·  '));
     }
-
-    if (execution.avgPace) {
-      const target = execution.targetPace ? ` mot mål ${execution.targetPace.text}` : '';
-      const delta = execution.paceDeltaPct != null
-        ? ` (${execution.paceDeltaPct > 0 ? '+' : ''}${execution.paceDeltaPct}%)` : '';
-      lines.push(`Snittempo ${execution.avgPace}${target}${delta}`);
+    if (execution.hr_drift_pct != null) {
+      lines.push(`Pulsdrift +${execution.hr_drift_pct}%`);
     }
-    if (execution.reps?.length) {
-      const paces = execution.reps.map(rep => rep.pace).filter(Boolean).join(', ');
-      if (paces) lines.push(`Rep: ${paces}`);
-      if (execution.fadePct != null) {
-        lines.push(`Första till sista rep: ${execution.fadePct > 0 ? '+' : ''}${execution.fadePct}%`);
-      }
+    if (execution.pace_vs_target) {
+      lines.push(execution.pace_vs_target);
     }
-    if (execution.hrDrift) {
-      lines.push(`Pulsdrift ${execution.hrDrift.firstHalf} → ${execution.hrDrift.secondHalf} slag`
-        + ` (${execution.hrDrift.pct > 0 ? '+' : ''}${execution.hrDrift.pct}%)`);
-    }
-    if (execution.plannedKm && execution.distanceKm) {
-      lines.push(`${execution.distanceKm} km av planerade ${execution.plannedKm} km`);
+    if (execution.strength_verdict) {
+      lines.push(execution.strength_verdict);
     }
     return lines;
+  }
+
+  function executionIsPositive(execution) {
+    if (!execution) return true;
+    return execution.verdict === 'good' || execution.score == null || execution.score >= 70;
   }
 
   function executionBadgeHtml(execution) {
@@ -4856,13 +4854,55 @@ HEALTH DATA (current):
   function calendarActualPills(dayActivities, plannedSession) {
     if (!dayActivities.length) return '';
     const runs = dayActivities.filter(a => calendarActivityType(a) === 'run');
+    const bikes = dayActivities.filter(a => calendarActivityType(a) === 'bike');
     const lifts = dayActivities.filter(a => calendarActivityType(a) === 'lift');
     const totalRunKm = runs.reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
+    const totalBikeKm = bikes.reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
     const totalSec = dayActivities.reduce((sum, a) => sum + (a.duration || a.elapsedDuration || 0), 0);
     const minutes = totalSec ? Math.round(totalSec / 60) : null;
 
     const verdict = executionBadgeHtml(plannedSession?.execution);
 
+    // Om ett löppass var planerat
+    if (['run', 'easy', 'race', 'interval', 'threshold', 'long'].includes(plannedSession?.type)) {
+      if (runs.length) {
+        if (runs.length > 1) {
+          const pills = runs.map(run => {
+            const label = calendarActivityLabel(run);
+            const seconds = run.duration || run.elapsedDuration || 0;
+            const tip = [activitySourceLabel(run), label, seconds ? Math.round(seconds / 60) + ' min' : ''].filter(Boolean).join(' - ');
+            return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(run)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+          }).join('');
+          return pills + verdict;
+        }
+        const interval = runs.find(a => a.calendarSummary?.kind === 'interval');
+        const label = interval?.calendarSummary?.label
+          ? `${interval.calendarSummary.label}${totalRunKm ? ' · ' + totalRunKm.toFixed(1) + ' km' : ''}`
+          : calendarActivityLabel(runs[0]);
+        const names = runs.map(calendarActivityLabel).join(' - ');
+        const tip = [activitySourceLabel(runs[0]), names, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+        return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(runs[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
+      }
+      // Löppass var planerat men annan aktivitet gjordes (t.ex. promenad/simning) -> markera inte som avklarat löppass
+      return dayActivities.map(activity => {
+        const actualType = calendarActivityType(activity);
+        const cls = actualType === 'bike' ? 'csp-bike' : actualType === 'lift' ? 'csp-lift' : 'csp-rest';
+        const label = calendarActivityLabel(activity);
+        const seconds = activity.duration || activity.elapsedDuration || 0;
+        const mins = seconds ? Math.round(seconds / 60) : null;
+        const tip = [activitySourceLabel(activity), label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
+        return `<span class="cal-session-pill ${cls} csp-actual"${activityOpenAttrs(activity)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+      }).join('');
+    }
+
+    // Om cykelpass var planerat
+    if (['bike', 'cycling'].includes(plannedSession?.type) && bikes.length) {
+      const label = plannedSession.title || 'Cykelpass';
+      const tip = [activitySourceLabel(bikes[0]), label, totalBikeKm ? totalBikeKm.toFixed(1) + ' km' : '', minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+      return `<span class="cal-session-pill csp-bike csp-done csp-actual"${activityOpenAttrs(bikes[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
+    }
+
+    // Om styrkepass var planerat
     if (plannedSession?.type === 'lift' && lifts.length) {
       const label = plannedSession.title || 'Styrkepass';
       const tip = [activitySourceLabel(lifts[0]), label, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
@@ -4870,22 +4910,13 @@ HEALTH DATA (current):
     }
 
     if (runs.length) {
-      if (runs.length > 1) {
-        const pills = runs.map(run => {
-          const label = calendarActivityLabel(run);
-          const seconds = run.duration || run.elapsedDuration || 0;
-          const tip = [activitySourceLabel(run), label, seconds ? Math.round(seconds / 60) + ' min' : ''].filter(Boolean).join(' - ');
-          return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(run)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
-        }).join('');
-        return pills + verdict;
-      }
-      const interval = runs.find(a => a.calendarSummary?.kind === 'interval');
-      const label = interval?.calendarSummary?.label
-        ? `${interval.calendarSummary.label}${totalRunKm ? ' · ' + totalRunKm.toFixed(1) + ' km' : ''}`
-        : calendarActivityLabel(runs[0]);
-      const names = runs.map(calendarActivityLabel).join(' - ');
-      const tip = [activitySourceLabel(runs[0]), names, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
-      return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(runs[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
+      const label = calendarActivityLabel(runs[0]);
+      return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(runs[0])}>${escapeHtml(label)}</span>${verdict}`;
+    }
+
+    if (bikes.length) {
+      const label = calendarActivityLabel(bikes[0]);
+      return `<span class="cal-session-pill csp-bike csp-done csp-actual"${activityOpenAttrs(bikes[0])}>${escapeHtml(label)}</span>${verdict}`;
     }
 
     return dayActivities.map(activity => {
@@ -4895,7 +4926,7 @@ HEALTH DATA (current):
       const seconds = activity.duration || activity.elapsedDuration || 0;
       const mins = seconds ? Math.round(seconds / 60) : null;
       const tip = [activitySourceLabel(activity), label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
-      return `<span class="cal-session-pill ${cls} csp-done csp-actual"${activityOpenAttrs(activity)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+      return `<span class="cal-session-pill ${cls} csp-actual"${activityOpenAttrs(activity)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
     }).join('');
   }
 
@@ -4946,31 +4977,33 @@ HEALTH DATA (current):
     }
     for (const attribute of ['role', 'tabindex', 'title']) panel.removeAttribute(attribute);
 
-    const typeColors = { run:'var(--green)', easy:'var(--muted2)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
-    const typeLabels = { run:'LÖPNING', easy:'LUGN LÖPNING', lift:'STYRKA', race:'LOPP', rest:'VILA' };
+    const typeColors = { run:'var(--green)', easy:'var(--muted2)', bike:'var(--blue)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
+    const typeLabels = { run:'LÖPNING', easy:'LUGN LÖPNING', bike:'CYKEL', lift:'STYRKA', race:'LOPP', rest:'VILA' };
 
-    // ── 1. Check today's completed Garmin activities ──────────────────────
+    // ── 1. Check today's qualifying activities for the planned session ───
     const todayKey = localDateKey(new Date());
+    const todayPlanned = findPlanSessionForDate(todayKey);
+
     const todayActs = recentActivities.filter(a => {
       const d = (a.startTimeLocal || a.beginTimestamp || '').slice(0, 10);
       return d === todayKey;
     });
 
-    if (todayActs.length > 0) {
-      // Merge all into one combined session
-      const totalKm  = todayActs.reduce((s, a) => s + ((a.distance || 0) / 1000), 0);
-      const totalSec = todayActs.reduce((s, a) => s + (a.duration || a.elapsedDuration || 0), 0);
+    // Endast aktiviteter som matchar passets disciplin (löpning för löppass,
+    // cykel för cykelpass, styrka för styrkepass) räknas som att dagens pass är genomfört.
+    const qualifyingActs = todayPlanned
+      ? todayActs.filter(a => isQualifyingActivityForSession(a, todayPlanned))
+      : todayActs.filter(a => ['run', 'bike', 'lift'].includes(calendarActivityType(a)));
+
+    if (qualifyingActs.length > 0) {
+      const totalKm  = qualifyingActs.reduce((s, a) => s + ((a.distance || 0) / 1000), 0);
+      const totalSec = qualifyingActs.reduce((s, a) => s + (a.duration || a.elapsedDuration || 0), 0);
       const totalMin = Math.round(totalSec / 60);
 
-      // Pick dominant type from the longest activity
-      const longest = todayActs.reduce((a, b) => (a.distance||0) >= (b.distance||0) ? a : b);
+      const longest = qualifyingActs.reduce((a, b) => (a.distance||0) >= (b.distance||0) ? a : b);
       const activityId = Number(longest.activityId || longest.id);
-      const typeKey  = longest.activityType?.typeKey || '';
-      let   planType = 'run';
-      if (/strength|fitness_equipment|weight/i.test(typeKey)) planType = 'lift';
-      else if (/track/i.test(typeKey))                         planType = 'run';
-
-      const col = typeColors[planType] || 'var(--green)';
+      const actType = calendarActivityType(longest);
+      const col = typeColors[actType] || 'var(--green)';
 
       if (Number.isSafeInteger(activityId) && activityId > 0) {
         card.classList.add('is-clickable');
@@ -5285,9 +5318,10 @@ HEALTH DATA (current):
         });
 
         const s = sessionMap[w + '-' + d];
+        const hasQualifyingActivity = s && dayActivities.some(a => isQualifyingActivityForSession(a, s));
         pillsHtml += calendarActualPills(dayActivities, s);
-        if (s && !dayActivities.length) {
-          const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
+        if (s && !hasQualifyingActivity) {
+          const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'bike' ? 'csp-bike' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
           const compactDetail = compactCalendarText(s.detail);
           const strengthDetail = s.type === 'lift'
             ? compactCalendarText(s.strength_recommendation_text, 180)
