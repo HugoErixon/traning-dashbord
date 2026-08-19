@@ -718,11 +718,91 @@ def _get_outdoor_temperature_history(hours=24):
         print('weather history unavailable:', e)
         return []
 
-# --- Databas ---
+# --- Databas & Connection Pool ---
+try:
+    from psycopg2.pool import ThreadedConnectionPool
+except ImportError:
+    ThreadedConnectionPool = None
+
+_DB_POOL = None
+_DB_POOL_LOCK = threading.Lock()
+
+def _get_db_pool():
+    global _DB_POOL
+    if _DB_POOL is None and DATABASE_URL and ThreadedConnectionPool:
+        with _DB_POOL_LOCK:
+            if _DB_POOL is None:
+                try:
+                    _DB_POOL = ThreadedConnectionPool(minconn=1, maxconn=10, dsn=DATABASE_URL, sslmode='prefer')
+                except Exception as e:
+                    logging.getLogger('training_dashboard').warning(f"Kunde inte initiera connection pool: {e}")
+                    _DB_POOL = None
+    return _DB_POOL
+
+class _PooledConnContext:
+    def __init__(self, pool, conn):
+        self.pool = pool
+        self.conn = conn
+
+    def __enter__(self):
+        return self.conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+        else:
+            try:
+                self.conn.commit()
+            except Exception:
+                pass
+        try:
+            self.pool.putconn(self.conn)
+        except Exception:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+
+class _DirectConnContext:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        return self.conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+        else:
+            try:
+                self.conn.commit()
+            except Exception:
+                pass
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
 def db():
+    """Returnerar en context-manager för databasanslutning.
+    Använder ThreadedConnectionPool om tillgänglig, annars direkt anslutning."""
+    pool = _get_db_pool()
+    if pool:
+        try:
+            conn = pool.getconn()
+            conn.autocommit = False
+            return _PooledConnContext(pool, conn)
+        except Exception:
+            pass
     conn = psycopg2.connect(DATABASE_URL, sslmode='prefer')
     conn.autocommit = False
-    return conn
+    return _DirectConnContext(conn)
 
 def setup_db():
     with db() as conn:
@@ -2589,6 +2669,68 @@ def _cns_score_from_health(h):
         0.10 * (100 - min(float(stress_val), 100))
     )
 
+def compute_bevel_rest_or_train(h):
+    """Beräknar RestOrTrain-besked, Mål-Strain och Sömnskuld (Bevel / RestOrTrain)."""
+    if not h:
+        return {
+            'decision': 'unknown',
+            'badge': 'DATA SAKNAS',
+            'badgeColor': 'gray',
+            'headline': 'Väntar på hälsodata',
+            'explanation': 'Synka Garmin för att beräkna dagens rekommendation.',
+            'targetStrain': {'min': 0, 'max': 0, 'label': 'Okänt'},
+            'sleepDebtMinutes': 0,
+            'score': None,
+        }
+
+    cns = _cns_score_from_health(h)
+    readiness_val = (h.get('readiness') or {}).get('score')
+    score = readiness_val if readiness_val is not None else (cns if cns is not None else 50)
+
+    sl = h.get('sleep') or {}
+    total_sleep_sec = sl.get('totalSec') or 0
+    sleep_debt_minutes = round((7.5 * 3600 - total_sleep_sec) / 60) if total_sleep_sec > 0 else 0
+
+    if score >= 75:
+        decision = 'train_hard'
+        badge = 'KÖR HÅRT'
+        badge_color = 'green'
+        headline = 'Kroppen är toppåterhämtad'
+        explanation = 'Hög beredskap och god återhämtning. Perfekt dag för kvalitetspass, tröskel eller långpass.'
+        target_strain = {'min': 60, 'max': 85, 'label': 'Hög dos (60–85)'}
+    elif score >= 50:
+        decision = 'train_moderate'
+        badge = 'ENLIGT PLAN'
+        badge_color = 'blue'
+        headline = 'Normal återhämtning'
+        explanation = 'Kroppen svarar väl. Träna enligt plan och håll jämn ansträngning.'
+        target_strain = {'min': 40, 'max': 65, 'label': 'Måttlig dos (40–65)'}
+    elif score >= 35:
+        decision = 'train_easy'
+        badge = 'LUGNT PASS'
+        badge_color = 'amber'
+        headline = 'Nedsatt beredskap – kör lugnt'
+        explanation = 'Återhämtningen är under normal nivå. Ersätt tuffa intervaller med lugn jogg (Zon 2).'
+        target_strain = {'min': 20, 'max': 40, 'label': 'Aktiv vila (20–40)'}
+    else:
+        decision = 'rest'
+        badge = 'VILA IDAG'
+        badge_color = 'red'
+        headline = 'Prioritera full vila och sömn'
+        explanation = 'Låg beredskap och ackumulerad trötthet. Vila helt eller ta en lugn promenad.'
+        target_strain = {'min': 0, 'max': 20, 'label': 'Vila (0–20)'}
+
+    return {
+        'decision': decision,
+        'badge': badge,
+        'badgeColor': badge_color,
+        'headline': headline,
+        'explanation': explanation,
+        'targetStrain': target_strain,
+        'sleepDebtMinutes': sleep_debt_minutes,
+        'score': score,
+    }
+
 def _session_date(year, week, dow):
     return date.fromisocalendar(year, int(week), int(dow) + 1)
 
@@ -3785,11 +3927,13 @@ def health_data():
             'spo2':        {'avg': avg_spo2, 'min': spo2.get('lowestSpO2')},
             'daily':       _daily_activity(summary),
         }
+        result['restOrTrain'] = compute_bevel_rest_or_train(result)
         has_payload = has_health_payload(result)
         if not has_payload:
             snapshot = latest_health_snapshot(uid(), today)
             if snapshot:
                 result = snapshot
+                result['restOrTrain'] = compute_bevel_rest_or_train(result)
                 has_payload = True
         if has_payload:
             set_cache('health', result, uid())

@@ -2662,14 +2662,68 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       // sidor om en gräns beroende på vem som ritade det sist.
       const readinessScore = h.cns?.score ?? computeCnsScore(h);
       if (readinessScore != null) setReadinessRing(readinessScore);
-      // Raden under ringen sa tidigare "Redo för kvalitetspass" / "Vila eller
-      // Z2 idag" — ännu en dom om dagen, uträknad ur enbart CNS. Den säger nu
-      // bara vad talet är i förhållande till din egen normalnivå; själva
-      // beskedet står i panelen bredvid.
       const sub = document.getElementById('snap-readiness-sub');
       if (sub && readinessScore != null) {
         sub.textContent = `${readinessScore} av 100`;
         sub.style.color = '';
+      }
+
+      // RestOrTrain & Bevel Triad data
+      if (h.restOrTrain) {
+        const rot = h.restOrTrain;
+        const hero = document.getElementById('rot-hero');
+        const badgeText = document.getElementById('rot-badge-text');
+        const title = document.getElementById('rot-hero-title');
+        const desc = document.getElementById('rot-hero-desc');
+
+        if (hero) {
+          hero.className = 'rot-hero ' + (
+            rot.decision === 'train_hard' ? 'status-ready' :
+            rot.decision === 'train_moderate' ? 'status-moderate' :
+            rot.decision === 'train_easy' ? 'status-caution' : 'status-rest'
+          );
+        }
+        if (badgeText) badgeText.textContent = rot.badge || 'BESKED';
+        if (title) title.textContent = rot.headline || '';
+        if (desc) desc.textContent = rot.explanation || '';
+
+        const target = rot.targetStrain;
+        const targetBadge = document.getElementById('triad-strain-badge');
+        const targetLabel = document.getElementById('triad-strain-target-label');
+        const targetZone = document.getElementById('triad-strain-target-zone');
+
+        if (target) {
+          if (targetBadge) targetBadge.textContent = `Mål: ${target.min}–${target.max}`;
+          if (targetLabel) targetLabel.textContent = target.label || 'Målområde';
+          if (targetZone) {
+            targetZone.style.left = `${target.min}%`;
+            targetZone.style.width = `${target.max - target.min}%`;
+          }
+        }
+
+        const sl = h.sleep || {};
+        const sleepSec = sl.totalSec || 0;
+        const sleepTimeEl = document.getElementById('triad-sleep-time');
+        const sleepDebtEl = document.getElementById('triad-sleep-debt');
+
+        if (sleepTimeEl) {
+          const h_hours = Math.floor(sleepSec / 3600);
+          const h_mins = Math.round((sleepSec % 3600) / 60);
+          sleepTimeEl.textContent = sleepSec > 0 ? `${h_hours}h ${h_mins}m` : '–';
+        }
+        if (sleepDebtEl) {
+          const debt = rot.sleepDebtMinutes || 0;
+          if (debt > 0) {
+            sleepDebtEl.textContent = `-${debt} min skuld`;
+            sleepDebtEl.style.color = 'var(--amber)';
+          } else if (debt < 0) {
+            sleepDebtEl.textContent = `+${Math.abs(debt)} min överskott`;
+            sleepDebtEl.style.color = 'var(--green)';
+          } else {
+            sleepDebtEl.textContent = 'I balans';
+            sleepDebtEl.style.color = 'var(--green)';
+          }
+        }
       }
 
       safeRenderTrainingCockpit();
@@ -3116,6 +3170,25 @@ HEALTH DATA (current):
     if (weekAvg) weekAvg.textContent = data.weekAvgStrain ?? '--';
     if (streak)  streak.textContent  = data.consecutiveHighDays ?? '--';
     if (load)    load.textContent    = data.load ? Math.round(data.load) : '0';
+
+    // Update Bevel Triad Strain Card
+    const triadVal = document.getElementById('triad-strain-val');
+    const triadLoad = document.getElementById('triad-strain-load');
+    const triadFill = document.getElementById('triad-strain-fill');
+    const triadAcwr = document.getElementById('triad-strain-acwr');
+
+    if (triadVal) triadVal.textContent = data.strain ?? '0';
+    if (triadLoad) triadLoad.textContent = `${Math.round(data.load || 0)} TL`;
+    if (triadFill) triadFill.style.width = `${Math.min(100, Math.max(0, data.strain || 0))}%`;
+    if (triadAcwr) {
+      if (data.acwr) {
+        triadAcwr.textContent = data.acwr.toFixed(2);
+      } else if (data.referenceLoad && data.referenceLoad > 0) {
+        triadAcwr.textContent = (data.load / data.referenceLoad).toFixed(2);
+      } else {
+        triadAcwr.textContent = '1.00';
+      }
+    }
 
     // Var referensen kommer ifrån avgör hur mycket siffran är värd att lita på.
     const note = document.getElementById('strain-reference-note');

@@ -901,8 +901,247 @@
       box-shadow: var(--shadow-card);
     }
 
-    /* ─── HEM-LAYOUT (Whoop-inspirerad) ─── */
-    .home-hero { display:grid; grid-template-columns:1fr 1fr; gap:var(--section-gap); margin-bottom:var(--section-gap); align-items:stretch; }
+    /* ─── HEM-LAYOUT (Bevel & RestOrTrain Makeover) ─── */
+    .rot-hero {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--radius-xl);
+      padding: 24px 28px;
+      margin-bottom: var(--section-gap);
+      border: 1px solid var(--border2);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+                  var(--card-grad), var(--bg2);
+      box-shadow: var(--shadow-card), var(--edge-top);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.3s ease;
+    }
+    .rot-hero.status-ready {
+      border-color: color-mix(in srgb, var(--green) 35%, transparent);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--green) 14%, transparent), transparent 60%),
+                  var(--card-grad), var(--bg2);
+    }
+    .rot-hero.status-moderate {
+      border-color: color-mix(in srgb, var(--blue) 35%, transparent);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--blue) 14%, transparent), transparent 60%),
+                  var(--card-grad), var(--bg2);
+    }
+    .rot-hero.status-caution {
+      border-color: color-mix(in srgb, var(--amber) 35%, transparent);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--amber) 14%, transparent), transparent 60%),
+                  var(--card-grad), var(--bg2);
+    }
+    .rot-hero.status-rest {
+      border-color: color-mix(in srgb, var(--red) 35%, transparent);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--red) 14%, transparent), transparent 60%),
+                  var(--card-grad), var(--bg2);
+    }
+    .rot-hero-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .rot-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font: 700 11px 'IBM Plex Mono', monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      color: var(--text);
+    }
+    .rot-pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: rot-pulse 2s infinite;
+    }
+    @keyframes rot-pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .rot-hero-title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      margin: 0;
+      line-height: 1.25;
+      color: var(--text);
+    }
+    .rot-hero-desc {
+      font-size: 14px;
+      color: var(--muted3);
+      line-height: 1.55;
+      margin: 0;
+      max-width: 850px;
+    }
+
+    /* ═══════════════ BEVEL TRIAD (ÅTERHÄMTNING · STRAIN · SÖMN) ═══════════════ */
+    .bevel-triad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--section-gap);
+      margin-bottom: var(--section-gap);
+      align-items: stretch;
+    }
+    @media (max-width: 980px) {
+      .bevel-triad { grid-template-columns: 1fr; }
+    }
+    .bevel-card {
+      position: relative;
+      background: var(--card-grad), var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 20px 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: var(--shadow-card);
+      transition: all 0.2s ease;
+    }
+    .bevel-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-1px);
+    }
+    .bevel-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .bevel-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--muted2);
+      text-transform: uppercase;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .bevel-card-badge {
+      font: 600 10px 'IBM Plex Mono', monospace;
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+      background: color-mix(in srgb, var(--text) 3%, transparent);
+      color: var(--muted2);
+      border: 1px solid var(--border);
+    }
+    .bevel-card-body {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    .bevel-metrics-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+    }
+    .bevel-metric-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .bevel-metric-label {
+      font-size: 10.5px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .bevel-metric-val {
+      font: 700 14px 'IBM Plex Mono', monospace;
+      color: var(--text);
+    }
+
+    /* Strain Gauge */
+    .strain-dial-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 90px;
+      flex-shrink: 0;
+    }
+    .strain-big-val {
+      font-size: 32px;
+      font-weight: 800;
+      font-family: var(--font-num);
+      line-height: 1;
+      color: var(--accent);
+    }
+    .strain-max-val {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--font-num);
+      font-weight: 600;
+    }
+    .strain-target-label {
+      font-size: 9.5px;
+      color: var(--muted2);
+      font-family: 'IBM Plex Mono', monospace;
+      margin-top: 4px;
+      text-align: center;
+    }
+    .strain-gauge-bar-wrap {
+      position: relative;
+      width: 100%;
+      height: 8px;
+      background: var(--bg3);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 6px;
+      border: 1px solid var(--border);
+    }
+    .strain-gauge-target-zone {
+      position: absolute;
+      top: 0; bottom: 0;
+      background: color-mix(in srgb, var(--accent) 25%, transparent);
+      border-left: 1px dashed var(--accent);
+      border-right: 1px dashed var(--accent);
+      z-index: 1;
+    }
+    .strain-gauge-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue), var(--accent));
+      border-radius: 4px;
+      transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Sleep Score in Triad */
+    .sleep-score-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 90px;
+      flex-shrink: 0;
+    }
+    .sleep-score-val {
+      font-size: 32px;
+      font-weight: 800;
+      font-family: var(--font-num);
+      line-height: 1;
+      color: var(--green);
+    }
+    .sleep-score-label {
+      font-size: 8.5px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      margin-top: 4px;
+      font-weight: 600;
+    }
+
+    .home-hero { display:grid; grid-template-columns:1fr; gap:var(--section-gap); margin-bottom:var(--section-gap); align-items:stretch; }
     .home-cols { display:grid; grid-template-columns:1fr 1fr; gap:var(--section-gap); margin-bottom:var(--section-gap); align-items:stretch; }
     .panel { position:relative; overflow:hidden; background:var(--card-grad), var(--bg2); border:1px solid var(--border); border-radius:var(--radius-xl); padding:22px 24px; display:flex; flex-direction:column; box-shadow:var(--shadow-card); }
     .panel.hero { border-color:var(--border2); box-shadow:var(--elev-hero); }
@@ -915,7 +1154,7 @@
     .contrib-val { font-size:20px; font-weight:700; font-family:var(--font-num); line-height:1; }
     .contrib-sub { font-size:10.5px; color:var(--muted); margin-top:4px; }
     .contrib .bar { margin-top:9px; }
-    @media (max-width:880px){ .home-hero, .home-cols { grid-template-columns:1fr; } }
+    @media (max-width:880px){ .home-cols { grid-template-columns:1fr; } }
 
     .adaptive-plan-card {
       display:grid; grid-template-columns:minmax(0,1.45fr) minmax(300px,.75fr);

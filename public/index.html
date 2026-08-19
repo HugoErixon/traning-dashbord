@@ -107,18 +107,38 @@
     <div class="content">
 
     <!-- HEM -->
+    <!-- HEM (Bevel & RestOrTrain Makeover) -->
     <div class="page active" id="page-home">
 
-      <!-- ROW 1: Återhämtning + Idag -->
-      <div class="home-hero">
+      <!-- REST OR TRAIN HERO STATUS BANNER -->
+      <section class="rot-hero" id="rot-hero">
+        <div class="rot-hero-top">
+          <div class="rot-status-badge" id="rot-status-badge">
+            <span class="rot-pulse-dot" id="rot-pulse-dot"></span>
+            <span id="rot-badge-text">LADDAR BESKED…</span>
+          </div>
+          <div id="goal-days-row" data-action="open-goal-modal" role="button" tabindex="0" title="Klicka för att ändra ditt mål" style="font-size:11.5px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;cursor:pointer;">
+            <span id="goal-days-text">Laddar mål…</span>
+          </div>
+        </div>
+        <h2 class="rot-hero-title" id="rot-hero-title">Analyserar nattens återhämtning…</h2>
+        <p class="rot-hero-desc" id="rot-hero-desc">Väntar på Garmin live-data och belastningshistorik.</p>
+        <div class="bar" style="max-width:220px;margin-top:2px;"><div class="bar-fill" id="days-bar" style="background:var(--accent)"></div></div>
+      </section>
 
-        <!-- Återhämtning -->
-        <div class="panel">
-          <div class="panel-eyebrow">Dagens besked</div>
-          <div class="recovery-wrap">
-            <div class="readiness-ring" style="position:relative;width:124px;height:124px;flex-shrink:0;">
+      <!-- BEVEL TRIAD (Återhämtning · Dagens Belastning · Sömn) -->
+      <div class="bevel-triad">
+
+        <!-- 1. ÅTERHÄMTNING (RECOVERY) -->
+        <div class="bevel-card bevel-recovery-card">
+          <div class="bevel-card-head">
+            <span class="bevel-card-title">ÅTERHÄMTNING</span>
+            <span class="bevel-card-badge" id="snap-readiness-sub">Laddar…</span>
+          </div>
+          <div class="bevel-card-body">
+            <div class="readiness-ring" style="position:relative;width:96px;height:96px;flex-shrink:0;">
               <div style="position:absolute;inset:14%;border-radius:50%;background:radial-gradient(circle,var(--accent-glow) 0%,transparent 68%);filter:blur(6px);pointer-events:none;"></div>
-              <svg viewBox="0 0 88 88" width="124" height="124">
+              <svg viewBox="0 0 88 88" width="96" height="96">
                 <defs>
                   <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" style="stop-color:var(--accent)"/>
@@ -134,41 +154,87 @@
                 </circle>
               </svg>
               <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-                <div id="readiness-ring-val" style="font-size:34px;font-weight:700;font-family:var(--font-num);line-height:1;">–</div>
-                <div style="font-size:9.5px;color:var(--muted);letter-spacing:0.1em;margin-top:4px;">BEREDSKAP</div>
+                <div id="readiness-ring-val" style="font-size:26px;font-weight:800;font-family:var(--font-num);line-height:1;">–</div>
+                <div style="font-size:8px;color:var(--muted);letter-spacing:0.08em;margin-top:2px;">BEREDSKAP</div>
               </div>
             </div>
-            <div style="min-width:0;">
-              <div style="font-size:13px;color:var(--muted2);">Din beredskap i dag</div>
-              <div id="snap-readiness-sub" style="font-size:19px;font-weight:700;margin-top:3px;">Laddar…</div>
-              <div id="goal-days-row" data-action="open-goal-modal" role="button" tabindex="0" title="Klicka för att ändra ditt mål" style="font-size:12px;color:var(--muted);margin-top:12px;cursor:pointer;"><span id="goal-days-text">Laddar mål…</span></div>
-              <div class="bar" style="margin-top:8px;max-width:170px;"><div class="bar-fill" id="days-bar" style="background:var(--accent)"></div></div>
+            <div class="bevel-metrics-list">
+              <div class="bevel-metric-item">
+                <span class="bevel-metric-label">HRV Natt</span>
+                <span class="bevel-metric-val" id="snap-hrv-val">–</span>
+                <div id="snap-hrv-sub" style="font-size:10px;color:var(--muted);"></div>
+                <div class="bar" style="height:3px;margin-top:4px;"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--accent)"></div></div>
+              </div>
+              <div class="bevel-metric-item">
+                <span class="bevel-metric-label">Vilopuls (RHR)</span>
+                <span class="bevel-metric-val" id="snap-rhr-val">–</span>
+                <div id="snap-rhr-sub" style="font-size:10px;color:var(--muted);"></div>
+                <div class="bar" style="height:3px;margin-top:4px;"><div id="snap-rhr-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
+              </div>
             </div>
           </div>
-          <div class="contrib-row">
-            <div class="contrib contrib-cell">
-              <div class="contrib-label">sömn</div>
-              <div id="snap-sleep-val" class="contrib-val">-</div>
-              <div id="snap-sleep-sub" class="contrib-sub">Laddar…</div>
-              <div class="bar"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
-              <svg id="spark-sleep" class="sparkline" style="width:100%;height:28px;margin-top:8px;display:block;overflow:visible;"></svg>
-            </div>
-            <div class="contrib contrib-cell">
-              <div class="contrib-label">RHR</div>
-              <div id="snap-rhr-val" class="contrib-val">-</div>
-              <div id="snap-rhr-sub" class="contrib-sub">Laddar…</div>
-              <div class="bar"><div id="snap-rhr-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
-              <svg id="spark-rhr" class="sparkline" style="width:100%;height:28px;margin-top:8px;display:block;overflow:visible;"></svg>
-            </div>
-            <div class="contrib contrib-cell">
-              <div class="contrib-label">hrv natt</div>
-              <div id="snap-hrv-val" class="contrib-val">-</div>
-              <div id="snap-hrv-sub" class="contrib-sub">Laddar…</div>
-              <div class="bar"><div id="snap-hrv-bar" class="bar-fill" style="width:0%;background:var(--red)"></div></div>
-              <svg id="spark-hrv" class="sparkline" style="width:100%;height:28px;margin-top:8px;display:block;overflow:visible;"></svg>
-            </div>
-          </div>
+          <svg id="spark-hrv" class="sparkline" style="width:100%;height:22px;margin-top:4px;display:block;overflow:visible;"></svg>
         </div>
+
+        <!-- 2. STRAIN & MÅL-STRAIN (BELASTNING) -->
+        <div class="bevel-card bevel-strain-card">
+          <div class="bevel-card-head">
+            <span class="bevel-card-title">DAGENS STRAIN</span>
+            <span class="bevel-card-badge" id="triad-strain-badge">Mål: 50–70</span>
+          </div>
+          <div class="bevel-card-body">
+            <div class="strain-dial-wrap">
+              <div style="display:flex;align-items:baseline;gap:2px;">
+                <span id="triad-strain-val" class="strain-big-val">0</span>
+                <span class="strain-max-val">/100</span>
+              </div>
+              <div class="strain-target-label" id="triad-strain-target-label">Målområde</div>
+            </div>
+            <div class="bevel-metrics-list">
+              <div class="bevel-metric-item">
+                <span class="bevel-metric-label">Dagens Träningsdos</span>
+                <span class="bevel-metric-val" id="triad-strain-load">–</span>
+                <div class="strain-gauge-bar-wrap">
+                  <div class="strain-gauge-target-zone" id="triad-strain-target-zone" style="left:40%;width:30%;"></div>
+                  <div class="strain-gauge-fill" id="triad-strain-fill" style="width:0%;"></div>
+                </div>
+              </div>
+              <div class="bevel-metric-item">
+                <span class="bevel-metric-label">Akut / Kronisk (ACWR)</span>
+                <span class="bevel-metric-val" id="triad-strain-acwr">–</span>
+              </div>
+            </div>
+          </div>
+          <svg id="spark-rhr" class="sparkline" style="width:100%;height:22px;margin-top:4px;display:block;overflow:visible;"></svg>
+        </div>
+
+        <!-- 3. SÖMN & SÖMNSKULD -->
+        <div class="bevel-card bevel-sleep-card">
+          <div class="bevel-card-head">
+            <span class="bevel-card-title">SÖMN &amp; SKULD</span>
+            <span class="bevel-card-badge" id="snap-sleep-sub">–</span>
+          </div>
+          <div class="bevel-card-body">
+            <div class="sleep-score-wrap">
+              <div class="sleep-score-val" id="snap-sleep-val">–</div>
+              <div class="sleep-score-label">SÖMNPOÄNG</div>
+            </div>
+            <div class="bevel-metrics-list">
+              <div class="bevel-metric-item">
+                <span class="bevel-metric-label">Sömntid i natt</span>
+                <span class="bevel-metric-val" id="triad-sleep-time">–</span>
+                <div class="bar" style="height:3px;margin-top:4px;"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
+              </div>
+              <div class="bevel-metric-item">
+                <span class="bevel-metric-label">Sömnskuld (mot 7.5h)</span>
+                <span class="bevel-metric-val" id="triad-sleep-debt">–</span>
+              </div>
+            </div>
+          </div>
+          <svg id="spark-sleep" class="sparkline" style="width:100%;height:22px;margin-top:4px;display:block;overflow:visible;"></svg>
+        </div>
+
+      </div>
 
         <!-- Idag -->
         <div class="panel" id="today-panel" data-action="open-today-activity">
