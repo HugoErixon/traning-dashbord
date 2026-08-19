@@ -1088,20 +1088,28 @@
     }
     .bevel-card {
       position: relative;
+      overflow: hidden;
       background: var(--card-grad), var(--bg2);
       border: 1px solid var(--border);
       border-radius: var(--radius-xl);
-      padding: 20px 22px;
+      padding: 20px 22px 14px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      gap: 16px;
+      gap: 14px;
       box-shadow: var(--shadow-card);
       transition: all 0.2s ease;
     }
     .bevel-card:hover {
       border-color: var(--border2);
       transform: translateY(-1px);
+    }
+    .sparkline {
+      width: 100%;
+      height: 36px;
+      margin-top: 10px;
+      display: block;
+      overflow: hidden;
     }
     .bevel-card-head {
       display: flex;

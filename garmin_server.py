@@ -3976,16 +3976,27 @@ def health_data():
 
 @app.get('/api/health/spark')
 def health_spark():
-    """Senaste 7 dagarnas värden för hem-sidans mini-grafer (sömnpoäng, RHR, HRV)."""
+    """Senaste 7 dagarnas värden för hem-sidans mini-grafer (HRV, Strain, Sömn, RHR)."""
+    user_id = uid()
     with db() as conn:
         with conn.cursor() as cur:
-            cur.execute('''SELECT sleep_score, hrv_avg, resting_hr
-                FROM health_history WHERE user_id=%s ORDER BY date DESC LIMIT 7''', (uid(),))
+            cur.execute('''SELECT sleep_score, hrv_avg, resting_hr, date
+                FROM health_history WHERE user_id=%s ORDER BY date DESC LIMIT 7''', (user_id,))
             rows = cur.fetchall()[::-1]  # äldst först
+
+    # Hämta 7-dagars faktisk strain från aktiviteter
+    today = date.today()
+    activities = _recent_activities(user_id, days=14)
+    chronic, _ = _load_context(user_id)
+    ref = strain_analysis.reference_load(activities, today=today, chronic=chronic)
+    series = strain_analysis.strain_series(activities, today=today, days=7, reference=ref)
+    strain_vals = [int(round(pt.get('strain', 0))) for pt in series]
+
     return jsonify({
         'sleep': [r[0] for r in rows if r[0] is not None],
         'hrv':   [r[1] for r in rows if r[1] is not None],
         'rhr':   [r[2] for r in rows if r[2] is not None],
+        'strain': strain_vals,
     })
 
 @app.get('/api/health/stress-history')

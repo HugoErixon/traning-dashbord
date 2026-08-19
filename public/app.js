@@ -2766,9 +2766,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       // Draw sparklines from real 7-day history (needs >=2 days of data)
       try {
         const sp = await (await fetch('/api/health/spark')).json();
-        if (sp.sleep?.length >= 2) drawSparkline(document.getElementById('spark-sleep'), sp.sleep, 'var(--green)');
-        if (sp.rhr?.length >= 2)   drawSparkline(document.getElementById('spark-rhr'),   sp.rhr,   'var(--green)');
-        if (sp.hrv?.length >= 2)   drawSparkline(document.getElementById('spark-hrv'),   sp.hrv,   'var(--accent)');
+        if (sp.hrv?.length >= 2)    drawSparkline(document.getElementById('spark-hrv'),    sp.hrv,    'var(--accent)');
+        if (sp.strain?.length >= 2) drawSparkline(document.getElementById('spark-strain'), sp.strain, 'var(--blue)');
+        if (sp.sleep?.length >= 2)  drawSparkline(document.getElementById('spark-sleep'),  sp.sleep,  'var(--green)');
       } catch (e) { /* sparklines are optional decoration */ }
 
     } catch(e) { console.error('Health error:', e); }
@@ -3222,6 +3222,11 @@ HEALTH DATA (current):
       }
     }
 
+    if (data.series && data.series.length >= 2) {
+      const pts = data.series.map(s => s.strain || 0);
+      drawSparkline(document.getElementById('spark-strain'), pts, 'var(--blue)');
+    }
+
     // Var referensen kommer ifrån avgör hur mycket siffran är värd att lita på.
     const note = document.getElementById('strain-reference-note');
     if (note) {
@@ -3636,39 +3641,54 @@ HEALTH DATA (current):
     }).join('');
   }
 
-  function drawSparkline(svgEl, data, color, _tries) {
-    if (!svgEl || !data || data.length < 2) return;
-    // If layout isn't ready yet, clientWidth is 0 — wait a frame and retry
-    // (otherwise the curve only fills a tiny fallback width).
-    const W = Math.round(svgEl.getBoundingClientRect().width);
-    if (W < 10) {
-      if ((_tries || 0) < 30) requestAnimationFrame(() => drawSparkline(svgEl, data, color, (_tries || 0) + 1));
+  function drawSparkline(svgEl, data, color) {
+    if (!svgEl) return;
+    if (!data || data.length < 2) {
+      svgEl.innerHTML = '';
       return;
     }
-    const H = svgEl.clientHeight || 28;
-    const min = Math.min(...data), max = Math.max(...data), span = max - min || 1;
-    const pad = 2;
+    const W = 300;
+    const H = 40;
+    svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svgEl.setAttribute('preserveAspectRatio', 'none');
+    svgEl.style.overflow = 'hidden';
+    svgEl.style.display = 'block';
+
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const span = (max - min) || (min > 0 ? min * 0.2 : 1);
+    const padX = 8;
+    const padY = 6;
+
     const pts = data.map((v, i) => {
-      const x = pad + (i / (data.length - 1)) * (W - pad*2);
-      const y = pad + (1 - (v - min) / span) * (H - pad*2);
+      const x = padX + (i / (data.length - 1)) * (W - padX * 2);
+      const y = H - padY - ((v - min) / span) * (H - padY * 2);
       return [x, y];
     });
+
     const line = pts.reduce((acc, [x, y], i) => {
       if (i === 0) return `M${x.toFixed(1)} ${y.toFixed(1)}`;
       const [px, py] = pts[i-1];
       const cx = (px + x) / 2;
       return `${acc} C${cx.toFixed(1)} ${py.toFixed(1)} ${cx.toFixed(1)} ${y.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)}`;
     }, '');
+
     const [ex, ey] = pts[pts.length - 1];
-    const gradId = 'sg-' + Math.random().toString(36).slice(2, 7);
+    const gradId = 'sg-' + Math.random().toString(36).slice(2, 8);
+    const area = `${line} L${(W - padX).toFixed(1)} ${H} L${padX} ${H} Z`;
+
     svgEl.innerHTML = `
-      <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${color}" stop-opacity="0.22"/>
-        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
-      </linearGradient></defs>
-      <path d="${line} L${ex.toFixed(1)} ${H} L${pts[0][0].toFixed(1)} ${H} Z" fill="url(#${gradId})" stroke="none"/>
-      <path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="2.5" fill="${color}"/>`;
+      <defs>
+        <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${color}" stop-opacity="0.32"/>
+          <stop offset="100%" stop-color="${color}" stop-opacity="0.0"/>
+        </linearGradient>
+      </defs>
+      <path d="${area}" fill="url(#${gradId})" stroke="none"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      ${pts.map(([x, y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.2" fill="${color}" opacity="0.75"/>`).join('')}
+      <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="3.8" fill="${color}" stroke="var(--bg2)" stroke-width="1.8"/>
+    `;
   }
 
   function updateAppbar(h) {
