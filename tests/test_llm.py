@@ -107,6 +107,39 @@ class LlmAdapterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()['reply'], 'Kör ett lugnt pass idag.')
 
+    def test_assistant_can_serialize_cached_sleep_insights(self):
+        garmin_server.app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
+        garmin_server.LOGIN_LIMITER.clear()
+        client = garmin_server.app.test_client()
+        login = client.post('/api/login', json={'username': 'hugo', 'password': 'test-password'})
+        csrf = login.get_json()['csrfToken']
+        cached = {
+            'status': 'watch',
+            'headline': 'Ojämn sömn',
+            'insights': [{'title': 'Lång men svag', 'detail': 'Åtta timmar gav låg poäng.'}],
+        }
+
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
+             mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
+             mock.patch.object(garmin_server, 'get_cache',
+                               return_value=(cached, garmin_server.time.time())), \
+             mock.patch.object(garmin_server, '_build_sleep_coach',
+                               return_value={'bedtime': '22:30'}), \
+             mock.patch.object(garmin_server, '_recent_execution_block', return_value=''), \
+             mock.patch.object(garmin_server, '_pace_context', return_value={}), \
+             mock.patch.object(garmin_server, 'call_llm', return_value='Sov regelbundet.') as llm:
+            response = client.post(
+                '/api/assistant',
+                json={'message': 'Varför är min sömn dålig?'},
+                headers={'X-CSRF-Token': csrf},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['reply'], 'Sov regelbundet.')
+        system_prompt = llm.call_args.kwargs['system']
+        self.assertIn('SÖMNINSIKTER', system_prompt)
+        self.assertIn('Ojämn sömn', system_prompt)
+
 
 if __name__ == '__main__':
     unittest.main()
