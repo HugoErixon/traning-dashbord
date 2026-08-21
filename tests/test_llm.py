@@ -38,11 +38,22 @@ class LlmAdapterTests(unittest.TestCase):
         url = post.call_args.args[0]
         kwargs = post.call_args.kwargs
         self.assertIn('generativelanguage.googleapis.com', url)
-        self.assertIn('gemini-flash-latest', url)
+        self.assertIn('gemini-2.0-flash', url)
         self.assertEqual(kwargs['headers']['x-goog-api-key'], 'test-key')
         body = kwargs['json']
         self.assertEqual(body['contents'][0]['parts'][0]['text'], 'Hur mår jag?')
         self.assertEqual(body['system_instruction']['parts'][0]['text'], 'Var en coach.')
+
+    def test_model_aliases_resolved(self):
+        with mock.patch.object(garmin_server, 'GEMINI_MODEL', 'gemini-flash-latest'):
+            spec = garmin_server._provider_spec('gemini')
+            self.assertEqual(spec['model'], 'gemini-2.0-flash')
+        with mock.patch.object(garmin_server, 'ANTHROPIC_MODEL', 'claude-sonnet-4-6'):
+            spec = garmin_server._provider_spec('anthropic')
+            self.assertEqual(spec['model'], 'claude-3-5-sonnet-latest')
+        with mock.patch.dict(garmin_server.config, {'CEREBRAS_MODEL': 'gpt-oss-120b'}):
+            spec = garmin_server._provider_spec('cerebras')
+            self.assertEqual(spec['model'], 'llama-3.3-70b')
 
     def test_gemini_error_raises(self):
         with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
@@ -139,6 +150,31 @@ class LlmAdapterTests(unittest.TestCase):
         system_prompt = llm.call_args.kwargs['system']
         self.assertIn('SÖMNINSIKTER', system_prompt)
         self.assertIn('Ojämn sömn', system_prompt)
+
+    def test_assistant_succeeds_even_if_sleep_insights_fail(self):
+        garmin_server.app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
+        garmin_server.LOGIN_LIMITER.clear()
+        client = garmin_server.app.test_client()
+        login = client.post('/api/login', json={'username': 'hugo', 'password': 'test-password'})
+        csrf = login.get_json()['csrfToken']
+
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
+             mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
+             mock.patch.object(garmin_server, '_get_sleep_insights',
+                               side_effect=RuntimeError('DB offline')), \
+             mock.patch.object(garmin_server, '_build_sleep_coach',
+                               return_value={'bedtime': '22:30'}), \
+             mock.patch.object(garmin_server, '_recent_execution_block', return_value=''), \
+             mock.patch.object(garmin_server, '_pace_context', return_value={}), \
+             mock.patch.object(garmin_server, 'call_llm', return_value='Lägg dig i tid.') as llm:
+            response = client.post(
+                '/api/assistant',
+                json={'message': 'Hur ska jag sova?'},
+                headers={'X-CSRF-Token': csrf},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['reply'], 'Lägg dig i tid.')
 
 
 if __name__ == '__main__':

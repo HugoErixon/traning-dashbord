@@ -212,6 +212,14 @@ class ProviderAccountFailureTests(unittest.TestCase):
             self.assertEqual(garmin_server.call_llm('p'), 'svar från gemini')
         self.assertEqual(post.call_count, 2)
 
+    def test_model_not_found_404_falls_through(self):
+        not_found = FakeResponse({'error': {'code': 404, 'message': 'models/foo not found'}}, 404, text='Not found')
+        with self.chain(), patch.object(requests, 'post',
+                                        side_effect=[not_found, gemini_ok()]) as post:
+            self.assertEqual(garmin_server.call_llm('p'), 'svar från gemini')
+        self.assertEqual(post.call_count, 2)
+        self.assertGreater(garmin_server._llm_cooldown_remaining('cerebras'), 600)
+
     def test_a_bad_request_still_stops_the_chain(self):
         # 400 är fortfarande vårt eget fel och ska inte kosta en andra kvot.
         bad = FakeResponse({'error': {'message': 'trasig prompt'}}, 400)

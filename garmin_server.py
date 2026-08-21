@@ -154,8 +154,8 @@ ANTHROPIC_KEY = config.get('ANTHROPIC_API_KEY', '')
 # ett riktigt fel som en trasig prompt — det felet skulle upprepas hos alla och
 # bara bränna kvot. Poängen är att kunna stapla flera gratisnivåer på varandra.
 GEMINI_API_KEY  = config.get('GEMINI_API_KEY', '')
-GEMINI_MODEL    = config.get('GEMINI_MODEL', 'gemini-flash-latest')
-ANTHROPIC_MODEL = config.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
+GEMINI_MODEL    = config.get('GEMINI_MODEL', 'gemini-2.0-flash')
+ANTHROPIC_MODEL = config.get('ANTHROPIC_MODEL', 'claude-3-5-sonnet-latest')
 
 # Groq, Cerebras, OpenRouter och Mistral talar alla OpenAI:s chat-completions,
 # så samma adapter räcker för alla fyra — bara URL, modell och nyckel skiljer.
@@ -163,11 +163,17 @@ ANTHROPIC_MODEL = config.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
 # defaulten slutar finnas.
 OPENAI_COMPATIBLE_PROVIDERS = {
     'groq': ('https://api.groq.com/openai/v1/chat/completions', 'llama-3.3-70b-versatile'),
-    # gpt-oss-120b är Cerebras enda produktionsmodell; övriga är preview och
-    # en av dem har redan ett avvecklingsdatum. Kontrollerad 2026-08-02.
-    'cerebras': ('https://api.cerebras.ai/v1/chat/completions', 'gpt-oss-120b'),
+    'cerebras': ('https://api.cerebras.ai/v1/chat/completions', 'llama-3.3-70b'),
     'openrouter': ('https://openrouter.ai/api/v1/chat/completions', 'meta-llama/llama-3.3-70b-instruct:free'),
     'mistral': ('https://api.mistral.ai/v1/chat/completions', 'mistral-small-latest'),
+}
+
+_MODEL_ALIASES = {
+    'gemini-flash-latest': 'gemini-2.0-flash',
+    'gemini-flash': 'gemini-2.0-flash',
+    'gemini-pro-latest': 'gemini-1.5-pro',
+    'gpt-oss-120b': 'llama-3.3-70b',
+    'claude-sonnet-4-6': 'claude-3-5-sonnet-latest',
 }
 
 
@@ -178,17 +184,21 @@ def _provider_spec(name):
     bytas ut utan att modulen laddas om, och nyckeln läses från modulens egna
     globaler så att den går att ersätta i test."""
     if name == 'gemini':
-        return {'kind': 'gemini', 'key': GEMINI_API_KEY, 'model': GEMINI_MODEL,
+        model = _MODEL_ALIASES.get(GEMINI_MODEL, GEMINI_MODEL)
+        return {'kind': 'gemini', 'key': GEMINI_API_KEY, 'model': model,
                 'label': 'Gemini'}
     if name == 'anthropic':
-        return {'kind': 'anthropic', 'key': ANTHROPIC_KEY, 'model': ANTHROPIC_MODEL,
+        model = _MODEL_ALIASES.get(ANTHROPIC_MODEL, ANTHROPIC_MODEL)
+        return {'kind': 'anthropic', 'key': ANTHROPIC_KEY, 'model': model,
                 'label': 'Anthropic'}
     if name in OPENAI_COMPATIBLE_PROVIDERS:
         url, default_model = OPENAI_COMPATIBLE_PROVIDERS[name]
+        raw_model = config.get(f'{name.upper()}_MODEL', default_model)
+        model = _MODEL_ALIASES.get(raw_model, raw_model)
         return {
             'kind': 'openai',
             'key': config.get(f'{name.upper()}_API_KEY', ''),
-            'model': config.get(f'{name.upper()}_MODEL', default_model),
+            'model': model,
             'url': config.get(f'{name.upper()}_URL', url),
             'label': name.capitalize(),
         }
@@ -239,7 +249,7 @@ LLM_TRANSIENT_COOLDOWN = float(config.get('LLM_TRANSIENT_COOLDOWN', '30'))
 # En leverantor som saknar giltigt konto ar inte tillfalligt nere - det ar
 # ingen ide att fraga igen forran nagon gjort nagot at saken.
 LLM_DISABLED_COOLDOWN = float(config.get('LLM_DISABLED_COOLDOWN', '3600'))
-AUTH_FAILURE_CODES = (401, 402, 403)
+AUTH_FAILURE_CODES = (401, 402, 403, 404)
 
 
 def _llm_cooldown_remaining(name):
@@ -304,13 +314,13 @@ class LLMTransientError(RuntimeError):
 
 
 class LLMUnavailableError(RuntimeError):
-    """Leverantören avvisade oss av konto-skäl: ogiltig nyckel, obetald faktura
-    eller saknad behörighet (401/402/403).
+    """Leverantören avvisade oss av konto-skäl: ogiltig nyckel, obetald faktura,
+    saknad behörighet eller saknad modell/resurs (401/402/403/404).
 
-    Kedjan ska gå vidare — en leverantör utan konto är oanvändbar, inte ett
-    tecken på att prompten är trasig. Men den ska parkeras länge: det hjälper
-    inte att fråga igen om trettio sekunder när det som saknas är en
-    betalningsmetod."""
+    Kedjan ska gå vidare — en leverantör utan konto eller modell är oanvändbar,
+    inte ett tecken på att prompten är trasig. Men den ska parkeras länge: det
+    hjälper inte att fråga igen om trettio sekunder när det som saknas är en
+    betalningsmetod eller rätt modellnamn."""
 
 
 # Chatten ska hänga ihop över flera frågor, så tidigare turer följer med in i
@@ -373,22 +383,26 @@ def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait, history=
             json=body,
             headers={'x-goog-api-key': spec['key'], 'Content-Type': 'application/json'},
             timeout=timeout)
-        rj = resp.json()
-        if 'error' not in rj:
+        try:
+            rj = resp.json()
+        except Exception:
+            rj = {}
+        if resp.status_code == 200 and 'error' not in rj:
             break
-        err = rj['error']
-        code = err.get('code')
+        err = rj.get('error') if isinstance(rj.get('error'), dict) else {}
+        code = err.get('code') or resp.status_code
+        err_msg = err.get('message') or resp.text[:200]
         if code != 429:
             if code in AUTH_FAILURE_CODES:
-                raise LLMUnavailableError(f"Gemini {code}: {err.get('message')}")
+                raise LLMUnavailableError(f"Gemini {code}: {err_msg}")
             if isinstance(code, int) and code >= 500:
-                raise LLMTransientError(f"Gemini {code}: {err.get('message')}")
-            raise RuntimeError(f"Gemini {code}: {err.get('message')}")
+                raise LLMTransientError(f"Gemini {code}: {err_msg}")
+            raise RuntimeError(f"Gemini {code}: {err_msg}")
         wait = _gemini_retry_after(err)
         # Att sova är bara värt det när ingen annan leverantör kan ta över —
         # annars är det snabbare att falla vidare i kedjan direkt.
         if attempt == 2 or not allow_wait or wait is None or wait > LLM_RETRY_MAX_WAIT:
-            raise LLMQuotaError(f"Gemini 429: {err.get('message')}", retry_after=wait)
+            raise LLMQuotaError(f"Gemini 429: {err_msg}", retry_after=wait)
         logger.warning('LLM rate limited, retrying', extra={
             'event': 'llm.rate_limited', 'retry_after_s': wait, 'model': spec['model']})
         time.sleep(wait)
@@ -409,19 +423,26 @@ def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait, histo
         json=payload,
         headers={'x-api-key': spec['key'], 'anthropic-version': '2023-06-01',
                  'content-type': 'application/json'}, timeout=timeout)
-    rj = resp.json()
-    if 'error' in rj:
-        message = rj['error'].get('message')
-        if resp.status_code == 429 or rj['error'].get('type') == 'rate_limit_error':
+    if resp.status_code >= 500:
+        raise LLMTransientError(f'Anthropic {resp.status_code}: {resp.text[:200]}')
+    if resp.status_code in AUTH_FAILURE_CODES:
+        raise LLMUnavailableError(f'Anthropic {resp.status_code}: {resp.text[:200]}')
+    try:
+        rj = resp.json()
+    except Exception:
+        rj = {}
+    if 'error' in rj or resp.status_code >= 400:
+        err = rj.get('error') if isinstance(rj.get('error'), dict) else {}
+        message = err.get('message') or resp.text[:200]
+        err_type = err.get('type')
+        if resp.status_code == 429 or err_type == 'rate_limit_error':
             try:
                 wait = float(resp.headers.get('retry-after', ''))
             except (TypeError, ValueError):
                 wait = None
             raise LLMQuotaError(f'Anthropic: {message}', retry_after=wait)
-        if resp.status_code in AUTH_FAILURE_CODES:
+        if resp.status_code in AUTH_FAILURE_CODES or err_type in ('authentication_error', 'permission_error', 'not_found_error'):
             raise LLMUnavailableError(f'Anthropic {resp.status_code}: {message}')
-        if resp.status_code >= 500:
-            raise LLMTransientError(f'Anthropic {resp.status_code}: {message}')
         raise RuntimeError(f'Anthropic: {message}')
     try:
         return rj['content'][0]['text']
@@ -448,10 +469,17 @@ def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wai
             f'{spec["label"]} {resp.status_code}: {resp.text[:200]}')
     if resp.status_code >= 500:
         raise LLMTransientError(f'{spec["label"]} {resp.status_code}')
-    rj = resp.json()
+    try:
+        rj = resp.json()
+    except Exception:
+        rj = {}
     if resp.status_code >= 400 or 'error' in rj:
+        err = rj.get('error') if isinstance(rj.get('error'), dict) else {}
         detail = rj.get('error') if isinstance(rj.get('error'), str) else \
-                 (rj.get('error') or {}).get('message', resp.text[:200])
+                 err.get('message', resp.text[:200])
+        err_code = err.get('code')
+        if resp.status_code in AUTH_FAILURE_CODES or err_code in ('model_not_found', 'invalid_model'):
+            raise LLMUnavailableError(f'{spec["label"]}: {detail}')
         raise RuntimeError(f'{spec["label"]}: {detail}')
     try:
         return rj['choices'][0]['message']['content']
@@ -5295,6 +5323,7 @@ Respond ONLY with this JSON:
 @app.get('/api/insights')
 def insights():
     force = request.args.get('force') == '1'
+    row = None
     try:
         row = get_cache('insights', uid())
         if row and not force and (time.time() - row[1]) < 12 * 3600:
@@ -5304,6 +5333,8 @@ def insights():
                 cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
                 n = cur.fetchone()[0]
     except Exception as e:
+        if row:
+            return jsonify(row[0])
         return _server_error(e, 'insights.database_failed', message='Underlaget för insikter kunde inte hämtas.')
 
     if n < 3:
@@ -5321,6 +5352,8 @@ def insights():
         set_cache('insights', data, uid())
         return jsonify(data)
     except Exception as e:
+        if row:
+            return jsonify(row[0])
         return _server_error(e, 'insights.generation_failed', message='Insikterna kunde inte skapas.')
 
 def _build_sleep_insights_prompt():
@@ -5393,6 +5426,7 @@ Respond ONLY with this JSON:
 
 
 def _get_sleep_insights(force=False):
+    row = None
     try:
         row = get_cache('sleep_insights', uid())
         if row and not force and (time.time() - row[1]) < 12 * 3600:
@@ -5404,6 +5438,8 @@ def _get_sleep_insights(force=False):
                 cur.execute('SELECT COUNT(*) FROM health_history WHERE user_id=%s', (uid(),))
                 n = cur.fetchone()[0]
     except Exception as e:
+        if row:
+            return row[0]
         raise RuntimeError('Sömnunderlaget kunde inte hämtas.') from e
 
     if n < 5:
@@ -5421,6 +5457,8 @@ def _get_sleep_insights(force=False):
         set_cache('sleep_insights', data, uid())
         return data
     except Exception as e:
+        if row:
+            return row[0]
         raise RuntimeError('Sömnanalysen kunde inte skapas.') from e
 
 
@@ -5779,10 +5817,22 @@ def assistant_chat():
             )
 
         if _is_sleep_request(message, history):
-            sleep = _build_sleep_coach()
-            insights = _get_sleep_insights()
-            context += "\n\nSÖMNSCHEMA:\n" + json.dumps(sleep, ensure_ascii=False)
-            context += "\n\nSÖMNINSIKTER:\n" + json.dumps(insights, ensure_ascii=False)
+            try:
+                sleep = _build_sleep_coach()
+                if sleep:
+                    context += "\n\nSÖMNSCHEMA:\n" + json.dumps(sleep, ensure_ascii=False)
+            except Exception as exc:
+                logger.warning('Could not build sleep coach context', extra={
+                    'event': 'assistant.sleep_coach_failed', 'detail': str(exc)[:200]
+                })
+            try:
+                insights = _get_sleep_insights()
+                if insights:
+                    context += "\n\nSÖMNINSIKTER:\n" + json.dumps(insights, ensure_ascii=False)
+            except Exception as exc:
+                logger.warning('Could not build sleep insights context', extra={
+                    'event': 'assistant.sleep_insights_failed', 'detail': str(exc)[:200]
+                })
 
         execution_context = _recent_execution_block(uid(), days=21, limit=10)
         if execution_context:
