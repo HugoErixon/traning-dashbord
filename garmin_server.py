@@ -5681,9 +5681,23 @@ def _build_sleep_coach():
     }
 
 
-_PLAN_ACTIONS = ('justera', 'ändra', 'flytta', 'schemalägg', 'planera in', 'lägg in',
-                 'ta bort', 'byt ut')
-_PLAN_WORDS = ('plan', 'pass', 'träning', 'vilodag', 'löpning', 'styrka', 'intervall')
+_PLAN_ACTIONS = (
+    'justera', 'ändra', 'flytta', 'schemalägg', 'planera in', 'planera', 'lägg in',
+    'ta bort', 'byt ut', 'anpassa', 'uppdatera', 'strukturera', 'lägg om',
+    'lägg upp', 'gör om', 'börja om', 'starta om', 'boka om', 'synka',
+    'skriv in', 'stryk', 'plocka bort', 'reseta', 'nollställ', 'redigera',
+    'optimera', 'forma', 'sätt upp', 'applicera', 'boka in', 'sätt in',
+    'inför', 'lägg till', 'lagg till', 'addera', 'skapa'
+)
+_PLAN_WORDS = (
+    'plan', 'planen', 'planer', 'planering', 'pass', 'passen', 'passet',
+    'träning', 'träningen', 'träningsplan', 'träningsprogram', 'träningsschema',
+    'vilodag', 'vilodagar', 'vila', 'löpning', 'löpningen', 'styrka',
+    'styrkan', 'intervall', 'intervaller', 'schema', 'schemat', 'veckan',
+    'veckoschema', 'kalender', 'kalendern', 'program', 'programmet',
+    'rutin', 'upplägg', 'upplägget', 'återhämtning', 'återhämtningen', 'återhämrning',
+    'måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag', 'söndag'
+)
 _SLEEP_WORDS = ('sömn', 'sov', 'läggdags', 'lägga mig', 'vakna', 'natt')
 
 # Ord ett rent medhåll får bestå av. Allt utanför listan betyder att svaret
@@ -5716,20 +5730,21 @@ def _is_affirmation(message):
 def _is_plan_change_request(message, history=None):
     """Only apply a plan change when the user clearly asks for one.
 
-    Med samtalet i handen räcker "flytta det till torsdag" eller "ja, kör på" —
+    Med samtalet i handen räcker "flytta det till torsdag", "lägg in detta i schemat" eller "ja, kör på" —
     men bara när coachens föregående svar faktiskt handlade om planen. En
     planändring skriver om schemat, så otydliga fall ska hellre bli ett vanligt
     chattsvar."""
     text = message.lower()
     has_action = any(action in text for action in _PLAN_ACTIONS)
-    if has_action and any(word in text for word in _PLAN_WORDS):
+    has_plan_word = any(word in text for word in _PLAN_WORDS)
+    if has_action and has_plan_word:
         return True
     reply = _last_message(history, 'assistant')
     if not any(word in reply for word in _PLAN_WORDS):
         return False
-    # Coachen frågade något om planen och löparen sa ja — då är ett klartecken
-    # lika tydligt som en fullständig begäran.
-    return has_action or ('?' in reply and _is_affirmation(message))
+    # Coachen diskuterade eller frågade något om planen:
+    # Användaren vill ändra/agera, eller bekräftar ("ja, kör på", "gör så").
+    return has_action or _is_affirmation(message)
 
 
 def _is_sleep_request(message, history=None):
@@ -5768,11 +5783,13 @@ def assistant_chat():
         return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
     try:
         if _is_plan_change_request(message, history):
-            result = _apply_plan_request(_plan_request_text(message, history))
+            result = _apply_plan_request(message, history=history)
             changes = result.get('changes', 0)
             summary = result.get('summary') or ('Planen justerad.' if changes else 'Inga ändringar behövdes.')
             notes = result.get('coaching_notes') or ''
-            reply = f"{summary}\n\n{notes}".strip()
+            reply = f"{summary}\n\n{notes}".strip() if notes else summary
+            if not reply:
+                reply = 'Planen har uppdaterats.'
             return jsonify({'reply': reply, 'planAdjusted': True})
 
         custom_ctx = str(data.get('context') or '').strip()
@@ -7983,30 +8000,50 @@ def _change_to_pin_on_today(changes):
     return next((c for c in candidates if c.get('action') == 'add'), candidates[0])
 
 
-def ai_adjust_plan(user_request=None):
+def ai_adjust_plan(user_request=None, history=None):
     """
     Kärnan i planjusteringen som användaren startar via träningsassistenten.
     user_request: valfri fritext från användaren (t.ex. "jag vill gymma idag
     istället för att springa") som prioriteras högt i coachens beslut.
+    history: tidigare samtalskontext.
     """
     if not llm_available():
         print('AI adjustment: API key missing')
-        return
+        return None
 
     today     = date.today()
     iso_week  = today.isocalendar()[1]
     today_dow = today.weekday()
     req_text = (user_request or '').strip()
-    explicit_today_request = bool(re.search(r'\b(idag|i dag|ikväll|nu|today|tonight)\b', req_text, re.I))
-    explicit_tomorrow_request = bool(re.search(r'\b(imorgon|i morgon|tomorrow)\b', req_text, re.I))
-    explicit_rest_request = bool(re.search(r'\b(vilodag|vila|vilo|rest day|rest)\b', req_text, re.I))
-    explicit_add_request = bool(re.search(r'\b(lägg till|lagg till|addera|skapa|extra|add|create)\b', req_text, re.I))
+    history_tail = None
+    if not history and '\n\nEarlier in the same conversation' in req_text:
+        parts = req_text.split('\n\nEarlier in the same conversation', 1)
+        req_text = parts[0].strip()
+        history_tail = parts[1].strip()
+
+    req_lower = req_text.lower()
+    has_today = bool(re.search(r'\b(idag|i dag|ikväll|i kväll|nu|today|tonight)\b', req_lower))
+    has_negation = bool(re.search(r'\b(inte|aldrig|ingen|inget|inga|slipper|vill inte|ska inte|bör inte|skulle inte|not|no|don\'t|dont)\b', req_lower))
+    has_rest_intent = bool(re.search(r'\b(vila|vilodag|vilar|vilo|rest|återhämtning|återhämta|återhämrning|semester|börja om|starta om|fram tills måndag|till måndag|pausa|hoppa över)\b', req_lower))
+    has_move_away = bool(re.search(r'\b(flytta|skjut|senare|imorgon|tisdag|onsdag|torsdag|fredag|lördag|söndag|måndag)\b', req_lower)) and bool(re.search(r'\b(till|fram till|till på)\b', req_lower))
+    has_workout_word = bool(re.search(r'\b(pass|springa|springer|löpning|löpa|styrka|gymma|gym|köra|trän|intervall|intervaller|cykla|passet|milen|z2|zon 2)\b', req_lower))
+
+    explicit_today_request = has_today and has_workout_word and not has_negation and not has_rest_intent and not has_move_away
+    explicit_today_rest = (has_today or bool(re.search(r'\b(dagens pass|dagens)\b', req_lower))) and bool(re.search(r'\b(vila|vilodag|vilar|rest|återhämtning|hoppa över|skippa|inte köra|ingen träning)\b', req_lower))
+    explicit_tomorrow_request = bool(re.search(r'\b(imorgon|i morgon|tomorrow)\b', req_lower))
+    explicit_rest_request = bool(re.search(r'\b(vilodag|vila|vilo|rest day|rest)\b', req_lower))
+    explicit_add_request = bool(re.search(r'\b(lägg till|lagg till|addera|skapa|extra|add|create|börja om|starta om|lägg in|sätt in|planera in|kör|inför)\b', req_lower))
+
     tomorrow = today + timedelta(days=1)
     tomorrow_week = tomorrow.isocalendar()[1]
     tomorrow_dow = tomorrow.weekday()
 
-    first_user = list(USERS.keys())[0] if USERS else 'hugo'
-    first_uid  = USERS.get(first_user, {}).get('id', 1)
+    try:
+        first_uid = uid()
+        first_user = uname()
+    except Exception:
+        first_user = list(USERS.keys())[0] if USERS else 'hugo'
+        first_uid  = USERS.get(first_user, {}).get('id', 1)
 
     # 1. Synka Garmin och hälsodata
     try:
@@ -8156,19 +8193,32 @@ def ai_adjust_plan(user_request=None):
     strength_planner_json = json.dumps(strength_planner_context, ensure_ascii=False, indent=2)
 
     request_block = ''
-    if user_request:
-        request_block = f"""
+    if req_text:
+        request_block += f"""
 
-=== RUNNER'S EXPLICIT REQUEST FOR TODAY (HIGH PRIORITY) ===
-The runner has personally asked for this change. Honor it as far as it is sensible and safe, and adjust the surrounding plan so the training logic stays intact (e.g. if they want strength instead of a run today, move today's run to a suitable nearby day or fold it into another run, and place/keep a strength session today). Only push back if the request would clearly harm recovery or the goal — and then explain why in coaching_notes.
-If the request explicitly says today/idag/tonight/ikväll/nu, the requested workout MUST be placed on TODAY (week {iso_week}, day {today_dow}). Do not move the requested workout to another day because of ACWR, weekly cap, calendar, or recovery concerns. Instead, add a concise warning in coaching_notes/reason and adjust later sessions if needed.
-If the request explicitly says rest/vila/vilodag tomorrow/imorgon, ONLY affect sessions on TOMORROW ({tomorrow.isoformat()}, week {tomorrow_week}, day {tomorrow_dow}). Do not add a new workout and do not change today.
-Request: "{user_request.strip()}"
+=== RUNNER'S CURRENT REQUEST (HIGH PRIORITY) ===
+"{req_text}"
+"""
+    if history:
+        history_lines = []
+        for msg in history[-6:]:
+            role_label = 'Runner: ' if msg['role'] == 'user' else 'Coach: '
+            history_lines.append(role_label + msg['content'][:600].replace('"', "'"))
+        request_block += f"""
+=== EARLIER CONVERSATION CONTEXT (what the request refers to) ===
+""" + "\n".join(history_lines) + "\n"
+    elif history_tail:
+        request_block += f"""
+=== EARLIER CONVERSATION CONTEXT (what the request refers to) ===
+{history_tail}
 """
 
-    prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning. You are working with a runner whose goal is a half marathon under 1:20 (3:47/km) on October 10, 2026. Current best: 1:26:19. Secondary goal: build a strong body in all areas - running strength, upper body, core, mobility. The plan runs W23-41 with phases: recovery -> base building -> threshold/tempo -> race-specific -> taper. Always respond in Swedish (svenska). All JSON text fields must be written in Swedish.
+    user_goal_text = _goal_prompt_block(first_uid)
+    prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning.
+{user_goal_text}
+The plan runs W23-41 with phases: recovery -> base building -> threshold/tempo -> race-specific -> taper. Always respond in Swedish (svenska). All JSON text fields must be written in Swedish.
 
-TODAY: {today} (week {iso_week}, day {today.weekday()}, where 0=Monday)
+TODAY: {today} (week {iso_week}, day {today_dow}, {weekday_sv[today_dow]})
 {request_block}
 === RUNNER STATUS ===
 
@@ -8221,23 +8271,22 @@ Google Calendar, next 14 days, affecting recovery and timing:
 
 Analyze the situation as a coach and make the best decisions for the runner's long-term development. You may:
 
-- Add a new session: use this for explicit requests to add training on an empty day or to create an extra optional session
+- Add a new session: use this for explicit requests to add training on an empty day, create an extra session, or schedule restart workouts (e.g. starting fresh on Monday)
 - Reschedule sessions: provide the new week and day
-- Skip sessions: when they do not add value given fatigue or context
+- Skip sessions: when they do not add value given fatigue, illness, vacation, or requested rest periods
 - Modify session content: change distance, pace, type, or structure
 - For strength sessions, name each exercise with explicit sets and reps so the progression engine can attach the verified weight
 - Combine logic: for example reschedule and modify the same session
 - Keep sessions unchanged: when that is the right decision
 
-Think like a coach, not a rule sheet. Reason about examples like:
-- If three hard sessions are stacked in a row, redistribute them to avoid accumulated fatigue
-- If one session was missed but the next one fits the structure well, it may be better to make the next session slightly longer than to cram in the missed one
-- If the runner is in good shape, with high HRV and good sleep, use that readiness carefully
-- If the runner is tired, protect quality adaptations: one good session is better than three mediocre ones
-- Consider Google Calendar titles AND descriptions. Descriptions can contain the real constraint: travel, work stress, early start, late night, illness, poor sleep, vacation, or explicit training notes.
-- Use calendar "training impact" notes when placing sessions. Avoid quality sessions on travel/stress/poor-sleep/illness days and usually the day after late nights or very early starts.
-- Avoid stacking more than two hard sessions in a row, including run quality or high-load strength work
-- Keep sessions with status completed or skipped unchanged
+Guidelines for fulfilling the runner's request:
+- If the runner asks to apply or schedule a plan discussed in the conversation (e.g. resting/vacation until a specific day like Monday, and restarting training from Monday), apply those exact decisions to the schedule.
+- For recovery / vacation / fatigue / travel days: mark scheduled quality/hard sessions on those days with action="skip", or modify them to light Z2/recovery if the runner requested light activity.
+- For restart days (e.g. starting fresh on Monday): schedule/add/modify sessions from that day onward as agreed (e.g. 6 km Z2, strength with 2 sets per exercise at 70% load, gradual volume buildup).
+- If the runner explicitly asks to train TODAY (and does NOT ask for rest or say 'inte idag'), place the requested workout on today (week {iso_week}, day {today_dow}).
+- If the runner says "inte idag", "inga intervaller idag", "vila", or refers to future days (e.g. Monday), do NOT place an intense workout today.
+- Avoid stacking more than two hard sessions in a row, including run quality or high-load strength work.
+- Keep sessions with status completed or skipped unchanged.
 
 Grounding rules:
 - Treat the "Upcoming planned sessions" JSON as the only source of truth for planned workouts. Do not assume a strength/run/rest day exists unless it appears there with its session_id.
@@ -8273,7 +8322,7 @@ Return ONLY this JSON, with no comments outside it:
         result = json.loads(text)
     except Exception as e:
         print('AI adjustment: LLM error', e)
-        return
+        return None
 
     tomorrow_rest_request = explicit_tomorrow_request and explicit_rest_request
     if tomorrow_rest_request:
@@ -8297,12 +8346,32 @@ Return ONLY this JSON, with no comments outside it:
             "Därför ändras bara planerade pass på morgondagens datum."
         )
 
+    if explicit_today_rest:
+        today_sessions = [
+            s for s in upcoming
+            if s['week'] == iso_week and s['dow'] == today_dow and s['type'] != 'rest'
+        ]
+        if today_sessions:
+            for s in today_sessions:
+                if not any(c.get('session_id') == s['id'] for c in result.get('changes', [])):
+                    result.setdefault('changes', []).append({
+                        'session_id': s['id'],
+                        'action': 'skip',
+                        'new_week': None,
+                        'new_dow': None,
+                        'type': s['type'],
+                        'new_km': None,
+                        'new_title': None,
+                        'new_detail': None,
+                        'reason': f"Användaren bad uttryckligen om vila idag ({today.isoformat()})."
+                    })
+
     valid_session_ids = {s['id'] for s in missed + upcoming}
     filtered_changes = []
     for change in result.get('changes', []):
         action = change.get('action')
         sid = change.get('session_id')
-        if action == 'add' and not explicit_add_request and not explicit_today_request:
+        if action == 'add' and not explicit_add_request and not explicit_today_request and not user_request:
             print("AI adjustment: ignored add without explicit add/today request")
             continue
         if action != 'add' and sid not in valid_session_ids:
@@ -8408,13 +8477,15 @@ Return ONLY this JSON, with no comments outside it:
     print(f'AI adjustment complete: {changes_applied} changes. {summary}')
     if coaching_notes:
         print(f'Coach: {coaching_notes}')
-    set_cache('last_plan_adjustment', {
+    res_dict = {
         'date': today.isoformat(),
         'changes': changes_applied,
         'summary': summary,
         'coaching_notes': coaching_notes,
         'user_request': user_request or None
-    }, first_uid)
+    }
+    set_cache('last_plan_adjustment', res_dict, first_uid)
+    return res_dict
 
 
 # ─────────────────────────────────────────────
@@ -8433,15 +8504,24 @@ def manual_adjust_disabled():
     """Trigga AI-justeringen manuellt (t.ex. för testning)."""
     return jsonify({'error': 'Automatic plan coach is disabled'}), 410
 
-def _apply_plan_request(text):
+def _apply_plan_request(text, history=None):
     """Apply a user-requested plan adjustment for the unified assistant."""
     try:
-        match_activities_to_plan(user_id=uid(), username=uname())
-        ai_adjust_plan(user_request=text)
-        first_uid = USERS.get(list(USERS.keys())[0] if USERS else 'hugo', {}).get('id', 1)
-        row = get_cache('last_plan_adjustment', first_uid)
+        user_id = uid()
+        username = uname()
+    except Exception:
+        first_user = list(USERS.keys())[0] if USERS else 'hugo'
+        user_id = USERS.get(first_user, {}).get('id', 1)
+        username = first_user
+    try:
+        match_activities_to_plan(user_id=user_id, username=username)
+        res = ai_adjust_plan(user_request=text, history=history)
+        if res and isinstance(res, dict):
+            return res
+        row = get_cache('last_plan_adjustment', user_id)
         return row[0] if row else {}
     except Exception as e:
+        logger.warning('Plan adjustment failed', extra={'event': 'plan.adjust_failed', 'detail': str(e)})
         raise RuntimeError('Planändringen kunde inte genomföras.') from e
 
 @app.get('/api/plan/status')

@@ -217,6 +217,36 @@ class FollowUpIntentTests(unittest.TestCase):
         self.assertIn('Torsdagens intervallpass', text)
         self.assertNotIn('"', text)
 
+    def test_adapt_plan_and_restart_on_monday_counts_as_plan_change(self):
+        history = garmin_server.normalize_history(exchange(
+            'Jag är i Spanien, 30 grader och trött.',
+            'Fokusera på vila fram till måndag och starta om med 6 km Z2 då.'
+        ))
+        self.assertTrue(garmin_server._is_plan_change_request(
+            'Kan du anpassa planen framått för detta, alltså börja om på måndag osv, då är det nya tag, du är tränaren',
+            history
+        ))
+
+    def test_put_this_into_schedule_counts_as_plan_change(self):
+        history = garmin_server.normalize_history(exchange(
+            'Hur ska jag träna i helgen?',
+            'Kör lätt Zon 2 och vila på söndag.'
+        ))
+        self.assertTrue(garmin_server._is_plan_change_request(
+            'Kunde du lägga in detta i schemat och ändra i planen?',
+            history
+        ))
+
+    def test_negating_today_and_asking_for_recovery_counts_as_plan_change(self):
+        history = garmin_server.normalize_history(exchange(
+            'Vad ska jag göra idag?',
+            'Dagens pass är intervaller.'
+        ))
+        self.assertTrue(garmin_server._is_plan_change_request(
+            'De skulle inte vara intervaller idag, du skulle ändra schemat för att maximera återhämrning tills på måndag',
+            history
+        ))
+
 
 class AssistantEndpointTests(unittest.TestCase):
     def setUp(self):
@@ -258,6 +288,23 @@ class AssistantEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()['reply'], 'Kör lugnt.')
         self.assertEqual(len(post.call_args.kwargs['json']['contents']), 1)
+
+    def test_plan_adjustment_request_returns_plan_adjusted_true_and_notes(self):
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
+             mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
+             mock.patch.object(garmin_server, '_apply_plan_request',
+                               return_value={'changes': 2, 'summary': 'Planen justerad: 2 flyttades.',
+                                             'coaching_notes': 'Vi tar det lugnt fram till måndag.'}):
+            response = self.client.post('/api/assistant', json={
+                'message': 'Kan du anpassa planen framått för detta, alltså börja om på måndag osv',
+                'history': exchange('Jag är i Spanien och trött.', 'Vila fram till måndag.'),
+            }, headers={'X-CSRF-Token': self.csrf})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertTrue(data['planAdjusted'])
+        self.assertIn('Planen justerad', data['reply'])
+        self.assertIn('Vi tar det lugnt fram till måndag', data['reply'])
 
 
 if __name__ == '__main__':

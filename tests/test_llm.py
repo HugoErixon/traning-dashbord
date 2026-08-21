@@ -15,8 +15,11 @@ import garmin_server  # noqa: E402
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status=200, headers=None, text=''):
         self._payload = payload
+        self.status_code = status
+        self.headers = headers or {}
+        self.text = text
 
     def json(self):
         return self._payload

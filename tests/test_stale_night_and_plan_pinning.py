@@ -158,6 +158,19 @@ class TodayPinningTests(unittest.TestCase):
         self.assertIsNone(garmin_server._change_to_pin_on_today([]))
         self.assertIsNone(garmin_server._change_to_pin_on_today(None))
 
+    def test_negating_today_does_not_trigger_pinning(self):
+        # "De skulle inte vara intervaller idag, du skulle ändra schemat för att maximera återhämrning tills på måndag"
+        req = "De skulle inte vara intervaller idag, du skulle ändra schemat för att maximera återhämrning tills på måndag"
+        req_lower = req.lower()
+        has_today = bool(garmin_server.re.search(r'\b(idag|i dag|ikväll|i kväll|nu|today|tonight)\b', req_lower))
+        has_negation = bool(garmin_server.re.search(r'\b(inte|aldrig|ingen|inget|inga|slipper|vill inte|ska inte|bör inte|skulle inte|not|no|don\'t|dont)\b', req_lower))
+        has_rest_intent = bool(garmin_server.re.search(r'\b(vila|vilodag|vilar|vilo|rest|återhämtning|återhämta|återhämrning|semester|börja om|starta om|fram tills måndag|till måndag|pausa|hoppa över)\b', req_lower))
+        has_move_away = bool(garmin_server.re.search(r'\b(flytta|skjut|senare|imorgon|tisdag|onsdag|torsdag|fredag|lördag|söndag|måndag)\b', req_lower)) and bool(garmin_server.re.search(r'\b(till|fram till|till på)\b', req_lower))
+        has_workout_word = bool(garmin_server.re.search(r'\b(pass|springa|springer|löpning|löpa|styrka|gymma|gym|köra|trän|intervall|intervaller|cykla|passet|milen|z2|zon 2)\b', req_lower))
+
+        explicit_today = has_today and has_workout_word and not has_negation and not has_rest_intent and not has_move_away
+        self.assertFalse(explicit_today)
+
 
 class DailyRoutineTests(unittest.TestCase):
     """Rutinen samlar historik när något synkat, men rapporten väntar på sömnen."""
