@@ -154,26 +154,38 @@ ANTHROPIC_KEY = config.get('ANTHROPIC_API_KEY', '')
 # ett riktigt fel som en trasig prompt — det felet skulle upprepas hos alla och
 # bara bränna kvot. Poängen är att kunna stapla flera gratisnivåer på varandra.
 GEMINI_API_KEY  = config.get('GEMINI_API_KEY', '')
-GEMINI_MODEL    = config.get('GEMINI_MODEL', 'gemini-2.0-flash')
-ANTHROPIC_MODEL = config.get('ANTHROPIC_MODEL', 'claude-3-5-sonnet-latest')
+GEMINI_MODEL    = config.get('GEMINI_MODEL', 'gemini-3.7-flash')
+ANTHROPIC_MODEL = config.get('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
 
-# Groq, Cerebras, OpenRouter och Mistral talar alla OpenAI:s chat-completions,
-# så samma adapter räcker för alla fyra — bara URL, modell och nyckel skiljer.
+# Groq, Cerebras, OpenRouter, Mistral och Cloudflare talar alla OpenAI:s
+# chat-completions, så samma adapter räcker — bara URL, modell och nyckel
+# skiljer.
 # Modellnamnen byts ut ofta hos leverantörerna; sätt <NAMN>_MODEL i .env om
 # defaulten slutar finnas.
 OPENAI_COMPATIBLE_PROVIDERS = {
-    'groq': ('https://api.groq.com/openai/v1/chat/completions', 'llama-3.3-70b-versatile'),
-    'cerebras': ('https://api.cerebras.ai/v1/chat/completions', 'llama-3.3-70b'),
-    'openrouter': ('https://openrouter.ai/api/v1/chat/completions', 'meta-llama/llama-3.3-70b-instruct:free'),
+    'groq': ('https://api.groq.com/openai/v1/chat/completions', 'openai/gpt-oss-120b'),
+    'cerebras': ('https://api.cerebras.ai/v1/chat/completions', 'gpt-oss-120b'),
+    'openrouter': ('https://openrouter.ai/api/v1/chat/completions', 'openrouter/free'),
     'mistral': ('https://api.mistral.ai/v1/chat/completions', 'mistral-small-latest'),
 }
 
 _MODEL_ALIASES = {
-    'gemini-flash-latest': 'gemini-2.0-flash',
-    'gemini-flash': 'gemini-2.0-flash',
-    'gemini-pro-latest': 'gemini-1.5-pro',
-    'gpt-oss-120b': 'llama-3.3-70b',
-    'claude-sonnet-4-6': 'claude-3-5-sonnet-latest',
+    'gemini': {
+        'gemini-2.0-flash': 'gemini-3.7-flash',
+        'gemini-flash': 'gemini-3.7-flash',
+    },
+    'anthropic': {
+        'claude-3-5-sonnet-latest': 'claude-sonnet-4-6',
+    },
+    'groq': {
+        'llama-3.3-70b-versatile': 'openai/gpt-oss-120b',
+    },
+    'cerebras': {
+        'llama-3.3-70b': 'gpt-oss-120b',
+    },
+    'openrouter': {
+        'meta-llama/llama-3.3-70b-instruct:free': 'openrouter/free',
+    },
 }
 
 
@@ -184,17 +196,29 @@ def _provider_spec(name):
     bytas ut utan att modulen laddas om, och nyckeln läses från modulens egna
     globaler så att den går att ersätta i test."""
     if name == 'gemini':
-        model = _MODEL_ALIASES.get(GEMINI_MODEL, GEMINI_MODEL)
+        model = _MODEL_ALIASES['gemini'].get(GEMINI_MODEL, GEMINI_MODEL)
         return {'kind': 'gemini', 'key': GEMINI_API_KEY, 'model': model,
                 'label': 'Gemini'}
     if name == 'anthropic':
-        model = _MODEL_ALIASES.get(ANTHROPIC_MODEL, ANTHROPIC_MODEL)
+        model = _MODEL_ALIASES['anthropic'].get(ANTHROPIC_MODEL, ANTHROPIC_MODEL)
         return {'kind': 'anthropic', 'key': ANTHROPIC_KEY, 'model': model,
                 'label': 'Anthropic'}
+    if name == 'cloudflare':
+        account_id = config.get('CLOUDFLARE_ACCOUNT_ID', '').strip()
+        default_url = (f'https://api.cloudflare.com/client/v4/accounts/{account_id}'
+                       '/ai/v1/chat/completions') if account_id else ''
+        return {
+            'kind': 'openai',
+            'key': (config.get('CLOUDFLARE_API_TOKEN', '')
+                    or config.get('CLOUDFLARE_API_KEY', '')),
+            'model': config.get('CLOUDFLARE_MODEL', '@cf/openai/gpt-oss-20b'),
+            'url': config.get('CLOUDFLARE_URL', '') or default_url,
+            'label': 'Cloudflare',
+        }
     if name in OPENAI_COMPATIBLE_PROVIDERS:
         url, default_model = OPENAI_COMPATIBLE_PROVIDERS[name]
         raw_model = config.get(f'{name.upper()}_MODEL', default_model)
-        model = _MODEL_ALIASES.get(raw_model, raw_model)
+        model = _MODEL_ALIASES.get(name, {}).get(raw_model, raw_model)
         return {
             'kind': 'openai',
             'key': config.get(f'{name.upper()}_API_KEY', ''),
@@ -208,6 +232,8 @@ def _provider_spec(name):
 def _provider_configured(name):
     spec = _provider_spec(name)
     if not spec or not spec['key']:
+        return False
+    if spec['kind'] == 'openai' and not spec.get('url'):
         return False
     if name == 'anthropic' and spec['key'].startswith('sk-ant-placeholder'):
         return False
@@ -370,10 +396,22 @@ def normalize_history(history):
     return cleaned
 
 
-def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait, history=None):
+def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait,
+                 history=None, json_mode=False):
     turns = [{'role': 'model' if m['role'] == 'assistant' else 'user',
               'parts': [{'text': m['content']}]} for m in (history or [])]
-    body = {'contents': turns + [{'role': 'user', 'parts': [{'text': prompt}]}]}
+    body = {
+        'contents': turns + [{'role': 'user', 'parts': [{'text': prompt}]}],
+        'generationConfig': {'maxOutputTokens': max_tokens},
+    }
+    # Gemini 3.x använder medium thinking som standard. Thinking-tokens räknas
+    # mot maxOutputTokens, så korta Trainyze-svar kunde bli tomma eller kapas
+    # innan modellen hann skriva själva svaret. Låg nivå räcker för coachning
+    # och strukturerad sammanfattning och lämnar budget åt användarsvaret.
+    if spec['model'].startswith('gemini-3'):
+        body['generationConfig']['thinkingConfig'] = {'thinkingLevel': 'LOW'}
+    if json_mode:
+        body['generationConfig']['responseMimeType'] = 'application/json'
     if system:
         body['system_instruction'] = {'parts': [{'text': system}]}
 
@@ -414,7 +452,8 @@ def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait, history=
         raise RuntimeError(f'Gemini gav tomt svar (finishReason: {finish})') from exc
 
 
-def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait, history=None):
+def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait,
+                    history=None, json_mode=False):
     payload = {'model': spec['model'], 'max_tokens': max_tokens,
                'messages': list(history or []) + [{'role': 'user', 'content': prompt}]}
     if system:
@@ -450,12 +489,22 @@ def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait, histo
         raise RuntimeError('Anthropic gav tomt svar') from exc
 
 
-def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wait, history=None):
+def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wait,
+                            history=None, json_mode=False):
     """Groq, Cerebras, OpenRouter, Mistral — samma chat-completions-format."""
     messages = ([{'role': 'system', 'content': system}] if system else []) + \
                list(history or []) + [{'role': 'user', 'content': prompt}]
+    payload = {'model': spec['model'], 'max_tokens': max_tokens, 'messages': messages}
+    # GPT-OSS använder medium reasoning som standard och reasoning-tokens delar
+    # samma tak som svaret. Det var därför Groq returnerade JSON avklippt mitt i
+    # en sträng trots HTTP 200. Groq stöder både low och JSON object mode.
+    if spec['label'] == 'Groq' and spec['model'].startswith('openai/gpt-oss-'):
+        payload['reasoning_effort'] = 'low'
+        if json_mode:
+            payload['response_format'] = {'type': 'json_object'}
+            payload['reasoning_format'] = 'hidden'
     resp = requests.post(spec['url'],
-        json={'model': spec['model'], 'max_tokens': max_tokens, 'messages': messages},
+        json=payload,
         headers={'Authorization': f"Bearer {spec['key']}",
                  'Content-Type': 'application/json'}, timeout=timeout)
     if resp.status_code == 429:
@@ -491,7 +540,8 @@ _LLM_CALLERS = {'gemini': _call_gemini, 'anthropic': _call_anthropic,
                 'openai': _call_openai_compatible}
 
 
-def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None):
+def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None,
+             json_mode=False):
     """Skicka en prompt till leverantörskedjan och returnera svarstexten.
 
     `history` är tidigare turer i samma samtal ({'role', 'content'}), redan
@@ -517,7 +567,8 @@ def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None):
         caller = _LLM_CALLERS[spec['kind']]
         try:
             text = caller(prompt, max_tokens, system, timeout, spec,
-                          allow_wait=(position == len(order) - 1), history=history)
+                          allow_wait=(position == len(order) - 1), history=history,
+                          json_mode=json_mode)
             if position > 0:
                 logger.info('LLM served by fallback provider', extra={
                     'event': 'llm.fallback_used', 'provider': name,
@@ -3498,7 +3549,8 @@ def activity_ai_overview(activity_id):
             activity['source'] = source
             planned = _activity_ai_plan_context(activity, uid())
             feedback = ACTIVITY_FEEDBACK_STORE.get(uid(), source, activity_id)
-            text = call_llm(_activity_ai_prompt(activity, planned, feedback), max_tokens=800)
+            text = call_llm(_activity_ai_prompt(activity, planned, feedback),
+                            max_tokens=800, json_mode=True)
             cleaned = text.strip().replace('```json', '').replace('```', '').strip()
             overview = _normalize_activity_ai_response(json.loads(cleaned))
             set_cache(cache_key, overview, uid())
@@ -4823,7 +4875,7 @@ def refresh():
                         'prediction3k': '10:27', 'insight': 'AI-insikter kräver en API-nyckel.'})
 
     prompt = _build_refresh_prompt(acts)
-    text = call_llm(prompt, max_tokens=600).strip().replace('```json','').replace('```','').strip()
+    text = call_llm(prompt, max_tokens=600, json_mode=True).strip().replace('```json','').replace('```','').strip()
     analysis = json.loads(text)
     set_cache('analysis', analysis, uid())
     return jsonify(analysis)
@@ -5217,7 +5269,7 @@ def training_review():
         prompt = _build_review_prompt()
         # Svaret rymmer nu motivering, justering och nasta pass, sa 500 tokens
         # racker inte langre - ett avklippt svar blir ogiltig JSON.
-        text = call_llm(prompt, max_tokens=1200).strip().replace('```json','').replace('```','').strip()
+        text = call_llm(prompt, max_tokens=1200, json_mode=True).strip().replace('```json','').replace('```','').strip()
         review = json.loads(text)
         review['_review_version'] = REVIEW_SCHEMA_VERSION
         set_cache('training_review', review, uid())
@@ -5347,7 +5399,7 @@ def insights():
                         'insights': [{'title': 'Ingen API-nyckel', 'detail': 'Lägg till GEMINI_API_KEY i .env för AI-insikter.', 'action': ''}]})
     try:
         prompt = _build_insights_prompt()
-        text = call_llm(prompt, max_tokens=2000).strip().replace('```json', '').replace('```', '').strip()
+        text = call_llm(prompt, max_tokens=2000, json_mode=True).strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('insights', data, uid())
         return jsonify(data)
@@ -5452,7 +5504,7 @@ def _get_sleep_insights(force=False):
                         'insights': [{'title': 'Ingen API-nyckel', 'detail': 'Lägg till GEMINI_API_KEY i .env.', 'action': ''}]}
     try:
         prompt = _build_sleep_insights_prompt()
-        text = call_llm(prompt, max_tokens=2000).strip().replace('```json', '').replace('```', '').strip()
+        text = call_llm(prompt, max_tokens=2000, json_mode=True).strip().replace('```json', '').replace('```', '').strip()
         data = json.loads(text)
         set_cache('sleep_insights', data, uid())
         return data
@@ -6691,7 +6743,7 @@ Respond ONLY with JSON:
 {{"proposals": [{{"id": <session id>, "paceSec": <seconds per km as an integer>, "rationale": "one short sentence in Swedish"}}]}}"""
 
     try:
-        raw = call_llm(prompt, max_tokens=1500).strip().replace('```json', '').replace('```', '').strip()
+        raw = call_llm(prompt, max_tokens=1500, json_mode=True).strip().replace('```json', '').replace('```', '').strip()
         proposed = (json.loads(raw) or {}).get('proposals') or []
     except Exception as e:
         print('Tempoförslag misslyckades:', e)
@@ -6975,7 +7027,7 @@ Return ONLY this JSON, no other text:
   "sessions": [{{"week": <int>, "dow": <int>, "type": "<run|easy|lift|race|rest>", "km": <float>, "title": "<Swedish>", "detail": "<Swedish>"}}]}}"""
 
     try:
-        text = call_llm(prompt, max_tokens=8000, timeout=120).strip().replace('```json', '').replace('```', '').strip()
+        text = call_llm(prompt, max_tokens=8000, timeout=120, json_mode=True).strip().replace('```json', '').replace('```', '').strip()
         result = json.loads(text)
     except Exception as e:
         return _server_error(e, 'plan_generate.llm_failed', status=502, code='ai_provider_error',
@@ -8318,7 +8370,7 @@ Return ONLY this JSON, with no comments outside it:
 
     # 6. Anropa AI-coachen
     try:
-        text = call_llm(prompt, max_tokens=3000).strip().replace('```json','').replace('```','').strip()
+        text = call_llm(prompt, max_tokens=3000, json_mode=True).strip().replace('```json','').replace('```','').strip()
         result = json.loads(text)
     except Exception as e:
         print('AI adjustment: LLM error', e)

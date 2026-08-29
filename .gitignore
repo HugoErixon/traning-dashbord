@@ -10,3 +10,8 @@ test-garmin*.js
 google_credentials.json
 google_token.json
 *.log
+
+# Säkerhetskopior och personliga token — får aldrig till GitHub
+.env.bak-*
+.en
+google_token_*.json
