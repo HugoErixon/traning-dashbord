@@ -85,7 +85,7 @@ function showLogin(message) {
   }
   const inputStyle = "width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;";
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="login-screen" style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;">
+    <div id="login-screen" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:999;">
       <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:40px;width:320px;text-align:center;">
         <div id="login-view">
           <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Träningsdashboard</h2>

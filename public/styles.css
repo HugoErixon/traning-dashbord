@@ -255,6 +255,7 @@
     *, *::before, *::after { box-sizing:border-box; }
 
     body {
+      isolation: isolate;
       margin: 0;
       font-family: var(--font-sans);
       background: var(--page-haze), var(--bg);
@@ -264,6 +265,26 @@
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       overflow-x: hidden;
+    }
+
+    /* Shared, non-interactive atmosphere. Page haze remains as the WebGL fallback. */
+    .ambient-fibers {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: -1;
+      pointer-events: none;
+      opacity: 0;
+    }
+    .ambient-fibers.is-ready { opacity: .34; }
+    .landing-body .ambient-fibers.is-ready { opacity: .44; }
+    @media (max-width: 620px) {
+      .ambient-fibers.is-ready { opacity: .28; }
+      .landing-body .ambient-fibers.is-ready { opacity: .36; }
+    }
+    @media print {
+      .ambient-fibers { display: none; }
     }
 
     /* User administration modal */

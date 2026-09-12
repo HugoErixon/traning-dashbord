@@ -7,7 +7,7 @@
 
 .landing-body {
   margin: 0;
-  background: var(--bg);
+  background: var(--page-haze), var(--bg);
   overflow-x: hidden;
 }
 
@@ -16,57 +16,7 @@
   margin-inline: auto;
 }
 
-/* ─────────── Bakgrund: aurora + rutnät ─────────── */
-.lp-aurora {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.lp-blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: .55;
-}
-.lp-blob-1 {
-  width: 780px; height: 780px;
-  top: -320px; right: -220px;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 20%, transparent), color-mix(in srgb, var(--accent) 5%, transparent) 45%, transparent 70%);
-  animation: lp-drift-a 22s ease-in-out infinite;
-}
-.lp-blob-2 {
-  width: 640px; height: 640px;
-  top: 42%; left: -280px;
-  background: radial-gradient(circle, color-mix(in srgb, var(--green) 16%, transparent), color-mix(in srgb, var(--green) 4%, transparent) 45%, transparent 70%);
-  animation: lp-drift-b 27s ease-in-out infinite;
-}
-.lp-blob-3 {
-  width: 700px; height: 700px;
-  bottom: -340px; right: 8%;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 12%, transparent), transparent 65%);
-  animation: lp-drift-a 31s ease-in-out infinite reverse;
-}
-.lp-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(color-mix(in srgb, var(--text) 2.2%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--text) 2.2%, transparent) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: radial-gradient(ellipse 90% 55% at 50% 0%, #000 20%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse 90% 55% at 50% 0%, #000 20%, transparent 75%);
-}
-@keyframes lp-drift-a {
-  0%, 100% { transform: translate3d(0,0,0) scale(1); }
-  50%      { transform: translate3d(-40px, 46px, 0) scale(1.06); }
-}
-@keyframes lp-drift-b {
-  0%, 100% { transform: translate3d(0,0,0) scale(1); }
-  50%      { transform: translate3d(52px, -38px, 0) scale(1.08); }
-}
-
+/* Bakgrunden delas med dashboarden via ambient-fibers.js och styles.css. */
 main, .lp-nav, .lp-footer { position: relative; z-index: 1; }
 
 /* ─────────── Navigation ─────────── */
@@ -945,7 +895,7 @@ main, .lp-nav, .lp-footer { position: relative; z-index: 1; }
 
 /* ═══════════════ REDUCERAD RÖRELSE ═══════════════ */
 @media (prefers-reduced-motion: reduce) {
-  .lp-blob, .lp-mock, .lp-float, .lp-kicker::before, .lp-mock-live::before { animation: none !important; }
+  .lp-mock, .lp-float, .lp-kicker::before, .lp-mock-live::before { animation: none !important; }
   .lp-reveal { opacity: 1; transform: none; transition: none; }
   .lp-ring-value { transition: none; stroke-dashoffset: 57; }
   .lp-spark-line { transition: none; stroke-dashoffset: 0; }

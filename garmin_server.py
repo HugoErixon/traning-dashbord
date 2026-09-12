@@ -1534,7 +1534,7 @@ def secure_response(response):
         response.headers['Vary'] = 'Cookie'
     elif request.path in (
         '/', '/index.html', '/landing.html', '/app.js', '/styles.css',
-        '/landing.css', '/landing.js',
+        '/landing.css', '/landing.js', '/ambient-fibers.js',
     ):
         response.headers['Cache-Control'] = 'no-cache'
     if ENABLE_HSTS:
@@ -8879,7 +8879,7 @@ def _asset_version():
     kan inte glömmas bort.
     """
     digest = hashlib.sha256()
-    for name in ('app.js', 'styles.css', 'landing.css', 'landing.js'):
+    for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js'):
         try:
             digest.update((PUBLIC_DIR / name).read_bytes())
         except OSError:
