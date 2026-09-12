@@ -226,5 +226,43 @@ class LlmAdapterTests(unittest.TestCase):
         self.assertEqual(response.get_json()['reply'], 'Lägg dig i tid.')
 
 
+class AnthropicReplanningTests(unittest.TestCase):
+    def call(self, payload, **kwargs):
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['anthropic']), \
+             mock.patch.object(garmin_server, 'ANTHROPIC_KEY', 'test-key'), \
+             mock.patch.object(garmin_server.requests, 'post', return_value=FakeResponse(payload)) as post:
+            result = garmin_server.call_llm('Ändra planen', **kwargs)
+        return result, post.call_args.kwargs['json']
+
+    def test_plan_schema_is_sent_as_anthropic_structured_output(self):
+        result, body = self.call({'content': [{'type': 'text', 'text': '{"changes": []}'}]},
+                                json_mode=True, json_schema=garmin_server.PLAN_CHANGE_SCHEMA)
+        self.assertEqual(result, '{"changes": []}')
+        self.assertEqual(body['output_config']['format'], {
+            'type': 'json_schema', 'schema': garmin_server.PLAN_CHANGE_SCHEMA})
+
+    def test_other_json_features_get_explicit_format_instruction(self):
+        _, body = self.call({'content': [{'type': 'text', 'text': '{}'}]}, json_mode=True)
+        self.assertIn('valid JSON', body['system'])
+
+    def test_text_blocks_are_joined_and_non_text_blocks_ignored(self):
+        result, _ = self.call({'content': [{'type': 'thinking', 'thinking': 'hidden'},
+                                           {'type': 'text', 'text': 'Hej '},
+                                           {'type': 'text', 'text': 'igen!'}]})
+        self.assertEqual(result, 'Hej igen!')
+
+    def test_truncated_or_empty_anthropic_reply_is_rejected(self):
+        for payload in [{'stop_reason': 'max_tokens', 'content': [{'text': '{"changes":'}]},
+                        {'content': []}, {'content': [{'type': 'text', 'text': ' '}]}]:
+            with self.subTest(payload=payload), self.assertRaises(RuntimeError):
+                self.call(payload)
+
+    def test_paid_key_without_explicit_provider_does_not_activate_anthropic(self):
+        with mock.patch.dict(garmin_server.config, {'LLM_PROVIDERS': '', 'LLM_PROVIDER': ''}), \
+             mock.patch.object(garmin_server, 'GEMINI_API_KEY', ''), \
+             mock.patch.object(garmin_server, 'ANTHROPIC_KEY', 'test-key'):
+            self.assertNotIn('anthropic', garmin_server._resolve_llm_chain())
+
+
 if __name__ == '__main__':
     unittest.main()

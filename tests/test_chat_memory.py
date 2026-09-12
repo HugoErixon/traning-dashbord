@@ -307,5 +307,56 @@ class AssistantEndpointTests(unittest.TestCase):
         self.assertIn('Vi tar det lugnt fram till måndag', data['reply'])
 
 
+class SafePlanRoutingTests(unittest.TestCase):
+    def test_negations_and_explanations_do_not_write(self):
+        for message in ('Ändra inte schemat', 'Jag vill inte flytta passet',
+                        'Hur kan jag ändra planen?', 'Varför flyttar du passet?',
+                        'Vad har du planerat?', 'Ge information om planen',
+                        'Ändra min läggtid så den passar bättre'):
+            with self.subTest(message=message):
+                self.assertFalse(garmin_server._is_plan_change_request(message))
+
+    def test_acknowledging_advice_is_not_a_plan_edit(self):
+        history = exchange('Hur mår jag?', 'Ditt pass igår var lugnt. Fortsätt så.')
+        self.assertFalse(garmin_server._is_plan_change_request('Okej', history))
+
+    def test_schedule_and_skip_requests_are_recognized(self):
+        for message in ('Kan du lägga in ett pass på måndag?', 'Skippa dagens pass',
+                        'Omplanera schemat efter mitt uppehåll'):
+            with self.subTest(message=message):
+                self.assertTrue(garmin_server._is_plan_change_request(message))
+
+
+class PlanResultEndpointTests(unittest.TestCase):
+    def setUp(self):
+        garmin_server.app.config.update(TESTING=True)
+        self.client = garmin_server.app.test_client()
+        # Authenticate through the same session fields as /api/login.
+        with self.client.session_transaction() as session:
+            session['user_id'] = 1
+            session['username'] = 'hugo'
+            session['csrf_token'] = 'test-csrf'
+
+    def request(self):
+        return self.client.post('/api/assistant', json={'message': 'Ändra schemat'},
+                                headers={'X-CSRF-Token': 'test-csrf'})
+
+    def test_zero_changes_is_not_reported_as_plan_adjusted(self):
+        with mock.patch.object(garmin_server, 'llm_available', return_value=True), \
+             mock.patch.object(garmin_server, '_apply_plan_request', return_value={'changes': 0}):
+            response = self.request()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.get_json()['planAdjusted'])
+
+    def test_quota_error_reports_unavailable_not_a_success(self):
+        with mock.patch.object(garmin_server, 'llm_available', return_value=True), \
+             mock.patch.object(garmin_server, '_apply_plan_request',
+                               side_effect=garmin_server.LLMQuotaError('quota')):
+            response = self.request()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()['code'], 'ai_unavailable')
+        self.assertNotIn('reply', response.get_json())
+
+
 if __name__ == '__main__':
     unittest.main()

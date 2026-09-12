@@ -3800,10 +3800,13 @@ HEALTH DATA (current):
     document.getElementById('chat-input')?.focus();
   }
 
+  let coachBusy = false;
   async function send(txt) {
+    if (coachBusy) return;
     const inp = document.getElementById('chat-input');
     const msg = txt || inp.value.trim();
     if (!msg) return;
+    coachBusy = true;
     inp.value = '';
     const box = document.getElementById('messages');
     appendChatMessage('user', escapeHtml(msg));
@@ -3831,12 +3834,17 @@ HEALTH DATA (current):
         // modellen på sitt eget felmeddelande i nästa fråga.
         history.push({ role:'user', content:msg }, { role:'assistant', content:reply });
         saveChatHistory();
-        if (data.planAdjusted) loadPlan();
+        if (data.planAdjusted) {
+          await loadPlan();
+          await Promise.allSettled([loadToday(), loadTodayWorkout()]);
+        }
       } else {
         aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(failure || 'Inget svar.');
       }
     } catch(e) {
       aDiv.innerHTML = '<div class="msg-from">COACH</div>Kunde inte nå servern.';
+    } finally {
+      coachBusy = false;
     }
     box.scrollTop = box.scrollHeight;
   }
@@ -5114,7 +5122,7 @@ HEALTH DATA (current):
     try {
       const r = await fetch('/api/plan');
       const d = await r.json();
-      if (d.sessions && d.sessions.length > 0) {
+      if (r.ok && Array.isArray(d.sessions)) {
         PLAN_SESSIONS = d.sessions.map(normalizePlanSession);
         buildCalendar();
         renderTodaySession();

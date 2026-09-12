@@ -23,6 +23,7 @@ import os
 import yaml
 import re
 import strava_integration
+from plan_changes import PLAN_CHANGE_SCHEMA, InvalidPlanChange, validate_proposal
 from apscheduler.schedulers.background import BackgroundScheduler
 try:
     from pywebpush import webpush, WebPushException
@@ -253,7 +254,7 @@ def _resolve_llm_chain():
     raw = config.get('LLM_PROVIDERS') or config.get('LLM_PROVIDER') or ''
     names = [n.strip().lower() for n in raw.split(',') if n.strip()]
     if not names:
-        names = ['gemini'] if GEMINI_API_KEY else ['anthropic']
+        names = ['gemini']
     seen, chain = set(), []
     for name in names:
         if _provider_spec(name) and name not in seen:
@@ -397,7 +398,7 @@ def normalize_history(history):
 
 
 def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait,
-                 history=None, json_mode=False):
+                 history=None, json_mode=False, json_schema=None):
     turns = [{'role': 'model' if m['role'] == 'assistant' else 'user',
               'parts': [{'text': m['content']}]} for m in (history or [])]
     body = {
@@ -453,9 +454,14 @@ def _call_gemini(prompt, max_tokens, system, timeout, spec, allow_wait,
 
 
 def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait,
-                    history=None, json_mode=False):
+                    history=None, json_mode=False, json_schema=None):
     payload = {'model': spec['model'], 'max_tokens': max_tokens,
                'messages': list(history or []) + [{'role': 'user', 'content': prompt}]}
+    if json_schema:
+        # https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+        payload['output_config'] = {'format': {'type': 'json_schema', 'schema': json_schema}}
+    elif json_mode:
+        system = (system or '') + '\nReturn only valid JSON, without markdown or commentary.'
     if system:
         payload['system'] = system
     resp = requests.post('https://api.anthropic.com/v1/messages',
@@ -483,14 +489,18 @@ def _call_anthropic(prompt, max_tokens, system, timeout, spec, allow_wait,
         if resp.status_code in AUTH_FAILURE_CODES or err_type in ('authentication_error', 'permission_error', 'not_found_error'):
             raise LLMUnavailableError(f'Anthropic {resp.status_code}: {message}')
         raise RuntimeError(f'Anthropic: {message}')
-    try:
-        return rj['content'][0]['text']
-    except (KeyError, IndexError, TypeError) as exc:
-        raise RuntimeError('Anthropic gav tomt svar') from exc
+    if rj.get('stop_reason') == 'max_tokens':
+        raise RuntimeError('Anthropic-svaret avbröts vid tokengränsen.')
+    blocks = rj.get('content') or []
+    text = ''.join(b.get('text', '') for b in blocks
+                   if isinstance(b, dict) and b.get('type', 'text') == 'text')
+    if not text.strip():
+        raise RuntimeError('Anthropic gav tomt svar')
+    return text
 
 
 def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wait,
-                            history=None, json_mode=False):
+                            history=None, json_mode=False, json_schema=None):
     """Groq, Cerebras, OpenRouter, Mistral — samma chat-completions-format."""
     messages = ([{'role': 'system', 'content': system}] if system else []) + \
                list(history or []) + [{'role': 'user', 'content': prompt}]
@@ -541,7 +551,7 @@ _LLM_CALLERS = {'gemini': _call_gemini, 'anthropic': _call_anthropic,
 
 
 def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None,
-             json_mode=False):
+             json_mode=False, json_schema=None):
     """Skicka en prompt till leverantörskedjan och returnera svarstexten.
 
     `history` är tidigare turer i samma samtal ({'role', 'content'}), redan
@@ -568,7 +578,10 @@ def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None,
         try:
             text = caller(prompt, max_tokens, system, timeout, spec,
                           allow_wait=(position == len(order) - 1), history=history,
-                          json_mode=json_mode)
+                          json_mode=json_mode or bool(json_schema),
+                          **({'json_schema': json_schema} if json_schema else {}))
+            if not isinstance(text, str) or not text.strip():
+                raise RuntimeError(f'{spec["label"]} gav tomt svar')
             if position > 0:
                 logger.info('LLM served by fallback provider', extra={
                     'event': 'llm.fallback_used', 'provider': name,
@@ -5739,7 +5752,8 @@ _PLAN_ACTIONS = (
     'lägg upp', 'gör om', 'börja om', 'starta om', 'boka om', 'synka',
     'skriv in', 'stryk', 'plocka bort', 'reseta', 'nollställ', 'redigera',
     'optimera', 'forma', 'sätt upp', 'applicera', 'boka in', 'sätt in',
-    'inför', 'lägg till', 'lagg till', 'addera', 'skapa'
+    'inför', 'lägg till', 'lagg till', 'addera', 'skapa', 'lägga in',
+    'lägga till', 'hoppa över', 'skippa', 'pausa', 'omplanera'
 )
 _PLAN_WORDS = (
     'plan', 'planen', 'planer', 'planering', 'pass', 'passen', 'passet',
@@ -5787,8 +5801,15 @@ def _is_plan_change_request(message, history=None):
     planändring skriver om schemat, så otydliga fall ska hellre bli ett vanligt
     chattsvar."""
     text = message.lower()
-    has_action = any(action in text for action in _PLAN_ACTIONS)
-    has_plan_word = any(word in text for word in _PLAN_WORDS)
+    # A mention of an edit is not authorization: "ändra inte schemat" and
+    # "hur kan jag ändra planen?" are ordinary conversation.
+    action_pattern = '|'.join(re.escape(action) for action in _PLAN_ACTIONS)
+    if re.search(rf'\b(?:{action_pattern})\s+inte\b|\binte\s+(?:{action_pattern})\b', text):
+        return False
+    if re.match(r'\s*(hur|varför)\b', text):
+        return False
+    has_action = bool(re.search(rf'\b(?:{action_pattern})\b', text))
+    has_plan_word = bool(re.search(r'\b(?:' + '|'.join(_PLAN_WORDS) + r')\b', text))
     if has_action and has_plan_word:
         return True
     reply = _last_message(history, 'assistant')
@@ -5796,7 +5817,9 @@ def _is_plan_change_request(message, history=None):
         return False
     # Coachen diskuterade eller frågade något om planen:
     # Användaren vill ändra/agera, eller bekräftar ("ja, kör på", "gör så").
-    return has_action or _is_affirmation(message)
+    offered_change = (any(action in reply for action in _PLAN_ACTIONS)
+                      and bool(re.search(r'vill du|ska jag|kan jag|jag kan|föreslår', reply)))
+    return has_action or (_is_affirmation(message) and offered_change)
 
 
 def _is_sleep_request(message, history=None):
@@ -5842,7 +5865,7 @@ def assistant_chat():
             reply = f"{summary}\n\n{notes}".strip() if notes else summary
             if not reply:
                 reply = 'Planen har uppdaterats.'
-            return jsonify({'reply': reply, 'planAdjusted': True})
+            return jsonify({'reply': reply, 'planAdjusted': changes > 0, 'changes': changes})
 
         custom_ctx = str(data.get('context') or '').strip()
         if custom_ctx:
@@ -5860,6 +5883,10 @@ def assistant_chat():
                 "4. Lyssna och anpassa: Om löparen känner sig sliten eller har ont om tid, ge en omedelbar justerad plan.\n"
                 "5. Språk och ton: Professionell, engagerad, empatisk och rak svensk löparcoach.\n"
             )
+
+        context += ("\nDu har inte ändrat schemat i detta svar. Ge råd eller ett förslag, "
+                    "men påstå aldrig att pass har sparats, flyttats eller tagits bort. "
+                    "Be användaren att uttryckligen be dig ändra schemat för att spara förslaget.")
 
         # Lägg till dagens hälso- och belastningskontext
         try:
@@ -5927,6 +5954,12 @@ def assistant_chat():
                 )
         return jsonify({'reply': call_llm(message, max_tokens=1024, system=context,
                                           history=history)})
+    except (LLMQuotaError, LLMUnavailableError, LLMTransientError) as e:
+        return _server_error(e, 'assistant.provider_unavailable', status=503,
+                             code='ai_unavailable',
+                             message='AI-leverantören är tillfälligt otillgänglig. Försök igen senare.')
+    except InvalidPlanChange as e:
+        return _api_error('invalid_plan_change', str(e), 502)
     except Exception as e:
         return _server_error(
             e, 'assistant.provider_failed', status=502, code='ai_provider_error',
@@ -8052,6 +8085,21 @@ def _change_to_pin_on_today(changes):
     return next((c for c in candidates if c.get('action') == 'add'), candidates[0])
 
 
+def _requested_rest_offsets(text):
+    """Only force rest when the rest instruction and date share a clause."""
+    offsets = set()
+    for clause in re.split(r'[,;.!?]|\b(?:och|men|sedan)\b', text.lower()):
+        if re.search(r'\binte\s+(?:vila|vilar|ha vilodag)\b', clause):
+            continue
+        if not re.search(r'\b(?:vila|vilodag|vilar|hoppa över|skippa|ingen träning|inte köra)\b', clause):
+            continue
+        if re.search(r'\b(?:idag|i dag|ikväll|i kväll|dagens)\b', clause):
+            offsets.add(0)
+        if re.search(r'\b(?:imorgon|i morgon)\b', clause):
+            offsets.add(1)
+    return offsets
+
+
 def ai_adjust_plan(user_request=None, history=None):
     """
     Kärnan i planjusteringen som användaren startar via träningsassistenten.
@@ -8060,8 +8108,7 @@ def ai_adjust_plan(user_request=None, history=None):
     history: tidigare samtalskontext.
     """
     if not llm_available():
-        print('AI adjustment: API key missing')
-        return None
+        raise LLMUnavailableError('Ingen AI-leverantör är konfigurerad.')
 
     today     = date.today()
     iso_week  = today.isocalendar()[1]
@@ -8074,17 +8121,15 @@ def ai_adjust_plan(user_request=None, history=None):
         history_tail = parts[1].strip()
 
     req_lower = req_text.lower()
-    has_today = bool(re.search(r'\b(idag|i dag|ikväll|i kväll|nu|today|tonight)\b', req_lower))
+    today_request_text = re.sub(r'\b(?:idag|i dag)\s+är\s+\w+\b', '', req_lower)
+    has_today = bool(re.search(r'\b(idag|i dag|ikväll|i kväll|today|tonight)\b', today_request_text))
     has_negation = bool(re.search(r'\b(inte|aldrig|ingen|inget|inga|slipper|vill inte|ska inte|bör inte|skulle inte|not|no|don\'t|dont)\b', req_lower))
     has_rest_intent = bool(re.search(r'\b(vila|vilodag|vilar|vilo|rest|återhämtning|återhämta|återhämrning|semester|börja om|starta om|fram tills måndag|till måndag|pausa|hoppa över)\b', req_lower))
     has_move_away = bool(re.search(r'\b(flytta|skjut|senare|imorgon|tisdag|onsdag|torsdag|fredag|lördag|söndag|måndag)\b', req_lower)) and bool(re.search(r'\b(till|fram till|till på)\b', req_lower))
     has_workout_word = bool(re.search(r'\b(pass|springa|springer|löpning|löpa|styrka|gymma|gym|köra|trän|intervall|intervaller|cykla|passet|milen|z2|zon 2)\b', req_lower))
 
     explicit_today_request = has_today and has_workout_word and not has_negation and not has_rest_intent and not has_move_away
-    explicit_today_rest = (has_today or bool(re.search(r'\b(dagens pass|dagens)\b', req_lower))) and bool(re.search(r'\b(vila|vilodag|vilar|rest|återhämtning|hoppa över|skippa|inte köra|ingen träning)\b', req_lower))
-    explicit_tomorrow_request = bool(re.search(r'\b(imorgon|i morgon|tomorrow)\b', req_lower))
-    explicit_rest_request = bool(re.search(r'\b(vilodag|vila|vilo|rest day|rest)\b', req_lower))
-    explicit_add_request = bool(re.search(r'\b(lägg till|lagg till|addera|skapa|extra|add|create|börja om|starta om|lägg in|sätt in|planera in|kör|inför)\b', req_lower))
+    requested_rest_offsets = _requested_rest_offsets(req_lower)
 
     tomorrow = today + timedelta(days=1)
     tomorrow_week = tomorrow.isocalendar()[1]
@@ -8149,8 +8194,10 @@ def ai_adjust_plan(user_request=None, history=None):
 
             cur.execute('''SELECT * FROM plan_sessions
                 WHERE status = 'planned' AND week >= %s AND user_id = %s
-                ORDER BY week, dow LIMIT 20''', (iso_week, first_uid))
+                ORDER BY week, dow''', (iso_week, first_uid))
             upcoming = [dict(r) for r in cur.fetchall()]
+            upcoming = [s for s in upcoming
+                        if today <= _plan_session_date(s, today) <= today + timedelta(days=14)]
 
             # Genomförd km och load denna vecka
             cur.execute('''SELECT raw FROM activities WHERE date >= %s AND user_id = %s''',
@@ -8162,9 +8209,8 @@ def ai_adjust_plan(user_request=None, history=None):
                                 for t in ('running','track_running','treadmill_running','trail_running')))
     completed_load = sum(a.get('activityTrainingLoad',0) or 0 for a in week_acts)
 
-    weekly_km_plan = {23:35,24:40,25:45,26:50,27:55,28:55,29:58,30:62,31:65,32:65,33:60,34:68,35:70,36:68,37:65,38:55,39:50,40:35,41:15}
-    planned_km = weekly_km_plan.get(iso_week, 40)
-    week_cap   = round(planned_km * 1.1)
+    planned_km = completed_km + sum(float(s.get('km') or 0) for s in upcoming
+                                     if s['week'] == iso_week and s['type'] in ('run', 'easy', 'race'))
 
     # 4. Google Calendar — hämta från cache
     cal_row = get_cache('gcal_events', first_uid)
@@ -8268,7 +8314,7 @@ def ai_adjust_plan(user_request=None, history=None):
     user_goal_text = _goal_prompt_block(first_uid)
     prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning.
 {user_goal_text}
-The plan runs W23-41 with phases: recovery -> base building -> threshold/tempo -> race-specific -> taper. Always respond in Swedish (svenska). All JSON text fields must be written in Swedish.
+Use the current goal, recent activity and the actual sessions below. Do not assume a fixed season or restart at an old training volume after a break. Always respond in Swedish (svenska). All JSON text fields must be written in Swedish.
 
 TODAY: {today} (week {iso_week}, day {today_dow}, {weekday_sv[today_dow]})
 {request_block}
@@ -8287,7 +8333,8 @@ Training load (ACWR):
 - Reference: <0.8 undertrained, 0.8-1.3 optimal, >1.3 injury risk
 
 Week status W{iso_week}:
-- Completed running: {completed_km:.1f} km · Planned weekly cap: {week_cap} km
+- Completed running: {completed_km:.1f} km · Currently scheduled weekly total: {planned_km:.1f} km
+- The scheduled total is context, not a target to catch up to after a break. Reduce it when appropriate.
 - Completed total load: {round(completed_load)}
 {_recent_execution_block(first_uid)}
 
@@ -8368,74 +8415,50 @@ Return ONLY this JSON, with no comments outside it:
   "summary": "<one Swedish sentence summarizing today's adjustments>"
 }}"""
 
-    # 6. Anropa AI-coachen
+    # 6. Validate the complete response before writing anything. Never serve an
+    # earlier adjustment as if it were the result of this request.
+    text = call_llm(prompt, max_tokens=6000, json_mode=True,
+                    json_schema=PLAN_CHANGE_SCHEMA).strip()
+    text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text).strip()
     try:
-        text = call_llm(prompt, max_tokens=3000, json_mode=True).strip().replace('```json','').replace('```','').strip()
         result = json.loads(text)
-    except Exception as e:
-        print('AI adjustment: LLM error', e)
-        return None
+    except (ValueError, TypeError) as exc:
+        raise InvalidPlanChange('AI-svaret kunde inte läsas. Inga pass ändrades.') from exc
+    validate_proposal(result, missed + upcoming, today)
 
-    tomorrow_rest_request = explicit_tomorrow_request and explicit_rest_request
-    if tomorrow_rest_request:
-        tomorrow_sessions = [
-            s for s in upcoming
-            if s['week'] == tomorrow_week and s['dow'] == tomorrow_dow and s['type'] != 'rest'
-        ]
-        result['changes'] = [{
-            'session_id': s['id'],
-            'action': 'skip',
-            'new_week': None,
-            'new_dow': None,
-            'type': s['type'],
-            'new_km': None,
-            'new_title': None,
-            'new_detail': None,
-            'reason': f"Användaren bad uttryckligen om vilodag imorgon ({tomorrow.isoformat()})."
-        } for s in tomorrow_sessions]
-        result['coaching_notes'] = (
-            f"Jag tolkar önskemålet strikt: {tomorrow.isoformat()} ska vara vilodag. "
-            "Därför ändras bara planerade pass på morgondagens datum."
-        )
-
-    if explicit_today_rest:
-        today_sessions = [
-            s for s in upcoming
-            if s['week'] == iso_week and s['dow'] == today_dow and s['type'] != 'rest'
-        ]
-        if today_sessions:
-            for s in today_sessions:
-                if not any(c.get('session_id') == s['id'] for c in result.get('changes', [])):
-                    result.setdefault('changes', []).append({
-                        'session_id': s['id'],
-                        'action': 'skip',
-                        'new_week': None,
-                        'new_dow': None,
-                        'type': s['type'],
-                        'new_km': None,
-                        'new_title': None,
-                        'new_detail': None,
-                        'reason': f"Användaren bad uttryckligen om vila idag ({today.isoformat()})."
-                    })
-
-    valid_session_ids = {s['id'] for s in missed + upcoming}
-    filtered_changes = []
-    for change in result.get('changes', []):
-        action = change.get('action')
-        sid = change.get('session_id')
-        if action == 'add' and not explicit_add_request and not explicit_today_request and not user_request:
-            print("AI adjustment: ignored add without explicit add/today request")
+    # A rest request must also win over a model's "keep" for that day, without
+    # throwing away the rest of a multi-day replanning request.
+    rest_days = set()
+    if 1 in requested_rest_offsets:
+        rest_days.add((tomorrow_week, tomorrow_dow))
+    if 0 in requested_rest_offsets:
+        rest_days.add((iso_week, today_dow))
+    for session in upcoming:
+        if (session['week'], session['dow']) not in rest_days or session['type'] == 'rest':
             continue
-        if action != 'add' and sid not in valid_session_ids:
-            print(f"AI adjustment: ignored ungrounded change action={action} session_id={sid}")
+        existing = next((c for c in result['changes'] if c.get('session_id') == session['id']), None)
+        if existing and existing['action'] in ('reschedule', 'modify') and (
+                existing.get('new_week') is not None and
+                (existing['new_week'], existing['new_dow']) not in rest_days):
             continue
-        filtered_changes.append(change)
-    result['changes'] = filtered_changes
+        if existing:
+            result['changes'].remove(existing)
+        result['changes'].append({'session_id': session['id'], 'action': 'skip',
+                                  'reason': 'Användaren bad om vila denna dag.'})
+    for change in result['changes']:
+        if (change['action'] in ('add', 'reschedule', 'modify')
+                and (change.get('new_week'), change.get('new_dow')) in rest_days
+                and change.get('type') != 'rest'):
+            raise InvalidPlanChange('AI-förslaget lade träning på en begärd vilodag. Inga pass ändrades.')
 
     # 7. Applicera ändringarna på DB
     changes_applied = 0
     applied_actions = []
     pinned_change = _change_to_pin_on_today(result.get('changes', [])) if explicit_today_request else None
+    if pinned_change:
+        pinned_change['new_week'] = iso_week
+        pinned_change['new_dow'] = today_dow
+    validate_proposal(result, missed + upcoming, today)
     with db() as conn:
         with conn.cursor() as cur:
             for change in result.get('changes', []):
@@ -8462,6 +8485,8 @@ Return ONLY this JSON, with no comments outside it:
                             VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s,%s,%s,%s)''',
                             (new_week, new_dow, typ, km, title, detail, new_week, new_dow,
                              change.get('reason',''), time.time(), first_uid))
+                        if cur.rowcount != 1:
+                            raise InvalidPlanChange('Schemat ändrades under tiden. Försök igen; inga AI-ändringar sparades.')
                         changes_applied += 1
                         applied_actions.append('lades till')
                     continue
@@ -8469,8 +8494,10 @@ Return ONLY this JSON, with no comments outside it:
                     continue
                 if action == 'skip':
                     cur.execute('''UPDATE plan_sessions
-                        SET status='skipped', ai_note=%s, modified_at=%s WHERE id=%s AND user_id=%s''',
+                        SET status='skipped', ai_note=%s, modified_at=%s WHERE id=%s AND status IN ('planned','missed') AND user_id=%s''',
                         (change.get('reason',''), time.time(), sid, first_uid))
+                    if cur.rowcount != 1:
+                        raise InvalidPlanChange('Schemat ändrades under tiden. Försök igen; inga AI-ändringar sparades.')
                     changes_applied += 1
                     applied_actions.append('markerades som skippat')
                 elif action == 'reschedule':
@@ -8492,8 +8519,10 @@ Return ONLY this JSON, with no comments outside it:
                         extra_sql = (',' + ','.join(extra_sets)) if extra_sets else ''
                         cur.execute(f'''UPDATE plan_sessions
                             SET status='planned', week=%s, dow=%s,
-                                ai_note=%s, modified_at=%s{extra_sql} WHERE id=%s AND user_id=%s''',
+                                ai_note=%s, modified_at=%s{extra_sql} WHERE id=%s AND status IN ('planned','missed') AND user_id=%s''',
                             [new_week, new_dow, change.get('reason',''), time.time()] + extra_vals + [sid, first_uid])
+                        if cur.rowcount != 1:
+                            raise InvalidPlanChange('Schemat ändrades under tiden. Försök igen; inga AI-ändringar sparades.')
                         changes_applied += 1
                         applied_actions.append('flyttades')
                 elif action == 'modify':
@@ -8516,6 +8545,8 @@ Return ONLY this JSON, with no comments outside it:
                     cur.execute(f'''UPDATE plan_sessions
                         SET {','.join(mod_sets)} WHERE id=%s AND status='planned' AND user_id=%s''',
                         mod_vals)
+                    if cur.rowcount != 1:
+                        raise InvalidPlanChange('Schemat ändrades under tiden. Försök igen; inga AI-ändringar sparades.')
                     changes_applied += 1
                     applied_actions.append('justerades')
         conn.commit()
@@ -8536,7 +8567,12 @@ Return ONLY this JSON, with no comments outside it:
         'coaching_notes': coaching_notes,
         'user_request': user_request or None
     }
-    set_cache('last_plan_adjustment', res_dict, first_uid)
+    try:
+        set_cache('last_plan_adjustment', res_dict, first_uid)
+        clear_cache('training_review', 'analysis', user_id=first_uid)
+    except Exception as exc:
+        logger.warning('Plan saved but cache refresh failed', extra={
+            'event': 'plan.cache_failed', 'detail': str(exc)[:200]})
     return res_dict
 
 
@@ -8567,14 +8603,13 @@ def _apply_plan_request(text, history=None):
         username = first_user
     try:
         match_activities_to_plan(user_id=user_id, username=username)
-        res = ai_adjust_plan(user_request=text, history=history)
-        if res and isinstance(res, dict):
-            return res
-        row = get_cache('last_plan_adjustment', user_id)
-        return row[0] if row else {}
-    except Exception as e:
-        logger.warning('Plan adjustment failed', extra={'event': 'plan.adjust_failed', 'detail': str(e)})
-        raise RuntimeError('Planändringen kunde inte genomföras.') from e
+    except Exception as exc:
+        logger.warning('Activity matching unavailable before plan change', extra={
+            'event': 'plan.match_failed', 'detail': str(exc)[:200]})
+    result = ai_adjust_plan(user_request=text, history=history)
+    if not isinstance(result, dict) or type(result.get('changes')) is not int:
+        raise InvalidPlanChange('Planändringen kunde inte genomföras. Försök igen.')
+    return result
 
 @app.get('/api/plan/status')
 def plan_status():
