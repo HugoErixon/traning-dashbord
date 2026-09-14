@@ -9,7 +9,12 @@ _FIELDS = {
     'action': {'type': 'string', 'enum': ['add', 'skip', 'reschedule', 'modify', 'keep']},
     'new_week': {'type': ['integer', 'null']},
     'new_dow': {'type': ['integer', 'null']},
-    'type': {'type': ['string', 'null'], 'enum': [*SESSION_TYPES, None]},
+    # Anthropic rejects enum values alongside a nullable type array. Keep
+    # the enum on the string branch and allow null through a separate branch.
+    'type': {'anyOf': [
+        {'type': 'string', 'enum': list(SESSION_TYPES)},
+        {'type': 'null'},
+    ]},
     'new_km': {'type': ['number', 'null']},
     'new_title': {'type': ['string', 'null']},
     'new_detail': {'type': ['string', 'null']},
