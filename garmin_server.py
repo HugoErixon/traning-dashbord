@@ -8401,7 +8401,7 @@ Analyze the situation as a coach and make the best decisions for the runner's lo
 - Skip sessions: when they do not add value given fatigue, illness, vacation, or requested rest periods
 - Modify session content: change distance, pace, type, or structure
 - For strength sessions, name each exercise with explicit sets and reps so the progression engine can attach the verified weight
-- Combine logic: for example reschedule and modify the same session
+- Combine logic: to both move and rewrite a session, use ONE change with action="reschedule" and the new title/detail/km on it — never two changes for the same session
 - Keep sessions unchanged: when that is the right decision
 
 Guidelines for fulfilling the runner's request:
@@ -8417,6 +8417,8 @@ Grounding rules:
 - Treat the "Upcoming planned sessions" JSON as the only source of truth for planned workouts. Do not assume a strength/run/rest day exists unless it appears there with its session_id.
 - Use the provided date and weekday_sv fields when referring to today, tomorrow, or any moved session. If you are unsure, write the exact date instead of a relative day.
 - Every change must reference a real session_id from the JSON, except action="add". Never say a session was moved, shortened, or skipped unless that exact change is present in the changes array.
+- Each session_id may appear at most once in changes. A request that touches the same session twice (move it and rewrite it) is still one change.
+- A request can span several days at once ("intervals today, move Wednesday's intervals to Friday, easy runs Wednesday and Thursday"). Carry out every part of it: add what is missing, move what was named, and rewrite the days the runner described.
 - Never write a strength weight or percentage that conflicts with VERIFIED STRENGTH PROGRESSION. If no verified kg exists, omit kg.
 - The summary must describe only applied changes from the changes array. Do not mention "tomorrow", "styrkepass", or "vilodag" unless those exact sessions/dates are affected by a change.
 
@@ -8443,14 +8445,39 @@ Return ONLY this JSON, with no comments outside it:
 
     # 6. Validate the complete response before writing anything. Never serve an
     # earlier adjustment as if it were the result of this request.
-    text = call_llm(prompt, max_tokens=6000, json_mode=True,
-                    json_schema=PLAN_CHANGE_SCHEMA).strip()
-    text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text).strip()
+    #
+    # Går förslaget inte igenom får coachen se exakt vad som bröt och svara en
+    # gång till. Ett formfel i en i övrigt rimlig omplanering ska inte kosta
+    # löparen hela begäran — och det är billigare att låta modellen rätta sig
+    # själv än att skicka tillbaka ett felmeddelande till någon som bara bad om
+    # att flytta ett pass. Kontrollen är kvar; det är bara antalet försök som
+    # ändras, och ingenting skrivs förrän ett förslag faktiskt håller.
+    def _propose(correction=None):
+        attempt_prompt = prompt if not correction else (
+            f"""{prompt}
+
+=== YOUR PREVIOUS ANSWER WAS REJECTED ===
+{correction}
+Fix exactly that and return the complete JSON again. Keep every decision the
+runner asked for; do not fall back to an empty changes array.""")
+        raw = call_llm(attempt_prompt, max_tokens=6000, json_mode=True,
+                       json_schema=PLAN_CHANGE_SCHEMA).strip()
+        raw = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw).strip()
+        try:
+            proposal = json.loads(raw)
+        except (ValueError, TypeError) as exc:
+            raise InvalidPlanChange('AI-svaret kunde inte läsas. Inga pass ändrades.',
+                                    reason='svaret var inte JSON') from exc
+        validate_proposal(proposal, missed + upcoming, today)
+        return proposal
+
     try:
-        result = json.loads(text)
-    except (ValueError, TypeError) as exc:
-        raise InvalidPlanChange('AI-svaret kunde inte läsas. Inga pass ändrades.') from exc
-    validate_proposal(result, missed + upcoming, today)
+        result = _propose()
+    except InvalidPlanChange as first_attempt:
+        reason = str(getattr(first_attempt, 'reason', first_attempt))
+        logger.info('Retrying plan change with the rejection explained', extra={
+            'event': 'plan.retry_after_rejection', 'detail': reason[:300]})
+        result = _propose(reason)
 
     # A rest request must also win over a model's "keep" for that day, without
     # throwing away the rest of a multi-day replanning request.

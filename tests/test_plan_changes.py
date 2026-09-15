@@ -54,10 +54,32 @@ class ProposalTests(unittest.TestCase):
                    proposal(change('reschedule', new_week=37, new_dow=7)),
                    proposal(change('reschedule', new_week=True, new_dow=5)),
                    proposal(change('modify')), proposal(change('add', sid=None, offset=1)),
-                   proposal(change(new_km=4), change(new_km=6))]
+                   proposal(change(sid=999, new_km=4), change(new_km=6))]
         for result in invalid:
             with self.subTest(result=result), self.assertRaises(InvalidPlanChange):
                 validate_proposal(result, [session(1)], TODAY)
+
+    def test_two_changes_to_the_same_session_are_merged_not_rejected(self):
+        """En sammansatt begäran ger lätt både en flytt och en omskrivning.
+
+        Avsikten är rätt, bara formen fel — och att kasta hela förslaget tog
+        med sig alla andra dagar löparen faktiskt bad om."""
+        result = proposal(change('reschedule', offset=2, new_title='Intervaller'),
+                          change('modify', new_km=6, reason='Kortare pass.'))
+        validate_proposal(result, [session(1)], TODAY)
+        merged, = result['changes']
+        # Sista ordet gäller, men flytten som redan bestämts får inte tappas.
+        self.assertEqual(merged['action'], 'modify')
+        self.assertEqual(merged['new_km'], 6)
+        self.assertEqual(merged['new_title'], 'Intervaller')
+        self.assertEqual(merged['new_dow'], (TODAY + timedelta(days=2)).weekday())
+
+    def test_a_trailing_keep_never_undoes_a_real_change(self):
+        result = proposal(change('reschedule', offset=1), change('keep'))
+        validate_proposal(result, [session(1)], TODAY)
+        merged, = result['changes']
+        self.assertEqual(merged['action'], 'reschedule')
+        self.assertEqual(merged['new_dow'], (TODAY + timedelta(days=1)).weekday())
 
     def test_past_date_on_keep_or_skip_does_not_sink_the_whole_proposal(self):
         """keep/skip flyttar ingenting, så ett passerat datum på dem ska ignoreras.
@@ -136,6 +158,28 @@ class ApplyTests(unittest.TestCase):
         self.conn.commit.assert_called_once()
         self.assertEqual(self.llm.call_args.kwargs['json_schema'], server.PLAN_CHANGE_SCHEMA)
         self.assertNotIn('W23-41', self.llm.call_args.args[0])
+
+    def test_a_rejected_proposal_is_sent_back_to_the_coach_once(self):
+        """Ett formfel ska kosta ett omförsök, inte hela begäran."""
+        self.llm.side_effect = [
+            json.dumps(proposal(change('reschedule', 999, 2))),   # hittepå-pass
+            json.dumps(proposal(change('reschedule', 1, 2))),
+        ]
+        result = server.ai_adjust_plan('Flytta passet till torsdag')
+        self.assertEqual(result['changes'], 1)
+        self.assertEqual(self.llm.call_count, 2)
+        # Coachen måste få veta vad som brast, annars upprepar den felet.
+        retry_prompt = self.llm.call_args_list[1].args[0]
+        self.assertIn('YOUR PREVIOUS ANSWER WAS REJECTED', retry_prompt)
+        self.assertIn('999', retry_prompt)
+
+    def test_a_second_rejection_writes_nothing(self):
+        self.llm.side_effect = [json.dumps(proposal(change('reschedule', 999, 2)))] * 2
+        with self.assertRaises(InvalidPlanChange):
+            server.ai_adjust_plan('Flytta passet till torsdag')
+        self.assertEqual(self.llm.call_count, 2)
+        self.assertEqual(self.writes(), [])
+        self.conn.commit.assert_not_called()
 
     def test_unknown_session_aborts_every_change(self):
         with self.assertRaises(InvalidPlanChange):

@@ -47,6 +47,46 @@ class InvalidPlanChange(ValueError):
         self.reason = reason or message
 
 
+# Fälten en senare ändring på samma pass får skriva över.
+_MERGEABLE_FIELDS = ('new_week', 'new_dow', 'type', 'new_km', 'new_title', 'new_detail')
+
+
+def merge_duplicate_changes(changes):
+    """Slå ihop flera ändringar på samma pass till en, i stället för att avvisa allt.
+
+    En sammansatt begäran ("flytta onsdagens intervaller till fredag och gör
+    onsdagen lugn") får lätt coachen att skriva både en reschedule och en modify
+    för samma pass. Det var inte fel avsikt, bara fel form — och att kasta hela
+    förslaget för det gjorde att inget av det runtomkring blev av heller.
+
+    Den senare ändringen gäller: den är coachens sista ord om passet. `keep`
+    betyder "inget att göra" och får därför aldrig ta över en riktig ändring."""
+    if not isinstance(changes, list):
+        return changes
+    merged, by_id = [], {}
+    for change in changes:
+        sid = change.get('session_id') if isinstance(change, dict) else None
+        if sid is None or not isinstance(change, dict) or sid not in by_id:
+            if isinstance(change, dict) and sid is not None:
+                by_id[sid] = change
+            merged.append(change)
+            continue
+        first = by_id[sid]
+        if change.get('action') == 'keep':
+            continue
+        if first.get('action') != 'keep':
+            for field in _MERGEABLE_FIELDS:
+                if change.get(field) is not None:
+                    first[field] = change[field]
+            reasons = [r for r in (first.get('reason'), change.get('reason')) if r]
+            # Båda skälen behövs: de beskriver var sin halva av samma beslut.
+            first['reason'] = ' '.join(dict.fromkeys(reasons))
+        else:
+            first.update({k: v for k, v in change.items() if k != 'session_id'})
+        first['action'] = change.get('action')
+    return merged
+
+
 def validate_proposal(result, sessions, today):
     """Reject the entire proposal on invalid data; never silently apply half."""
     def fail(reason):
@@ -58,6 +98,7 @@ def validate_proposal(result, sessions, today):
     for key in ('summary', 'coaching_notes'):
         if not isinstance(result.get(key, ''), str):
             fail(f'{key} är inte en sträng')
+    result['changes'] = merge_duplicate_changes(result['changes'])
     if len(result['changes']) > 60:
         fail(f"för många ändringar ({len(result['changes'])})")
     known = {s['id']: s for s in sessions}
@@ -74,7 +115,7 @@ def validate_proposal(result, sessions, today):
                 fail('add har ett session_id')
         else:
             if type(sid) is not int or sid not in known or sid in seen:
-                fail(f'{action} pekar på okänt eller upprepat session_id {sid!r}')
+                fail(f'{action} pekar på ett pass som inte finns i schemat: {sid!r}')
             seen.add(sid)
         for key in ('new_title', 'new_detail', 'reason'):
             value = change.get(key)
