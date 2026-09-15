@@ -88,6 +88,12 @@ def _as_bool(value, default=False):
     return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+# Standardattributen på en LogRecord; allt annat kommer från extra= och hör
+# hemma i loggraden.
+_LOG_RECORD_BUILTINS = frozenset(vars(logging.LogRecord(
+    'x', logging.INFO, 'x', 0, 'x', None, None))) | {'message', 'asctime', 'taskName'}
+
+
 class _JsonLogFormatter(logging.Formatter):
     def format(self, record):
         payload = {
@@ -96,11 +102,17 @@ class _JsonLogFormatter(logging.Formatter):
             'message': record.getMessage(),
             'logger': record.name,
         }
-        for field in ('event', 'request_id', 'method', 'path', 'status', 'duration_ms',
-                      'user_id', 'activity_id', 'activities', 'delivered'):
-            value = getattr(record, field, None)
-            if value is not None:
-                payload[field] = value
+        # Allt som skickats med extra= ska med. Listan var tidigare fast, så
+        # fält som 'provider' och 'detail' försvann tyst — och då säger
+        # "LLM provider unreachable" ingenting om vilken leverantör eller varför.
+        for field, value in record.__dict__.items():
+            if field in _LOG_RECORD_BUILTINS or field.startswith('_') or value is None:
+                continue
+            try:
+                json.dumps(value)
+            except (TypeError, ValueError):
+                value = str(value)
+            payload[field] = value
         if record.exc_info:
             payload['exception'] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False)
@@ -5959,7 +5971,21 @@ def assistant_chat():
                              code='ai_unavailable',
                              message='AI-leverantören är tillfälligt otillgänglig. Försök igen senare.')
     except InvalidPlanChange as e:
-        return _api_error('invalid_plan_change', str(e), 502)
+        # Ett avvisat förslag är inget serverfel, men det syntes förut bara som
+        # ett 502 i åtkomstloggen utan en rad om varför. Regeln som brast måste
+        # med, annars går det inte att se om det var modellen eller valideringen
+        # som hade fel.
+        logger.warning('Plan change rejected before any write', extra={
+            'event': 'assistant.plan_change_rejected',
+            'request_id': _request_id(),
+            'user_id': getattr(flask_g, 'uid', None),
+            'detail': str(getattr(e, 'reason', e))[:300]})
+        # Frågan besvarades, planen ändrades bara inte — och varje meddelande
+        # säger redan rakt ut att inget sparades. Som 502 blev det i stället en
+        # kryptisk "Servern svarade 502." i chatten, som ser ut som att sajten
+        # är nere när det som hände var att ett förslag avvisades.
+        return jsonify({'reply': str(e), 'planAdjusted': False, 'changes': 0,
+                        'code': 'invalid_plan_change'})
     except Exception as e:
         return _server_error(
             e, 'assistant.provider_failed', status=502, code='ai_provider_error',

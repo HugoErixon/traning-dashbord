@@ -59,6 +59,25 @@ class ProposalTests(unittest.TestCase):
             with self.subTest(result=result), self.assertRaises(InvalidPlanChange):
                 validate_proposal(result, [session(1)], TODAY)
 
+    def test_past_date_on_keep_or_skip_does_not_sink_the_whole_proposal(self):
+        """keep/skip flyttar ingenting, så ett passerat datum på dem ska ignoreras.
+
+        Modellen fyller ofta i passets nuvarande dag — för ett missat pass ligger
+        den bakåt i tiden — och förslaget avvisades då i sin helhet."""
+        for action in ('keep', 'skip'):
+            with self.subTest(action=action):
+                result = proposal(change(action, offset=-3))
+                self.assertIs(validate_proposal(result, [session(1)], TODAY), result)
+                # Datumet får inte leva vidare och flytta passet nedströms.
+                self.assertIsNone(result['changes'][0]['new_week'])
+                self.assertIsNone(result['changes'][0]['new_dow'])
+
+    def test_rejection_carries_the_rule_that_failed(self):
+        with self.assertRaises(InvalidPlanChange) as caught:
+            validate_proposal(proposal(change('reschedule', offset=-1)), [session(1)], TODAY)
+        self.assertIn('redan passerat', caught.exception.reason)
+        self.assertNotIn('redan passerat', str(caught.exception))
+
     def test_valid_mixed_proposal(self):
         result = proposal(change('skip'), change('reschedule', 2, 2),
                           change('add', None, 3, type='easy', new_km=4,

@@ -4,6 +4,7 @@ Historiken kommer från klienten och går rakt in i leverantörsanropet, så den
 måste normaliseras hårt — men den ska också faktiskt komma fram, annars är
 uppföljningsfrågor ("flytta det till torsdag") omöjliga att besvara.
 """
+import json
 import os
 import unittest
 from unittest import mock
@@ -305,6 +306,34 @@ class AssistantEndpointTests(unittest.TestCase):
         self.assertTrue(data['planAdjusted'])
         self.assertIn('Planen justerad', data['reply'])
         self.assertIn('Vi tar det lugnt fram till måndag', data['reply'])
+
+    def test_a_rejected_plan_change_is_answered_in_the_chat_not_as_a_gateway_error(self):
+        """Ett avvisat förslag är inget serverfel.
+
+        Som 502 blev det "Servern svarade 502." i chatten — det såg ut som att
+        sajten var nere, fast det som hände var att inget ändrades."""
+        from plan_changes import InvalidPlanChange
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
+             mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
+             mock.patch.object(garmin_server, '_apply_plan_request', side_effect=InvalidPlanChange(
+                 'AI-svaret innehöll en ogiltig planändring. Inga pass ändrades.',
+                 reason='keep lägger passet på 2026-09-10, som redan passerat')), \
+             self.assertLogs('training_dashboard', level='WARNING') as logs:
+            response = self.client.post('/api/assistant', json={
+                'message': 'Lägg om schemat för resten av veckan',
+            }, headers={'X-CSRF-Token': self.csrf})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertFalse(data['planAdjusted'])
+        self.assertEqual(data['changes'], 0)
+        self.assertIn('Inga pass ändrades', data['reply'])
+        # Utan regeln i loggen går det inte att se varför förslaget föll, och
+        # den måste överleva JSON-formatteringen som loggraden faktiskt får.
+        record = next(r for r in logs.records if r.event == 'assistant.plan_change_rejected')
+        self.assertIn('redan passerat', record.detail)
+        formatted = json.loads(garmin_server._JsonLogFormatter().format(record))
+        self.assertIn('redan passerat', formatted['detail'])
 
 
 class SafePlanRoutingTests(unittest.TestCase):
