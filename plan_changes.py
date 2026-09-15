@@ -29,8 +29,13 @@ PLAN_CHANGE_SCHEMA = {
         }},
         'summary': {'type': 'string'},
         'coaching_notes': {'type': 'string'},
+        # Coachen får fråga i stället för att gissa. Ett tvetydigt önskemål
+        # ("kör lugna pass onsdag torsdag" — ersätta styrkepasset eller lägga
+        # till?) blir en fråga till löparen, inte en tolkning som skriver om
+        # schemat och upptäcks först dagen efter.
+        'question': {'type': ['string', 'null']},
     },
-    'required': ['changes', 'summary', 'coaching_notes'],
+    'required': ['changes', 'summary', 'coaching_notes', 'question'],
     'additionalProperties': False,
 }
 
@@ -47,20 +52,33 @@ class InvalidPlanChange(ValueError):
         self.reason = reason or message
 
 
-# Fälten en senare ändring på samma pass får skriva över.
+# Fälten två ändringar på samma pass kan komplettera varandra med.
 _MERGEABLE_FIELDS = ('new_week', 'new_dow', 'type', 'new_km', 'new_title', 'new_detail')
 
 
-def merge_duplicate_changes(changes):
-    """Slå ihop flera ändringar på samma pass till en, i stället för att avvisa allt.
+def _conflict(first, second):
+    """Vad som gör två ändringar på samma pass omöjliga att slå ihop, annars None."""
+    actions = {first.get('action'), second.get('action')}
+    if 'skip' in actions and actions - {'skip', 'keep'}:
+        return 'både stryka och ändra samma pass'
+    for field in _MERGEABLE_FIELDS:
+        a, b = first.get(field), second.get(field)
+        if a is not None and b is not None and a != b:
+            return f'två olika {field} för samma pass ({a!r} och {b!r})'
+    return None
+
+
+def merge_duplicate_changes(changes, on_conflict=None):
+    """Slå ihop kompletterande ändringar på samma pass; lämna motstridiga ifred.
 
     En sammansatt begäran ("flytta onsdagens intervaller till fredag och gör
     onsdagen lugn") får lätt coachen att skriva både en reschedule och en modify
-    för samma pass. Det var inte fel avsikt, bara fel form — och att kasta hela
-    förslaget för det gjorde att inget av det runtomkring blev av heller.
+    för samma pass. Rör de olika fält är avsikten entydig och de hör ihop — då
+    slås de ihop. Säger de emot varandra (flytta *och* stryka, eller två olika
+    dagar) finns det inget rätt svar att gissa fram: `on_conflict` kallas med
+    vad som krockar, så att löparen kan få frågan i stället.
 
-    Den senare ändringen gäller: den är coachens sista ord om passet. `keep`
-    betyder "inget att göra" och får därför aldrig ta över en riktig ändring."""
+    `keep` betyder "inget att göra" och får aldrig ta över en riktig ändring."""
     if not isinstance(changes, list):
         return changes
     merged, by_id = [], {}
@@ -74,15 +92,18 @@ def merge_duplicate_changes(changes):
         first = by_id[sid]
         if change.get('action') == 'keep':
             continue
-        if first.get('action') != 'keep':
-            for field in _MERGEABLE_FIELDS:
-                if change.get(field) is not None:
-                    first[field] = change[field]
-            reasons = [r for r in (first.get('reason'), change.get('reason')) if r]
-            # Båda skälen behövs: de beskriver var sin halva av samma beslut.
-            first['reason'] = ' '.join(dict.fromkeys(reasons))
-        else:
+        if first.get('action') == 'keep':
             first.update({k: v for k, v in change.items() if k != 'session_id'})
+            continue
+        clash = _conflict(first, change)
+        if clash and on_conflict is not None:
+            on_conflict(f'pass {sid}: {clash}')
+        for field in _MERGEABLE_FIELDS:
+            if change.get(field) is not None:
+                first[field] = change[field]
+        reasons = [r for r in (first.get('reason'), change.get('reason')) if r]
+        # Båda skälen behövs: de beskriver var sin halva av samma beslut.
+        first['reason'] = ' '.join(dict.fromkeys(reasons))
         first['action'] = change.get('action')
     return merged
 
@@ -98,7 +119,12 @@ def validate_proposal(result, sessions, today):
     for key in ('summary', 'coaching_notes'):
         if not isinstance(result.get(key, ''), str):
             fail(f'{key} är inte en sträng')
-    result['changes'] = merge_duplicate_changes(result['changes'])
+    question = result.get('question')
+    if question is not None and (not isinstance(question, str) or len(question) > 1000):
+        fail('question är inte en rimlig sträng')
+    result['changes'] = merge_duplicate_changes(
+        result['changes'],
+        on_conflict=lambda clash: fail(f'motstridiga ändringar på samma pass — {clash}'))
     if len(result['changes']) > 60:
         fail(f"för många ändringar ({len(result['changes'])})")
     known = {s['id']: s for s in sessions}

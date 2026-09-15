@@ -188,6 +188,22 @@ class FollowUpIntentTests(unittest.TestCase):
         self.assertFalse(garmin_server._is_plan_change_request('Ja men varför då?', history))
         self.assertFalse(garmin_server._is_plan_change_request('Hur hårt var passet?', history))
 
+    def test_answering_the_coachs_question_reaches_the_planner(self):
+        """Ett svar utan verb ("det första") måste nå planändraren.
+
+        Annars är uppföljningsfrågan en återvändsgränd: löparen svarar och
+        ingenting händer."""
+        history = garmin_server.normalize_history(exchange(
+            'Kör lugna pass onsdag och torsdag',
+            'Ska jag ersätta torsdagens styrkepass eller lägga löppasset utöver det?'))
+        for answer in ('Ersätt det', 'Det första', 'Lägg det utöver'):
+            with self.subTest(answer=answer):
+                self.assertTrue(garmin_server._is_plan_change_request(answer, history))
+        # Ett nej är fortfarande ett nej, och en motfråga är ingen order.
+        for answer in ('Nej tack', 'Strunt i det', 'Varför frågar du det?'):
+            with self.subTest(answer=answer):
+                self.assertFalse(garmin_server._is_plan_change_request(answer, history))
+
     def test_a_go_ahead_without_a_plan_topic_changes_nothing(self):
         history = garmin_server.normalize_history(exchange(
             'Hur sov jag?', 'Du fick 6h 40min, mest lätt sömn.'))
@@ -306,6 +322,24 @@ class AssistantEndpointTests(unittest.TestCase):
         self.assertTrue(data['planAdjusted'])
         self.assertIn('Planen justerad', data['reply'])
         self.assertIn('Vi tar det lugnt fram till måndag', data['reply'])
+
+    def test_a_coach_question_is_shown_as_the_answer(self):
+        """Frågan ska stå för sig själv, inte under en tom sammanfattning."""
+        question = 'Ska jag ersätta torsdagens styrkepass eller lägga löppasset utöver det?'
+        with mock.patch.object(garmin_server, 'LLM_CHAIN', ['gemini']), \
+             mock.patch.object(garmin_server, 'GEMINI_API_KEY', 'test-key'), \
+             mock.patch.object(garmin_server, '_apply_plan_request',
+                               return_value={'changes': 0, 'summary': '',
+                                             'coaching_notes': '', 'question': question}):
+            response = self.client.post('/api/assistant', json={
+                'message': 'Lägg in lugna pass onsdag och torsdag',
+            }, headers={'X-CSRF-Token': self.csrf})
+
+        data = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data['reply'], question)
+        self.assertFalse(data['planAdjusted'])
+        self.assertTrue(data['awaitingAnswer'])
 
     def test_a_rejected_plan_change_is_answered_in_the_chat_not_as_a_gateway_error(self):
         """Ett avvisat förslag är inget serverfel.

@@ -5794,6 +5794,22 @@ def _last_message(history, role):
     return ''
 
 
+# Ord som gör svaret till ett nej. Coachens fråga besvaras nekande lika ofta
+# som jakande, och ett "nej tack" får inte skriva om schemat.
+_DECLINE_VOCAB = {'nej', 'nä', 'näe', 'nope', 'no', 'inte', 'strunt', 'glöm', 'skit',
+                  'avbryt', 'vänta', 'senare', 'tack', 'det', 'i', 'nu', 'samma',
+                  'behövs', 'behöver', 'lämna', 'som', 'är'}
+
+
+def _is_decline(message):
+    """"nej", "nej tack", "strunt i det" — svar som avböjer coachens förslag."""
+    words = re.findall(r'[\wåäöéÅÄÖ]+', message.lower())
+    return (bool(words) and len(words) <= 5
+            and all(word in _DECLINE_VOCAB for word in words)
+            and any(word in {'nej', 'nä', 'näe', 'nope', 'no', 'strunt', 'glöm',
+                             'avbryt', 'vänta'} for word in words))
+
+
 def _is_affirmation(message):
     """"ja", "kör på", "ja gör det" — svar som bara bekräftar föregående tur.
 
@@ -5827,6 +5843,15 @@ def _is_plan_change_request(message, history=None):
     reply = _last_message(history, 'assistant')
     if not any(word in reply for word in _PLAN_WORDS):
         return False
+    # Coachen ställde själv en fråga om schemat i förra turen. Svaret på den är
+    # en planändring även när det saknar verb — "det första", "ersätt det",
+    # "torsdag" — annars blir uppföljningsfrågan en återvändsgränd där löparen
+    # svarar och ingenting händer. Ett nej är fortfarande ett nej.
+    # En motfråga tillbaka ("ja men varför då?") är inget svar på frågan; då
+    # ska coachen förklara, inte skriva om schemat.
+    if (reply.rstrip().endswith('?') and not message.rstrip().endswith('?')
+            and re.search(r'vill du|ska jag|kan jag|jag kan|föreslår|eller', reply)):
+        return not _is_decline(message)
     # Coachen diskuterade eller frågade något om planen:
     # Användaren vill ändra/agera, eller bekräftar ("ja, kör på", "gör så").
     offered_change = (any(action in reply for action in _PLAN_ACTIONS)
@@ -5872,6 +5897,12 @@ def assistant_chat():
         if _is_plan_change_request(message, history):
             result = _apply_plan_request(message, history=history)
             changes = result.get('changes', 0)
+            # Coachen ville veta mer först. Frågan är svaret — den ska stå för
+            # sig själv, inte under en sammanfattning av ändringar som uteblev.
+            question = (result.get('question') or '').strip()
+            if question:
+                return jsonify({'reply': question, 'planAdjusted': False, 'changes': 0,
+                                'awaitingAnswer': True})
             summary = result.get('summary') or ('Planen justerad.' if changes else 'Inga ändringar behövdes.')
             notes = result.get('coaching_notes') or ''
             reply = f"{summary}\n\n{notes}".strip() if notes else summary
@@ -8422,6 +8453,11 @@ Grounding rules:
 - Never write a strength weight or percentage that conflicts with VERIFIED STRENGTH PROGRESSION. If no verified kg exists, omit kg.
 - The summary must describe only applied changes from the changes array. Do not mention "tomorrow", "styrkepass", or "vilodag" unless those exact sessions/dates are affected by a change.
 
+When to ask instead of guessing:
+- If the request has more than one reasonable reading, or you would have to invent a detail the runner did not give, set "question" to one short Swedish question and leave "changes" empty. Examples: the runner asks for an easy run on a day that already holds a strength session (replace it or add to it?), names a session that does not exist in the JSON, or asks for two things that cannot both be true for the same session.
+- Ask about what is actually unclear, in one sentence, and suggest the most likely alternative so it can be answered with a word. Never ask when the request is clear — then just carry it out.
+- Never both ask and change: a question means nothing is written this turn.
+
 Write a concise explanation in coaching_notes before the decisions.
 
 Return ONLY this JSON, with no comments outside it:
@@ -8440,7 +8476,8 @@ Return ONLY this JSON, with no comments outside it:
       "reason": "<one Swedish sentence explaining this decision>"
     }}
   ],
-  "summary": "<one Swedish sentence summarizing today's adjustments>"
+  "summary": "<one Swedish sentence summarizing today's adjustments>",
+  "question": "<one Swedish follow-up question when the request is ambiguous, otherwise null>"
 }}"""
 
     # 6. Validate the complete response before writing anything. Never serve an
@@ -8459,7 +8496,9 @@ Return ONLY this JSON, with no comments outside it:
 === YOUR PREVIOUS ANSWER WAS REJECTED ===
 {correction}
 Fix exactly that and return the complete JSON again. Keep every decision the
-runner asked for; do not fall back to an empty changes array.""")
+runner asked for; do not fall back to an empty changes array. If the rejection
+shows that the request itself has no single right reading, ask instead: set
+"question" to one short Swedish question and leave "changes" empty.""")
         raw = call_llm(attempt_prompt, max_tokens=6000, json_mode=True,
                        json_schema=PLAN_CHANGE_SCHEMA).strip()
         raw = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw).strip()
@@ -8478,6 +8517,19 @@ runner asked for; do not fall back to an empty changes array.""")
         logger.info('Retrying plan change with the rejection explained', extra={
             'event': 'plan.retry_after_rejection', 'detail': reason[:300]})
         result = _propose(reason)
+
+    # Coachen behövde veta mer innan den rör schemat. En fråga och en ändring i
+    # samma svar vore motsägelsefullt — löparen skulle få frågan efter att
+    # passen redan flyttats — så frågan gäller och ingenting skrivs.
+    question = (result.get('question') or '').strip()
+    if question:
+        if result.get('changes'):
+            logger.info('Coach asked before changing the plan', extra={
+                'event': 'plan.question_instead_of_change',
+                'dropped_changes': len(result['changes'])})
+        return {'date': today.isoformat(), 'changes': 0, 'summary': '',
+                'coaching_notes': result.get('coaching_notes', ''),
+                'question': question, 'user_request': user_request or None}
 
     # A rest request must also win over a model's "keep" for that day, without
     # throwing away the rest of a multi-day replanning request.

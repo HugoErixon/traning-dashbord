@@ -59,6 +59,21 @@ class ProposalTests(unittest.TestCase):
             with self.subTest(result=result), self.assertRaises(InvalidPlanChange):
                 validate_proposal(result, [session(1)], TODAY)
 
+    def test_contradicting_changes_to_one_session_are_not_merged_away(self):
+        """Flytta och stryka samma pass kan inte båda vara sant.
+
+        Det finns inget rätt att gissa fram, så förslaget stoppas och orsaken
+        går vidare till coachen — som får fråga löparen i stället."""
+        for clashing, expected in (
+                (proposal(change('reschedule', offset=2), change('skip')),
+                 'både stryka och ändra'),
+                (proposal(change('reschedule', offset=2), change('reschedule', offset=3)),
+                 'två olika new_dow')):
+            with self.subTest(expected=expected):
+                with self.assertRaises(InvalidPlanChange) as caught:
+                    validate_proposal(clashing, [session(1)], TODAY)
+                self.assertIn(expected, caught.exception.reason)
+
     def test_two_changes_to_the_same_session_are_merged_not_rejected(self):
         """En sammansatt begäran ger lätt både en flytt och en omskrivning.
 
@@ -158,6 +173,27 @@ class ApplyTests(unittest.TestCase):
         self.conn.commit.assert_called_once()
         self.assertEqual(self.llm.call_args.kwargs['json_schema'], server.PLAN_CHANGE_SCHEMA)
         self.assertNotIn('W23-41', self.llm.call_args.args[0])
+
+    def test_a_question_is_answered_without_touching_the_schedule(self):
+        """Coachen får fråga i stället för att gissa — och då skrivs ingenting."""
+        asking = proposal()
+        asking['question'] = 'Ska jag ersätta torsdagens styrkepass eller lägga löppasset utöver det?'
+        self.llm.return_value = json.dumps(asking)
+        result = server.ai_adjust_plan('Kör lugna pass onsdag och torsdag')
+        self.assertEqual(result['question'], asking['question'])
+        self.assertEqual(result['changes'], 0)
+        self.assertEqual(self.writes(), [])
+        self.conn.commit.assert_not_called()
+
+    def test_a_question_wins_over_changes_in_the_same_answer(self):
+        # Att både fråga och ändra vore att ställa frågan efter att passen
+        # redan flyttats.
+        both = proposal(change('skip'))
+        both['question'] = 'Vill du att jag stryker passet helt?'
+        self.llm.return_value = json.dumps(both)
+        result = server.ai_adjust_plan('Kanske hoppa över passet?')
+        self.assertEqual(result['changes'], 0)
+        self.assertEqual(self.writes(), [])
 
     def test_a_rejected_proposal_is_sent_back_to_the_coach_once(self):
         """Ett formfel ska kosta ett omförsök, inte hela begäran."""
