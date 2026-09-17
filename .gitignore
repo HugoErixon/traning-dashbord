@@ -10,3 +10,6 @@ test-garmin*.js
 google_credentials.json
 google_token.json
 *.log
+
+# Eget git-repo med egen .venv — hör inte hemma i det här trädet
+trainyze-ai-control/
