@@ -3764,6 +3764,13 @@ HEALTH DATA (current):
     try { sessionStorage.removeItem(CHAT_KEY); } catch (e) {}
   }
 
+  // Ett id per fråga, inte per HTTP-anrop: det är själva poängen att ett nytt
+  // försök på samma fråga bär samma id.
+  function newRequestId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
+    return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
   function formatCoachReply(raw) {
     return escapeHtml(raw)
       .replace(/\*\*(.*?)\*\*/gs, '$1')
@@ -3815,8 +3822,24 @@ HEALTH DATA (current):
     // Historiken skickas som den såg ut före den här frågan — frågan själv
     // ligger i message-fältet, och en dubblett skulle bara förvirra modellen.
     const priorTurns = history.slice();
+    // Samma id på båda försöken. Servern lämnar då ut det svar den redan
+    // räknat fram i stället för att köra om frågan — och en planändring
+    // tillämpas aldrig två gånger för att telefonen tappade kopplingen.
+    const requestId = newRequestId();
     try {
-      const res = await fetch('/api/assistant', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ message:msg, context:buildCTX(), history:priorTurns }) });
+      const body = JSON.stringify({ message:msg, context:buildCTX(), history:priorTurns, requestId });
+      const post = () => fetch('/api/assistant', { method:'POST', headers:{'Content-Type':'application/json'}, body });
+      let res;
+      try {
+        res = await post();
+      } catch (netErr) {
+        // Ett coachsvar tar över tio sekunder, och på mobil räcker det att
+        // skärmen släcks för att kopplingen ska brytas. Svaret finns då redan
+        // på servern — ett försök till hämtar hem det i stället för att kasta
+        // bort det och skylla på servern.
+        aDiv.innerHTML = '<div class="msg-from">COACH</div><span style="color:var(--muted)">Tappade kontakten — hämtar svaret igen…</span>';
+        res = await post();
+      }
       // Ett felsvar behöver inte vara JSON — en proxy emellan kan svara med
       // en egen HTML-sida. Då ska statuskoden synas i stället för att allt
       // buntas ihop till "kunde inte nå servern", som pekar åt fel håll.
@@ -3835,14 +3858,21 @@ HEALTH DATA (current):
         history.push({ role:'user', content:msg }, { role:'assistant', content:reply });
         saveChatHistory();
         if (data.planAdjusted) {
-          await loadPlan();
+          // Svaret står redan på skärmen. En omladdning som misslyckas får
+          // inte falla ut i catch och skriva över det med ett felmeddelande —
+          // planen är ändrad oavsett om vyn hann uppdateras.
+          await Promise.allSettled([loadPlan()]);
           await Promise.allSettled([loadToday(), loadTodayWorkout()]);
         }
       } else {
         aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(failure || 'Inget svar.');
       }
     } catch(e) {
-      aDiv.innerHTML = '<div class="msg-from">COACH</div>Kunde inte nå servern.';
+      // Frågan är värd mer än felmeddelandet: den läggs tillbaka i rutan så
+      // den inte behöver skrivas om för hand.
+      aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(
+        'Kontakten bröts innan svaret kom fram. Din fråga ligger kvar i rutan — skicka den igen.');
+      if (inp && !inp.value.trim()) inp.value = msg;
     } finally {
       coachBusy = false;
     }

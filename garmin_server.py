@@ -5882,9 +5882,111 @@ def _plan_request_text(message, history):
             f'refers to):\n{tail}')
 
 
+# Ett coachsvar tar tio sekunder eller mer att räkna fram. Tappar telefonen
+# kopplingen under tiden är svaret redan betalt och klart men når aldrig fram,
+# och en omsändning skulle både kosta ett nytt anrop och — värre — köra en
+# planändring en andra gång mot ett schema som redan hunnit ändras. Klienten
+# skickar därför med samma requestId när den försöker igen: ett svar som redan
+# finns lämnas ut som det är, och ett anrop som fortfarande pågår väntas in i
+# stället för att startas om.
+ASSISTANT_REPLAY_TTL = 600
+# Hur länge en omsändning väntar in ett anrop som fortfarande pågår. Den
+# tysta väntan är bättre än ett felmeddelande, men får inte bli så lång att
+# klienten hinner ge upp en andra gång.
+ASSISTANT_INFLIGHT_WAIT = 45
+_assistant_inflight = {}
+_assistant_inflight_lock = threading.Lock()
+
+
+def _assistant_replay_key(raw):
+    """Klientens nyckel är otillförlitlig indata och blir en del av en cache-nyckel."""
+    token = str(raw or '').strip()
+    if not token or len(token) > 64:
+        return None
+    return token if re.fullmatch(r'[A-Za-z0-9_-]+', token) else None
+
+
 @app.post('/api/assistant')
 def assistant_chat():
     data = request.get_json(silent=True) or {}
+    key = _assistant_replay_key(data.get('requestId'))
+    if not key:
+        return _assistant_response(_assistant_answer(data))
+
+    cache_key = f'assistant_reply:{key}'
+    # Återuppspelningen är en bekvämlighet, inte ett krav. En databas som
+    # krånglar ska kosta ett extra leverantörsanrop, inte hela svaret.
+    try:
+        cached = get_cache(cache_key, uid())
+    except Exception as exc:
+        logger.warning('Could not read assistant reply for replay', extra={
+            'event': 'assistant.replay_read_failed', 'detail': str(exc)[:200]})
+        cached = None
+    if cached and (time.time() - (cached[1] or 0)) <= ASSISTANT_REPLAY_TTL:
+        stored = cached[0] or {}
+        logger.info('Assistant reply replayed', extra={
+            'event': 'assistant.reply_replayed', 'user_id': uid(),
+            'request_id': _request_id()})
+        return _assistant_response(stored)
+
+    owner_key = (uid(), key)
+    with _assistant_inflight_lock:
+        pending = _assistant_inflight.get(owner_key)
+        if pending is None:
+            pending = {'event': threading.Event(), 'result': None}
+            _assistant_inflight[owner_key] = pending
+            owner = True
+        else:
+            owner = False
+
+    if not owner:
+        # Samma fråga är redan på väg. Att vänta in den kostar ingenting extra
+        # och är det enda sättet att inte köra en planändring två gånger.
+        pending['event'].wait(timeout=ASSISTANT_INFLIGHT_WAIT)
+        result = pending['result']
+        if result is not None:
+            return _assistant_response(result)
+        return _api_error('ai_busy', 'Coachen arbetar fortfarande på svaret. Försök igen om en stund.', 503)
+
+    try:
+        result = _assistant_answer(data)
+        if isinstance(result, dict):
+            try:
+                set_cache(cache_key, result, uid())
+            except Exception as exc:
+                logger.warning('Could not store assistant reply for replay', extra={
+                    'event': 'assistant.replay_store_failed', 'detail': str(exc)[:200]})
+            try:
+                _prune_assistant_replays(uid())
+            except Exception as exc:
+                logger.warning('Could not prune old assistant replays', extra={
+                    'event': 'assistant.replay_prune_failed', 'detail': str(exc)[:200]})
+        pending['result'] = result
+        return _assistant_response(result)
+    finally:
+        pending['event'].set()
+        with _assistant_inflight_lock:
+            _assistant_inflight.pop(owner_key, None)
+
+
+def _prune_assistant_replays(user_id):
+    """Varje fråga lämnar en rad efter sig. Utan städning växer cache-tabellen
+    med en rad per coachfråga i all evighet, fast raderna är döda efter tio
+    minuter."""
+    cutoff = time.time() - ASSISTANT_REPLAY_TTL
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM cache WHERE key LIKE %s AND updated_at < %s",
+                        (f'{user_id}:assistant_reply:%', cutoff))
+        conn.commit()
+
+
+def _assistant_response(result):
+    return jsonify(result) if isinstance(result, dict) else result
+
+
+def _assistant_answer(data):
+    """Svarar med en dict när coachen kunde svara, annars ett färdigt felsvar."""
     message = str(data.get('message') or '').strip()
     history = normalize_history(data.get('history'))
     if not message:
@@ -5901,14 +6003,14 @@ def assistant_chat():
             # sig själv, inte under en sammanfattning av ändringar som uteblev.
             question = (result.get('question') or '').strip()
             if question:
-                return jsonify({'reply': question, 'planAdjusted': False, 'changes': 0,
-                                'awaitingAnswer': True})
+                return {'reply': question, 'planAdjusted': False, 'changes': 0,
+                        'awaitingAnswer': True}
             summary = result.get('summary') or ('Planen justerad.' if changes else 'Inga ändringar behövdes.')
             notes = result.get('coaching_notes') or ''
             reply = f"{summary}\n\n{notes}".strip() if notes else summary
             if not reply:
                 reply = 'Planen har uppdaterats.'
-            return jsonify({'reply': reply, 'planAdjusted': changes > 0, 'changes': changes})
+            return {'reply': reply, 'planAdjusted': changes > 0, 'changes': changes}
 
         custom_ctx = str(data.get('context') or '').strip()
         if custom_ctx:
@@ -5995,8 +6097,8 @@ def assistant_chat():
                     "along with what would have to change. Do not encourage the goal as if it "
                     "were within reach."
                 )
-        return jsonify({'reply': call_llm(message, max_tokens=1024, system=context,
-                                          history=history)})
+        return {'reply': call_llm(message, max_tokens=1024, system=context,
+                                  history=history)}
     except (LLMQuotaError, LLMUnavailableError, LLMTransientError) as e:
         return _server_error(e, 'assistant.provider_unavailable', status=503,
                              code='ai_unavailable',
@@ -6015,8 +6117,8 @@ def assistant_chat():
         # säger redan rakt ut att inget sparades. Som 502 blev det i stället en
         # kryptisk "Servern svarade 502." i chatten, som ser ut som att sajten
         # är nere när det som hände var att ett förslag avvisades.
-        return jsonify({'reply': str(e), 'planAdjusted': False, 'changes': 0,
-                        'code': 'invalid_plan_change'})
+        return {'reply': str(e), 'planAdjusted': False, 'changes': 0,
+                'code': 'invalid_plan_change'}
     except Exception as e:
         return _server_error(
             e, 'assistant.provider_failed', status=502, code='ai_provider_error',
@@ -7548,10 +7650,13 @@ def _adaptive_health_context(user_id):
     try:
         with db() as conn:
             with conn.cursor() as cur:
+                # health_history.date är TEXT (ISO-datum), inte DATE. Ett
+                # date-objekt här ger "operator does not exist: text >= date"
+                # och baslinjen faller tyst bort ur coachens underlag.
                 cur.execute('''SELECT AVG(hrv_avg), AVG(resting_hr), AVG(sleep_hours)
                     FROM health_history
                     WHERE user_id=%s AND date >= %s AND date < %s''',
-                    (user_id, today - timedelta(days=28), today))
+                    (user_id, (today - timedelta(days=28)).isoformat(), today.isoformat()))
                 values = cur.fetchone() or (None, None, None)
         baseline = {
             'hrv': float(values[0]) if values[0] is not None else None,
