@@ -69,7 +69,7 @@ class SanitizeWeekPlanTests(unittest.TestCase):
                 self.assertIsNotNone(self.sanitize(41, bad)[1])
 
 
-class SaveWeekPlanEndpointTests(unittest.TestCase):
+class EndpointTestCase(unittest.TestCase):
     def setUp(self):
         garmin_server.app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
         garmin_server.LOGIN_LIMITER.clear()
@@ -95,6 +95,8 @@ class SaveWeekPlanEndpointTests(unittest.TestCase):
         return [c.args for c in self.cur.execute.call_args_list
                 if c.args[0].lstrip().startswith(prefix)]
 
+
+class SaveWeekPlanEndpointTests(EndpointTestCase):
     def test_replaces_only_planned_sessions_from_today(self):
         response = self.put(40, {'sessions': [session(2), session(4, type='lift', title='Styrka')]})
         self.assertEqual(response.status_code, 200, response.get_json())
@@ -129,6 +131,74 @@ class SaveWeekPlanEndpointTests(unittest.TestCase):
     def test_requires_csrf_token(self):
         response = self.client.put('/api/plan/week/41', json={'sessions': []})
         self.assertEqual(response.status_code, 403)
+
+
+class DraftWeekPlanEndpointTests(EndpointTestCase):
+    """Ärver inloggning och DB-mock; förslaget får aldrig skriva till planen."""
+
+    def setUp(self):
+        super().setUp()
+        for name, kwargs in [('llm_available', {'return_value': True}),
+                             ('_recovery_prompt_block', {'return_value': 'RECOVERY & LOAD:\nAcute:chronic ratio: 1.45'}),
+                             ('_recent_training_summary', {'return_value': {
+                                 'weekly_km': [30, 32], 'sessions_per_week': 4,
+                                 'longest_run_km': 14, 'vo2max': 55}}),
+                             ('_pace_context', {'side_effect': RuntimeError('no pace')}),
+                             ('_notes_prompt_block', {'return_value': ''}),
+                             ('_recent_execution_block', {'return_value': ''})]:
+            p = mock.patch.object(garmin_server, name, **kwargs)
+            p.start()
+            self.addCleanup(p.stop)
+        self.llm = mock.patch.object(garmin_server, 'call_llm').start()
+        self.addCleanup(mock.patch.stopall)
+
+    def draft(self, week, text):
+        return self.client.post(f'/api/plan/week/{week}/draft', json={'text': text},
+                                headers={'X-CSRF-Token': self.csrf})
+
+    def answer(self, *sessions, notes='Bra vecka.'):
+        import json
+        self.llm.return_value = json.dumps({'notes': notes, 'sessions': list(sessions)})
+
+    def test_wishes_and_context_reach_the_coach_and_nothing_is_written(self):
+        self.answer(session(0, type='easy', title='Lugnt Z2'), session(1, title='Intervaller 5×1000 m'))
+        response = self.draft(41, 'måndag lugnt, tisdag intervaller, onsdag ledig')
+        self.assertEqual(response.status_code, 200, response.get_json())
+        body = response.get_json()
+        self.assertEqual([s['dow'] for s in body['sessions']], [0, 1])
+        self.assertEqual(body['notes'], 'Bra vecka.')
+        prompt = self.llm.call_args.args[0]
+        self.assertIn('måndag lugnt, tisdag intervaller, onsdag ledig', prompt)
+        self.assertIn('Acute:chronic ratio: 1.45', prompt)
+        self.assertIn('[30, 32]', prompt)
+        self.assertIs(self.llm.call_args.kwargs['json_schema'], garmin_server.WEEK_DRAFT_SCHEMA)
+        self.assertEqual(self.statements('DELETE') + self.statements('INSERT'), [])
+        self.conn.commit.assert_not_called()
+
+    def test_locked_and_duplicate_days_are_dropped_not_fatal(self):
+        # Onsdag i vecka 40: måndag-tisdag har passerat, torsdag är redan genomförd.
+        self.cur.fetchall.side_effect = [[(3,)], []]  # låsta dagar, grannveckor
+        self.answer(session(0), session(3), session(4, title='Fredag'), session(4, title='Dubblett'))
+        response = self.draft(40, 'fredag intervaller')
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual([(s['dow'], s['title']) for s in response.get_json()['sessions']],
+                         [(4, 'Fredag')])
+        prompt = self.llm.call_args.args[0]
+        self.assertIn('0 = Monday 2026-09-28 — LOCKED', prompt)
+        self.assertIn('3 = Thursday 2026-10-01 — LOCKED', prompt)
+        self.assertNotIn('4 = Friday 2026-10-02 — LOCKED', prompt)
+
+    def test_requires_text_and_plannable_week(self):
+        self.assertEqual(self.draft(41, '  ').status_code, 400)
+        self.assertEqual(self.draft(41, 'x' * 601).status_code, 400)
+        self.assertEqual(self.draft(39, 'måndag lugnt').status_code, 400)
+        self.llm.assert_not_called()
+
+    def test_unparseable_answer_is_a_clear_error(self):
+        self.llm.return_value = 'inte json'
+        response = self.draft(41, 'måndag lugnt')
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.get_json()['code'], 'ai_provider_error')
 
 
 if __name__ == '__main__':

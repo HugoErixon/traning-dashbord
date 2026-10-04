@@ -1417,6 +1417,7 @@ function executeAction(trigger, event) {
   else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
   else if (action === 'plan-week') openWeekPlanner(Number(trigger.dataset.week));
   else if (action === 'save-week-plan') saveWeekPlan();
+  else if (action === 'draft-week-plan') draftWeekPlan();
   else if (action === 'close-week-planner') closeWeekPlanner();
   else if (action === 'analysis-window') setAnalysisWindow(Number(trigger.dataset.days));
   else if (action === 'analysis-metric') selectAnalysisMetric(trigger.dataset.metric);
@@ -5264,6 +5265,13 @@ HEALTH DATA (current):
     const rows = [];
     for (let dow = 0; dow < 7; dow++) rows.push(weekPlanRowHtml(week, dow, monday, todayKey, byDow[dow]));
     editor.innerHTML = `<div class="wp-head">Vecka ${week}</div>`
+      + `<div class="wp-ai">`
+      + `<label class="wp-ai-label" for="wp-ai-text">Beskriv veckan med egna ord — coachen bygger passen mot ditt mål och din belastning</label>`
+      + `<textarea id="wp-ai-text" class="wp-ai-text" rows="2" maxlength="600" placeholder="t.ex. måndag lugnt, tisdag intervaller, onsdag ledig, torsdag styrka, lördag långpass"></textarea>`
+      + `<div class="wp-ai-actions"><button type="button" class="refresh-btn wp-ai-btn" data-action="draft-week-plan">Låt coachen bygga veckan</button></div>`
+      + `<div class="wp-ai-notes" id="wp-ai-notes" hidden></div>`
+      + `</div>`
+      + `<div class="wp-manual-label">Eller lägg in passen själv:</div>`
       + `<div class="wp-rows">${rows.join('')}</div>`
       + `<div class="wp-actions">`
       + `<button type="button" class="refresh-btn wp-cancel" data-action="close-week-planner">Avbryt</button>`
@@ -5271,7 +5279,7 @@ HEALTH DATA (current):
       + `</div>`;
     editor.hidden = false;
     renderWeekPlannerWeeks();
-    editor.querySelector('select')?.focus({ preventScroll: true });
+    editor.querySelector('#wp-ai-text')?.focus({ preventScroll: true });
   }
 
   function closeWeekPlanner() {
@@ -5307,6 +5315,57 @@ HEALTH DATA (current):
       if (km && previous.type !== preset.type) km.value = '';
     }
     select.dataset.prev = select.value;
+  }
+
+  // Coachens förslag skrivs in i dagraderna men sparas inte: atleten ser
+  // passen, ändrar det som inte passar och trycker själv på spara.
+  function applyWeekDraft(sessions) {
+    const byDow = Object.fromEntries(sessions.map(s => [s.dow, s]));
+    document.querySelectorAll('#week-planner-editor .wp-row[data-editable]').forEach(row => {
+      const s = byDow[Number(row.dataset.dow)];
+      const select = row.querySelector('.wp-type');
+      if (!select) return;
+      select.value = s ? presetForSession(s) : '';
+      select.dataset.prev = select.value;
+      const preset = weekPlanPreset(select.value);
+      const fields = row.querySelector('.wp-fields');
+      if (fields) fields.hidden = !preset.key;
+      row.querySelector('.wp-title').value = s?.title || preset.title || '';
+      row.querySelector('.wp-km').value = s && s.km ? s.km : '';
+      const detail = row.querySelector('.wp-detail');
+      detail.value = s?.detail || '';
+      detail.placeholder = preset.hint || 'Upplägg';
+      row.classList.toggle('wp-drafted', Boolean(s));
+    });
+  }
+
+  async function draftWeekPlan() {
+    const week = weekPlannerWeek;
+    const input = document.getElementById('wp-ai-text');
+    const btn = document.querySelector('#week-planner-editor .wp-ai-btn');
+    const notes = document.getElementById('wp-ai-notes');
+    const text = (input?.value || '').trim();
+    if (!Number.isInteger(week) || !input) return;
+    if (!text) { setWeekPlannerStatus('Skriv först hur du vill att veckan ska se ut.', 'var(--amber)'); input.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Coachen planerar…'; }
+    setWeekPlannerStatus('');
+    try {
+      const r = await fetch(`/api/plan/week/${week}/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Servern svarade ${r.status}`);
+      if (weekPlannerWeek !== week) return;  // användaren bytte vecka under tiden
+      applyWeekDraft(d.sessions || []);
+      if (notes) { notes.textContent = d.notes || ''; notes.hidden = !d.notes; }
+      setWeekPlannerStatus('Förslaget är ifyllt nedan. Justera om du vill och tryck på spara — inget är sparat än.', 'var(--accent)');
+    } catch (e) {
+      setWeekPlannerStatus('Coachen kunde inte göra ett förslag: ' + e.message, 'var(--red)');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Låt coachen bygga veckan'; }
+    }
   }
 
   function collectWeekPlan() {

@@ -7138,6 +7138,174 @@ def _sanitize_week_plan(week, raw_sessions, today=None):
     return sorted(out, key=lambda s: s['dow']), None
 
 
+WEEK_DRAFT_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'notes': {'type': 'string'},
+        'sessions': {'type': 'array', 'items': {
+            'type': 'object',
+            'properties': {
+                'dow': {'type': 'integer'},
+                'type': {'type': 'string', 'enum': list(PLAN_SESSION_TYPES)},
+                'km': {'type': 'number'},
+                'title': {'type': 'string'},
+                'detail': {'type': 'string'},
+            },
+            'required': ['dow', 'type', 'km', 'title', 'detail'],
+            'additionalProperties': False,
+        }},
+    },
+    'required': ['notes', 'sessions'],
+    'additionalProperties': False,
+}
+WEEK_DRAFT_MAX_CHARS = 600
+_DOW_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+
+def _week_draft_locked_days(user_id, week, today):
+    """Dagar coachen inte får planera: passerade dagar och dagar som redan har
+    ett genomfört eller avbokat pass. Samma regel som när veckan sparas."""
+    first_dow = today.weekday() if week == today.isocalendar()[1] else 0
+    locked = set(range(first_dow))
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT DISTINCT dow FROM plan_sessions
+                           WHERE user_id=%s AND week=%s AND dow >= %s
+                             AND status NOT IN ('planned', 'rescheduled')''',
+                        (user_id, week, first_dow))
+            locked |= {row[0] for row in cur.fetchall()}
+    return locked
+
+
+def _week_draft_neighbours_block(user_id, week):
+    """Veckan före och efter — ett hårt pass på söndag påverkar måndagen."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT week, dow, type, km, title, status FROM plan_sessions
+                               WHERE user_id=%s AND week BETWEEN %s AND %s
+                               ORDER BY week, dow''', (user_id, week - 1, week + 1))
+                rows = cur.fetchall()
+    except Exception as exc:
+        print('week draft neighbours:', exc)
+        return ''
+    lines = [f'  W{w} {_DOW_NAMES[d][:3]}: {t} · {title}' + (f' {km:g} km' if km else '')
+             + f' [{status}]' for w, d, t, km, title, status in rows]
+    if not lines:
+        return 'SURROUNDING PLAN: nothing planned in the weeks around it.'
+    return 'SURROUNDING PLAN (the target week\'s current entries will be replaced):\n' + '\n'.join(lines)
+
+
+def _week_draft_prompt(user_id, week, text, today, locked):
+    monday = date.fromisocalendar(today.year, week, 1)
+    fitness = _recent_training_summary(user_id)
+    try:
+        pace_ctx = _pace_context(user_id)
+        pace_block = pace_progression.describe_anchor(pace_ctx['anchor'], pace_ctx['goalFeasibility'])
+    except Exception as exc:
+        print('week draft pace block:', exc)
+        pace_block = 'No measured pace anchor — describe intensity by effort and heart-rate zone.'
+    days = '\n'.join(
+        f"  {dow} = {_DOW_NAMES[dow]} {(monday + timedelta(days=dow)).isoformat()}"
+        + (' — LOCKED (already passed or done), never put a session here' if dow in locked else '')
+        for dow in range(7))
+    return f"""You are a personal running and strength coach. The athlete has written how they want ISO week {week} to look. Turn it into a concrete week plan that serves their goal and fits their current load and recovery. Respond ONLY with JSON. All text must be in Swedish.
+
+ATHLETE'S WISHES FOR THE WEEK (their own words):
+\"\"\"{text}\"\"\"
+
+DAYS (dow):
+{days}
+
+{_goal_prompt_block(user_id)}
+
+CURRENT FITNESS:
+- Running volume per ISO week, last 4 weeks: {fitness['weekly_km'] or 'no data'} km
+- Activities per week: {fitness['sessions_per_week']} · Longest recent run: {fitness['longest_run_km']} km
+- VO2max: {fitness['vo2max'] or 'unknown'}
+
+MEASURED PACE CAPABILITY (anchor every pace to this):
+{pace_block}
+
+{_recovery_prompt_block(user_id)}
+
+{_week_draft_neighbours_block(user_id, week)}
+
+{_notes_prompt_block(user_id)}
+
+{_recent_execution_block(user_id)}
+
+RULES:
+- The athlete's wishes decide WHICH day gets WHAT KIND of session. A day they call free/ledig/vila gets no training. Never move a requested session to another day.
+- You decide the content: distance, paces, interval structure, exercises — sized to the goal, recent volume, load and recovery. If load or recovery argue for a softer version of a requested session (e.g. ACWR above 1.3, poor sleep, injury notes), keep the session type but make it lighter, and say so in "notes".
+- Days the athlete did not mention: add a session only if the goal clearly needs it and the load allows it; otherwise leave them empty (empty = rest). Say in "notes" what you did with them.
+- Max ~10% more running volume than the recent weekly average unless the athlete asks for more. No two hard days (intervals/tempo/race) back to back unless the athlete asked for it.
+- At most one session per day. Use only unlocked days.
+- Types: "run" = quality (intervals, tempo, threshold), "easy" = Z2/recovery/long run, "lift" = strength, "race" = race or test, "rest" = only when a rest day itself must be marked.
+- "km" is planned running distance (0 for lift/rest). "title" max 60 chars, e.g. "Intervaller 6×1000 m". "detail" max 200 chars of concrete instructions with paces or zones; for lift name exercises with sets×reps, no kg.
+- "notes": 2-4 Swedish sentences to the athlete on how the week fits the goal and their current load/recovery.
+
+JSON shape:
+{{"notes": "<Swedish>", "sessions": [{{"dow": <0-6>, "type": "<run|easy|lift|race|rest>", "km": <number>, "title": "<Swedish>", "detail": "<Swedish>"}}]}}"""
+
+
+@app.post('/api/plan/week/<int:week>/draft')
+def draft_week_plan(week):
+    """Coachen gör ett veckoförslag av atletens egna ord. Ingenting sparas —
+    förslaget fylls i veckoplaneraren, där atleten justerar och sparar själv."""
+    data = request.get_json(silent=True) or {}
+    text = str(data.get('text') or '').strip()
+    if not text:
+        return _api_error('text_required', 'Skriv hur du vill att veckan ska se ut.', 400)
+    if len(text) > WEEK_DRAFT_MAX_CHARS:
+        return _api_error('text_too_long', f'Håll beskrivningen under {WEEK_DRAFT_MAX_CHARS} tecken.', 400)
+    today = date.today()
+    first, last = _plannable_weeks(today)
+    if not (first <= week <= last):
+        return _api_error('invalid_week_plan', f'Vecka {week} går inte att planera — välj vecka {first}–{last}.', 400)
+    if not llm_available():
+        return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
+    try:
+        locked = _week_draft_locked_days(uid(), week, today)
+    except Exception as e:
+        return _server_error(e, 'plan_week_draft.locked_failed', message='Planen kunde inte läsas.')
+    if len(locked) >= 7:
+        return _api_error('week_locked', f'Vecka {week} har inga dagar kvar att planera.', 400)
+
+    prompt = _week_draft_prompt(uid(), week, text, today, locked)
+    try:
+        raw = call_llm(prompt, max_tokens=3000, timeout=90, json_schema=WEEK_DRAFT_SCHEMA)
+        result = json.loads(raw.strip().replace('```json', '').replace('```', '').strip())
+    except Exception as e:
+        return _server_error(e, 'plan_week_draft.llm_failed', status=502, code='ai_provider_error',
+                             message='Coachen kunde inte göra ett förslag just nu. Försök igen.')
+
+    # Låsta dagar och dubbletter sållas bort i stället för att fälla förslaget:
+    # resten är fortfarande användbart, och inget sparas förrän atleten trycker spara.
+    picked, dropped = {}, 0
+    for s in result.get('sessions') or []:
+        try:
+            dow = int(s.get('dow'))
+        except (AttributeError, TypeError, ValueError):
+            dropped += 1
+            continue
+        if dow in locked or dow in picked or not 0 <= dow <= 6 or not _valid_session_type(s.get('type')):
+            dropped += 1
+            continue
+        picked[dow] = {**s, 'dow': dow, 'title': str(s.get('title') or '').strip()
+                       or str(s.get('type')).capitalize()}
+    sessions, error = _sanitize_week_plan(week, list(picked.values()), today)
+    if error:
+        return _server_error(ValueError(error), 'plan_week_draft.invalid', status=502,
+                             code='ai_plan_invalid', message='Coachen gav ett ogiltigt förslag. Försök igen.')
+    logger.info('Week draft generated', extra={
+        'event': 'plan.week_drafted', 'request_id': _request_id(), 'user_id': uid(),
+        'week': week, 'sessions': len(sessions), 'dropped': dropped,
+    })
+    return jsonify({'ok': True, 'week': week, 'sessions': sessions,
+                    'notes': str(result.get('notes') or '')[:1000]})
+
+
 @app.put('/api/plan/week/<int:week>')
 def save_week_plan(week):
     """Ersätt veckans planerade pass med användarens egna. Bara dagar från
