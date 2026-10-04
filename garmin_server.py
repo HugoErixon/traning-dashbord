@@ -7078,6 +7078,121 @@ def update_session(session_id):
 
 
 # ─────────────────────────────────────────────
+# PLANERA EN VECKA SJÄLV
+# ─────────────────────────────────────────────
+# plan_sessions lagrar bara ISO-veckonummer, inget år, så en vecka efter
+# nyår går inte att skilja från samma vecka i år. Därför stannar den manuella
+# planeringen vid årets sista vecka.
+PLAN_WEEK_MAX_AHEAD = 12
+
+
+def _plannable_weeks(today=None):
+    today = today or date.today()
+    first = today.isocalendar()[1]
+    last_of_year = date(today.year, 12, 28).isocalendar()[1]
+    return first, min(last_of_year, first + PLAN_WEEK_MAX_AHEAD)
+
+
+def _sanitize_week_plan(week, raw_sessions, today=None):
+    """Validera en egenplanerad vecka. Returnerar (pass, fel). Ett fel avvisar
+    hela veckan — hellre ett tydligt besked än att tyst tappa ett pass."""
+    today = today or date.today()
+    first, last = _plannable_weeks(today)
+    if not (first <= week <= last):
+        return None, f'Vecka {week} går inte att planera — välj vecka {first}–{last}.'
+    if not isinstance(raw_sessions, list):
+        return None, 'sessions måste vara en lista.'
+    first_dow = today.weekday() if week == first else 0
+    out, seen = [], set()
+    for s in raw_sessions:
+        if not isinstance(s, dict):
+            return None, 'Varje pass måste vara ett objekt.'
+        try:
+            dow = int(s.get('dow'))
+        except (TypeError, ValueError):
+            return None, 'Ogiltig veckodag.'
+        if not 0 <= dow <= 6:
+            return None, 'Ogiltig veckodag.'
+        if dow < first_dow:
+            return None, 'Dagar som redan passerat går inte att planera om.'
+        if dow in seen:
+            return None, 'Högst ett pass per dag.'
+        seen.add(dow)
+        session_type = _valid_session_type(s.get('type'))
+        if not session_type:
+            return None, f"Ogiltig passtyp — tillåtna: {', '.join(PLAN_SESSION_TYPES)}"
+        title = str(s.get('title') or '').strip()[:80]
+        if not title:
+            return None, 'Varje pass behöver en rubrik.'
+        try:
+            km = float(s.get('km') or 0)
+        except (TypeError, ValueError):
+            return None, 'Ogiltig distans.'
+        if km != km or km < 0:  # NaN eller negativt
+            return None, 'Ogiltig distans.'
+        out.append({
+            'week': week, 'dow': dow, 'type': session_type,
+            'km': round(min(km, 100.0), 1), 'title': title,
+            'detail': str(s.get('detail') or '').strip()[:300],
+        })
+    return sorted(out, key=lambda s: s['dow']), None
+
+
+@app.put('/api/plan/week/<int:week>')
+def save_week_plan(week):
+    """Ersätt veckans planerade pass med användarens egna. Bara dagar från
+    idag och framåt rörs, och bara pass som fortfarande är 'planned' —
+    genomförda, missade och överhoppade pass är historik och står kvar."""
+    data = request.get_json(silent=True) or {}
+    today = date.today()
+    sessions, error = _sanitize_week_plan(week, data.get('sessions'), today)
+    if error:
+        return _api_error('invalid_week_plan', error, 400)
+    first_dow = today.weekday() if week == today.isocalendar()[1] else 0
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                # Ett genomfört pass idag får inte få en planerad dubblett bredvid sig.
+                cur.execute('''SELECT DISTINCT dow FROM plan_sessions
+                               WHERE user_id=%s AND week=%s AND dow >= %s
+                                 AND status NOT IN ('planned', 'rescheduled')''',
+                            (uid(), week, first_dow))
+                locked = {row[0] for row in cur.fetchall()}
+                clash = [s for s in sessions if s['dow'] in locked]
+                if clash:
+                    conn.rollback()
+                    return _api_error('day_locked',
+                                      'En dag har redan ett genomfört eller avbokat pass.', 409,
+                                      {'dows': sorted(s['dow'] for s in clash)})
+                cur.execute('''DELETE FROM plan_sessions
+                               WHERE user_id=%s AND week=%s AND dow >= %s
+                                 AND status IN ('planned', 'rescheduled')''',
+                            (uid(), week, first_dow))
+                removed = cur.rowcount
+                now = time.time()
+                for s in sessions:
+                    cur.execute('''INSERT INTO plan_sessions
+                        (week, dow, type, km, title, detail, status, original_week, original_dow,
+                         ai_note, modified_at, user_id)
+                        VALUES (%s,%s,%s,%s,%s,%s,'planned',%s,%s,NULL,%s,%s)''',
+                        (s['week'], s['dow'], s['type'], s['km'], s['title'], s['detail'],
+                         s['week'], s['dow'], now, uid()))
+            conn.commit()
+    except Exception as e:
+        return _server_error(e, 'plan_week.save_failed', message='Veckan kunde inte sparas.')
+
+    logger.info('Week planned by user', extra={
+        'event': 'plan.week_saved',
+        'request_id': _request_id(),
+        'user_id': uid(),
+        'week': week,
+        'sessions': len(sessions),
+        'replaced': removed,
+    })
+    return jsonify({'ok': True, 'week': week, 'sessions': len(sessions), 'replaced': removed})
+
+
+# ─────────────────────────────────────────────
 # GENERERA NYTT SCHEMA FRÅN MÅLET
 # ─────────────────────────────────────────────
 def _sanitize_generated_sessions(raw_sessions, start_week, start_dow, end_week):

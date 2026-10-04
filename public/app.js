@@ -1415,6 +1415,9 @@ function executeAction(trigger, event) {
   else if (action === 'open-trend-breakdown') openTrendBreakdown();
   else if (action === 'close-trend-breakdown') closeTrendBreakdown();
   else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
+  else if (action === 'plan-week') openWeekPlanner(Number(trigger.dataset.week));
+  else if (action === 'save-week-plan') saveWeekPlan();
+  else if (action === 'close-week-planner') closeWeekPlanner();
   else if (action === 'analysis-window') setAnalysisWindow(Number(trigger.dataset.days));
   else if (action === 'analysis-metric') selectAnalysisMetric(trigger.dataset.metric);
   else if (action === 'pace-generate') generatePaceProposals();
@@ -5164,6 +5167,195 @@ HEALTH DATA (current):
   }
   loadPlan();
 
+  // ─── PLANERA VECKA SJÄLV ────────────────────────────────────
+  // Passmallar: fyra löptyper delar på backendens fem passtyper, så mallen
+  // väljer bara typ och förslag på rubrik — rubriken går att skriva om fritt.
+  const WEEK_PLAN_PRESETS = [
+    { key: '',         label: '— Ingen träning —' },
+    { key: 'interval', label: 'Intervaller',  type: 'run',  title: 'Intervaller',  hint: 't.ex. 6×1000 m i 4:00/km, 2 min vila' },
+    { key: 'tempo',    label: 'Tempopass',    type: 'run',  title: 'Tempopass',    hint: 't.ex. 3 km uppv. + 5 km tempo + 2 km nedv.' },
+    { key: 'easy',     label: 'Lugnt Z2',     type: 'easy', title: 'Lugnt Z2',     hint: 't.ex. lugn puls, kunna prata' },
+    { key: 'long',     label: 'Långpass',     type: 'easy', title: 'Långpass',     hint: 't.ex. jämnt och lugnt, sista 2 km lite snabbare' },
+    { key: 'lift',     label: 'Styrka',       type: 'lift', title: 'Styrka',       hint: 't.ex. Knäböj 5×5 · Marklyft 3×5' },
+    { key: 'race',     label: 'Lopp / test',  type: 'race', title: 'Lopp',         hint: 't.ex. 10 km-test' },
+    { key: 'rest',     label: 'Vila',         type: 'rest', title: 'Vila',         hint: 'Planerad vila' },
+  ];
+  const WEEK_PLAN_DAYS = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lördag', 'Söndag'];
+  const WEEK_PLAN_STATUS = { planned: 'planerat', completed: 'genomfört', missed: 'missat', skipped: 'överhoppat', rescheduled: 'flyttat' };
+  const WEEK_PLAN_AHEAD = 6;
+  let weekPlannerWeek = null;
+
+  function weekPlanPreset(key) {
+    return WEEK_PLAN_PRESETS.find(p => p.key === key) || WEEK_PLAN_PRESETS[0];
+  }
+
+  function presetForSession(session) {
+    const title = String(session.title || '').toLowerCase();
+    if (session.type === 'run') return /tempo|tröskel/.test(title) ? 'tempo' : 'interval';
+    if (session.type === 'easy') return /lång/.test(title) ? 'long' : 'easy';
+    return ['lift', 'race', 'rest'].includes(session.type) ? session.type : '';
+  }
+
+  // Samma ordning som kalendern: ett aktivt pass vinner över historik.
+  function weekPlanSessionsByDow(week) {
+    const byDow = {};
+    PLAN_SESSIONS.filter(s => s.week === week).forEach(s => {
+      const current = byDow[s.dow];
+      if (!current || (s.status === 'planned' && current.status !== 'planned')) byDow[s.dow] = s;
+    });
+    return byDow;
+  }
+
+  function renderWeekPlannerWeeks() {
+    const box = document.getElementById('week-planner-weeks');
+    if (!box) return;
+    const now = new Date();
+    const firstWeek = getISOWeek(now);
+    // Planen lagrar bara veckonummer, så den manuella planeringen stannar vid årsskiftet.
+    const lastOfYear = getISOWeek(new Date(now.getFullYear(), 11, 28));
+    const buttons = [];
+    for (let w = firstWeek; w <= Math.min(lastOfYear, firstWeek + WEEK_PLAN_AHEAD - 1); w++) {
+      const count = PLAN_SESSIONS.filter(s => s.week === w && s.status === 'planned' && s.type !== 'rest').length;
+      const sub = count ? `${count} pass` : 'tom';
+      const active = w === weekPlannerWeek ? ' active' : '';
+      buttons.push(`<button type="button" class="week-planner-btn${active}" data-action="plan-week" data-week="${w}"`
+        + ` aria-pressed="${w === weekPlannerWeek}">Planera v.${w}<span>${w === firstWeek ? 'denna vecka · ' : ''}${sub}</span></button>`);
+    }
+    box.innerHTML = buttons.join('');
+  }
+
+  function weekPlanRowHtml(week, dow, monday, todayKey, session) {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + dow);
+    const dateKey = localDateKey(date);
+    const label = `${WEEK_PLAN_DAYS[dow]} ${date.getDate()}/${date.getMonth() + 1}`;
+    const locked = dateKey < todayKey || (session && session.status !== 'planned' && session.status !== 'rescheduled');
+    if (locked) {
+      const text = session
+        ? `${session.title} · ${WEEK_PLAN_STATUS[session.status] || session.status || 'planerat'}`
+        : 'Passerad dag';
+      return `<div class="wp-row wp-locked" data-dow="${dow}"><div class="wp-day">${escapeHtml(label)}</div>`
+        + `<div class="wp-locked-text">${escapeHtml(text)}</div></div>`;
+    }
+    const presetKey = session ? presetForSession(session) : '';
+    const preset = weekPlanPreset(presetKey);
+    const options = WEEK_PLAN_PRESETS.map(p =>
+      `<option value="${p.key}"${p.key === presetKey ? ' selected' : ''}>${escapeHtml(p.label)}</option>`).join('');
+    const hidden = presetKey ? '' : ' hidden';
+    return `<div class="wp-row" data-dow="${dow}" data-editable="1">`
+      + `<label class="wp-day" for="wp-type-${dow}">${escapeHtml(label)}</label>`
+      + `<select id="wp-type-${dow}" class="wp-type" data-prev="${presetKey}" aria-label="Pass ${escapeHtml(label)}">${options}</select>`
+      + `<div class="wp-fields"${hidden}>`
+      + `<input type="text" class="wp-title" maxlength="80" aria-label="Rubrik" placeholder="Rubrik" value="${escapeHtml(session?.title || preset.title || '')}">`
+      + `<input type="number" class="wp-km" min="0" max="100" step="0.5" inputmode="decimal" aria-label="Kilometer" placeholder="km" value="${session && session.km ? escapeHtml(session.km) : ''}">`
+      + `<input type="text" class="wp-detail" maxlength="300" aria-label="Upplägg" placeholder="${escapeHtml(preset.hint || 'Upplägg')}" value="${escapeHtml(session?.detail || '')}">`
+      + `</div></div>`;
+  }
+
+  function openWeekPlanner(week) {
+    const editor = document.getElementById('week-planner-editor');
+    if (!editor || !Number.isInteger(week)) return;
+    if (weekPlannerWeek === week && !editor.hidden) { closeWeekPlanner(); return; }
+    weekPlannerWeek = week;
+    setWeekPlannerStatus('');
+    const monday = getMondayOfISOWeek(week, new Date().getFullYear());
+    const todayKey = localDateKey(new Date());
+    const byDow = weekPlanSessionsByDow(week);
+    const rows = [];
+    for (let dow = 0; dow < 7; dow++) rows.push(weekPlanRowHtml(week, dow, monday, todayKey, byDow[dow]));
+    editor.innerHTML = `<div class="wp-head">Vecka ${week}</div>`
+      + `<div class="wp-rows">${rows.join('')}</div>`
+      + `<div class="wp-actions">`
+      + `<button type="button" class="refresh-btn wp-cancel" data-action="close-week-planner">Avbryt</button>`
+      + `<button type="button" class="refresh-btn wp-save" data-action="save-week-plan">Spara vecka ${week}</button>`
+      + `</div>`;
+    editor.hidden = false;
+    renderWeekPlannerWeeks();
+    editor.querySelector('select')?.focus({ preventScroll: true });
+  }
+
+  function closeWeekPlanner() {
+    const editor = document.getElementById('week-planner-editor');
+    if (editor) { editor.hidden = true; editor.innerHTML = ''; }
+    weekPlannerWeek = null;
+    renderWeekPlannerWeeks();
+  }
+
+  function setWeekPlannerStatus(text, color) {
+    const status = document.getElementById('week-planner-status');
+    if (!status) return;
+    status.textContent = text || '';
+    status.style.color = color || '';
+  }
+
+  // Byter man mall följer rubriken med, så länge man inte skrivit en egen.
+  function onWeekPlanTypeChange(select) {
+    const row = select.closest('.wp-row');
+    if (!row) return;
+    const preset = weekPlanPreset(select.value);
+    const fields = row.querySelector('.wp-fields');
+    const title = row.querySelector('.wp-title');
+    const detail = row.querySelector('.wp-detail');
+    if (fields) fields.hidden = !preset.key;
+    const previous = weekPlanPreset(select.dataset.prev ?? '');
+    if (title && (!title.value.trim() || WEEK_PLAN_PRESETS.some(p => p.title === title.value.trim()))) {
+      title.value = preset.title || '';
+    }
+    if (detail) detail.placeholder = preset.hint || 'Upplägg';
+    if (preset.key === 'rest' || preset.key === 'lift') {
+      const km = row.querySelector('.wp-km');
+      if (km && previous.type !== preset.type) km.value = '';
+    }
+    select.dataset.prev = select.value;
+  }
+
+  function collectWeekPlan() {
+    const sessions = [];
+    document.querySelectorAll('#week-planner-editor .wp-row[data-editable]').forEach(row => {
+      const preset = weekPlanPreset(row.querySelector('.wp-type')?.value || '');
+      if (!preset.key) return;
+      const km = parseFloat(String(row.querySelector('.wp-km')?.value || '').replace(',', '.'));
+      sessions.push({
+        dow: Number(row.dataset.dow),
+        type: preset.type,
+        title: (row.querySelector('.wp-title')?.value || '').trim() || preset.title,
+        km: Number.isFinite(km) && km > 0 ? km : 0,
+        detail: (row.querySelector('.wp-detail')?.value || '').trim(),
+      });
+    });
+    return sessions;
+  }
+
+  async function saveWeekPlan() {
+    const week = weekPlannerWeek;
+    if (!Number.isInteger(week)) return;
+    const btn = document.querySelector('#week-planner-editor .wp-save');
+    const sessions = collectWeekPlan();
+    if (btn) { btn.disabled = true; btn.textContent = 'Sparar…'; }
+    setWeekPlannerStatus('');
+    try {
+      const r = await fetch(`/api/plan/week/${week}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessions }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Servern svarade ${r.status}`);
+      closeWeekPlanner();
+      await loadPlan();
+      const training = sessions.filter(s => s.type !== 'rest').length;
+      const km = sessions.reduce((sum, s) => sum + (s.km || 0), 0);
+      setWeekPlannerStatus(`Vecka ${week} sparad: ${training} pass${km ? ` · ${Math.round(km * 10) / 10} km` : ''}.`, 'var(--green)');
+    } catch (e) {
+      setWeekPlannerStatus('Kunde inte spara: ' + e.message, 'var(--red)');
+      if (btn) { btn.disabled = false; btn.textContent = `Spara vecka ${week}`; }
+    }
+  }
+
+  document.getElementById('week-planner-editor')?.addEventListener('change', event => {
+    if (event.target.matches('.wp-type')) onWeekPlanTypeChange(event.target);
+  });
+
   function getISOWeek(date) {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
     const dayNum = d.getUTCDay() || 7;
@@ -5191,6 +5383,7 @@ HEALTH DATA (current):
   }
 
   function buildCalendar() {
+    renderWeekPlannerWeeks();
     const container = document.getElementById('cal-container');
     if (!container) return;
     container.innerHTML = '';

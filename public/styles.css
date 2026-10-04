@@ -3378,6 +3378,58 @@
       font: 500 11px 'IBM Plex Mono', monospace;
     }
     .pace-generate-btn { width: auto; min-width: 170px; }
+    /* ─── PLANERA VECKA SJÄLV ─── */
+    .week-planner .pace-panel-head { margin-bottom: 12px; }
+    .week-planner-weeks { display: flex; flex-wrap: wrap; gap: 8px; }
+    .week-planner-btn {
+      appearance: none;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+      min-width: 118px;
+      padding: 9px 12px;
+      border: 1px solid var(--border2);
+      border-radius: 10px;
+      background: var(--bg3);
+      color: var(--text);
+      font: 600 12.5px var(--font-sans);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, color 0.15s;
+    }
+    .week-planner-btn span { color: var(--muted2); font: 500 10.5px var(--font-mono); }
+    .week-planner-btn:hover, .week-planner-btn.active {
+      border-color: var(--accent); color: var(--accent); background: var(--accent-dim);
+    }
+    .week-planner-status { min-height: 0; margin-top: 10px; font: 600 12px var(--font-sans); }
+    .week-planner-status:empty { display: none; }
+    .week-planner-editor { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .week-planner-editor[hidden] { display: none; }
+    .wp-head { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+    .wp-rows { display: flex; flex-direction: column; gap: 8px; }
+    .wp-row {
+      display: grid;
+      grid-template-columns: 110px 170px 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+    .wp-day { font: 600 12px var(--font-sans); color: var(--muted3); }
+    .wp-fields { display: grid; grid-template-columns: minmax(110px, 1fr) 72px minmax(140px, 2fr); gap: 8px; }
+    .wp-fields[hidden] { display: none; }
+    .wp-row select, .wp-row input {
+      width: 100%; box-sizing: border-box; min-width: 0;
+      border: 1px solid var(--border2); background: var(--bg3); color: var(--text);
+      border-radius: 7px; padding: 8px; font: 13px var(--font-sans);
+    }
+    .wp-row select:focus, .wp-row input:focus { outline: none; border-color: var(--accent); }
+    .wp-locked { opacity: 0.55; }
+    .wp-locked-text { grid-column: 2 / -1; font: 500 12px var(--font-mono); color: var(--muted2); }
+    .wp-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+    .wp-actions .refresh-btn { width: auto; min-width: 120px; }
+    .wp-actions .wp-save { color: var(--accent); border-color: var(--accent); }
+    @media (max-width: 720px) {
+      .wp-row { grid-template-columns: 1fr 1.4fr; }
+      .wp-fields { grid-column: 1 / -1; grid-template-columns: 1fr 72px; }
+      .wp-fields .wp-detail { grid-column: 1 / -1; }
+      .week-planner-btn { min-width: calc(50% - 4px); }
+    }
     .pace-bands { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
     .pace-band {
       padding: 4px 9px;
