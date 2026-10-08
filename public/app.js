@@ -2676,9 +2676,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         { valId:'snap-readiness-val', subId:'snap-readiness-sub', barId:'snap-readiness-bar',
           val: h.readiness?.score, sub: (()=>{ const m={VERY_HIGH:'Mycket hög',HIGH:'Hög',MODERATE:'Måttlig',LOW:'Låg',VERY_LOW:'Mycket låg'}; return m[h.readiness?.level]||''; })(),
           col: h.readiness?.score >= 70 ? 'var(--green)' : h.readiness?.score >= 40 ? 'var(--amber)' : 'var(--red)', pct: h.readiness?.score },
-        { valId:'snap-sleep-val', subId:'snap-sleep-sub', barId:'snap-sleep-bar',
-          val: h.sleep?.score, sub: h.sleep?.totalSec ? fmtTime(h.sleep.totalSec) : '',
-          col: h.sleep?.score >= 80 ? 'var(--green)' : h.sleep?.score >= 60 ? 'var(--amber)' : 'var(--red)', pct: h.sleep?.score },
         { valId:'snap-rhr-val', subId:'snap-rhr-sub', barId:'snap-rhr-bar',
           val: h.restingHR?.value, sub: 'Snitt 7d: ' + (h.restingHR?.sevenDayAvg || '-') + ' bpm',
           col: h.restingHR?.value <= (h.restingHR?.sevenDayAvg || h.restingHR?.value) + 2 ? 'var(--green)' : h.restingHR?.value <= (h.restingHR?.sevenDayAvg || h.restingHR?.value) + 6 ? 'var(--amber)' : 'var(--red)',
@@ -2706,7 +2703,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         sub.style.color = '';
       }
 
-      // RestOrTrain & Bevel Triad data
+      // Dagens besked (Idag-sidans hero)
       if (h.restOrTrain) {
         const rot = h.restOrTrain;
         const hero = document.getElementById('rot-hero');
@@ -2724,44 +2721,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         if (badgeText) badgeText.textContent = rot.badge || 'BESKED';
         if (title) title.textContent = rot.headline || '';
         if (desc) desc.textContent = rot.explanation || '';
-
-        const target = rot.targetStrain;
-        const targetBadge = document.getElementById('triad-strain-badge');
-        const targetLabel = document.getElementById('triad-strain-target-label');
-        const targetZone = document.getElementById('triad-strain-target-zone');
-
-        if (target) {
-          if (targetBadge) targetBadge.textContent = `Mål: ${target.min}–${target.max}`;
-          if (targetLabel) targetLabel.textContent = target.label || 'Målområde';
-          if (targetZone) {
-            targetZone.style.left = `${target.min}%`;
-            targetZone.style.width = `${target.max - target.min}%`;
-          }
-        }
-
-        const sl = h.sleep || {};
-        const sleepSec = sl.totalSec || 0;
-        const sleepTimeEl = document.getElementById('triad-sleep-time');
-        const sleepDebtEl = document.getElementById('triad-sleep-debt');
-
-        if (sleepTimeEl) {
-          const h_hours = Math.floor(sleepSec / 3600);
-          const h_mins = Math.round((sleepSec % 3600) / 60);
-          sleepTimeEl.textContent = sleepSec > 0 ? `${h_hours}h ${h_mins}m` : '–';
-        }
-        if (sleepDebtEl) {
-          const debt = rot.sleepDebtMinutes || 0;
-          if (debt > 0) {
-            sleepDebtEl.textContent = `-${debt} min skuld`;
-            sleepDebtEl.style.color = 'var(--amber)';
-          } else if (debt < 0) {
-            sleepDebtEl.textContent = `+${Math.abs(debt)} min överskott`;
-            sleepDebtEl.style.color = 'var(--green)';
-          } else {
-            sleepDebtEl.textContent = 'I balans';
-            sleepDebtEl.style.color = 'var(--green)';
-          }
-        }
       }
 
       safeRenderTrainingCockpit();
@@ -2773,8 +2732,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       try {
         const sp = await (await fetch('/api/health/spark')).json();
         if (sp.hrv?.length >= 2)    drawSparkline(document.getElementById('spark-hrv'),    sp.hrv,    'var(--accent)');
-        if (sp.strain?.length >= 2) drawSparkline(document.getElementById('spark-strain'), sp.strain, 'var(--blue)');
-        if (sp.sleep?.length >= 2)  drawSparkline(document.getElementById('spark-sleep'),  sp.sleep,  'var(--green)');
       } catch (e) { /* sparklines are optional decoration */ }
 
     } catch(e) { console.error('Health error:', e); }
@@ -3209,30 +3166,6 @@ HEALTH DATA (current):
     if (streak)  streak.textContent  = data.consecutiveHighDays ?? '--';
     if (load)    load.textContent    = data.load ? Math.round(data.load) : '0';
 
-    // Update Bevel Triad Strain Card
-    const triadVal = document.getElementById('triad-strain-val');
-    const triadLoad = document.getElementById('triad-strain-load');
-    const triadFill = document.getElementById('triad-strain-fill');
-    const triadAcwr = document.getElementById('triad-strain-acwr');
-
-    if (triadVal) triadVal.textContent = data.strain ?? '0';
-    if (triadLoad) triadLoad.textContent = `${Math.round(data.load || 0)} TL`;
-    if (triadFill) triadFill.style.width = `${Math.min(100, Math.max(0, data.strain || 0))}%`;
-    if (triadAcwr) {
-      if (data.acwr) {
-        triadAcwr.textContent = data.acwr.toFixed(2);
-      } else if (data.referenceLoad && data.referenceLoad > 0) {
-        triadAcwr.textContent = (data.load / data.referenceLoad).toFixed(2);
-      } else {
-        triadAcwr.textContent = '1.00';
-      }
-    }
-
-    if (data.series && data.series.length >= 2) {
-      const pts = data.series.map(s => s.strain || 0);
-      drawSparkline(document.getElementById('spark-strain'), pts, 'var(--blue)');
-    }
-
     // Var referensen kommer ifrån avgör hur mycket siffran är värd att lita på.
     const note = document.getElementById('strain-reference-note');
     if (note) {
@@ -3653,8 +3586,10 @@ HEALTH DATA (current):
       svgEl.innerHTML = '';
       return;
     }
-    const W = 300;
-    const H = 40;
+    // Ritas i elementets egen storlek: utsträckt från 300 bred blev punkterna
+    // ovala när återhämtningskortet fick hela sidbredden.
+    const W = Math.max(120, Math.round(svgEl.clientWidth || 300));
+    const H = Math.max(24, Math.round(svgEl.clientHeight || 40));
     svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svgEl.setAttribute('preserveAspectRatio', 'none');
     svgEl.style.overflow = 'hidden';

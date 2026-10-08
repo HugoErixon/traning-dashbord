@@ -126,9 +126,10 @@
 
       <div class="section-header">
         <span class="section-header-label">Just nu</span>
-        <span class="section-header-note">Nattens mätningar och dagens belastning</span>
+        <span class="section-header-note">Nattens mätningar</span>
       </div>
-      <!-- JUST NU — dagsläget (Återhämtning · Dagens Belastning · Sömn), flyttat hit från Idag -->
+      <!-- JUST NU — nattens återhämtning, flyttat hit från Idag. Strain- och
+           sömnskuldskorten togs bort 2026-10-08 på Hugos begäran. -->
       <div class="bevel-triad">
 
         <!-- 1. ÅTERHÄMTNING (RECOVERY) -->
@@ -178,63 +179,6 @@
           <svg id="spark-hrv" class="sparkline" aria-label="HRV 7-dagarstrend"></svg>
         </div>
 
-        <!-- 2. STRAIN & MÅL-STRAIN (BELASTNING) -->
-        <div class="bevel-card bevel-strain-card">
-          <div class="bevel-card-head">
-            <span class="bevel-card-title">DAGENS STRAIN</span>
-            <span class="bevel-card-badge" id="triad-strain-badge">Mål: 50–70</span>
-          </div>
-          <div class="bevel-card-body">
-            <div class="strain-dial-wrap">
-              <div style="display:flex;align-items:baseline;gap:2px;">
-                <span id="triad-strain-val" class="strain-big-val">0</span>
-                <span class="strain-max-val">/100</span>
-              </div>
-              <div class="strain-target-label" id="triad-strain-target-label">Målområde</div>
-            </div>
-            <div class="bevel-metrics-list">
-              <div class="bevel-metric-item">
-                <span class="bevel-metric-label">Dagens Träningsdos</span>
-                <span class="bevel-metric-val" id="triad-strain-load">–</span>
-                <div class="strain-gauge-bar-wrap">
-                  <div class="strain-gauge-target-zone" id="triad-strain-target-zone" style="left:40%;width:30%;"></div>
-                  <div class="strain-gauge-fill" id="triad-strain-fill" style="width:0%;"></div>
-                </div>
-              </div>
-              <div class="bevel-metric-item">
-                <span class="bevel-metric-label">Akut / Kronisk (ACWR)</span>
-                <span class="bevel-metric-val" id="triad-strain-acwr">–</span>
-              </div>
-            </div>
-          </div>
-          <svg id="spark-strain" class="sparkline" aria-label="Strain 7-dagarstrend"></svg>
-        </div>
-
-        <!-- 3. SÖMN & SÖMNSKULD -->
-        <div class="bevel-card bevel-sleep-card">
-          <div class="bevel-card-head">
-            <span class="bevel-card-title">SÖMN &amp; SKULD</span>
-            <span class="bevel-card-badge" id="snap-sleep-sub">–</span>
-          </div>
-          <div class="bevel-card-body">
-            <div class="sleep-score-wrap">
-              <div class="sleep-score-val" id="snap-sleep-val">–</div>
-              <div class="sleep-score-label">SÖMNPOÄNG</div>
-            </div>
-            <div class="bevel-metrics-list">
-              <div class="bevel-metric-item">
-                <span class="bevel-metric-label">Sömntid i natt</span>
-                <span class="bevel-metric-val" id="triad-sleep-time">–</span>
-                <div class="bar" style="height:3px;margin-top:4px;"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
-              </div>
-              <div class="bevel-metric-item">
-                <span class="bevel-metric-label">Sömnskuld (mot 7.5h)</span>
-                <span class="bevel-metric-val" id="triad-sleep-debt">–</span>
-              </div>
-            </div>
-          </div>
-          <svg id="spark-sleep" class="sparkline" aria-label="Sömn 7-dagarstrend"></svg>
-        </div>
 
       </div>
 
