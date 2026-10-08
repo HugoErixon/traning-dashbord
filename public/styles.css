@@ -4983,3 +4983,117 @@
       .tb-panel { padding: 18px; }
       .tb-row { grid-template-columns: 42px minmax(0, 1fr); gap: 10px; }
     }
+
+/* ═══════════════ ÖVERSIKT (förstasidan) ═══════════════
+   Trender över veckor och månader. Riktningsfärgerna är statusfärger och
+   bär alltid pil + ord, aldrig bara färg. */
+    #page-overview .page-header { margin-bottom: 8px; }
+    .ov-link {
+      margin-left: auto; padding: 0; border: 0; background: none; cursor: pointer;
+      color: var(--accent); font: 600 11.5px var(--font-sans);
+    }
+    .ov-link:hover { text-decoration: underline; }
+
+    .ov-summary {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
+      margin-bottom: 14px; padding: 14px 18px;
+      border: 1px solid var(--border); border-radius: var(--radius-xl);
+      background: var(--card-grad), var(--bg2); box-shadow: var(--edge-top);
+    }
+    .ov-summary-text { margin: 0; color: var(--muted3); font-size: 13px; }
+    .ov-summary-text strong { color: var(--text); }
+    .ov-error { color: var(--red); }
+    .ov-summary-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .ov-summary-items { color: var(--muted3); font-size: 12.5px; line-height: 1.45; }
+
+    .ov-badge {
+      display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+      padding: 3px 8px; border-radius: var(--radius-pill);
+      background: var(--sheen); color: var(--muted2);
+      font: 700 9.5px 'IBM Plex Mono', monospace; letter-spacing: .03em; white-space: nowrap;
+    }
+    .ov-badge b { font-size: 11px; line-height: 1; }
+    .ov-dir-improving .ov-badge { color: var(--green); background: var(--green-dim); }
+    .ov-dir-declining .ov-badge { color: var(--amber); background: var(--amber-dim); }
+
+    .ov-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
+    .ov-card {
+      position: relative; min-width: 0; padding: 16px 16px 14px;
+      border: 1px solid var(--border); border-radius: var(--radius-xl);
+      background: var(--card-grad), var(--bg2); box-shadow: var(--shadow-card), var(--edge-top);
+    }
+    .ov-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .ov-card-label { color: var(--muted2); font: 600 11px 'IBM Plex Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .ov-card-value { margin-top: 12px; font: 750 28px/1 var(--font-num); letter-spacing: -.03em; }
+    .ov-card-value small { color: var(--muted); font: 500 11px 'IBM Plex Mono', monospace; letter-spacing: 0; }
+    .ov-card-caption { margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .ov-card-change { margin-top: 6px; color: var(--muted2); font-size: 12px; line-height: 1.4; }
+    .ov-card-change strong { color: var(--text); font-family: var(--font-num); }
+    .ov-card-change span { color: var(--muted); }
+
+    .ov-chart { position: relative; height: 84px; margin-top: 10px; touch-action: pan-y; cursor: crosshair; }
+    .ov-chart svg { display: block; overflow: visible; }
+    .ov-chart-empty { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11.5px; border: 1px dashed var(--border2); border-radius: var(--radius-md); }
+    .ov-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .ov-dot { fill: var(--muted2); opacity: .32; }
+    .ov-end, .ov-hover-dot { fill: var(--accent); stroke: var(--bg2); stroke-width: 2; }
+    .ov-ref { stroke: var(--border3); stroke-width: 1; stroke-dasharray: 3 4; }
+    .ov-cross { stroke: var(--border3); stroke-width: 1; }
+    .ov-tip {
+      position: absolute; top: -30px; display: none; align-items: baseline; gap: 7px;
+      padding: 4px 8px; border: 1px solid var(--border2); border-radius: var(--radius-md);
+      background: var(--bg3); box-shadow: var(--shadow-card); pointer-events: none; white-space: nowrap; z-index: 3;
+      font-size: 11px; color: var(--muted2);
+    }
+    .ov-tip strong { color: var(--text); font-family: var(--font-num); }
+    .ov-tip em { color: var(--muted); font-style: normal; }
+
+    .ov-sleep-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .9fr); gap: 12px; margin-bottom: 16px; }
+    .ov-sleep-grid .an-card { margin-bottom: 0; }
+    .ov-weeks-plot { position: relative; display: flex; align-items: flex-end; gap: 4px; height: 150px; padding-top: 8px; }
+    /* Samma yta som staplarnas spår: plotens padding upptill, etiketten + glappet nedtill. */
+    .ov-goal-area { position: absolute; left: 0; right: 0; top: 8px; bottom: 20px; pointer-events: none; z-index: 1; }
+    .ov-goal-line { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border3); }
+    .ov-week { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .ov-week-track { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+    .ov-week-track i {
+      display: block; width: 100%; max-width: 30px; min-height: 3px; border-radius: 4px 4px 2px 2px;
+      background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 35%, transparent));
+      transition: height .6s cubic-bezier(.2, .8, .3, 1), opacity .15s;
+    }
+    .ov-week:hover i { opacity: .75; }
+    .ov-week.current i { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 55%, transparent) 0 4px, color-mix(in srgb, var(--accent) 25%, transparent) 4px 8px); }
+    .ov-week > span { height: 14px; color: var(--muted); font: 9px 'IBM Plex Mono', monospace; white-space: nowrap; }
+    .ov-weeks-summary { margin-top: 14px; }
+
+    .ov-rel-verdict { margin: 0 0 14px; color: var(--muted3); font-size: 13px; line-height: 1.5; }
+    .ov-rel-row { margin-bottom: 12px; }
+    .ov-rel-name { margin-bottom: 6px; color: var(--muted2); font: 600 10px 'IBM Plex Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .ov-rel-bar { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 9px; margin-bottom: 5px; font-size: 11.5px; color: var(--muted); }
+    .ov-rel-bar i { display: block; height: 8px; border-radius: 0 4px 4px 0; background: color-mix(in srgb, var(--accent) 45%, transparent); }
+    .ov-rel-bar.normal i { background: var(--accent); }
+    .ov-rel-bar strong { color: var(--text); font: 650 12px var(--font-num); }
+    .ov-rel-note { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+    .ov-more { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
+    .ov-more-btn {
+      display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; align-items: center;
+      padding: 14px 16px; text-align: left; cursor: pointer; color: var(--text);
+      border: 1px solid var(--border); border-radius: var(--radius-lg);
+      background: color-mix(in srgb, var(--text) 2%, transparent); font-family: var(--font-sans);
+      transition: border-color .15s, background .15s;
+    }
+    .ov-more-btn:hover { border-color: var(--border2); background: color-mix(in srgb, var(--text) 3.5%, transparent); }
+    .ov-more-btn strong { font-size: 13px; }
+    .ov-more-btn span { grid-column: 1; color: var(--muted); font-size: 11.5px; }
+    .ov-more-btn b { grid-column: 2; grid-row: 1 / span 2; color: var(--accent); }
+
+    @media (max-width: 1080px) { .ov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 900px) { .ov-sleep-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) {
+      .ov-grid, .ov-more { grid-template-columns: 1fr; }
+      .ov-summary { padding: 13px 14px; }
+      .ov-card-value { font-size: 26px; }
+      .ov-weeks-summary { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) { .ov-week-track i { transition: none; } }

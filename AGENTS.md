@@ -65,6 +65,12 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
     from the list. `Tempsensor_3` was dead for 44 days before anyone noticed.
   - The old `/api/ac*` routes are kept and answer **410 `ac_removed`** on purpose, so a
     stale open tab gets a real explanation rather than a 404 that looks like an outage.
+- **Start page = Översikt** (`page-overview`, since 2026-10-08): long-term trends rather than
+  the planned sessions, which the athlete found hard to plan around. `body_trends.py` serves
+  `GET /api/overview?days=30|90|180`. Daily markers (HRV, resting pulse, sleep, Body Battery,
+  stress, threshold pace) are compared as 7-day averages, not night against night; VO2max and
+  endurance value against value. Threshold pace is averaged on purpose: Garmin flips between
+  two values day to day (4:00/4:08). The "Just nu" cards (bevel triad) moved here from Idag.
 - **Strain:** `strain_analysis.py` scores each day 0-100 by weighing that day's Garmin
   `activityTrainingLoad` against the athlete's own chronic load (Garmin's chronic value
   when available, otherwise a 28-day average) — a raw load number means nothing on its

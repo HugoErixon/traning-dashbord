@@ -1420,6 +1420,7 @@ function executeAction(trigger, event) {
   else if (action === 'draft-week-plan') draftWeekPlan();
   else if (action === 'close-week-planner') closeWeekPlanner();
   else if (action === 'analysis-window') setAnalysisWindow(Number(trigger.dataset.days));
+  else if (action === 'overview-window') setOverviewWindow(Number(trigger.dataset.days));
   else if (action === 'analysis-metric') selectAnalysisMetric(trigger.dataset.metric);
   else if (action === 'pace-generate') generatePaceProposals();
   else if (action === 'pace-decide') decidePaceProposals(trigger.dataset.decision, trigger.dataset.id);
@@ -1489,7 +1490,7 @@ document.addEventListener('keydown', event => {
   const NAV_SECTION = {
     upcoming: 'upcoming', strength: 'upcoming',
     health: 'health', sleep: 'health', journal: 'health',
-    analysis: 'analysis', home: 'home',
+    analysis: 'analysis', home: 'home', overview: 'overview',
     settings: 'settings', climate: 'settings',
   };
 
@@ -1517,6 +1518,7 @@ document.addEventListener('keydown', event => {
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); }
     if (id === 'home') loadToday();
+    if (id === 'overview') { loadHealth(); loadOverview(); }
   }
 
   renderThemeToggle();
@@ -2793,7 +2795,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadPlan(), loadStrain(), loadSessionVerdict(), loadToday()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadPlan(), loadStrain(), loadSessionVerdict(), loadToday(), loadOverview()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -4158,6 +4160,295 @@ HEALTH DATA (current):
       loading.style.color = 'var(--red)';
     }
   }
+
+  // ─── ÖVERSIKT: långsiktiga trender på förstasidan ───
+  // Siffrorna räknas i body_trends.py; här presenteras de bara. Första
+  // laddningen sker i slutet av blocket, när tillståndet nedan finns.
+  let overviewWindowDays = 90;
+  let overviewData = null;
+  let overviewCharts = {};
+
+  const OVERVIEW_DIRECTIONS = {
+    improving: ['↗', 'Förbättras'], declining: ['↘', 'Går åt fel håll'],
+    stable: ['→', 'Stabil'], unknown: ['·', 'Samlar data'],
+  };
+
+  function overviewNumber(value, decimals = 0) {
+    return Number(value).toLocaleString('sv-SE', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+  }
+
+  function overviewHours(hours) {
+    if (hours == null) return '–';
+    const total = Math.round(hours * 60);
+    return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, '0')} min`;
+  }
+
+  function overviewValue(trend, value) {
+    if (value == null) return '–';
+    if (trend.fmt === 'pace') return analysisMetricValue(value, 'pace');
+    if (trend.key === 'sleep_hours') return overviewHours(value);
+    return overviewNumber(value, trend.fmt === 1 ? 1 : 0);
+  }
+
+  function overviewUnit(trend) {
+    return trend.key === 'sleep_hours' ? '' : (trend.unit || '');
+  }
+
+  function overviewDelta(trend) {
+    const d = trend.delta;
+    if (d == null) return '';
+    const sign = d > 0 ? '+' : d < 0 ? '−' : '±';
+    const abs = Math.abs(d);
+    if (trend.fmt === 'pace') return `${sign}${Math.round(abs)} s/km`;
+    if (trend.key === 'sleep_hours') return `${sign}${Math.round(abs * 60)} min`;
+    const decimals = trend.fmt === 1 || abs < 10 && trend.key !== 'endurance' ? 1 : 0;
+    return `${sign}${overviewNumber(abs, decimals)}${trend.unit && trend.unit !== '/km' ? ' ' + trend.unit : ''}`;
+  }
+
+  function overviewShortDate(iso) {
+    return new Date(iso + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
+  }
+
+  function overviewCard(trend) {
+    const dm = OVERVIEW_DIRECTIONS[trend.direction] || OVERVIEW_DIRECTIONS.unknown;
+    const daily = trend.kind === 'daily';
+    const caption = daily
+      ? (trend.now != null ? 'snitt senaste 7 dygnen' : `senast ${overviewShortDate(trend.latestDate)}`)
+      : `senast mätt ${overviewShortDate(trend.latestDate)}`;
+    const big = daily && trend.now != null ? trend.now : trend.latest;
+    let change = 'För kort historik för att se en riktning.';
+    if (trend.delta != null) {
+      const from = overviewValue(trend, trend.then);
+      change = `<strong>${escapeHtml(overviewDelta(trend))}</strong> sedan ${escapeHtml(overviewShortDate(trend.thenDate))}`
+        + ` <span>(från ${escapeHtml(from)})</span>`;
+    }
+    return `<article class="ov-card ov-dir-${escapeHtml(trend.direction)}" data-key="${escapeHtml(trend.key)}">
+      <div class="ov-card-top">
+        <span class="ov-card-label">${escapeHtml(trend.label)}</span>
+        <span class="ov-badge"><b aria-hidden="true">${dm[0]}</b>${dm[1]}</span>
+      </div>
+      <div class="ov-card-value">${escapeHtml(overviewValue(trend, big))}${overviewUnit(trend) ? ` <small>${escapeHtml(overviewUnit(trend))}</small>` : ''}</div>
+      <div class="ov-card-caption">${escapeHtml(caption)}</div>
+      <div class="ov-chart" data-key="${escapeHtml(trend.key)}" aria-hidden="true"></div>
+      <div class="ov-card-change">${change}</div>
+    </article>`;
+  }
+
+  // Ritas i kortets faktiska bredd i stället för en utsträckt viewBox, så att
+  // punkterna förblir runda och linjen lika tjock oavsett skärm.
+  function drawOverviewChart(el, trend) {
+    const W = Math.max(160, Math.round(el.clientWidth || 280)), H = 84;
+    const pad = {l: 2, r: 4, t: 8, b: 6};
+    const raw = trend.series || [];
+    const line = trend.kind === 'daily' ? (trend.smooth || []) : raw;
+    if (raw.length < 2) {
+      el.innerHTML = '<div class="ov-chart-empty">Behöver fler mätningar</div>';
+      overviewCharts[trend.key] = null;
+      return;
+    }
+    const start = new Date((overviewData?.today || raw[0].t) + 'T12:00:00').getTime() - overviewWindowDays * 864e5;
+    const t0 = Math.min(start, new Date(raw[0].t + 'T12:00:00').getTime());
+    const t1 = new Date((overviewData?.today || raw.at(-1).t) + 'T12:00:00').getTime();
+    const values = raw.map(p => p.v);
+    let lo = Math.min(...values), hi = Math.max(...values);
+    const margin = Math.max((hi - lo) * 0.12, trend.noise || 0.5);
+    lo -= margin; hi += margin;
+    // Tröskelfart: lägre är bättre, så skalan vänds — uppåt i diagrammet är alltid bättre.
+    const invert = trend.good === 'down' && trend.fmt === 'pace';
+    const x = t => pad.l + ((new Date(t + 'T12:00:00').getTime() - t0) / Math.max(1, t1 - t0)) * (W - pad.l - pad.r);
+    const y = v => {
+      const f = (v - lo) / Math.max(1e-9, hi - lo);
+      return pad.t + (invert ? f : 1 - f) * (H - pad.t - pad.b);
+    };
+    const path = line.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(' ');
+    const dots = trend.kind === 'daily'
+      ? raw.map(p => `<circle class="ov-dot" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="1.8"/>`).join('')
+      : '';
+    const last = line.at(-1) || raw.at(-1);
+    const thenLine = trend.then != null
+      ? `<line class="ov-ref" x1="${pad.l}" x2="${W - pad.r}" y1="${y(trend.then).toFixed(1)}" y2="${y(trend.then).toFixed(1)}"/>`
+      : '';
+    el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+      ${thenLine}${dots}
+      ${path ? `<path class="ov-line" d="${path}"/>` : ''}
+      <circle class="ov-end" cx="${x(last.t).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="4"/>
+      <g class="ov-hover" style="display:none"><line class="ov-cross" y1="${pad.t - 4}" y2="${H}"/><circle class="ov-hover-dot" r="4"/></g>
+    </svg><div class="ov-tip" role="status"></div>`;
+    overviewCharts[trend.key] = {trend, raw, x, y, W};
+  }
+
+  function overviewHover(event) {
+    const el = event.target.closest?.('.ov-chart');
+    if (!el) return;
+    const chart = overviewCharts[el.dataset.key];
+    if (!chart) return;
+    const rect = el.getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    let best = chart.raw[0];
+    for (const p of chart.raw) if (Math.abs(chart.x(p.t) - px) < Math.abs(chart.x(best.t) - px)) best = p;
+    const smooth = (chart.trend.smooth || []).find(p => p.t === best.t);
+    const g = el.querySelector('.ov-hover');
+    const cx = chart.x(best.t), cy = chart.y(best.v);
+    g.style.display = '';
+    g.querySelector('.ov-cross').setAttribute('x1', cx);
+    g.querySelector('.ov-cross').setAttribute('x2', cx);
+    g.querySelector('.ov-hover-dot').setAttribute('cx', cx);
+    g.querySelector('.ov-hover-dot').setAttribute('cy', cy);
+    const tip = el.querySelector('.ov-tip');
+    const unit = overviewUnit(chart.trend);
+    tip.innerHTML = `<span>${escapeHtml(overviewShortDate(best.t))}</span><strong>${escapeHtml(overviewValue(chart.trend, best.v))}${unit ? ' ' + escapeHtml(unit) : ''}</strong>`
+      + (smooth && chart.trend.kind === 'daily' ? `<em>7 d snitt ${escapeHtml(overviewValue(chart.trend, smooth.v))}</em>` : '');
+    tip.style.display = 'flex';
+    const tipW = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(chart.W - tipW, cx - tipW / 2)) + 'px';
+  }
+
+  function overviewHoverEnd(event) {
+    const el = event.target.closest?.('.ov-chart');
+    if (!el) return;
+    const g = el.querySelector('.ov-hover');
+    if (g) g.style.display = 'none';
+    const tip = el.querySelector('.ov-tip');
+    if (tip) tip.style.display = 'none';
+  }
+
+  function renderOverviewSummary(data, trends) {
+    const label = key => trends.find(t => t.key === key)?.label || key;
+    const groups = [
+      ['improving', 'Förbättras', data.summary.improving],
+      ['declining', 'Går åt fel håll', data.summary.declining],
+      ['stable', 'Stabilt', data.summary.stable],
+    ].filter(([, , keys]) => keys.length);
+    const period = overviewWindowDays === 180 ? 'Senaste halvåret' : `Senaste ${overviewWindowDays} dagarna`;
+    const el = document.getElementById('ov-summary');
+    if (!groups.length) {
+      el.innerHTML = `<p class="ov-summary-text">${period}: för lite historik för att se några riktningar ännu.</p>`;
+      return;
+    }
+    el.innerHTML = `<p class="ov-summary-text"><strong>${period}</strong></p>`
+      + groups.map(([tone, title, keys]) => `<div class="ov-summary-row ov-dir-${tone}">
+          <span class="ov-badge"><b aria-hidden="true">${OVERVIEW_DIRECTIONS[tone][0]}</b>${title}</span>
+          <span class="ov-summary-items">${keys.map(k => escapeHtml(label(k))).join(' · ')}</span></div>`).join('');
+  }
+
+  function renderOverviewWeeks(data) {
+    const weeks = (data.sleepWeeks || []).filter(w => w.avgHours != null);
+    const el = document.getElementById('ov-weeks');
+    const goal = data.sleepGoalHours || 7.5;
+    if (!weeks.length) {
+      el.innerHTML = '<p class="an-empty">Ingen sömndata i perioden ännu.</p>';
+      return;
+    }
+    const top = Math.max(goal + 1.5, ...weeks.map(w => w.avgHours));
+    const goalPct = goal / top * 100;
+    const labelEvery = weeks.length > 16 ? 3 : weeks.length > 9 ? 2 : 1;
+    const bars = weeks.map((w, i) => {
+      const pct = Math.max(2, w.avgHours / top * 100);
+      const title = `v.${w.week}: ${overviewHours(w.avgHours)} per natt${w.avgScore != null ? ` · sömnpoäng ${w.avgScore}` : ''} · ${w.nightsOnGoal} av ${w.nights} nätter på mål${w.current ? ' · pågående vecka' : ''}`;
+      const showLabel = (weeks.length - 1 - i) % labelEvery === 0;
+      return `<div class="ov-week${w.current ? ' current' : ''}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
+        <div class="ov-week-track"><i style="height:${pct.toFixed(1)}%"></i></div>
+        <span>${showLabel ? 'v.' + w.week : ''}</span></div>`;
+    }).join('');
+    const finished = weeks.filter(w => !w.current);
+    const pool = finished.length ? finished : weeks;
+    const best = pool.reduce((a, b) => (b.avgHours > a.avgHours ? b : a));
+    const worst = pool.reduce((a, b) => (b.avgHours < a.avgHours ? b : a));
+    const nights = weeks.reduce((n, w) => n + w.nights, 0);
+    const onGoal = weeks.reduce((n, w) => n + w.nightsOnGoal, 0);
+    const avg = weeks.reduce((n, w) => n + w.avgHours * w.nights, 0) / Math.max(1, nights);
+    document.getElementById('ov-sleep-note').textContent = `Snitt per natt · streckad linje = målet ${overviewNumber(goal, 1)} h · randig = pågående vecka`;
+    el.innerHTML = `<div class="ov-weeks-plot"><div class="ov-goal-area"><div class="ov-goal-line" style="bottom:${goalPct.toFixed(1)}%"></div></div>${bars}</div>
+      <div class="an-volume-summary ov-weeks-summary">
+        <div><span>Snitt per natt</span><strong>${overviewHours(avg)}</strong></div>
+        <div><span>Nätter på mål</span><strong>${onGoal} av ${nights}</strong></div>
+        <div><span>Bästa · sämsta vecka</span><strong>v.${best.week} · v.${worst.week}</strong></div>
+      </div>`;
+  }
+
+  function renderOverviewRelation(rel) {
+    const el = document.getElementById('ov-relation');
+    if (!rel || !rel.enough) {
+      const have = rel ? `${rel.shortNights} korta och ${rel.normalNights} normala nätter hittills` : 'ingen data ännu';
+      el.innerHTML = `<p class="an-empty">Jämförelsen behöver minst fem nätter under ${overviewNumber(rel?.thresholdHours || 7)} h och fem över (${escapeHtml(have)}).</p>`;
+      return;
+    }
+    const limit = overviewNumber(rel.thresholdHours);
+    const row = (label, short, normal, unit, decimals) => {
+      const max = Math.max(short, normal) || 1;
+      return `<div class="ov-rel-row"><div class="ov-rel-name">${label}</div>
+        <div class="ov-rel-bar"><span>Under ${limit} h</span><i style="width:${(short / max * 100).toFixed(1)}%"></i><strong>${overviewNumber(short, decimals)} ${unit}</strong></div>
+        <div class="ov-rel-bar normal"><span>${limit} h eller mer</span><i style="width:${(normal / max * 100).toFixed(1)}%"></i><strong>${overviewNumber(normal, decimals)} ${unit}</strong></div></div>`;
+    };
+    const hrvClear = rel.hrvDiff != null && Math.abs(rel.hrvDiff) >= 2;
+    const rhrClear = rel.rhrDiff != null && Math.abs(rel.rhrDiff) >= 1;
+    const parts = [];
+    if (hrvClear) parts.push(`HRV ${overviewNumber(Math.abs(rel.hrvDiff), 1)} ms ${rel.hrvDiff < 0 ? 'lägre' : 'högre'}`);
+    if (rhrClear) parts.push(`vilopulsen ${overviewNumber(Math.abs(rel.rhrDiff), 1)} slag ${rel.rhrDiff > 0 ? 'högre' : 'lägre'}`);
+    const verdict = parts.length
+      ? `Efter nätter under ${limit} h är din ${parts.join(' och ')} än efter längre nätter.`
+      : `Ingen tydlig skillnad: korta nätter syns knappt i din HRV eller vilopuls just nu.`;
+    el.innerHTML = `<p class="ov-rel-verdict">${escapeHtml(verdict)}</p>
+      ${rel.hrvShort != null ? row('HRV', rel.hrvShort, rel.hrvNormal, 'ms', 1) : ''}
+      ${rel.rhrShort != null ? row('Vilopuls', rel.rhrShort, rel.rhrNormal, 'slag/min', 1) : ''}
+      <p class="ov-rel-note">${rel.shortNights} korta och ${rel.normalNights} längre nätter. Ett samband i din data, inte ett bevis.</p>`;
+  }
+
+  function renderOverview(data) {
+    overviewData = data;
+    overviewCharts = {};
+    const trends = (data.trends || []).filter(t => t.samples > 0);
+    document.getElementById('ov-period-note').textContent = 'Senaste 7 dygnen jämfört med periodens början';
+    renderOverviewSummary(data, trends);
+    const grid = document.getElementById('ov-grid');
+    grid.innerHTML = trends.length
+      ? trends.map(overviewCard).join('')
+      : '<p class="an-empty">Ingen historik ännu. Trenderna fylls på när Garmin har synkat några dygn.</p>';
+    grid.querySelectorAll('.ov-chart').forEach(el => {
+      const trend = trends.find(t => t.key === el.dataset.key);
+      if (trend) drawOverviewChart(el, trend);
+    });
+    renderOverviewWeeks(data);
+    renderOverviewRelation(data.sleepVsRecovery);
+  }
+
+  function setOverviewWindow(days) {
+    if (![30, 90, 180].includes(days) || days === overviewWindowDays) return;
+    overviewWindowDays = days;
+    document.querySelectorAll('.ov-window-btn').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.days) === days));
+    loadOverview();
+  }
+
+  async function loadOverview() {
+    const summary = document.getElementById('ov-summary');
+    if (!summary) return;
+    try {
+      const response = await fetch(`/api/overview?days=${overviewWindowDays}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || data.error || 'Trenderna kunde inte hämtas.');
+      renderOverview(data);
+    } catch (error) {
+      summary.innerHTML = `<p class="ov-summary-text ov-error">Kunde inte ladda trenderna: ${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  {
+    const grid = document.getElementById('ov-grid');
+    grid?.addEventListener('pointermove', overviewHover);
+    grid?.addEventListener('pointerleave', overviewHoverEnd, true);
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (!overviewData || !document.getElementById('page-overview')?.classList.contains('active')) return;
+        document.querySelectorAll('#ov-grid .ov-chart').forEach(el => {
+          const trend = (overviewData.trends || []).find(t => t.key === el.dataset.key);
+          if (trend) drawOverviewChart(el, trend);
+        });
+      }, 150);
+    });
+  }
+  loadOverview();
 
   // ─── STRENGTH: sub-tabs (today's live workout vs history) ───
   let strengthCurrentTab = 'today';

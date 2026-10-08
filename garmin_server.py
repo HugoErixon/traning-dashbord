@@ -47,6 +47,7 @@ from strength_progression import (
 )
 import session_analysis
 import pace_progression
+import body_trends
 import sleep_analysis
 import strain_analysis
 import training_analysis
@@ -4476,6 +4477,37 @@ def analysis():
         'goal': goal,
         'metrics': metrics,
     })
+
+
+@app.get('/api/overview')
+def body_overview():
+    """Long-term trends for the start page: VO2max, HRV, resting pulse, sleep."""
+    try:
+        window = max(30, min(365, int(request.args.get('days', 90) or 90)))
+    except (TypeError, ValueError):
+        return _api_error('invalid_window', 'Perioden måste vara ett antal dagar.', 400)
+
+    today = date.today()
+    # Sömn/HRV-jämförelsen behöver sina fyra månader även när perioden är kort,
+    # och varje trend historik före perioden för att kunna mäta startnivån.
+    history_days = max(window, 120) + 30
+    start_date = (today - timedelta(days=history_days)).isoformat()
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT date, sleep_score, sleep_hours, hrv_avg, resting_hr,
+                        body_battery, stress_avg
+                    FROM health_history WHERE date >= %s AND user_id=%s ORDER BY date''',
+                            (start_date, uid()))
+                health_rows = [dict(row) for row in cur.fetchall()]
+                cur.execute('''SELECT date, vo2max, endurance_score, lactate_pace
+                    FROM metric_history WHERE date >= %s AND user_id=%s ORDER BY date''',
+                            (start_date, uid()))
+                metric_rows = [dict(row) for row in cur.fetchall()]
+    except Exception as exc:
+        return _server_error(exc, 'overview.history_failed', message='Trenderna kunde inte hämtas.')
+
+    return jsonify(body_trends.overview(health_rows, metric_rows, today, window))
 
 
 @app.get('/api/training-load')

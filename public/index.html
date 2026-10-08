@@ -34,7 +34,7 @@
 <div class="shell">
 
   <header class="topbar">
-    <div class="topbar-brand" data-action="goto" data-page="home" role="button" tabindex="0" title="Till startsidan">
+    <div class="topbar-brand" data-action="goto" data-page="overview" role="button" tabindex="0" title="Till startsidan">
       <!-- Löparbanan, yttersta och innersta banan. Samma geometri som
            public/favicon.svg; de mellersta utelämnas för att märket ritas
            litet och fyra linjer skulle flyta ihop. -->
@@ -76,7 +76,11 @@
        de svarade på samma frågor som sina grannar. -->
   <nav class="topnav" aria-label="Huvudnavigering">
     <div class="nav-primary">
-        <button type="button" class="nav-item active" data-action="goto" data-page="home">
+        <button type="button" class="nav-item active" data-action="goto" data-page="overview">
+          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span>
+          <span>Översikt</span>
+        </button>
+        <button type="button" class="nav-item" data-action="goto" data-page="home">
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
           <span>Idag</span>
         </button>
@@ -108,27 +112,23 @@
   <main class="main">
     <div class="content">
 
-    <!-- HEM -->
-    <!-- HEM -->
-    <div class="page active" id="page-home">
-
-      <!-- REST OR TRAIN HERO STATUS BANNER -->
-      <section class="rot-hero" id="rot-hero">
-        <div class="rot-hero-top">
-          <div class="rot-status-badge" id="rot-status-badge">
-            <span class="rot-pulse-dot" id="rot-pulse-dot"></span>
-            <span id="rot-badge-text">LADDAR BESKED…</span>
-          </div>
-          <div id="goal-days-row" data-action="open-goal-modal" role="button" tabindex="0" title="Klicka för att ändra ditt mål" style="font-size:11.5px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;cursor:pointer;">
-            <span id="goal-days-text">Laddar mål…</span>
-          </div>
+    <!-- ÖVERSIKT — förstasidan. Hur kroppen och formen utvecklas över tid;
+         dagens pass och planen ligger under Idag och Plan. -->
+    <div class="page active" id="page-overview">
+      <div class="page-header an-page-head">
+        <div><h2>Översikt</h2><p>Hur formen, sömnen och återhämtningen utvecklas över tid</p></div>
+        <div class="an-window" role="group" aria-label="Period">
+          <button type="button" class="an-window-btn ov-window-btn" data-action="overview-window" data-days="30">30 d</button>
+          <button type="button" class="an-window-btn ov-window-btn active" data-action="overview-window" data-days="90">90 d</button>
+          <button type="button" class="an-window-btn ov-window-btn" data-action="overview-window" data-days="180">6 mån</button>
         </div>
-        <h2 class="rot-hero-title" id="rot-hero-title">Analyserar nattens återhämtning…</h2>
-        <p class="rot-hero-desc" id="rot-hero-desc">Väntar på Garmin live-data och belastningshistorik.</p>
-        <div class="bar" style="max-width:220px;margin-top:2px;"><div class="bar-fill" id="days-bar" style="background:var(--accent)"></div></div>
-      </section>
+      </div>
 
-      <!-- BEVEL TRIAD (Återhämtning · Dagens Belastning · Sömn) -->
+      <div class="section-header">
+        <span class="section-header-label">Just nu</span>
+        <span class="section-header-note">Nattens mätningar och dagens belastning</span>
+      </div>
+      <!-- JUST NU — dagsläget (Återhämtning · Dagens Belastning · Sömn), flyttat hit från Idag -->
       <div class="bevel-triad">
 
         <!-- 1. ÅTERHÄMTNING (RECOVERY) -->
@@ -237,6 +237,57 @@
         </div>
 
       </div>
+
+      <div class="section-header">
+        <span class="section-header-label">Utveckling</span>
+        <span class="section-header-note" id="ov-period-note"></span>
+      </div>
+      <section class="ov-summary" id="ov-summary" aria-live="polite">
+        <p class="ov-summary-text">Bygger din trendbild…</p>
+      </section>
+      <div class="ov-grid" id="ov-grid"></div>
+
+      <div class="section-header">
+        <span class="section-header-label">Sömnen över tid</span>
+        <button type="button" class="ov-link" data-action="goto" data-page="sleep">Sömn i detalj →</button>
+      </div>
+      <section class="ov-sleep-grid">
+        <div class="an-card ov-sleep-weeks">
+          <div class="an-card-head"><div><span class="an-card-title">Sömn per vecka</span>
+            <span class="an-card-note" id="ov-sleep-note">Snitt per natt</span></div></div>
+          <div class="ov-weeks" id="ov-weeks"></div>
+        </div>
+        <div class="an-card ov-relation">
+          <div class="an-card-head"><div><span class="an-card-title">Sömn och återhämtning</span>
+            <span class="an-card-note">Din egen data, senaste fyra månaderna</span></div></div>
+          <div id="ov-relation"><p class="an-empty">Samlar data…</p></div>
+        </div>
+      </section>
+
+      <div class="ov-more">
+        <button type="button" class="ov-more-btn" data-action="goto" data-page="analysis"><strong>Hela utvecklingsanalysen</strong><span>Trendpoäng, löpvolym, tröskelfart och vägen mot målet</span><b>→</b></button>
+        <button type="button" class="ov-more-btn" data-action="goto" data-page="health"><strong>Dygnet i detalj</strong><span>Puls, stress, Body Battery och andning idag</span><b>→</b></button>
+      </div>
+    </div>
+
+    <!-- HEM -->
+    <div class="page" id="page-home">
+
+      <!-- REST OR TRAIN HERO STATUS BANNER -->
+      <section class="rot-hero" id="rot-hero">
+        <div class="rot-hero-top">
+          <div class="rot-status-badge" id="rot-status-badge">
+            <span class="rot-pulse-dot" id="rot-pulse-dot"></span>
+            <span id="rot-badge-text">LADDAR BESKED…</span>
+          </div>
+          <div id="goal-days-row" data-action="open-goal-modal" role="button" tabindex="0" title="Klicka för att ändra ditt mål" style="font-size:11.5px;color:var(--muted2);font-family:'IBM Plex Mono',monospace;cursor:pointer;">
+            <span id="goal-days-text">Laddar mål…</span>
+          </div>
+        </div>
+        <h2 class="rot-hero-title" id="rot-hero-title">Analyserar nattens återhämtning…</h2>
+        <p class="rot-hero-desc" id="rot-hero-desc">Väntar på Garmin live-data och belastningshistorik.</p>
+        <div class="bar" style="max-width:220px;margin-top:2px;"><div class="bar-fill" id="days-bar" style="background:var(--accent)"></div></div>
+      </section>
 
       <!-- ROW 1: Dagens Pass & Beslut -->
       <div class="panel hero" id="today-panel" data-action="open-today-activity" style="margin-bottom:var(--section-gap);">
