@@ -122,6 +122,15 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
     Bump `REVIEW_SCHEMA_VERSION` when that shape changes. Note the two separate checks in
     `training_review()`: serving the cache straight requires the *current* version, while the
     stale fallback accepts *any* version — an older answer still beats an error message.
+- **One CNS number per day.** `_cns_score_from_health()` weights out missing parts instead of
+  counting them as 50, and everything server-side reads health through `_current_health()`
+  (cache → live Garmin via `_fetch_live_health()` → `health_history` snapshot). Before this,
+  the sync emptied the cache every 15 minutes and background readers scored the snapshot
+  without readiness or HRV component — the same night came out 91 on the page and 64 in the
+  morning report (2026-10-20). The snapshot now carries `readiness` and `hrv_component`.
+  Garmin returns several unsorted readiness entries per day (wake-up, realtime, after each
+  workout); `_daily_readiness_entry()` takes the morning one, so the day's CNS stays put while
+  the watch's own number drops after a session.
 - **The night that has not synced yet.** Garmin publishes training readiness for the day
   well before the night's sleep is final, so `/api/health` deliberately falls back to the
   previous night to avoid an empty dashboard. That fallback is flagged on the sleep block

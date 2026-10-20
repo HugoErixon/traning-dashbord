@@ -1079,8 +1079,11 @@ def migrate_db():
             try:
                 # När natten började och slutade, plus resten av stadiefördelningen.
                 # Utan tiderna går läggdagsregelbundenhet inte att mäta alls.
+                # readiness och hrv_component behövs för att CNS ur historiken ska
+                # bli samma tal som det live-räknade.
                 for column, kind in (('sleep_start', 'TEXT'), ('sleep_end', 'TEXT'),
-                                     ('light_pct', 'INTEGER'), ('awake_pct', 'INTEGER')):
+                                     ('light_pct', 'INTEGER'), ('awake_pct', 'INTEGER'),
+                                     ('hrv_component', 'INTEGER')):
                     cur.execute(f'ALTER TABLE health_history ADD COLUMN IF NOT EXISTS {column} {kind}')
             except Exception as e:
                 print('migrate_db health_history sleep timing:', e)
@@ -2756,6 +2759,12 @@ def status():
     return jsonify({'status': 'ok'})
 
 def _cns_score_from_health(h):
+    """CNS = 0.40×HRV + 0.30×sömnpoäng + 0.20×Garmins beredskap + 0.10×(100−stress).
+
+    En del som saknas viktas bort i stället för att räknas som 50. Med 50 som
+    utfyllnad gav en natt med HRV 100 och beredskap 83 CNS 91 när allt fanns,
+    men 64 när samma natt lästes ur health_history utan de två — och talet
+    hoppade mellan dem beroende på vilken källa som råkade läsas."""
     if not h:
         return None
     hrv = h.get('hrv') or {}
@@ -2763,16 +2772,34 @@ def _cns_score_from_health(h):
     readiness = h.get('readiness') or {}
     stress = h.get('stress') or {}
     hrv_pct = hrv.get('component') if hrv.get('component') is not None else hrv.get('pct')
-    hrv_pct = hrv_pct if hrv_pct is not None else 50
-    sleep_score = sleep.get('score') if sleep.get('score') is not None else 50
-    readiness_score = readiness.get('score') if readiness.get('score') is not None else 50
-    stress_val = stress.get('avg') if stress.get('avg') is not None else 50
-    return round(
-        0.40 * min(float(hrv_pct), 100) +
-        0.30 * float(sleep_score) +
-        0.20 * float(readiness_score) +
-        0.10 * (100 - min(float(stress_val), 100))
-    )
+    parts = []
+    if hrv_pct is not None:
+        parts.append((0.40, min(float(hrv_pct), 100)))
+    if sleep.get('score') is not None:
+        parts.append((0.30, float(sleep['score'])))
+    if readiness.get('score') is not None:
+        parts.append((0.20, float(readiness['score'])))
+    if stress.get('avg') is not None:
+        parts.append((0.10, 100 - min(float(stress['avg']), 100)))
+    weight = sum(w for w, _ in parts)
+    if not weight:
+        return None
+    return round(sum(w * v for w, v in parts) / weight)
+
+
+def _daily_readiness_entry(entries):
+    """Dagens beredskapsvärde ur Garmins lista — morgonens, inte det senaste.
+
+    Garmin skickar flera värden per dag: vid uppvaknandet, i realtid och efter
+    varje pass (AFTER_POST_EXERCISE_RESET), och listan är inte sorterad efter
+    tid. Dagens CNS ska spegla natten och stå still över dagen, så vi tar det
+    tidigaste värdet som bygger på nattens sömn. Utan sömnpoäng tas det
+    tidigaste över huvud taget."""
+    rows = [e for e in (entries or []) if isinstance(e, dict) and e.get('score') is not None]
+    if not rows:
+        return {}
+    with_sleep = [e for e in rows if e.get('sleepScore') is not None]
+    return min(with_sleep or rows, key=lambda e: str(e.get('timestamp') or ''))
 
 def compute_bevel_rest_or_train(h):
     """Beräknar RestOrTrain-besked, Mål-Strain och Sömnskuld (Bevel / RestOrTrain)."""
@@ -3890,7 +3917,8 @@ def latest_health_snapshot(user_id, display_date):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('''SELECT date, sleep_score, sleep_hours, deep_pct, rem_pct,
-                                  hrv_avg, resting_hr, body_battery, stress_avg
+                                  hrv_avg, resting_hr, body_battery, stress_avg,
+                                  readiness, hrv_component
                            FROM health_history
                            WHERE user_id=%s AND (
                                sleep_score IS NOT NULL OR sleep_hours IS NOT NULL OR
@@ -3902,16 +3930,17 @@ def latest_health_snapshot(user_id, display_date):
     if not row:
         return None
 
-    source_date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, stress_avg = row
+    (source_date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr,
+     body_battery, stress_avg, readiness, hrv_comp) = row
     total_sec = round(float(sleep_hours) * 3600) if sleep_hours is not None else None
-    return {
+    snapshot = {
         'date': display_date,
         'sourceDate': source_date.isoformat() if hasattr(source_date, 'isoformat') else source_date,
         'fallback': True,
-        'readiness': {'score': None, 'level': None, 'feedback': None},
+        'readiness': {'score': readiness, 'level': None, 'feedback': None},
         'hrv': {'lastNightAvg': hrv_avg, 'weeklyAvg': None, 'status': None, 'pct': None,
                 'balancedLow': None, 'balancedUpper': None, 'lowUpper': None,
-                'component': None, 'light': 'amber', 'verdict': 'Senaste sparade HRV'},
+                'component': hrv_comp, 'light': 'amber', 'verdict': 'Senaste sparade HRV'},
         'restingHR': {'value': resting_hr, 'sevenDayAvg': None, 'min': None},
         'sleep': {'totalSec': total_sec, 'deepSec': None, 'remSec': None, 'score': sleep_score,
                   'deepPct': deep_pct or 0, 'remPct': rem_pct or 0, 'levels': [],
@@ -3921,7 +3950,149 @@ def latest_health_snapshot(user_id, display_date):
         'respiration': {'avg': None, 'sleepAvg': None},
         'spo2': {'avg': None, 'min': None},
     }
+    snapshot['cns'] = {'score': _cns_score_from_health(snapshot)}
+    return snapshot
 
+
+
+def _fetch_live_health(user_id, username):
+    """Hämta dagens hälsodata från Garmin, cacha den och spara dagens rad.
+
+    Delas av /api/health och allt som läser beredskapen i bakgrunden
+    (morgonrapport, coach, widget). Förut fylldes cachen bara när någon
+    öppnade sidan, och synken tömmer den var 15:e minut — däremellan räknade
+    bakgrunden CNS ur health_history, utan Garmins beredskap och utan
+    HRV-komponent, och fick fram ett helt annat tal (91 mot 64 samma dag)."""
+    today = date.today().isoformat()
+    client = get_garmin(username)
+    sleep     = safe_health_fetch('sleep', {}, lambda: client.get_sleep_data(today))
+    hrv       = safe_health_fetch('hrv', {}, lambda: client.get_hrv_data(today))
+    bb        = safe_health_fetch('body battery', [], lambda: client.get_body_battery(today, today))
+    stress    = safe_health_fetch('stress', {}, lambda: client.get_stress_data(today))
+    readiness = safe_health_fetch('training readiness', [], lambda: client.get_training_readiness(today))
+    hr        = safe_health_fetch('heart rates', {}, lambda: client.get_heart_rates(today))
+    resp      = safe_health_fetch('respiration', {}, lambda: client.get_respiration_data(today))
+    spo2      = safe_health_fetch('spo2', {}, lambda: client.get_spo2_data(today))
+    summary   = safe_health_fetch('daily summary', {}, lambda: client.get_user_summary(today))
+
+    sleep = sleep if isinstance(sleep, dict) else {}
+    hrv = hrv if isinstance(hrv, dict) else {}
+    bb = bb if isinstance(bb, list) else []
+    stress = stress if isinstance(stress, dict) else {}
+    readiness = readiness if isinstance(readiness, list) else []
+    hr = hr if isinstance(hr, dict) else {}
+    resp = resp if isinstance(resp, dict) else {}
+    spo2 = spo2 if isinstance(spo2, dict) else {}
+
+    sleep_source_date = today
+    if not (sleep.get('sleepLevels') or sleep.get('sleepMovement')):
+        previous_day = (date.today() - timedelta(days=1)).isoformat()
+        previous_sleep = safe_health_fetch('sleep fallback', {}, lambda: client.get_sleep_data(previous_day))
+        if isinstance(previous_sleep, dict) and (previous_sleep.get('sleepLevels') or previous_sleep.get('sleepMovement')):
+            sleep = previous_sleep
+            sleep_source_date = previous_day
+
+    s = sleep.get('dailySleepDTO', {})
+    total_sleep_sec = s.get('sleepTimeSeconds', 0)
+    deep_sec  = s.get('deepSleepSeconds', 0)
+    rem_sec   = s.get('remSleepSeconds', 0)
+    sleep_scores = s.get('sleepScores') or {}
+    sleep_score_val = sleep_scores.get('overall', {}).get('value') if isinstance(sleep_scores, dict) else None
+
+    hrv_sum  = hrv.get('hrvSummary', {})
+    hrv_base = hrv_sum.get('baseline') or {}
+    hrv_ln   = hrv_sum.get('lastNightAvg')
+    hrv_wk   = hrv_sum.get('weeklyAvg')
+    hrv_st   = hrv_sum.get('status')
+    hrv_pct  = round((hrv_ln / hrv_wk) * 100) if hrv_wk and hrv_ln else None
+    hrv_comp = hrv_component(hrv_ln, hrv_base.get('lowUpper'), hrv_base.get('balancedLow'), hrv_st, hrv_pct)
+    hrv_lt, hrv_verdict = hrv_signal(hrv_st, hrv_ln, hrv_wk)
+
+    bb_today = bb[0] if bb and isinstance(bb[0], dict) else {}
+    bb_vals  = bb_today.get('bodyBatteryValuesArray') or []
+    bb_points = [v[1] for v in bb_vals if v and len(v) > 1 and v[1] is not None]
+    bb_now   = bb_points[-1] if bb_points else None
+    bb_max   = max(bb_points, default=None)
+
+    ready    = _daily_readiness_entry(readiness)
+    avg_resp = resp.get('avgWakingRespirationValue') or resp.get('avgRespirationValue')
+    sleep_resp = resp.get('avgSleepRespirationValue')
+    avg_spo2 = spo2.get('averageSpO2')
+    if avg_spo2: avg_spo2 = round(avg_spo2)
+
+    result = {
+        'date': today,
+        'readiness':   {'score': ready.get('score'), 'level': ready.get('level'), 'feedback': ready.get('feedbackShort')},
+        'hrv':         {'lastNightAvg': hrv_ln, 'weeklyAvg': hrv_wk, 'status': hrv_st, 'pct': hrv_pct,
+                        'balancedLow': hrv_base.get('balancedLow'), 'balancedUpper': hrv_base.get('balancedUpper'),
+                        'lowUpper': hrv_base.get('lowUpper'), 'component': hrv_comp,
+                        'light': hrv_lt, 'verdict': hrv_verdict},
+        'restingHR':   {'value': hr.get('restingHeartRate'), 'sevenDayAvg': hr.get('lastSevenDaysAvgRestingHeartRate'), 'min': hr.get('minHeartRate')},
+        'sleep':       {'totalSec': total_sleep_sec, 'deepSec': deep_sec, 'remSec': rem_sec, 'score': sleep_score_val,
+                        'deepPct': round(deep_sec/total_sleep_sec*100) if total_sleep_sec else 0,
+                        'remPct':  round(rem_sec/total_sleep_sec*100)  if total_sleep_sec else 0,
+                        'lightPct': round((s.get('lightSleepSeconds') or 0)/total_sleep_sec*100) if total_sleep_sec else 0,
+                        'awakePct': round((s.get('awakeSleepSeconds') or 0)/total_sleep_sec*100) if total_sleep_sec else 0,
+                        'levels': (sleep.get('sleepLevels') or sleep.get('sleepMovement') or []),
+                        'sourceDate': sleep_source_date,
+                        'fallback': sleep_source_date != today,
+                        'startGMT': s.get('sleepStartTimestampGMT'),
+                        'endGMT':   s.get('sleepEndTimestampGMT')},
+        'bodyBattery': {'current': bb_now, 'max': bb_max, 'charged': bb_today.get('charged'), 'drained': bb_today.get('drained')},
+        'stress':      {'avg': stress.get('avgStressLevel'), 'max': stress.get('maxStressLevel')},
+        'respiration': {'avg': round(avg_resp) if avg_resp else None, 'sleepAvg': round(sleep_resp) if sleep_resp else None},
+        'spo2':        {'avg': avg_spo2, 'min': spo2.get('lowestSpO2')},
+        'daily':       _daily_activity(summary),
+    }
+    result['restOrTrain'] = compute_bevel_rest_or_train(result)
+    has_payload = has_health_payload(result)
+    if not has_payload:
+        snapshot = latest_health_snapshot(user_id, today)
+        if snapshot:
+            result = snapshot
+            result['restOrTrain'] = compute_bevel_rest_or_train(result)
+            has_payload = True
+    result['cns'] = {'score': _cns_score_from_health(result)}
+    if has_payload:
+        set_cache('health', result, user_id)
+
+    # Spara även till health_history så Analysis-fliken får dagens data direkt.
+    # En natt som fallit tillbaka på gårdagen får aldrig skrivas under dagens
+    # datum — då står gårdagens sömn som i natt tills den riktiga natten
+    # synkar, och allt som läser historiken (morgonrapport, dagens analys)
+    # bygger sitt omdöme på fel natt.
+    try:
+        if not has_payload or health_sleep_is_fallback(result):
+            return result
+        sl = result['sleep']
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''INSERT INTO health_history
+                    (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery,
+                     stress_avg, readiness, hrv_component, created_at, user_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (date, user_id) DO UPDATE SET
+                        sleep_score=EXCLUDED.sleep_score, sleep_hours=EXCLUDED.sleep_hours,
+                        deep_pct=EXCLUDED.deep_pct, rem_pct=EXCLUDED.rem_pct,
+                        hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr,
+                        body_battery=EXCLUDED.body_battery, stress_avg=EXCLUDED.stress_avg,
+                        readiness=COALESCE(EXCLUDED.readiness, health_history.readiness),
+                        hrv_component=COALESCE(EXCLUDED.hrv_component, health_history.hrv_component)''',
+                    (today, sl.get('score'),
+                     round(sl.get('totalSec', 0) / 3600, 2) if sl.get('totalSec') else None,
+                     sl.get('deepPct'), sl.get('remPct'),
+                     result['hrv'].get('lastNightAvg'),
+                     result['restingHR'].get('value'),
+                     result['bodyBattery'].get('max'),
+                     result['stress'].get('avg'),
+                     (result.get('readiness') or {}).get('score'),
+                     result['hrv'].get('component'),
+                     time.time(), user_id))
+            conn.commit()
+    except Exception:
+        pass
+
+    return result
 
 
 @app.get('/api/health')
@@ -3953,129 +4124,7 @@ def health_data():
         })
 
     try:
-        client = get_garmin(uname())
-        sleep     = safe_health_fetch('sleep', {}, lambda: client.get_sleep_data(today))
-        hrv       = safe_health_fetch('hrv', {}, lambda: client.get_hrv_data(today))
-        bb        = safe_health_fetch('body battery', [], lambda: client.get_body_battery(today, today))
-        stress    = safe_health_fetch('stress', {}, lambda: client.get_stress_data(today))
-        readiness = safe_health_fetch('training readiness', [], lambda: client.get_training_readiness(today))
-        hr        = safe_health_fetch('heart rates', {}, lambda: client.get_heart_rates(today))
-        resp      = safe_health_fetch('respiration', {}, lambda: client.get_respiration_data(today))
-        spo2      = safe_health_fetch('spo2', {}, lambda: client.get_spo2_data(today))
-        summary   = safe_health_fetch('daily summary', {}, lambda: client.get_user_summary(today))
-
-        sleep = sleep if isinstance(sleep, dict) else {}
-        hrv = hrv if isinstance(hrv, dict) else {}
-        bb = bb if isinstance(bb, list) else []
-        stress = stress if isinstance(stress, dict) else {}
-        readiness = readiness if isinstance(readiness, list) else []
-        hr = hr if isinstance(hr, dict) else {}
-        resp = resp if isinstance(resp, dict) else {}
-        spo2 = spo2 if isinstance(spo2, dict) else {}
-
-        sleep_source_date = today
-        if not (sleep.get('sleepLevels') or sleep.get('sleepMovement')):
-            previous_day = (date.today() - timedelta(days=1)).isoformat()
-            previous_sleep = safe_health_fetch('sleep fallback', {}, lambda: client.get_sleep_data(previous_day))
-            if isinstance(previous_sleep, dict) and (previous_sleep.get('sleepLevels') or previous_sleep.get('sleepMovement')):
-                sleep = previous_sleep
-                sleep_source_date = previous_day
-
-        s = sleep.get('dailySleepDTO', {})
-        total_sleep_sec = s.get('sleepTimeSeconds', 0)
-        deep_sec  = s.get('deepSleepSeconds', 0)
-        rem_sec   = s.get('remSleepSeconds', 0)
-        sleep_scores = s.get('sleepScores') or {}
-        sleep_score_val = sleep_scores.get('overall', {}).get('value') if isinstance(sleep_scores, dict) else None
-
-        hrv_sum  = hrv.get('hrvSummary', {})
-        hrv_base = hrv_sum.get('baseline') or {}
-        hrv_ln   = hrv_sum.get('lastNightAvg')
-        hrv_wk   = hrv_sum.get('weeklyAvg')
-        hrv_st   = hrv_sum.get('status')
-        hrv_pct  = round((hrv_ln / hrv_wk) * 100) if hrv_wk and hrv_ln else None
-        hrv_comp = hrv_component(hrv_ln, hrv_base.get('lowUpper'), hrv_base.get('balancedLow'), hrv_st, hrv_pct)
-        hrv_lt, hrv_verdict = hrv_signal(hrv_st, hrv_ln, hrv_wk)
-
-        bb_today = bb[0] if bb and isinstance(bb[0], dict) else {}
-        bb_vals  = bb_today.get('bodyBatteryValuesArray') or []
-        bb_points = [v[1] for v in bb_vals if v and len(v) > 1 and v[1] is not None]
-        bb_now   = bb_points[-1] if bb_points else None
-        bb_max   = max(bb_points, default=None)
-
-        ready    = readiness[0] if readiness and isinstance(readiness[0], dict) else {}
-        avg_resp = resp.get('avgWakingRespirationValue') or resp.get('avgRespirationValue')
-        sleep_resp = resp.get('avgSleepRespirationValue')
-        avg_spo2 = spo2.get('averageSpO2')
-        if avg_spo2: avg_spo2 = round(avg_spo2)
-
-        result = {
-            'date': today,
-            'readiness':   {'score': ready.get('score'), 'level': ready.get('level'), 'feedback': ready.get('feedbackShort')},
-            'hrv':         {'lastNightAvg': hrv_ln, 'weeklyAvg': hrv_wk, 'status': hrv_st, 'pct': hrv_pct,
-                            'balancedLow': hrv_base.get('balancedLow'), 'balancedUpper': hrv_base.get('balancedUpper'),
-                            'lowUpper': hrv_base.get('lowUpper'), 'component': hrv_comp,
-                            'light': hrv_lt, 'verdict': hrv_verdict},
-            'restingHR':   {'value': hr.get('restingHeartRate'), 'sevenDayAvg': hr.get('lastSevenDaysAvgRestingHeartRate'), 'min': hr.get('minHeartRate')},
-            'sleep':       {'totalSec': total_sleep_sec, 'deepSec': deep_sec, 'remSec': rem_sec, 'score': sleep_score_val,
-                            'deepPct': round(deep_sec/total_sleep_sec*100) if total_sleep_sec else 0,
-                            'remPct':  round(rem_sec/total_sleep_sec*100)  if total_sleep_sec else 0,
-                            'lightPct': round((s.get('lightSleepSeconds') or 0)/total_sleep_sec*100) if total_sleep_sec else 0,
-                            'awakePct': round((s.get('awakeSleepSeconds') or 0)/total_sleep_sec*100) if total_sleep_sec else 0,
-                            'levels': (sleep.get('sleepLevels') or sleep.get('sleepMovement') or []),
-                            'sourceDate': sleep_source_date,
-                            'fallback': sleep_source_date != today,
-                            'startGMT': s.get('sleepStartTimestampGMT'),
-                            'endGMT':   s.get('sleepEndTimestampGMT')},
-            'bodyBattery': {'current': bb_now, 'max': bb_max, 'charged': bb_today.get('charged'), 'drained': bb_today.get('drained')},
-            'stress':      {'avg': stress.get('avgStressLevel'), 'max': stress.get('maxStressLevel')},
-            'respiration': {'avg': round(avg_resp) if avg_resp else None, 'sleepAvg': round(sleep_resp) if sleep_resp else None},
-            'spo2':        {'avg': avg_spo2, 'min': spo2.get('lowestSpO2')},
-            'daily':       _daily_activity(summary),
-        }
-        result['restOrTrain'] = compute_bevel_rest_or_train(result)
-        has_payload = has_health_payload(result)
-        if not has_payload:
-            snapshot = latest_health_snapshot(uid(), today)
-            if snapshot:
-                result = snapshot
-                result['restOrTrain'] = compute_bevel_rest_or_train(result)
-                has_payload = True
-        if has_payload:
-            set_cache('health', result, uid())
-
-        # Spara även till health_history så Analysis-fliken får dagens data direkt.
-        # En natt som fallit tillbaka på gårdagen får aldrig skrivas under dagens
-        # datum — då står gårdagens sömn som i natt tills den riktiga natten
-        # synkar, och allt som läser historiken (morgonrapport, dagens analys)
-        # bygger sitt omdöme på fel natt.
-        try:
-            if not has_payload or health_sleep_is_fallback(result):
-                return jsonify(result)
-            sl = result['sleep']
-            with db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute('''INSERT INTO health_history
-                        (date, sleep_score, sleep_hours, deep_pct, rem_pct, hrv_avg, resting_hr, body_battery, stress_avg, created_at, user_id)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (date, user_id) DO UPDATE SET
-                            sleep_score=EXCLUDED.sleep_score, sleep_hours=EXCLUDED.sleep_hours,
-                            deep_pct=EXCLUDED.deep_pct, rem_pct=EXCLUDED.rem_pct,
-                            hrv_avg=EXCLUDED.hrv_avg, resting_hr=EXCLUDED.resting_hr,
-                            body_battery=EXCLUDED.body_battery, stress_avg=EXCLUDED.stress_avg''',
-                        (today, sl.get('score'),
-                         round(sl.get('totalSec', 0) / 3600, 2) if sl.get('totalSec') else None,
-                         sl.get('deepPct'), sl.get('remPct'),
-                         result['hrv'].get('lastNightAvg'),
-                         result['restingHR'].get('value'),
-                         result['bodyBattery'].get('max'),
-                         result['stress'].get('avg'),
-                         time.time(), uid()))
-                conn.commit()
-        except Exception:
-            pass
-
-        return jsonify(result)
+        return jsonify(_fetch_live_health(uid(), uname()))
     except Exception as e:
         return _server_error(e, 'health.load_failed', message='Hälsodatan kunde inte hämtas.')
 
@@ -7748,21 +7797,41 @@ def _load_context(user_id):
     return payload.get('chronic'), payload.get('ratio')
 
 
+def _current_health(user_id):
+    """Dagens hälsopayload: cachen, annars färskt från Garmin, sist historiken.
+
+    Synken tömmer cachen var 15:e minut. Utan det live-steget föll allt som
+    läser beredskapen i bakgrunden tillbaka på health_history medan sidan
+    själv hämtade färskt — två olika underlag och två olika CNS samma dag.
+    Den live-hämtade payloaden cachas, så nästa läsare slipper Garmin-rundan."""
+    row = get_cache('health', user_id)
+    health = (row[0] if row else None) or {}
+    if has_health_payload(health):
+        return health
+    username = _strava_username_for_user_id(user_id)
+    if username and _garmin_connected(username):
+        try:
+            health = _fetch_live_health(user_id, username) or {}
+            if has_health_payload(health):
+                return health
+        except Exception as e:
+            print('Kunde inte hämta färsk hälsodata:', e)
+    return latest_health_snapshot(user_id, date.today().isoformat()) or {}
+
+
 def _recent_recovery(user_id):
     """CNS-beredskapen, sömnlängden och natten siffrorna kommer från.
 
-    Samma källa som mobilwidgeten: hälsocachen först, annars den senaste
-    sparade natten. Kolumnen health_history.readiness ser ut att duga men
-    fylls aldrig av collect_health_history — den är NULL i varje rad.
+    Samma underlag som sidan via _current_health(): hälsocachen, annars färskt
+    från Garmin, sist den senaste sparade natten. health_history.readiness och
+    hrv_component fylls bara när dagens rad skrivs från den live-hämtade
+    payloaden — collect_health_history lämnar dem NULL för äldre dagar.
 
     Datumet följer med eftersom Garmin publicerar dagens sömn först en stund
     efter uppvaknandet. Fram till dess är siffrorna gårdagens, och den som
     presenterar dem som 'i natt' talar osanning."""
     try:
-        row = get_cache('health', user_id)
-        health = (row[0] if row else None) or {}
-        if not health:
-            health = latest_health_snapshot(user_id, date.today().isoformat()) or {}
+        health = _current_health(user_id)
         if not health:
             return None, None, None
         sleep_sec = (health.get('sleep') or {}).get('totalSec')
@@ -7777,10 +7846,7 @@ def _recent_recovery(user_id):
 def _adaptive_health_context(user_id):
     """Färska dagsvärden plus en robust personlig 28-dagarsbaslinje."""
     today = date.today()
-    row = get_cache('health', user_id)
-    health = (row[0] if row else None) or {}
-    if not health:
-        health = latest_health_snapshot(user_id, today.isoformat()) or {}
+    health = _current_health(user_id)
 
     sleep = health.get('sleep') or {}
     hrv = health.get('hrv') or {}

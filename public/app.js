@@ -2083,18 +2083,21 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return (s.km || 0) * (perKm[s.type] ?? 9);
   }
 
+  // Samma formel som servern (_cns_score_from_health): en del som saknas
+  // viktas bort i stället för att räknas som 50 — annars hoppade talet mellan
+  // ~95 och ~65 beroende på om beredskap och HRV hann med i payloaden.
   function computeCnsScore(h) {
     if (!h) return null;
-    const hrvPct = h.hrv?.component ?? h.hrv?.pct ?? 50;
-    const sleepScore = h.sleep?.score ?? 50;
-    const readiness = h.readiness?.score ?? 50;
-    const stressVal = h.stress?.avg ?? 50;
-    return Math.round(
-      0.40 * Math.min(hrvPct, 100) +
-      0.30 * sleepScore +
-      0.20 * readiness +
-      0.10 * (100 - Math.min(stressVal, 100))
-    );
+    if (h.cns && 'score' in h.cns) return h.cns.score;
+    const hrvPct = h.hrv?.component ?? h.hrv?.pct;
+    const parts = [];
+    if (hrvPct != null) parts.push([0.40, Math.min(hrvPct, 100)]);
+    if (h.sleep?.score != null) parts.push([0.30, h.sleep.score]);
+    if (h.readiness?.score != null) parts.push([0.20, h.readiness.score]);
+    if (h.stress?.avg != null) parts.push([0.10, 100 - Math.min(h.stress.avg, 100)]);
+    const weight = parts.reduce((sum, [w]) => sum + w, 0);
+    if (!weight) return null;
+    return Math.round(parts.reduce((sum, [w, v]) => sum + w * v, 0) / weight);
   }
 
   function getHrvBaselineText(hrv) {
@@ -2370,17 +2373,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       // ── CNS-SCORE (ersätter Recovery) ──
       // Formel: 0.40×HRV% + 0.30×sömnpoäng + 0.20×Garmin-beredskap + 0.10×(100-stress)
       // Baserat på Flatt & Esco (2016)
-      const hrvPct = h.hrv?.component ?? h.hrv?.pct ?? 50;
-      const sleepScoreR = h.sleep?.score ?? 50;
-      const readiness = h.readiness?.score ?? 50;
-      const stressVal = h.stress?.avg ?? 50;
-
-      const cnsScore = Math.round(
-        0.40 * Math.min(hrvPct, 100) +
-        0.30 * sleepScoreR +
-        0.20 * readiness +
-        0.10 * (100 - Math.min(stressVal, 100))
-      );
+      const cnsScore = computeCnsScore(h) ?? 0;
 
       const cnsCol   = cnsScore >= 70 ? 'var(--green)' : cnsScore >= 45 ? 'var(--amber)' : 'var(--red)';
       const cnsTitle = cnsScore >= 70 ? 'Redo för kvalitetspass' : cnsScore >= 45 ? 'Normalt pass ok' : 'Vila eller Z2 idag';
