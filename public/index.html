@@ -192,6 +192,65 @@
       <div class="ov-grid" id="ov-grid"></div>
 
       <div class="section-header">
+        <span class="section-header-label">Träningspotential</span>
+        <span class="section-header-note">Utforska kommande 4–26 veckor</span>
+      </div>
+      <section class="potential-card an-card" id="potential-card" aria-labelledby="potential-title">
+        <div class="potential-heading"><div><h3 id="potential-title">Vad kan mer träning ge?</h3>
+          <p>Utforska löpmängd, VO₂max och möjliga distanstider utifrån din historik.</p></div>
+          <span class="ov-badge" id="potential-mode">Laddar historik…</span></div>
+        <p class="potential-note">Ett scenario, inte ditt personliga max eller ett löfte. Mängd, intensitet, kontinuitet och återhämtning samverkar.</p>
+        <div id="potential-status" role="status">Läser din träningshistorik…</div>
+        <fieldset id="potential-controls" disabled>
+          <legend class="sr-only">Utforska ett träningsscenario</legend>
+          <div class="potential-controls">
+            <label>Löpning per vecka <output id="potential-km-value" for="potential-km">–</output>
+              <input id="potential-km" type="range" min="0" max="150" step="1" value="40">
+              <span id="potential-km-range"></span></label>
+            <label>Tidshorisont <output id="potential-weeks-value" for="potential-weeks">12 veckor</output>
+              <input id="potential-weeks" type="range" min="4" max="26" step="1" value="12"></label>
+            <label>Beräkningssätt <select id="potential-method">
+              <option value="history">Samband i min historik</option>
+              <option value="hypothesis">Eget antagande</option>
+            </select></label>
+          </div>
+          <label class="potential-assumption" id="potential-assumption" hidden>Antagen VO₂max-förändring efter 12 veckor
+            <output id="potential-gain-value" for="potential-gain">0 %</output>
+            <input id="potential-gain" type="range" min="-10" max="10" step="0.5" value="0">
+            <span>Du väljer förändringen själv. I detta läge räknas ingen effekt av veckomängden fram ur din data.</span>
+          </label>
+        </fieldset>
+        <div id="potential-results" hidden>
+          <div class="potential-stats" id="potential-stats"></div>
+          <div class="potential-chart" id="potential-chart"></div>
+          <p class="potential-legend"><span>Heldragen: uppmätt historik</span><span>Streckad: scenario</span><span>Skuggning: känslighetsintervall, inte sannolikhet</span></p>
+          <p class="potential-note" id="potential-context"></p>
+          <div class="potential-warnings" id="potential-warnings"></div>
+        </div>
+        <fieldset class="potential-race" id="potential-race" disabled>
+          <legend>Vad skulle det kunna betyda för dina tider?</legend>
+          <p>Ange ett aktuellt lopp eller test där du sprang så fort du kunde. Ett lugnt träningspass blir missvisande.</p>
+          <div class="potential-race-inputs">
+            <label>Distans <select id="potential-race-distance"><option value="5">5 km</option><option value="10">10 km</option><option value="21.0975">Halvmaraton</option><option value="42.195">Maraton</option></select></label>
+            <label>Tid (minuter:sekunder) <input id="potential-race-time" type="text" inputmode="text" placeholder="Exempel: 22:30" maxlength="7" autocomplete="off" aria-describedby="potential-race-error"></label>
+          </div>
+          <p id="potential-race-error" class="ov-error" role="status"></p>
+          <div class="potential-races" id="potential-races"></div>
+          <p class="potential-note">Tiderna antar oförändrad löpekonomi och en lika stor relativ fartförbättring som VO₂max-förändringen. Tröskel, bana, väder och distansvana kan ändra utfallet. Maraton kräver särskild uthållighet och är extra osäkert.</p>
+        </fieldset>
+        <details class="potential-details"><summary>Underlag, antaganden och begränsningar</summary>
+          <p id="potential-evidence"></p>
+          <p>Modellen kopplar veckans VO₂max till löpmängden under föregående 28 dagar. Dagar utan sparade pass räknas som noll, så luckor i synkningen kan påverka resultatet. Cykling, annan träning och intensitet ingår inte i mängdmodellen. Sömn och HRV visas som bakgrund, utan påhittad omräkning till VO₂max.</p>
+          <p>De fyra sista veckopunkterna används som kontroll, med fyra punkters mellanrum till träningsunderlaget. Sambandet måste slå en prognos som behåller föregående värde med minst 10 %. Det validerar inte en orsak eller framtida träningsrespons. Vi räknar bara inom mängder som finns i historiken.</p>
+          <p>Kurvans avtagande förändring har en antagen tidskonstant på sex veckor, inte en uppmätt personlig anpassningstakt. Bandets bredd är minst ±1,5 VO₂max efter tolv veckor, eller dubbla kontrollfelet om det är större, och växer med tidshorisonten. Det är ett känslighetstest, inte ett statistiskt konfidensintervall.</p>
+          <p>Distanstider beräknas från ditt lopp med Riegels distanssamband (exponent 1,06–1,10, upp till 1,12 vid maraton). Spannet är en illustration av olika uthållighetsantaganden, ingen garanterad täckning. Garmins VO₂max behandlas inte som ett VDOT-värde.</p>
+          <p>Bakgrund: <a href="https://pubmed.ncbi.nlm.nih.gov/11299267/" target="_blank" rel="noopener noreferrer">HERITAGE: variation i träningssvar</a> och <a href="https://pubmed.ncbi.nlm.nih.gov/27570626/" target="_blank" rel="noopener noreferrer">studie av distansprognoser för motionslöpare</a>. Studierna motiverar begränsningarna; de validerar inte Trainyzes modell.</p>
+          <div id="potential-history-table"></div>
+        </details>
+        <button type="button" class="ov-link" id="potential-retry">Uppdatera beräkningen</button>
+      </section>
+
+      <div class="section-header">
         <span class="section-header-label">Sömnen över tid</span>
         <button type="button" class="ov-link" data-action="goto" data-page="sleep">Sömn i detalj →</button>
       </div>

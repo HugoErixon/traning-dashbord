@@ -71,6 +71,18 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   stress, threshold pace) are compared as 7-day averages, not night against night; VO2max and
   endurance value against value. Threshold pace is averaged on purpose: Garmin flips between
   two values day to day (4:00/4:08). The "Just nu" cards (bevel triad) moved here from Idag.
+- **Training potential:** `training_potential.py`, `GET /api/potential`, and the overview's
+  scenario card are strictly read-only. The model relates weekly VO2max to preceding
+  28-day running volume; it is an observational association, not a causal response or
+  genetic ceiling. It needs 16 weekly points and must beat last-value persistence on
+  four held-out points by 10%, with a four-point gap. Never extrapolate the fitted model
+  outside observed volume. Insufficient evidence uses an explicitly user-chosen VO2max
+  assumption, defaulting to zero improvement; mileage does not affect that mode.
+  The six-week adaptation curve and sensitivity band are declared assumptions, not
+  learned physiology or confidence intervals. Race equivalents require the user's
+  current maximal-effort result; never equate Garmin VO2max with VDOT or use an easy
+  training run as a race. Sleep/HRV are context only. No plan creation, LLM, sync or DB
+  writes occur here. Browser changes must discard stale responses after slider input.
 - **Strain:** `strain_analysis.py` scores each day 0-100 by weighing that day's Garmin
   `activityTrainingLoad` against the athlete's own chronic load (Garmin's chronic value
   when available, otherwise a 28-day average) — a raw load number means nothing on its

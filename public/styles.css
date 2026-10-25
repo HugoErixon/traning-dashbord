@@ -4916,6 +4916,60 @@
    Trender över veckor och månader. Riktningsfärgerna är statusfärger och
    bär alltid pil + ord, aldrig bara färg. */
     #page-overview .page-header { margin-bottom: 8px; }
+    .potential-card { padding: 22px; margin-bottom: 24px; min-width: 0; }
+    .potential-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+    .potential-heading h3 { font-size: 22px; margin: 0 0 6px; letter-spacing: -.025em; }
+    .potential-card p { line-height: 1.6; }
+    .potential-heading p, .potential-race p { color: var(--muted2); font-size: 13px; margin: 0 0 12px; }
+    .potential-note, .potential-details { color: var(--muted2); font-size: 12px; }
+    #potential-status { font-size: 13px; line-height: 1.6; margin: 14px 0; }
+    .potential-card fieldset { border: 0; padding: 0; min-width: 0; margin: 0; }
+    .potential-card .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .potential-card fieldset:disabled { opacity: .5; }
+    .potential-controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; padding: 18px 0; border-top: 1px solid var(--border); }
+    .potential-card label { display: block; color: var(--muted2); font-size: 12px; }
+    .potential-card output { float: right; color: var(--text); font-weight: 700; }
+    .potential-card input[type=range] { display: block; width: 100%; margin: 18px 0 8px; accent-color: var(--accent); }
+    .potential-card select, .potential-card input[type=text] { width: 100%; margin-top: 9px; padding: 10px; border: 1px solid var(--border2); border-radius: 8px; background: var(--bg2); color: var(--text); font: inherit; }
+    .potential-card input:focus-visible, .potential-card select:focus-visible, .potential-card summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .potential-card .potential-assumption { background: var(--bg3); padding: 15px; border-radius: 10px; margin-bottom: 15px; }
+    .potential-card [hidden] { display: none !important; }
+    .potential-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 10px 0 18px; }
+    .potential-stats > div { padding: 15px; border: 1px solid var(--border); border-radius: 10px; }
+    .potential-stats span, .potential-stats small { display: block; color: var(--muted2); font-size: 11px; }
+    .potential-stats strong { display: block; margin: 7px 0; font: 700 27px var(--font-num); }
+    .potential-chart { width: 100%; min-width: 0; }
+    .potential-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+    .potential-chart text { fill: var(--muted2); font: 11px sans-serif; }
+    .potential-chart .potential-line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+    .potential-chart .potential-history { fill: none; stroke: var(--muted2); stroke-width: 2; }
+    .potential-chart .potential-band { fill: var(--accent); opacity: .12; }
+    .potential-chart .potential-grid { stroke: var(--border); stroke-width: 1; }
+    .potential-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 11px; color: var(--muted2); }
+    .potential-warnings p { border-left: 3px solid var(--amber); padding-left: 12px; color: var(--muted2); font-size: 12px; }
+    .potential-card .potential-race { border-top: 1px solid var(--border); margin-top: 22px; padding-top: 16px; }
+    .potential-race legend { font-size: 15px; font-weight: 650; padding: 0 8px 0 0; }
+    .potential-race-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 500px; }
+    .potential-races { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .potential-races article { background: var(--bg3); padding: 14px; border-radius: 10px; }
+    .potential-races h4 { color: var(--muted2); font-size: 12px; margin: 0; }
+    .potential-races strong { display: block; font: 700 23px var(--font-num); margin: 8px 0; }
+    .potential-races small { display: block; color: var(--muted2); font-size: 11px; line-height: 1.6; }
+    .potential-details { margin: 20px 0; border-top: 1px solid var(--border); padding-top: 16px; }
+    .potential-details summary { cursor: pointer; color: var(--text); }
+    .potential-details a { color: var(--accent); text-decoration: underline; }
+    #potential-history-table { overflow-x: auto; }
+    .potential-details table { width: 100%; border-collapse: collapse; text-align: left; }
+    .potential-details td, .potential-details th { padding: 7px; border-bottom: 1px solid var(--border); }
+    @media (max-width: 720px) {
+      .potential-card { padding: 16px; }
+      .potential-heading { flex-direction: column; gap: 4px; }
+      .potential-controls { grid-template-columns: 1fr; gap: 12px; }
+      .potential-stats { gap: 6px; }
+      .potential-stats > div { padding: 10px 7px; }
+      .potential-stats strong { font-size: 21px; }
+      .potential-races { grid-template-columns: repeat(2, 1fr); }
+    }
     .ov-link {
       margin-left: auto; padding: 0; border: 0; background: none; cursor: pointer;
       color: var(--accent); font: 600 11.5px var(--font-sans);

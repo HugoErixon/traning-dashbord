@@ -48,6 +48,7 @@ from strength_progression import (
 import session_analysis
 import pace_progression
 import body_trends
+import training_potential
 import sleep_analysis
 import strain_analysis
 import training_analysis
@@ -4557,6 +4558,49 @@ def body_overview():
         return _server_error(exc, 'overview.history_failed', message='Trenderna kunde inte hämtas.')
 
     return jsonify(body_trends.overview(health_rows, metric_rows, today, window))
+
+
+@app.get('/api/potential')
+def training_potential_scenario():
+    """Read-only scenarios using this user's stored history; no Garmin/LLM jobs."""
+    try:
+        weeks = int(request.args.get('weeks', 12))
+        if not 4 <= weeks <= 26:
+            raise ValueError()
+        values = {}
+        for key, low, high in (('weekly_km', 0, 200), ('gain', -10, 10),
+                               ('race_distance', 5, 42.195), ('race_seconds', 600, 43200)):
+            value = request.args.get(key)
+            values[key] = training_potential.number(value) if value is not None else None
+            if value is not None and (values[key] is None or not low <= values[key] <= high):
+                raise ValueError()
+        if (values['race_distance'] is None) != (values['race_seconds'] is None):
+            raise ValueError()
+        if values['race_distance'] is not None and values['race_distance'] not in dict(training_potential.DISTANCES):
+            raise ValueError()
+    except (ValueError, TypeError):
+        return _api_error('invalid_scenario', 'Kontrollera mängd, period och eventuell lopptid.', 400)
+    today = datetime.now(LOCAL_TZ).date()
+    start = (today - timedelta(days=365)).isoformat()
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT date, type, distance FROM activities
+                    WHERE user_id=%s AND date >= %s ORDER BY date''', (uid(), start))
+                activities = [dict(r) for r in cur.fetchall()]
+                cur.execute('''SELECT date, vo2max FROM metric_history
+                    WHERE user_id=%s AND date >= %s ORDER BY date''', (uid(), start))
+                metrics = [dict(r) for r in cur.fetchall()]
+                cur.execute('''SELECT date, sleep_hours, hrv_avg FROM health_history
+                    WHERE user_id=%s AND date >= %s ORDER BY date''',
+                            (uid(), (today - timedelta(days=28)).isoformat()))
+                health = [dict(r) for r in cur.fetchall()]
+        return jsonify(training_potential.potential(
+            activities, metrics, health, today, weekly_km=values['weekly_km'],
+            weeks=weeks, assumed_gain=values['gain'], race_distance=values['race_distance'],
+            race_seconds=values['race_seconds']))
+    except Exception as exc:
+        return _server_error(exc, 'potential.history_failed', message='Scenariot kunde inte beräknas.')
 
 
 @app.get('/api/training-load')
