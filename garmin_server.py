@@ -15,6 +15,7 @@ import requests
 import psycopg2
 import psycopg2.extras
 import subprocess
+import tempfile
 import threading
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -184,6 +185,24 @@ OPENAI_COMPATIBLE_PROVIDERS = {
     'mistral': ('https://api.mistral.ai/v1/chat/completions', 'mistral-small-latest'),
 }
 
+# Claude Code CLI kör på abonnemanget i stället för API-nyckeln, precis som
+# Bryggan. Det är samma konto som Bryggan använder, så andra användare av sajten
+# får inte äta upp den kvoten — CLAUDE_CLI_USERS anger vilka användar-id som
+# får gå den vägen; övriga hoppar direkt vidare i kedjan.
+CLAUDE_CLI_BIN = (config.get('CLAUDE_CLI_BIN') or shutil.which('claude')
+                  or str(Path.home() / '.local' / 'bin' / 'claude'))
+CLAUDE_CLI_MODEL = config.get('CLAUDE_CLI_MODEL', 'sonnet')
+CLAUDE_CLI_EFFORT = str(config.get('CLAUDE_CLI_EFFORT') or '').strip()
+CLAUDE_CLI_USERS = {int(part) for part in
+                    re.findall(r'\d+', str(config.get('CLAUDE_CLI_USERS', '1')))}
+# Varje anrop startar en egen Node-process. Fler än ett par samtidigt på G3 ger
+# bara långsammare svar för alla.
+CLAUDE_CLI_MAX_CONCURRENT = max(1, int(config.get('CLAUDE_CLI_MAX_CONCURRENT', '2')))
+# Abonnemangets gräns räknas i timmar, inte sekunder — att fråga igen om en
+# halv minut är meningslöst.
+CLAUDE_CLI_LIMIT_COOLDOWN = float(config.get('CLAUDE_CLI_LIMIT_COOLDOWN', '900'))
+_claude_cli_slots = threading.BoundedSemaphore(CLAUDE_CLI_MAX_CONCURRENT)
+
 _MODEL_ALIASES = {
     'gemini': {
         'gemini-2.0-flash': 'gemini-3.7-flash',
@@ -218,6 +237,10 @@ def _provider_spec(name):
         model = _MODEL_ALIASES['anthropic'].get(ANTHROPIC_MODEL, ANTHROPIC_MODEL)
         return {'kind': 'anthropic', 'key': ANTHROPIC_KEY, 'model': model,
                 'label': 'Anthropic'}
+    if name in ('claude_cli', 'claude-cli', 'claude-code'):
+        binary = CLAUDE_CLI_BIN if os.access(CLAUDE_CLI_BIN, os.X_OK) else ''
+        return {'kind': 'claude_cli', 'key': binary, 'model': CLAUDE_CLI_MODEL,
+                'label': 'Claude Code'}
     if name == 'cloudflare':
         account_id = config.get('CLOUDFLARE_ACCOUNT_ID', '').strip()
         default_url = (f'https://api.cloudflare.com/client/v4/accounts/{account_id}'
@@ -252,7 +275,20 @@ def _provider_configured(name):
         return False
     if name == 'anthropic' and spec['key'].startswith('sk-ant-placeholder'):
         return False
+    if spec['kind'] == 'claude_cli' and not _claude_cli_allowed():
+        return False
     return True
+
+
+def _claude_cli_allowed():
+    """Får den aktuella användaren köras på ägarens Claude-abonnemang?
+
+    Utanför en request finns ingen användare att fråga om; då är det servern
+    själv som kör, och den tillhör ägaren."""
+    try:
+        return uid() in CLAUDE_CLI_USERS
+    except RuntimeError:
+        return True
 
 
 def _resolve_llm_chain():
@@ -269,6 +305,7 @@ def _resolve_llm_chain():
     names = [n.strip().lower() for n in raw.split(',') if n.strip()]
     if not names:
         names = ['gemini']
+    names = ['claude_cli' if n in ('claude-cli', 'claude-code') else n for n in names]
     seen, chain = set(), []
     for name in names:
         if _provider_spec(name) and name not in seen:
@@ -560,8 +597,112 @@ def _call_openai_compatible(prompt, max_tokens, system, timeout, spec, allow_wai
         raise RuntimeError(f'{spec["label"]} gav tomt svar') from exc
 
 
+def _claude_cli_prompt(prompt, history):
+    """CLI:t tar en enda användartur, så tidigare turer skrivs in som text."""
+    # Ett meddelande som börjar med / skulle annars kunna tolkas som ett
+    # CLI-kommando. Slash-kommandona är avstängda, men det ska inte hänga på
+    # en enda flagga.
+    prompt = prompt if not prompt.startswith('/') else ' ' + prompt
+    if not history:
+        return prompt
+    lines = []
+    for message in history:
+        who = 'Coachen' if message['role'] == 'assistant' else 'Löparen'
+        lines.append(f'[{who}]\n{message["content"]}')
+    return ('Tidigare i samma samtal:\n<samtal>\n' + '\n\n'.join(lines) +
+            '\n</samtal>\n\nLöparens nya meddelande:\n' + prompt)
+
+
+def _claude_cli_env():
+    env = dict(os.environ)
+    # Som i Bryggan: körs vi själva inifrån en Claude-session vägrar CLI:t
+    # annars starta ett nästlat klientanrop. Och en API-nyckel i miljön skulle
+    # tyst flytta anropet från abonnemanget till betald API — hela poängen är
+    # att slippa den.
+    for key in ('CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID',
+                'CLAUDE_CODE_ENTRYPOINT', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'):
+        env.pop(key, None)
+    if CLAUDE_CLI_EFFORT:
+        env['CLAUDE_CODE_EFFORT_LEVEL'] = CLAUDE_CLI_EFFORT
+    return env
+
+
+def _call_claude_cli(prompt, max_tokens, system, timeout, spec, allow_wait,
+                     history=None, json_mode=False, json_schema=None):
+    """Claude Code CLI i utskriftsläge: inga verktyg, inga MCP-servrar, inga
+    projektinställningar och ingen sparad session — en ren textmodell."""
+    if json_mode and not json_schema:
+        system = (system or '') + '\nReturn only valid JSON, without markdown or commentary.'
+    workdir = Path(tempfile.gettempdir()) / 'trainyze-claude'
+    workdir.mkdir(exist_ok=True)
+    if not _claude_cli_slots.acquire(timeout=min(timeout, 20)):
+        raise LLMTransientError('Claude Code är upptagen med andra anrop.')
+    system_file = None
+    try:
+        command = [spec['key'], '-p', '--output-format', 'json', '--tools', '',
+                   '--no-session-persistence', '--setting-sources', '',
+                   '--strict-mcp-config', '--disable-slash-commands',
+                   '--model', spec['model']]
+        if system:
+            # Kontexten kan bli större än vad ett enskilt kommandoradsargument
+            # tål, så den går via fil.
+            with tempfile.NamedTemporaryFile('w', encoding='utf-8', suffix='.txt',
+                                             dir=workdir, delete=False) as handle:
+                handle.write(system)
+                system_file = handle.name
+            command += ['--system-prompt-file', system_file]
+        if json_schema:
+            command += ['--json-schema', json.dumps(json_schema, ensure_ascii=False)]
+        try:
+            proc = subprocess.run(command, input=_claude_cli_prompt(prompt, history),
+                                  capture_output=True, text=True, timeout=timeout,
+                                  cwd=workdir, env=_claude_cli_env())
+        except FileNotFoundError as exc:
+            raise LLMUnavailableError(f'Claude Code saknas: {exc}') from exc
+        except subprocess.TimeoutExpired as exc:
+            raise LLMTransientError(f'Claude Code svarade inte inom {timeout} s') from exc
+    finally:
+        _claude_cli_slots.release()
+        if system_file:
+            try:
+                os.unlink(system_file)
+            except OSError:
+                pass
+
+    result = None
+    for line in reversed((proc.stdout or '').strip().splitlines()):
+        try:
+            candidate = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(candidate, dict) and candidate.get('type') == 'result':
+            result = candidate
+            break
+    detail = ((result or {}).get('result') or proc.stderr or proc.stdout or '').strip()[:300]
+    if result is None:
+        if 'not logged in' in detail.lower() or '/login' in detail:
+            raise LLMUnavailableError(f'Claude Code: {detail}')
+        raise LLMTransientError(f'Claude Code (kod {proc.returncode}): {detail}')
+    if result.get('is_error'):
+        status = result.get('api_error_status')
+        lowered = detail.lower()
+        if status == 429 or ('limit' in lowered and ('usage' in lowered or 'rate' in lowered)):
+            raise LLMQuotaError(f'Claude Code: {detail}', retry_after=CLAUDE_CLI_LIMIT_COOLDOWN)
+        if status in AUTH_FAILURE_CODES or 'not logged in' in lowered or '/login' in detail:
+            raise LLMUnavailableError(f'Claude Code {status}: {detail}')
+        if status is None or (isinstance(status, int) and status >= 500):
+            raise LLMTransientError(f'Claude Code {status}: {detail}')
+        raise RuntimeError(f'Claude Code {status}: {detail}')
+    if json_schema and isinstance(result.get('structured_output'), (dict, list)):
+        return json.dumps(result['structured_output'], ensure_ascii=False)
+    text = result.get('result')
+    if not isinstance(text, str) or not text.strip():
+        raise RuntimeError('Claude Code gav tomt svar')
+    return text
+
+
 _LLM_CALLERS = {'gemini': _call_gemini, 'anthropic': _call_anthropic,
-                'openai': _call_openai_compatible}
+                'openai': _call_openai_compatible, 'claude_cli': _call_claude_cli}
 
 
 def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None,

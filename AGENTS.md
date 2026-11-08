@@ -96,6 +96,16 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   burn a second quota. A provider that returns 429 is put on cooldown for the delay it
   asked for, so later requests skip straight past it instead of paying for the round trip;
   that cooldown is what actually lets two free tiers stack.
+  - **`claude_cli` (first in the chain on g3 since 2026-11-08)** runs the Claude Code CLI
+    (`claude -p`) on Hugo's subscription instead of the paid API, the same way Bryggan does.
+    It runs with no tools, no MCP, no setting sources, no saved session and slash commands
+    off, from an empty temp dir; the system prompt goes via `--system-prompt-file` (too big
+    for argv), history is written into the prompt as a transcript, and `json_schema` maps to
+    `--json-schema`. `ANTHROPIC_API_KEY` is stripped from the child env — if it leaked
+    through, the CLI would silently bill the API. Only user ids in `CLAUDE_CLI_USERS`
+    (default `1`) may use it; everyone else falls through to the next provider, because it
+    is the owner's personal quota. Usage-limit replies cool it down for
+    `CLAUDE_CLI_LIMIT_COOLDOWN` (900 s). `CLAUDE_CLI_MODEL` defaults to `sonnet`.
   - `gemini` and `anthropic` have their own adapters. `groq`, `cerebras`, `openrouter` and
     `mistral` all speak OpenAI chat-completions and share one adapter — add a key as
     `<NAME>_API_KEY`, and override `<NAME>_MODEL` / `<NAME>_URL` when needed. **Provider
