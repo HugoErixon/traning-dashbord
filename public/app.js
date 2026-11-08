@@ -2309,7 +2309,12 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (!list) return;
 
     const stats = getWeekTrainingStats();
-    const next = getNextSessions(5);
+    // Veckans resterande pass i första hand; är veckan slut eller tom visas
+    // de närmaste som är inplanerade, så listan aldrig står tom i onödan.
+    const nextMonday = getWeekBounds().end;
+    const upcoming = getNextSessions(14);
+    const thisWeek = upcoming.filter(s => s.date < nextMonday);
+    const next = thisWeek.length ? thisWeek : upcoming.slice(0, 5);
 
     // "Kvar av veckan" i stället för planföljsamhet i procent. Procentsatsen
     // mätte hur väl du lydde en plan som skrevs innan veckan började, och sjönk
@@ -2324,6 +2329,16 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     document.getElementById('cockpit-week-title').textContent = stats.plannedKm
       ? `V${stats.week}: ${stats.completedKm.toFixed(1)} av ${stats.plannedKm} km`
       : `V${stats.week}: plan saknas`;
+    if (!thisWeek.length && next.length) {
+      // Veckan är slut — listan visar redan nästa vecka, och rubriken ska
+      // beskriva det som står under den.
+      const nextWeek = next[0].week;
+      const km = next.filter(s => s.week === nextWeek).reduce((sum, s) => sum + (Number(s.km) || 0), 0);
+      document.getElementById('cockpit-week-title').textContent =
+        `V${nextWeek}: ${Math.round(km * 10) / 10} km inplanerat`;
+      compliance.textContent = 'Nästa vecka';
+      compliance.className = 'cockpit-tag good';
+    }
 
     const typeClass = s => s.type === 'race' ? 'bad' : s.type === 'run' ? 'warn' : s.type === 'lift' ? 'warn' : 'good';
     const typeLabel = s => ({ run:'KVALITET', easy:'LUGNT', lift:'STYRKA', race:'LOPP', rest:'VILA' }[s.type] || String(s.type || 'PLAN').toUpperCase());
@@ -2677,6 +2692,16 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           val: h.hrv?.lastNightAvg, sub: h.hrv?.status && h.hrv.status !== 'NONE' ? `${getHrvStatusLabel(h.hrv.status)} - ${getHrvBaselineText(h.hrv)}` : getHrvBaselineText(h.hrv),
           col: getHrvColor(h.hrv), pct: Math.min(h.hrv?.component ?? h.hrv?.pct ?? 0, 100) },
       ];
+      if (h.sleep?.totalSec) {
+        const hours = Math.floor(h.sleep.totalSec / 3600);
+        const minutes = Math.round((h.sleep.totalSec % 3600) / 60);
+        const score = h.sleep.score;
+        snapSets.push({ valId:'snap-sleep-val', subId:'snap-sleep-sub', barId:'snap-sleep-bar',
+          val: `${hours} h ${String(minutes).padStart(2, '0')} min`,
+          sub: (score != null ? `Sömnpoäng ${score}` : 'Ingen sömnpoäng') + (h.sleep.fallback ? ' · föregående natt' : ''),
+          col: score == null ? 'var(--muted2)' : score >= 80 ? 'var(--green)' : score >= 60 ? 'var(--amber)' : 'var(--red)',
+          pct: score ?? Math.min(100, h.sleep.totalSec / 3600 / 8 * 100) });
+      }
       snapSets.forEach(s => {
         if (s.val == null) return;
         const v = document.getElementById(s.valId); if (v) { v.textContent = s.val; v.style.color = s.col; }
@@ -4382,7 +4407,8 @@ HEALTH DATA (current):
   // Prognosen räknas på servern ur senast synkade data; här ritas den bara.
   let racePrediction = null;
   let raceDistance = null;
-  let trainingInsightsData = null;
+  let racePredictionRetry = null;
+  let racePredictionPolls = 0;
   const RP_DIRECTION = {
     improving: ['↗', 'Förbättras'], declining: ['↘', 'Går åt fel håll'],
     stable: ['→', 'Stabilt'], unclear: ['·', 'För lite data'],
@@ -4541,7 +4567,18 @@ HEALTH DATA (current):
     }).join('') + `<div class="rp-source rp-source-note"><span>Kalibrering</span><small>${escapeHtml(data.calibration.note)}${
       data.calibration.races.length ? ' ' + data.calibration.races.map(r => `${escapeHtml(r.date)}: ${escapeHtml(r.time)}`).join(', ') : ''}</small></div>`;
     document.getElementById('rp-method').textContent = data.method;
-    document.getElementById('rp-updated').textContent = `Uppdaterad ${new Date().toLocaleTimeString('sv-SE', {hour: '2-digit', minute: '2-digit'})} · räknas om när ny data synkas`;
+    const computed = data.computedAt ? data.computedAt.slice(0, 16).replace('T', ' ') : '';
+    document.getElementById('rp-updated').textContent = data.refreshing
+      ? 'Nytt pass synkat · räknar om prognosen…'
+      : `Räknad ${computed} · räknas om när ett nytt pass synkas`;
+    // Omräkningen pågår redan på servern; hämta resultatet när den är klar.
+    clearTimeout(racePredictionRetry);
+    if (data.refreshing && racePredictionPolls < 10) {
+      racePredictionPolls += 1;
+      racePredictionRetry = setTimeout(loadRacePrediction, 5000);
+    } else if (!data.refreshing) {
+      racePredictionPolls = 0;
+    }
     renderRaceChart();
   }
 
@@ -4556,108 +4593,6 @@ HEALTH DATA (current):
     } catch (error) {
       status.hidden = false;
       status.textContent = `Kunde inte räkna prognosen: ${error.message}`;
-    }
-  }
-
-  function tiValue(area, v) {
-    return area.key === 'easy' ? `${overviewNumber(v, 2)} m/slag` : `${rpPace(v)}/km`;
-  }
-
-  function renderTrainingInsights(data) {
-    trainingInsightsData = data;
-    const grid = document.getElementById('ti-grid');
-    grid.innerHTML = data.areas.map(area => {
-      const dm = RP_DIRECTION[area.direction] || RP_DIRECTION.unclear;
-      const tone = area.direction === 'improving' ? 'improving' : area.direction === 'declining' ? 'declining' : 'stable';
-      let big = '–', unit = '';
-      if (area.key === 'easy' && area.now?.paceSec) {
-        big = rpPace(area.now.paceSec); unit = `/km · ${Math.round(area.now.hr)} slag`;
-      } else if (area.latest?.workPaceSec) {
-        big = rpPace(area.latest.workPaceSec); unit = '/km senaste arbetsdelar';
-      }
-      return `<article class="ov-card ti-card ov-dir-${tone}" data-key="${escapeHtml(area.key)}">
-        <div class="ov-card-top"><span class="ov-card-label">${escapeHtml(area.label)}</span>
-          <span class="ov-badge"><b aria-hidden="true">${dm[0]}</b>${dm[1]}</span></div>
-        <div class="ov-card-value">${escapeHtml(big)} <small>${escapeHtml(unit)}</small></div>
-        <div class="ov-card-caption">${area.count} pass · ${escapeHtml(area.metric)}</div>
-        <div class="ov-chart ti-chart" data-key="${escapeHtml(area.key)}" aria-hidden="true"></div>
-        <div class="ti-readout" data-key="${escapeHtml(area.key)}"></div>
-        <div class="ov-card-change">${escapeHtml(area.text)}</div>
-      </article>`;
-    }).join('');
-    drawTrainingInsightCharts();
-  }
-
-  function drawTrainingInsightCharts() {
-    if (!trainingInsightsData) return;
-    document.querySelectorAll('#ti-grid .ti-chart').forEach(el => {
-      const area = trainingInsightsData.areas.find(a => a.key === el.dataset.key);
-      if (!area) return;
-      // Effektivitet: högre är bättre. Fart: lägre är bättre.
-      rpDrawLine(el, area.series, {invert: area.key !== 'easy',
-        color: area.key === 'easy' ? 'var(--green)' : area.key === 'threshold' ? 'var(--accent)' : 'var(--amber)'});
-    });
-  }
-
-  async function loadTrainingInsights() {
-    const grid = document.getElementById('ti-grid');
-    if (!grid) return;
-    try {
-      const response = await fetch('/api/training-insights?days=90');
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Analysen kunde inte hämtas.');
-      renderTrainingInsights(data);
-    } catch (error) {
-      grid.innerHTML = `<p class="an-empty">Kunde inte analysera passen: ${escapeHtml(error.message)}</p>`;
-    }
-  }
-
-  const TI_AREA_LABELS = {easy: 'Lugna pass', threshold: 'Tröskel', intervals: 'Intervaller', sleep: 'Sömn', volume: 'Volym'};
-  function renderTrainingAnalysis(payload) {
-    const body = document.getElementById('ti-ai-body');
-    const button = document.getElementById('ti-ai-run');
-    const a = payload?.analysis;
-    if (!a) return;
-    button.textContent = 'Uppdatera analysen';
-    document.getElementById('ti-ai-note').textContent = payload.generatedAt
-      ? `Gjord ${payload.generatedAt.replace('T', ' ')}${payload.stale ? ' · äldre än idag' : ''}` : 'AI-analys';
-    body.innerHTML = `<p class="ti-ai-headline">${escapeHtml(a.headline)}</p>
-      <p class="ti-ai-prediction">${escapeHtml(a.prediction)}</p>
-      <div class="ti-ai-areas">${(a.areas || []).map(area => {
-        const dm = RP_DIRECTION[area.verdict] || RP_DIRECTION.unclear;
-        const tone = area.verdict === 'improving' ? 'improving' : area.verdict === 'declining' ? 'declining' : 'stable';
-        return `<div class="ti-ai-area ov-dir-${tone}"><div class="ov-card-top"><strong>${escapeHtml(TI_AREA_LABELS[area.key] || area.key)}</strong>
-          <span class="ov-badge"><b aria-hidden="true">${dm[0]}</b>${dm[1]}</span></div>
-          <p>${escapeHtml(area.finding)}</p><p class="ti-ai-advice">${escapeHtml(area.advice)}</p></div>`;
-      }).join('')}</div>
-      ${(a.focus || []).length ? `<div class="ti-ai-focus"><strong>Fokus kommande två veckor</strong><ol>${a.focus.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ol></div>` : ''}`;
-  }
-
-  async function loadTrainingAnalysis() {
-    try {
-      const response = await fetch('/api/training-analysis');
-      const data = await response.json().catch(() => ({}));
-      if (response.ok) renderTrainingAnalysis(data);
-    } catch { /* ingen sparad analys är inget fel */ }
-  }
-
-  async function runTrainingAnalysis() {
-    const button = document.getElementById('ti-ai-run');
-    const note = document.getElementById('ti-ai-note');
-    button.disabled = true;
-    const previous = button.textContent;
-    button.textContent = 'Coachen analyserar…';
-    note.textContent = 'Kan ta upp till en och en halv minut';
-    try {
-      const response = await fetch('/api/training-analysis', {method: 'POST'});
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Analysen misslyckades.');
-      renderTrainingAnalysis(data);
-    } catch (error) {
-      button.textContent = previous;
-      note.textContent = `Kunde inte analysera: ${error.message}`;
-    } finally {
-      button.disabled = false;
     }
   }
 
@@ -4679,25 +4614,6 @@ HEALTH DATA (current):
       raceDistance = btn.dataset.distance;
       renderRaceChart();
     });
-    const grid = document.getElementById('ti-grid');
-    grid?.addEventListener('pointermove', event => {
-      const el = event.target.closest('.ti-chart');
-      if (!el) return;
-      const p = rpNearest(el, event);
-      const area = trainingInsightsData?.areas.find(a => a.key === el.dataset.key);
-      const out = grid.querySelector(`.ti-readout[data-key="${el.dataset.key}"]`);
-      if (!p || !area || !out) return;
-      const when = new Date(p.t + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
-      const extra = area.key === 'easy'
-        ? ` · ${rpPace(p.pace)}/km på ${p.hr} slag · ${overviewNumber(p.km, 1)} km`
-        : ` · ${p.reps || '?'} delar, ${overviewNumber(p.workMin, 0)} min arbete${p.hr ? ` · snittpuls ${p.hr}` : ''}`;
-      out.textContent = `${when}: ${tiValue(area, p.v)}${extra}`;
-    });
-    grid?.addEventListener('pointerleave', event => {
-      grid.querySelectorAll('.ti-chart').forEach(rpHoverEnd);
-      grid.querySelectorAll('.ti-readout').forEach(el => { el.textContent = ''; });
-    }, true);
-    document.getElementById('ti-ai-run')?.addEventListener('click', runTrainingAnalysis);
     document.getElementById('rp-target-form')?.addEventListener('submit', async event => {
       event.preventDefault();
       const msg = document.getElementById('rp-target-msg');
@@ -4722,12 +4638,10 @@ HEALTH DATA (current):
     let resizeTimer = null;
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { renderRaceChart(); drawTrainingInsightCharts(); }, 150);
+      resizeTimer = setTimeout(renderRaceChart, 150);
     });
   }
   loadRacePrediction();
-  loadTrainingInsights();
-  loadTrainingAnalysis();
 
   // Training potential: read-only, separate from scheduling and AI coaching.
   let potentialData = null;

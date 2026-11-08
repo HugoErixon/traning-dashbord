@@ -5102,10 +5102,10 @@
     .rp-dist small { color: var(--muted); font-size: 11px; }
     .rp-dist.active { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-dim); }
     .rp-chart { height: 120px; }
-    .rp-chart svg, .ti-chart svg { display: block; }
+    .rp-chart svg { display: block; }
     .rp-goal-line { stroke: var(--amber); stroke-width: 1.4; stroke-dasharray: 5 4; }
     .rp-hover-line { stroke: var(--muted); stroke-width: 1; }
-    .rp-readout, .ti-readout { min-height: 16px; margin-top: 4px; color: var(--muted2); font: 500 12px var(--font-num); }
+    .rp-readout { min-height: 16px; margin-top: 4px; color: var(--muted2); font: 500 12px var(--font-num); }
     .rp-sources { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
     .rp-source { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 10px; background: var(--bg3); font-size: 12px; color: var(--muted2); }
     .rp-source strong { color: var(--text); font: 700 15px var(--font-num); }
@@ -5118,23 +5118,12 @@
     .rp-form .settings-btn { flex: 0 0 auto; }
     .rp-form-msg { color: var(--muted); font-size: 12px; }
     .rp-method { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
-    .ti-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
-    .ti-card .ov-card-value small { text-transform: none; }
-    .ti-ai { padding: 18px 20px; }
-    .ti-ai .settings-btn { flex: 0 0 auto; }
-    .ti-ai-headline { margin: 0 0 6px; font-size: 15px; font-weight: 700; line-height: 1.4; }
-    .ti-ai-prediction { margin: 0 0 14px; color: var(--muted2); font-size: 13px; line-height: 1.5; }
-    .ti-ai-areas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .ti-ai-area { padding: 11px 13px; border-radius: 10px; background: var(--bg3); }
-    .ti-ai-area p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted2); }
-    .ti-ai-area .ti-ai-advice { color: var(--text); }
-    .ti-ai-focus { margin-top: 14px; font-size: 13px; }
-    .ti-ai-focus ol { margin: 6px 0 0; padding-left: 20px; line-height: 1.55; color: var(--muted2); }
-    @media (max-width: 1080px) { .ti-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 720px) {
       .rp-time { font-size: 42px; }
       .rp-target { flex-basis: 100%; }
       .rp-distances { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .rp-sources, .ti-grid, .ti-ai-areas { grid-template-columns: 1fr; }
-      .ti-ai .an-card-head { flex-direction: column; }
+      .rp-sources { grid-template-columns: 1fr; }
     }
+    .ov-chat { margin-bottom: 16px; }
+    .ov-chat .messages { max-height: 420px; }
+    .ov-week-plan { margin-bottom: 16px; }

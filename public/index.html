@@ -160,23 +160,37 @@
         </div>
       </section>
 
+
       <div class="section-header">
-        <span class="section-header-label">Träningsanalys</span>
-        <span class="section-header-note">Senaste 90 dagarna, första halvan mot andra</span>
+        <span class="section-header-label">Fråga coachen</span>
+        <span class="section-header-note">Vad som helst om din träning, sömn, prognos eller plan</span>
       </div>
-      <div class="ti-grid" id="ti-grid"><p class="an-empty">Analyserar dina pass…</p></div>
-      <section class="ti-ai an-card" id="ti-ai" aria-labelledby="ti-ai-title">
-        <div class="an-card-head">
-          <div><span class="an-card-title" id="ti-ai-title">Coachens analys</span>
-            <span class="an-card-note" id="ti-ai-note">AI-analys av prognosen, passen och sömnen</span></div>
-          <button type="button" class="settings-btn primary" id="ti-ai-run">Analysera med coachen</button>
+      <section class="chat-wrap home-assistant ov-chat" aria-label="Träningsassistent">
+        <div class="chat-top">
+          <div class="chat-dot"></div>
+          <span class="chat-title">Personlig AI-Coach</span>
+          <span class="chat-sub">Fysiologi, passupplägg, pacing och progression</span>
+          <button type="button" class="chat-reset" data-action="reset-chat" title="Börja ett nytt samtal — coachen glömmer det ni sagt hittills">Nytt samtal</button>
         </div>
-        <div id="ti-ai-body"><p class="an-empty">Ingen analys än. Coachen läser prognosen, passtrenderna och sömnen och säger vad som flyttar prognosen mest.</p></div>
+        <div class="qprompts">
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur ska jag lägga upp dagens pass optimalt vad gäller tempo, vila och pulszoner?">🎯 Pacing inför dagens pass</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Vad är min största utvecklingspotential och flaskhals just nu utifrån min träningsdata?">📈 Min utvecklingspotential</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur har min tröskelfart och snabbhet utvecklats under den senaste månaden?">⚡ Min tröskelutveckling</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till mot mitt loppmål och vad bör jag fokusera på kommande 4 veckor?">🏁 Loppanalys &amp; 4v fokus</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur ska jag optimera sömnen och återhämtningen ikväll efter dagens belastning?">😴 Optimera återhämtning</button>
+        </div>
+        <div class="messages" id="messages">
+          <div class="msg ai"><div class="msg-from">COACH</div><span>Fråga om träning, ändra eller schemalägg pass, eller be mig tolka ditt sömnschema och dina sömnmönster.</span></div>
+        </div>
+        <div class="chat-input">
+          <input type="text" id="chat-input" maxlength="500" placeholder="Fråga eller be mig ändra din plan…" />
+          <button class="send-btn" data-action="send-chat">Skicka</button>
+        </div>
       </section>
 
       <div class="section-header">
         <span class="section-header-label">Just nu</span>
-        <span class="section-header-note">Nattens mätningar</span>
+        <span class="section-header-note">CNS, sömn och nattens mätningar</span>
       </div>
       <!-- JUST NU — nattens återhämtning, flyttat hit från Idag. Strain- och
            sömnskuldskorten togs bort 2026-10-08 på Hugos begäran. -->
@@ -224,12 +238,37 @@
                 <div id="snap-rhr-sub" style="font-size:10px;color:var(--muted);"></div>
                 <div class="bar" style="height:3px;margin-top:4px;"><div id="snap-rhr-bar" class="bar-fill" style="width:0%;background:var(--green)"></div></div>
               </div>
+              <div class="bevel-metric-item">
+                <span class="bevel-metric-label">Sömn i natt</span>
+                <span class="bevel-metric-val" id="snap-sleep-val">–</span>
+                <div id="snap-sleep-sub" style="font-size:10px;color:var(--muted);"></div>
+                <div class="bar" style="height:3px;margin-top:4px;"><div id="snap-sleep-bar" class="bar-fill" style="width:0%;background:var(--accent)"></div></div>
+              </div>
             </div>
           </div>
           <svg id="spark-hrv" class="sparkline" aria-label="HRV 7-dagarstrend"></svg>
         </div>
 
 
+      </div>
+
+      <div class="section-header">
+        <span class="section-header-label">Veckans pass</span>
+        <span class="section-header-note">Det som är inplanerat framåt</span>
+      </div>
+      <div class="ov-week-plan">
+        <div class="cockpit-card">
+          <div class="cockpit-top">
+            <div>
+              <div class="cockpit-kicker">Kommande pass</div>
+              <div class="cockpit-title" style="font-size:18px;" id="cockpit-week-title">Veckans fokus</div>
+            </div>
+            <span class="cockpit-tag" id="cockpit-compliance">--</span>
+          </div>
+          <div class="cockpit-list" id="cockpit-next-list">
+            <div class="cockpit-row"><div class="cockpit-row-day">--</div><div><div class="cockpit-row-title">Laddar plan…</div><div class="cockpit-row-sub">Kommande pass visas här.</div></div><span class="cockpit-tag">PLAN</span></div>
+          </div>
+        </div>
       </div>
 
       <div class="section-header">
@@ -434,44 +473,7 @@
         </details>
       </section>
 
-      <section class="chat-wrap home-assistant" aria-label="Träningsassistent">
-        <div class="chat-top">
-          <div class="chat-dot"></div>
-          <span class="chat-title">Personlig AI-Coach</span>
-          <span class="chat-sub">Fysiologi, passupplägg, pacing och progression</span>
-          <button type="button" class="chat-reset" data-action="reset-chat" title="Börja ett nytt samtal — coachen glömmer det ni sagt hittills">Nytt samtal</button>
-        </div>
-        <div class="qprompts">
-          <button class="qp" data-action="quick-prompt" data-prompt="Hur ska jag lägga upp dagens pass optimalt vad gäller tempo, vila och pulszoner?">🎯 Pacing inför dagens pass</button>
-          <button class="qp" data-action="quick-prompt" data-prompt="Vad är min största utvecklingspotential och flaskhals just nu utifrån min träningsdata?">📈 Min utvecklingspotential</button>
-          <button class="qp" data-action="quick-prompt" data-prompt="Hur har min tröskelfart och snabbhet utvecklats under den senaste månaden?">⚡ Min tröskelutveckling</button>
-          <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till mot mitt loppmål och vad bör jag fokusera på kommande 4 veckor?">🏁 Loppanalys &amp; 4v fokus</button>
-          <button class="qp" data-action="quick-prompt" data-prompt="Hur ska jag optimera sömnen och återhämtningen ikväll efter dagens belastning?">😴 Optimera återhämtning</button>
-        </div>
-        <div class="messages" id="messages">
-          <div class="msg ai"><div class="msg-from">COACH</div><span>Fråga om träning, ändra eller schemalägg pass, eller be mig tolka ditt sömnschema och dina sömnmönster.</span></div>
-        </div>
-        <div class="chat-input">
-          <input type="text" id="chat-input" maxlength="500" placeholder="Fråga eller be mig ändra din plan…" />
-          <button class="send-btn" data-action="send-chat">Skicka</button>
-        </div>
-      </section>
 
-      <!-- ROW 2: Träningsbeslut + Kommande 7 dagar -->
-      <div class="home-cols">
-        <div class="cockpit-card">
-          <div class="cockpit-top">
-            <div>
-              <div class="cockpit-kicker">Kommande 7 dagar</div>
-              <div class="cockpit-title" style="font-size:18px;" id="cockpit-week-title">Veckans fokus</div>
-            </div>
-            <span class="cockpit-tag" id="cockpit-compliance">--</span>
-          </div>
-          <div class="cockpit-list" id="cockpit-next-list">
-            <div class="cockpit-row"><div class="cockpit-row-day">--</div><div><div class="cockpit-row-title">Laddar plan…</div><div class="cockpit-row-sub">Kommande pass visas här.</div></div><span class="cockpit-tag">PLAN</span></div>
-          </div>
-        </div>
-      </div>
 
       <!-- ROW 3: Belastning + senaste passets omdöme -->
       <div class="section-header">

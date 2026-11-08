@@ -71,6 +71,10 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   stress, threshold pace) are compared as 7-day averages, not night against night; VO2max and
   endurance value against value. Threshold pace is averaged on purpose: Garmin flips between
   two values day to day (4:00/4:08). The "Just nu" cards (bevel triad) moved here from Idag.
+  Since 2026-11-08 the page order is: race predictor → coach chat (moved here from Idag, same
+  `#messages`/`#chat-input` ids and logic) → Just nu (CNS ring, HRV, resting pulse, last night's
+  sleep) → "Veckans pass" (`#cockpit-next-list`, also moved from Idag: the rest of this week, or
+  next week's sessions when this week is done) → trends.
 - **Training potential:** `training_potential.py`, `GET /api/potential`, and the overview's
   scenario card are strictly read-only. The model relates weekly VO2max to preceding
   28-day running volume; it is an observational association, not a causal response or
@@ -91,13 +95,19 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   capped ±6 %). The curve is the same prediction recomputed day by day with only that day's data.
   Target lives in cache `race-target:v1` (`PUT /api/race-target`); Hugo's is HM 1:22, date
   2027-03-14 (placeholder — military service starts end of March 2027). No LLM here.
+  The result is **stored** (cache `race-prediction:v1` with a marker = run count + latest run id)
+  and only recomputed when a new run arrives: `ingest_activities()` starts
+  `refresh_race_prediction_async()` (background thread, one per user, forces a fresh Garmin
+  fetch) as soon as a new run is saved. The marker is the safety net — if a page load sees it has
+  changed, it serves the stored prediction with `refreshing: true` and starts the refresh; the
+  page re-polls. Saving a target recomputes synchronously.
 - **Session analysis (`training_insights.py`):** `GET /api/training-insights`. Easy runs trend on
   meters per heartbeat (grade-adjusted speed / HR); threshold and intervals on *work-rep* pace from
   Garmin's `INTERVAL_ACTIVE` split summary. Structured sessions are re-sorted by rep length
   (≤ 5 min = intervals) because Garmin labels most short intervals TEMPO; single-rep "active"
   splits are the whole run and are ignored. Races stay out of the trends.
-  `POST /api/training-analysis` asks the LLM for a schema-bound coach analysis (cached, on demand
-  only). `_performance_prompt_block()` puts predictor + trends into `_goal_prompt_block()` (so every
+  The analysis cards and their endpoints were removed from the UI on 2026-11-08 at Hugo's request;
+  the module now only feeds the coach. `_performance_prompt_block()` puts predictor + trends into `_goal_prompt_block()` (so every
   AI planning prompt sees them) and into the coach chat; it never fetches from Garmin.
 - **Strain:** `strain_analysis.py` scores each day 0-100 by weighing that day's Garmin
   `activityTrainingLoad` against the athlete's own chronic load (Garmin's chronic value

@@ -155,7 +155,7 @@ class RacePredictorApiTests(unittest.TestCase):
 
     def test_target_saved_and_prediction_returned(self):
         with mock.patch.object(garmin_server, 'set_cache') as save, \
-             mock.patch.object(garmin_server, '_race_prediction', return_value={'available': False}):
+             mock.patch.object(garmin_server, '_store_race_prediction', return_value={'available': False}):
             response = self.client.put('/api/race-target', json={
                 'distance': 'half', 'seconds': 4920, 'deadline': '2027-03-14'},
                 headers={'X-CSRF-Token': self.csrf})
@@ -163,29 +163,64 @@ class RacePredictorApiTests(unittest.TestCase):
         self.assertEqual(save.call_args.args[1], {'distance': 'half', 'seconds': 4920,
                                                   'deadline': '2027-03-14'})
 
-    def test_analysis_uses_schema_and_is_cached(self):
-        reply = '{"headline": "Bra", "prediction": "p", "areas": [], "focus": ["a"]}'
-        with mock.patch.object(garmin_server, 'llm_available', return_value=True), \
-             mock.patch.object(garmin_server, '_training_analysis_prompt', return_value='PROMPT'), \
-             mock.patch.object(garmin_server, 'call_llm', return_value=reply) as llm, \
-             mock.patch.object(garmin_server, 'set_cache') as save:
-            response = self.client.post('/api/training-analysis', headers={'X-CSRF-Token': self.csrf})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()['analysis']['headline'], 'Bra')
-        self.assertIs(llm.call_args.kwargs['json_schema'], garmin_server.TRAINING_ANALYSIS_SCHEMA)
-        save.assert_called_once()
-
-    def test_unreadable_analysis_is_not_cached(self):
-        with mock.patch.object(garmin_server, 'llm_available', return_value=True), \
-             mock.patch.object(garmin_server, '_training_analysis_prompt', return_value='PROMPT'), \
-             mock.patch.object(garmin_server, 'call_llm', return_value='inte json'), \
-             mock.patch.object(garmin_server, 'set_cache') as save:
-            response = self.client.post('/api/training-analysis', headers={'X-CSRF-Token': self.csrf})
-        self.assertEqual(response.status_code, 502)
-        save.assert_not_called()
-
     def test_goal_block_carries_performance_lines(self):
         with mock.patch.object(garmin_server, 'get_user_goal', return_value=None), \
              mock.patch.object(garmin_server, '_performance_prompt_block', return_value='RACE PREDICTOR: x'):
             self.assertIn('RACE PREDICTOR: x', garmin_server._goal_prompt_block(1))
             self.assertNotIn('RACE PREDICTOR', garmin_server._goal_prompt_block(1, performance=False))
+
+
+class RacePredictionCacheTests(unittest.TestCase):
+    """Prognosen räknas bara om när ett nytt löppass har kommit in."""
+
+    def setUp(self):
+        garmin_server._race_refreshing.clear()
+
+    def test_cached_prediction_is_served_while_marker_matches(self):
+        stored = {'marker': '10:99', 'payload': {'available': True, 'today': 'x'}}
+        with mock.patch.object(garmin_server, 'get_cache', return_value=(stored, 0)), \
+             mock.patch.object(garmin_server, '_race_marker', return_value='10:99'), \
+             mock.patch.object(garmin_server, '_race_prediction') as compute, \
+             mock.patch.object(garmin_server, 'refresh_race_prediction_async') as refresh:
+            result = garmin_server._cached_race_prediction(1, 'hugo')
+        self.assertEqual(result, {'available': True, 'today': 'x'})
+        compute.assert_not_called()
+        refresh.assert_not_called()
+
+    def test_new_run_starts_background_refresh_but_answers_at_once(self):
+        stored = {'marker': '10:99', 'payload': {'available': True}}
+        with mock.patch.object(garmin_server, 'get_cache', return_value=(stored, 0)), \
+             mock.patch.object(garmin_server, '_race_marker', return_value='11:120'), \
+             mock.patch.object(garmin_server, '_race_prediction') as compute, \
+             mock.patch.object(garmin_server, 'refresh_race_prediction_async', return_value=True) as refresh:
+            result = garmin_server._cached_race_prediction(1, 'hugo')
+        self.assertTrue(result['refreshing'])
+        compute.assert_not_called()
+        refresh.assert_called_once_with(1, 'hugo')
+
+    def test_first_visit_computes_and_stores(self):
+        with mock.patch.object(garmin_server, 'get_cache', return_value=None), \
+             mock.patch.object(garmin_server, '_store_race_prediction', return_value={'available': True}) as store:
+            self.assertEqual(garmin_server._cached_race_prediction(1, 'hugo'), {'available': True})
+        store.assert_called_once_with(1, 'hugo')
+
+    def test_only_one_background_refresh_per_user(self):
+        started = []
+        with mock.patch.object(garmin_server.threading, 'Thread') as thread:
+            thread.return_value.start.side_effect = lambda: started.append(1)
+            self.assertTrue(garmin_server.refresh_race_prediction_async(1, 'hugo'))
+            self.assertFalse(garmin_server.refresh_race_prediction_async(1, 'hugo'))
+        self.assertEqual(len(started), 1)
+
+    def test_synced_new_run_triggers_refresh(self):
+        run = {'activityId': 5, 'activityType': {'typeKey': 'running'}}
+        ride = {'activityId': 6, 'activityType': {'typeKey': 'cycling'}}
+        for activities, expected in (([run], 1), ([ride], 0)):
+            with mock.patch.object(garmin_server, 'APP_TESTING', False), \
+                 mock.patch.object(garmin_server, '_unseen_activity_ids',
+                                   return_value={a['activityId'] for a in activities}), \
+                 mock.patch.object(garmin_server, 'save_activities'), \
+                 mock.patch.object(garmin_server, 'record_session_verdicts'), \
+                 mock.patch.object(garmin_server, 'refresh_race_prediction_async') as refresh:
+                garmin_server.ingest_activities(activities, 1, announce=False)
+            self.assertEqual(refresh.call_count, expected)
