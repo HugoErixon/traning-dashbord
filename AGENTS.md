@@ -79,17 +79,20 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   `/api/potential`) was removed on 2026-11-08 at Hugo's request; the race predictor replaced it.
 - **Race predictor (`race_predictor.py`, since 2026-11-08):** top of Översikt, `GET /api/race-predictor`.
   **Trainyze's own model, not Garmin's** (rebuilt the same day at Hugo's request — calibrating
-  Garmin against one hot, hilly Göteborgsvarvet was not good enough). Every Garmin lap ≥ 6 min
-  (shorter reps are dropped: HR lags pace, so fast reps look cheap) gives a point (avg HR,
-  grade-adjusted speed); laps from the last 42 days are fitted to speed = a + b·HR, weighted by
+  Garmin against one hot, hilly Göteborgsvarvet was not good enough). Every Garmin lap ≥ 6 min gives a point
+  (avg HR, grade-adjusted speed). Interval reps of 2–6 min are added too, but scored by
+  **end-of-rep HR (lap maxHR − 3)** rather than the average — HR lags pace in a short rep, so
+  the average makes fast running look cheap. A rep only counts if it is ≥ 1.1× the median steady
+  lap speed (jog recoveries labelled ACTIVE are not intervals) and maxHR ≤ avgHR + 20 (sensor
+  spikes). Adding reps moved the pre-Varvet check from 1:19:50 to 1:26:06 (actual 1:26:45 GAP); laps from the last 42 days are fitted to speed = a + b·HR, weighted by
   duration and recency (half-life 21 d). HM pace = the line at **97 % of threshold HR** (Garmin's
   measured `lactate_hr`; declared assumption), other distances via Riegel 1.06. No prediction on
-  days with < 4 steady laps within 8 bpm of that HR or a ±SE above 4 min — the line must not be
+  days with < 20 steady laps, < 4 points within 8 bpm of that HR or a ±SE above 2.5 min — the line must not be
   stretched into the unknown (Aug–Sep 2026 had no such laps and gave 1:49). Races never adjust
-  anything; they appear as "checks" (the model said 1:20:44 the day before Varvet, he ran
+  anything; they appear as "checks" (the day before Varvet the model said 1:26:06; he ran
   1:26:45 grade-adjusted in ~30 °C). Garmin's prediction and Garmin threshold pace × 1.03 are
   shown as comparison only (dashed line). Laps are cached once per activity in `cache`
-  (`laps:v1:<id>`, compact rows) and backfilled during the background refresh, ≤ 40 per run.
+  (`laps:v2:<id>`, compact rows incl. maxHR) and backfilled during the background refresh, ≤ 40 per run.
   Target lives in cache `race-target:v1` (`PUT /api/race-target`); Hugo's is HM 1:22, date
   2027-03-14 (placeholder — military service starts end of March 2027). No LLM here.
   The result is **stored** (cache `race-prediction:v2` with a marker = run count + latest run id)

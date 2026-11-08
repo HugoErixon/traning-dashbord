@@ -3,9 +3,15 @@
 Prognosen bygger inte på Garmins prognos. Den räknas ur löparens egna varv:
 
 1. Varje varv på minst sex minuter ger en punkt (snittpuls, terrängjusterad
-   fart). Kortare varv hoppas över — pulsen hinner inte ikapp farten i en kort
-   intervall, och då ser hög fart billig ut. Terrängjusteringen (Garmins GAP)
-   gör att ett backigt pass inte ser långsammare ut än det var.
+   fart). Terrängjusteringen (Garmins GAP) gör att ett backigt pass inte ser
+   långsammare ut än det var.
+   Intervalldrag på 2–6 minuter tas också med, men med pulsen i slutet av
+   draget (varvets maxpuls minus tre slag) i stället för snittet: i ett kort
+   drag hinner pulsen inte ikapp farten, så snittpulsen får hög fart att se
+   billig ut. Det är slutpulsen som visar vad farten kostar. Bara drag som är
+   tydligt snabbare än löparens vanliga varv räknas — en jogg- eller gångvila
+   märkt "aktiv" är ingen intervall. Kortare drag än två minuter hoppas över;
+   där hinner inte ens slutpulsen upp.
 2. Varven från de senaste sex veckorna vägs ihop i en linje fart = a + b·puls,
    där nyare och längre varv väger tyngre (halveringstid tre veckor).
 3. Halvmaratonfarten är linjens fart vid 97 % av tröskelpulsen. Det är ett
@@ -13,9 +19,9 @@ Prognosen bygger inte på Garmins prognos. Den räknas ur löparens egna varv:
    Tröskelpulsen är klockans uppmätta (eller ett labbvärde när det finns).
 4. Övriga distanser räknas från halvmaraton med Riegels formel.
 
-Linjen får aldrig dras långt ut i det okända: utan minst fyra stabila varv
-nära tröskelpulsen, eller med en osäkerhet över fyra minuter, ges ingen egen
-prognos den dagen. Lopp justerar inget — ett varmt eller backigt lopp ska inte
+Linjen får aldrig dras långt ut i det okända: utan minst 20 stabila varv och
+fyra punkter nära tröskelpulsen, eller med en osäkerhet över 2,5 minuter, ges
+ingen egen prognos den dagen. Lopp justerar inget — ett varmt eller backigt lopp ska inte
 flytta prognosen. De visas i stället som en kontroll av vad modellen sa dagen
 innan. Garmins egen prognos visas bara som jämförelse.
 
@@ -38,12 +44,21 @@ HALF_LIFE_DAYS = 21
 MIN_LAP_SECONDS = 360
 MIN_LAP_METERS = 500
 MIN_LAP_HR = 120
+MIN_REP_SECONDS = 120
+REP_MAX_HR_OFFSET = 3
+# Ett drag måste vara minst så här mycket snabbare än medianen av de stabila
+# varven för att räknas som intervall.
+REP_MIN_SPEED_RATIO = 1.1
+# Maxpuls som ligger orimligt långt över varvets snitt är en sensorspik.
+REP_MAX_HR_ABOVE_AVG = 20
 # Halvmaraton springs strax under tröskeln; deklarerat antagande.
 HALF_HR_FRACTION = 0.97
 # Varv inom så här många slag under målpulsen räknas som "nära tröskeln".
 NEAR_TARGET_BPM = 8
 MIN_NEAR_LAPS = 4
-MAX_HALF_SE_SECONDS = 240
+MAX_HALF_SE_SECONDS = 150
+# Intervalldragen kompletterar, men grunden måste vara stabila varv.
+MIN_STEADY_LAPS = 20
 LTHR_MAX_AGE_DAYS = 60
 GARMIN_MAX_AGE_DAYS = 14
 # Garmins tröskelfart × 1,03 ≈ HM-fart; bara som jämförelse.
@@ -83,10 +98,11 @@ def _is_race(row):
 
 
 def lap_points(activities):
-    """Stabila varv ur löppassen: [(datum, puls, fart m/s, minuter)].
+    """Stabila varv och intervalldrag: [(datum, puls, fart m/s, minuter, 'lap'|'rep')].
 
-    Lopp hålls utanför modellen; varje varv är [sekunder, meter, puls, fart, typ]."""
-    points = []
+    Lopp hålls utanför modellen. Varje varv är [sekunder, meter, snittpuls, fart,
+    typ, maxpuls]; äldre sparade varv saknar maxpuls och ger då bara stabila varv."""
+    steady, reps = [], []
     for row in activities or []:
         if _is_race(row) or 'run' not in str(row.get('type') or '').lower():
             continue
@@ -96,14 +112,27 @@ def lap_points(activities):
         if not day:
             continue
         for lap in row.get('laps') or []:
-            try:
-                seconds, meters, hr, speed = (_num(lap[0]), _num(lap[1]), _num(lap[2]), _num(lap[3]))
-            except (TypeError, IndexError):
+            if not isinstance(lap, (list, tuple)) or len(lap) < 4:
                 continue
-            if (seconds and meters and hr and speed and seconds >= MIN_LAP_SECONDS
-                    and meters >= MIN_LAP_METERS and hr >= MIN_LAP_HR and 1.5 < speed < 7):
-                points.append((day, hr, speed, seconds / 60))
-    return sorted(points)
+            seconds, meters, hr, speed = (_num(lap[0]), _num(lap[1]), _num(lap[2]), _num(lap[3]))
+            if not (seconds and meters and hr and speed and 1.5 < speed < 7):
+                continue
+            if seconds >= MIN_LAP_SECONDS and meters >= MIN_LAP_METERS and hr >= MIN_LAP_HR:
+                steady.append((day, hr, speed, seconds / 60, 'lap'))
+                continue
+            kind = lap[4] if len(lap) > 4 else None
+            max_hr = _num(lap[5]) if len(lap) > 5 else None
+            if (MIN_REP_SECONDS <= seconds < MIN_LAP_SECONDS and meters >= 400
+                    and kind in ('ACTIVE', 'INTERVAL') and max_hr
+                    and hr < max_hr <= hr + REP_MAX_HR_ABOVE_AVG):
+                reps.append((day, max_hr - REP_MAX_HR_OFFSET, speed, seconds / 60, 'rep'))
+    if steady and reps:
+        speeds = sorted(p[2] for p in steady)
+        floor = speeds[len(speeds) // 2] * REP_MIN_SPEED_RATIO
+        reps = [r for r in reps if r[2] >= floor]
+    else:
+        reps = []
+    return sorted(steady + reps)
 
 
 def threshold_hr_series(metric_rows):
@@ -130,13 +159,13 @@ def model_on(day, points, lthr_series, lthr_override=None):
     if not lthr:
         return {'available': False, 'reason': 'Ingen tröskelpuls uppmätt de senaste två månaderna.'}
     target_hr = lthr * HALF_HR_FRACTION
-    window = [(d, hr, sp, minutes) for d, hr, sp, minutes in points
-              if 0 <= (day - d).days <= WINDOW_DAYS]
+    window = [p[:4] for p in points if 0 <= (day - p[0]).days <= WINDOW_DAYS]
+    reps = sum(1 for p in points if len(p) > 4 and p[4] == 'rep' and 0 <= (day - p[0]).days <= WINDOW_DAYS)
     near = sum(1 for _, hr, _, _ in window if hr >= target_hr - NEAR_TARGET_BPM)
-    if len(window) < 10 or near < MIN_NEAR_LAPS:
+    if len(window) - reps < MIN_STEADY_LAPS or near < MIN_NEAR_LAPS:
         return {'available': False, 'laps': len(window), 'nearLaps': near,
-                'reason': f'För få stabila varv nära tröskelpulsen ({near} av minst {MIN_NEAR_LAPS}) '
-                          'de senaste sex veckorna.'}
+                'reason': f'För lite underlag de senaste sex veckorna: {len(window) - reps} stabila varv '
+                          f'(minst {MIN_STEADY_LAPS}) och {near} nära tröskelpulsen (minst {MIN_NEAR_LAPS}).'}
     weights = [math.exp(-(day - d).days / HALF_LIFE_DAYS) * minutes for d, _, _, minutes in window]
     total = sum(weights)
     mean_hr = sum(w * hr for w, (_, hr, _, _) in zip(weights, window)) / total
@@ -163,7 +192,7 @@ def model_on(day, points, lthr_series, lthr_override=None):
         'available': True, 'half': half, 'seHalf': se_half,
         'times': _all_from('half', half),
         'lthr': round(lthr), 'targetHr': round(target_hr, 1),
-        'paceSec': round(1000 / speed, 1), 'laps': len(window), 'nearLaps': near,
+        'paceSec': round(1000 / speed, 1), 'laps': len(window) - reps, 'reps': reps, 'nearLaps': near,
         'secPerBeat': round(1000 / (intercept + slope * (target_hr - 1)) - 1000 / speed, 2),
         'easyPaceAt140': round(1000 / (intercept + slope * 140), 1) if intercept + slope * 140 > 1.5 else None,
     }
@@ -270,8 +299,9 @@ def predictor(garmin_entries, metric_rows, activities, today, target=None,
             'predicted': _fmt(riegel(before['half'], KM['half'], race['km'])) if before['available'] else None,
         })
 
-    method = ('Trainyzes egen modell: dina varv på minst 6 minuter från de senaste 6 veckorna '
-              '(puls mot terrängjusterad fart, nyare väger tyngre), läst vid 97 % av din '
+    method = ('Trainyzes egen modell: dina varv på minst 6 minuter och dina intervalldrag på '
+              '2–6 minuter (med pulsen i slutet av draget) från de senaste 6 veckorna — puls mot '
+              'terrängjusterad fart, nyare väger tyngre — läst vid 97 % av din '
               'tröskelpuls. Andra distanser via Riegels formel. Garmins prognos ingår inte, '
               'och lopp justerar inget.')
     if not current['available']:
@@ -295,7 +325,7 @@ def predictor(garmin_entries, metric_rows, activities, today, target=None,
                          'pace': _pace(current['times'][k], KM[k])} for k in KM],
         'range': {'half': [round(current['half'] - current['seHalf']),
                            round(current['half'] + current['seHalf'])]},
-        'model': {k: current[k] for k in ('lthr', 'targetHr', 'paceSec', 'laps', 'nearLaps',
+        'model': {k: current[k] for k in ('lthr', 'targetHr', 'paceSec', 'laps', 'reps', 'nearLaps',
                                           'secPerBeat', 'easyPaceAt140')},
         'comparisons': comparisons,
         'checks': checks,

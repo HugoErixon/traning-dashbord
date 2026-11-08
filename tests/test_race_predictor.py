@@ -84,6 +84,7 @@ class RacePredictorTests(unittest.TestCase):
         result = rp.predictor([], lthr_rows(), easy_only, TODAY)
         self.assertFalse(result['available'])
         self.assertIn('nära tröskelpulsen', result['reason'])
+        self.assertIn('0 nära', result['reason'])
 
     def test_race_is_shown_as_a_check_not_used(self):
         race = training_run(TODAY - timedelta(days=10), [180] * 10, name='X - Varvet (HM)', race=True)
@@ -97,6 +98,29 @@ class RacePredictorTests(unittest.TestCase):
         days_with = [h['t'] for h in result['history'] if 'half' in h]
         self.assertIn(TODAY.isoformat(), days_with)
         self.assertNotIn((TODAY - timedelta(days=60)).isoformat(), days_with)
+
+    def test_interval_reps_count_with_end_of_rep_heart_rate(self):
+        day = TODAY - timedelta(days=1)
+        rep = [[210, 210 * 4.8, 172, 4.8, 'ACTIVE', 186]]  # 3:28/km, slutpuls 186
+        points = rp.lap_points(steady_block() + [{**training_run(day, [150]), 'laps': rep * 5}])
+        reps = [p for p in points if p[4] == 'rep']
+        self.assertEqual(len(reps), 5)
+        self.assertEqual(reps[0][1], 186 - rp.REP_MAX_HR_OFFSET)
+
+    def test_jog_recoveries_spikes_and_old_laps_are_not_reps(self):
+        day = TODAY - timedelta(days=1)
+        laps = [[200, 200 * 2.6, 140, 2.6, 'ACTIVE', 150],    # joggvila märkt aktiv
+                [210, 210 * 4.8, 160, 4.8, 'ACTIVE', 205],    # sensorspik
+                [90, 90 * 5.5, 170, 5.5, 'ACTIVE', 185],      # för kort drag
+                [210, 210 * 4.8, 172, 4.8, 'ACTIVE']]         # gammalt format utan maxpuls
+        points = rp.lap_points(steady_block() + [{**training_run(day, [150]), 'laps': laps}])
+        self.assertFalse([p for p in points if p[4] == 'rep'])
+
+    def test_model_reports_how_many_reps_it_used(self):
+        day = TODAY - timedelta(days=1)
+        rep = [[210, 210 * 4.8, 172, 4.8, 'ACTIVE', 186]] * 4
+        result = rp.predictor([], lthr_rows(), steady_block() + [{**training_run(day, [150]), 'laps': rep}], TODAY)
+        self.assertEqual(result['model']['reps'], 4)
 
     def test_target_gap_and_required_rate(self):
         target = {'distance': 'half', 'seconds': 4920, 'deadline': '2027-03-14'}

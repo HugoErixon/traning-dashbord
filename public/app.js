@@ -4576,8 +4576,8 @@ HEALTH DATA (current):
     }).join('');
 
     const m = data.model || {};
-    const boxes = [`<div class="rp-source"><span>Byggd på</span><strong>${m.laps} varv</strong>
-        <small>stabila varv ≥ 6 min senaste 6 veckorna, ${m.nearLaps} nära tröskelpulsen</small></div>`,
+    const boxes = [`<div class="rp-source"><span>Byggd på</span><strong>${m.laps} varv + ${m.reps || 0} drag</strong>
+        <small>varv ≥ 6 min och intervalldrag 2–6 min (slutpuls) senaste 6 veckorna, ${m.nearLaps} nära tröskelpulsen</small></div>`,
       `<div class="rp-source"><span>Läst vid puls</span><strong>${Math.round(m.targetHr)} slag</strong>
         <small>97 % av tröskelpulsen ${m.lthr} · varje slag ≈ ${overviewNumber(m.secPerBeat, 1)} s/km</small></div>`];
     (data.comparisons || []).forEach(c => boxes.push(`<div class="rp-source rp-source-compare"><span>Jämförelse: ${escapeHtml(c.label)}</span>

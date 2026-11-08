@@ -4751,19 +4751,19 @@ def _race_target(user_id):
     return row[0] if row and isinstance(row[0], dict) else None
 
 
-RACE_LAPS_KEY = 'laps:v1:{}'
+RACE_LAPS_KEY = 'laps:v2:{}'
 # Prognosen behöver varven från sex veckor bakåt och kurvan ett halvår till.
 RACE_HISTORY_DAYS = 230
 LAP_BACKFILL_LIMIT = 40
 
 
 def _lap_rows(splits):
-    """Garmins varv i kompakt form: [sekunder, meter, puls, terrängjusterad fart, typ]."""
+    """Garmins varv i kompakt form: [sekunder, meter, puls, terrängjusterad fart, typ, maxpuls]."""
     rows = []
     for lap in (splits or {}).get('lapDTOs') or (splits or {}).get('laps') or []:
         rows.append([round(lap.get('duration') or 0, 1), round(lap.get('distance') or 0, 1),
                      lap.get('averageHR'), lap.get('avgGradeAdjustedSpeed') or lap.get('averageSpeed'),
-                     lap.get('intensityType')])
+                     lap.get('intensityType'), lap.get('maxHR')])
     return rows
 
 
@@ -4926,7 +4926,8 @@ def _performance_prompt_block(user_id):
             model = pred.get('model') or {}
             if model:
                 lines.append(
-                    f"- Built from {model.get('laps')} steady laps (>=6 min) of the last 6 weeks: "
+                    f"- Built from {model.get('laps')} steady laps (>=6 min) and {model.get('reps', 0)} "
+                    "interval reps (2-6 min, scored by end-of-rep heart rate) of the last 6 weeks: "
                     f"heart rate vs grade-adjusted pace, read at {model.get('targetHr')} bpm "
                     f"(97 % of threshold HR {model.get('lthr')}). Each beat is worth about "
                     f"{model.get('secPerBeat')} s/km. Garmin's own prediction is not part of it.")
