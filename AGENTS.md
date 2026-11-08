@@ -75,27 +75,24 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   `#messages`/`#chat-input` ids and logic) → Just nu (CNS ring, HRV, resting pulse, last night's
   sleep) → "Veckans pass" (`#cockpit-next-list`, also moved from Idag: the rest of this week, or
   next week's sessions when this week is done) → trends.
-- **Training potential:** `training_potential.py`, `GET /api/potential`, and the overview's
-  scenario card are strictly read-only. The model relates weekly VO2max to preceding
-  28-day running volume; it is an observational association, not a causal response or
-  genetic ceiling. It needs 16 weekly points and must beat last-value persistence on
-  four held-out points by 10%, with a four-point gap. Never extrapolate the fitted model
-  outside observed volume. Insufficient evidence uses an explicitly user-chosen VO2max
-  assumption, defaulting to zero improvement; mileage does not affect that mode.
-  The six-week adaptation curve and sensitivity band are declared assumptions, not
-  learned physiology or confidence intervals. Race equivalents require the user's
-  current maximal-effort result; never equate Garmin VO2max with VDOT or use an easy
-  training run as a race. Sleep/HRV are context only. No plan creation, LLM, sync or DB
-  writes occur here. Browser changes must discard stale responses after slider input.
+- **Training potential** (the "Vad kan mer träning ge?" scenario card, `training_potential.py`,
+  `/api/potential`) was removed on 2026-11-08 at Hugo's request; the race predictor replaced it.
 - **Race predictor (`race_predictor.py`, since 2026-11-08):** top of Översikt, `GET /api/race-predictor`.
-  Blends two sources 50/50 — Garmin's own race predictions (daily history via
-  `get_race_predictions`, cached `RACE_PREDICTION_TTL` = 3 h) and the threshold model (7-day avg
-  `lactate_pace` × 1.03 = HM pace, Riegel 1.06 for other distances) — then calibrates each source
-  against the athlete's own races (`eventType == race`, prediction from the day *before* the race,
-  capped ±6 %). The curve is the same prediction recomputed day by day with only that day's data.
+  **Trainyze's own model, not Garmin's** (rebuilt the same day at Hugo's request — calibrating
+  Garmin against one hot, hilly Göteborgsvarvet was not good enough). Every Garmin lap ≥ 6 min
+  (shorter reps are dropped: HR lags pace, so fast reps look cheap) gives a point (avg HR,
+  grade-adjusted speed); laps from the last 42 days are fitted to speed = a + b·HR, weighted by
+  duration and recency (half-life 21 d). HM pace = the line at **97 % of threshold HR** (Garmin's
+  measured `lactate_hr`; declared assumption), other distances via Riegel 1.06. No prediction on
+  days with < 4 steady laps within 8 bpm of that HR or a ±SE above 4 min — the line must not be
+  stretched into the unknown (Aug–Sep 2026 had no such laps and gave 1:49). Races never adjust
+  anything; they appear as "checks" (the model said 1:20:44 the day before Varvet, he ran
+  1:26:45 grade-adjusted in ~30 °C). Garmin's prediction and Garmin threshold pace × 1.03 are
+  shown as comparison only (dashed line). Laps are cached once per activity in `cache`
+  (`laps:v1:<id>`, compact rows) and backfilled during the background refresh, ≤ 40 per run.
   Target lives in cache `race-target:v1` (`PUT /api/race-target`); Hugo's is HM 1:22, date
   2027-03-14 (placeholder — military service starts end of March 2027). No LLM here.
-  The result is **stored** (cache `race-prediction:v1` with a marker = run count + latest run id)
+  The result is **stored** (cache `race-prediction:v2` with a marker = run count + latest run id)
   and only recomputed when a new run arrives: `ingest_activities()` starts
   `refresh_race_prediction_async()` (background thread, one per user, forces a fresh Garmin
   fetch) as soon as a new run is saved. The marker is the safety net — if a page load sees it has

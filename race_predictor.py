@@ -1,23 +1,28 @@
-"""Race predictor: en löpande prognos för 5 km, 10 km, halvmaraton och maraton.
+"""Race predictor: Trainyzes egen prognos för 5 km, 10 km, halvmaraton och maraton.
 
-Två oberoende källor vägs ihop, i stil med Garmin och Strava men med ett eget
-steg som ingen av dem har: kalibrering mot löparens egna lopp.
+Prognosen bygger inte på Garmins prognos. Den räknas ur löparens egna varv:
 
-1. Garmins egen race predictor (daglig historik från Garmin Connect).
-2. Tröskelmodellen: Garmins uppmätta mjölksyratröskelfart, snittad över sju
-   dagar eftersom Garmin hoppar mellan två värden, räknad till halvmaratonfart
-   och vidare till övriga distanser med Riegels formel.
+1. Varje varv på minst sex minuter ger en punkt (snittpuls, terrängjusterad
+   fart). Kortare varv hoppas över — pulsen hinner inte ikapp farten i en kort
+   intervall, och då ser hög fart billig ut. Terrängjusteringen (Garmins GAP)
+   gör att ett backigt pass inte ser långsammare ut än det var.
+2. Varven från de senaste sex veckorna vägs ihop i en linje fart = a + b·puls,
+   där nyare och längre varv väger tyngre (halveringstid tre veckor).
+3. Halvmaratonfarten är linjens fart vid 97 % av tröskelpulsen. Det är ett
+   deklarerat antagande: ett halvmaraton springs strax under tröskeln.
+   Tröskelpulsen är klockans uppmätta (eller ett labbvärde när det finns).
+4. Övriga distanser räknas från halvmaraton med Riegels formel.
 
-Varje källa jämförs med de lopp som finns i historiken (Garmins eventType
-"race"). Har en källa legat för optimistiskt eller pessimistiskt mot dina
-riktiga lopptider rättas den med samma kvot, inom ±6 %. Det är en empirisk
-justering, inte fysiologi, och den visas öppet i svaret.
+Linjen får aldrig dras långt ut i det okända: utan minst fyra stabila varv
+nära tröskelpulsen, eller med en osäkerhet över fyra minuter, ges ingen egen
+prognos den dagen. Lopp justerar inget — ett varmt eller backigt lopp ska inte
+flytta prognosen. De visas i stället som en kontroll av vad modellen sa dagen
+innan. Garmins egen prognos visas bara som jämförelse.
 
-Allt är rena funktioner utan databas, nätverk eller AI. Prognosen räknas om
-vid varje anrop ur senaste synkade data, och en kurva byggs genom att räkna
-samma prognos bakåt dag för dag med bara det som fanns den dagen.
+Rena funktioner utan databas, nätverk eller AI.
 """
 
+import math
 from datetime import date, datetime, timedelta
 
 DISTANCES = (('5k', 5.0, '5 km'), ('10k', 10.0, '10 km'),
@@ -28,15 +33,21 @@ GARMIN_FIELDS = {'5k': 'time5K', '10k': 'time10K', 'half': 'timeHalfMarathon',
                  'marathon': 'timeMarathon'}
 
 RIEGEL_EXPONENT = 1.06
-# Deklarerat antagande: halvmaratonfart ligger ungefär 3 % långsammare än
-# mjölksyratröskelfarten. Kalibreringen mot egna lopp rättar resten.
-THRESHOLD_TO_HALF = 1.03
-CALIBRATION_LIMIT = 0.06
-CALIBRATION_MAX_AGE_DAYS = 400
+WINDOW_DAYS = 42
+HALF_LIFE_DAYS = 21
+MIN_LAP_SECONDS = 360
+MIN_LAP_METERS = 500
+MIN_LAP_HR = 120
+# Halvmaraton springs strax under tröskeln; deklarerat antagande.
+HALF_HR_FRACTION = 0.97
+# Varv inom så här många slag under målpulsen räknas som "nära tröskeln".
+NEAR_TARGET_BPM = 8
+MIN_NEAR_LAPS = 4
+MAX_HALF_SE_SECONDS = 240
+LTHR_MAX_AGE_DAYS = 60
 GARMIN_MAX_AGE_DAYS = 14
-THRESHOLD_MAX_AGE_DAYS = 21
-WEIGHTS = {'garmin': 0.5, 'threshold': 0.5}
-SOURCE_LABELS = {'garmin': 'Garmins prognos', 'threshold': 'Din tröskelfart'}
+# Garmins tröskelfart × 1,03 ≈ HM-fart; bara som jämförelse.
+THRESHOLD_TO_HALF = 1.03
 
 
 def _day(value):
@@ -66,8 +77,99 @@ def _all_from(key, seconds):
     return {k: riegel(seconds, KM[key], KM[k]) for k in KM}
 
 
+def _is_race(row):
+    raw = row.get('raw') if isinstance(row.get('raw'), dict) else {}
+    return (raw.get('eventType') or {}).get('typeKey') == 'race'
+
+
+def lap_points(activities):
+    """Stabila varv ur löppassen: [(datum, puls, fart m/s, minuter)].
+
+    Lopp hålls utanför modellen; varje varv är [sekunder, meter, puls, fart, typ]."""
+    points = []
+    for row in activities or []:
+        if _is_race(row) or 'run' not in str(row.get('type') or '').lower():
+            continue
+        if 'treadmill' in str(row.get('type') or ''):
+            continue
+        day = _day(row.get('date'))
+        if not day:
+            continue
+        for lap in row.get('laps') or []:
+            try:
+                seconds, meters, hr, speed = (_num(lap[0]), _num(lap[1]), _num(lap[2]), _num(lap[3]))
+            except (TypeError, IndexError):
+                continue
+            if (seconds and meters and hr and speed and seconds >= MIN_LAP_SECONDS
+                    and meters >= MIN_LAP_METERS and hr >= MIN_LAP_HR and 1.5 < speed < 7):
+                points.append((day, hr, speed, seconds / 60))
+    return sorted(points)
+
+
+def threshold_hr_series(metric_rows):
+    out = {}
+    for row in metric_rows or []:
+        day, hr = _day(row.get('date')), _num(row.get('lactate_hr'))
+        if day and hr and 140 <= hr <= 215:
+            out[day] = hr
+    return sorted(out.items())
+
+
+def _lthr_at(series, day, override=None):
+    if override:
+        return override
+    older = [(d, hr) for d, hr in series if d <= day]
+    if not older or (day - older[-1][0]).days > LTHR_MAX_AGE_DAYS:
+        return None
+    return older[-1][1]
+
+
+def model_on(day, points, lthr_series, lthr_override=None):
+    """Egen prognos för en dag, eller {'available': False, 'reason': ...}."""
+    lthr = _lthr_at(lthr_series, day, lthr_override)
+    if not lthr:
+        return {'available': False, 'reason': 'Ingen tröskelpuls uppmätt de senaste två månaderna.'}
+    target_hr = lthr * HALF_HR_FRACTION
+    window = [(d, hr, sp, minutes) for d, hr, sp, minutes in points
+              if 0 <= (day - d).days <= WINDOW_DAYS]
+    near = sum(1 for _, hr, _, _ in window if hr >= target_hr - NEAR_TARGET_BPM)
+    if len(window) < 10 or near < MIN_NEAR_LAPS:
+        return {'available': False, 'laps': len(window), 'nearLaps': near,
+                'reason': f'För få stabila varv nära tröskelpulsen ({near} av minst {MIN_NEAR_LAPS}) '
+                          'de senaste sex veckorna.'}
+    weights = [math.exp(-(day - d).days / HALF_LIFE_DAYS) * minutes for d, _, _, minutes in window]
+    total = sum(weights)
+    mean_hr = sum(w * hr for w, (_, hr, _, _) in zip(weights, window)) / total
+    mean_sp = sum(w * sp for w, (_, _, sp, _) in zip(weights, window)) / total
+    sxx = sum(w * (hr - mean_hr) ** 2 for w, (_, hr, _, _) in zip(weights, window))
+    if sxx <= 0:
+        return {'available': False, 'reason': 'Pulsen varierar för lite mellan varven.'}
+    slope = sum(w * (hr - mean_hr) * (sp - mean_sp) for w, (_, hr, sp, _) in zip(weights, window)) / sxx
+    intercept = mean_sp - slope * mean_hr
+    speed = intercept + slope * target_hr
+    if slope <= 0 or speed <= 1.5:
+        return {'available': False, 'reason': 'Farten och pulsen hänger inte ihop i datan just nu.'}
+    resid = math.sqrt(sum(w * (sp - (intercept + slope * hr)) ** 2
+                          for w, (_, hr, sp, _) in zip(weights, window)) / total)
+    n_eff = total ** 2 / sum(w * w for w in weights)
+    se_speed = resid * math.sqrt(1 / n_eff + (target_hr - mean_hr) ** 2 / (sxx / total * n_eff))
+    half = KM['half'] * 1000 / speed
+    slow = KM['half'] * 1000 / max(speed - se_speed, 0.5)
+    se_half = slow - half
+    if se_half > MAX_HALF_SE_SECONDS:
+        return {'available': False, 'laps': len(window), 'nearLaps': near,
+                'reason': 'Osäkerheten är för stor just nu — varven pekar åt olika håll.'}
+    return {
+        'available': True, 'half': half, 'seHalf': se_half,
+        'times': _all_from('half', half),
+        'lthr': round(lthr), 'targetHr': round(target_hr, 1),
+        'paceSec': round(1000 / speed, 1), 'laps': len(window), 'nearLaps': near,
+        'secPerBeat': round(1000 / (intercept + slope * (target_hr - 1)) - 1000 / speed, 2),
+        'easyPaceAt140': round(1000 / (intercept + slope * 140), 1) if intercept + slope * 140 > 1.5 else None,
+    }
+
+
 def clean_garmin(entries):
-    """Garmins dagliga prognoser → {datum: {distans: sekunder}}."""
     out = {}
     for entry in entries or []:
         if not isinstance(entry, dict):
@@ -79,102 +181,38 @@ def clean_garmin(entries):
     return out
 
 
-def clean_threshold(metric_rows):
-    """metric_history → sorterad lista (datum, tröskelfart s/km)."""
-    points = {}
-    for row in metric_rows or []:
-        day = _day(row.get('date'))
-        pace = _num(row.get('lactate_pace'))
-        if day and pace and 150 <= pace <= 600:
-            points[day] = pace
-    return sorted(points.items())
+def _garmin_at(garmin, day):
+    for offset in range(GARMIN_MAX_AGE_DAYS + 1):
+        times = garmin.get(day - timedelta(days=offset))
+        if times:
+            return times
+    return None
+
+
+def _threshold_half(metric_rows, day):
+    paces = [(_day(r.get('date')), _num(r.get('lactate_pace'))) for r in metric_rows or []]
+    recent = [p for d, p in paces if d and p and day - timedelta(days=6) <= d <= day]
+    if not recent:
+        return None
+    return sum(recent) / len(recent) * KM['half'] * THRESHOLD_TO_HALF
 
 
 def races_from_activities(activities):
-    """Lopp ur aktivitetshistoriken: Garmins eventType 'race' på löppass."""
     races = []
     for row in activities or []:
-        raw = row.get('raw') or {}
-        if not isinstance(raw, dict):
-            continue
-        if (raw.get('eventType') or {}).get('typeKey') != 'race':
-            continue
-        if 'run' not in str(row.get('type') or '').lower():
+        if not _is_race(row) or 'run' not in str(row.get('type') or '').lower():
             continue
         km = (_num(row.get('distance')) or 0) / 1000
         seconds = _num(row.get('duration'))
         day = _day(row.get('date'))
         if not day or not seconds or km < 3:
             continue
-        races.append({'date': day, 'km': round(km, 3), 'seconds': round(seconds),
+        raw = row.get('raw') if isinstance(row.get('raw'), dict) else {}
+        gap = _num(raw.get('avgGradeAdjustedSpeed'))
+        races.append({'date': day, 'km': km, 'seconds': seconds,
+                      'gapSeconds': km * 1000 / gap if gap else None,
                       'name': str(row.get('name') or 'Lopp')[:80]})
     return sorted(races, key=lambda r: r['date'])
-
-
-def _garmin_at(garmin, day):
-    for offset in range(GARMIN_MAX_AGE_DAYS + 1):
-        times = garmin.get(day - timedelta(days=offset))
-        if times:
-            return times, day - timedelta(days=offset)
-    return None, None
-
-
-def _threshold_at(threshold, day):
-    recent = [(d, p) for d, p in threshold if day - timedelta(days=6) <= d <= day]
-    if not recent:
-        older = [(d, p) for d, p in threshold if d <= day]
-        if not older or (day - older[-1][0]).days > THRESHOLD_MAX_AGE_DAYS:
-            return None, None
-        recent = [older[-1]]
-    return sum(p for _, p in recent) / len(recent), recent[-1][0]
-
-
-def raw_sources(day, garmin, threshold):
-    """Okalibrerade prognoser per källa för en given dag."""
-    sources = {}
-    times, garmin_day = _garmin_at(garmin, day)
-    if times:
-        sources['garmin'] = {'times': dict(times), 'asOf': garmin_day}
-    pace, pace_day = _threshold_at(threshold, day)
-    if pace:
-        half = pace * KM['half'] * THRESHOLD_TO_HALF
-        sources['threshold'] = {'times': _all_from('half', half), 'asOf': pace_day,
-                                'paceSec': round(pace, 1)}
-    return sources
-
-
-def calibration(races, garmin, threshold, today):
-    """Kvot riktig lopptid / prognos per källa, ur lopp de senaste 400 dagarna."""
-    factors = {}
-    used = []
-    for race in races:
-        if (today - race['date']).days > CALIBRATION_MAX_AGE_DAYS:
-            continue
-        # Prognosen från dagen före loppet, så att loppet självt inte påverkar den.
-        sources = raw_sources(race['date'] - timedelta(days=1), garmin, threshold)
-        for name, source in sources.items():
-            predicted = riegel(source['times']['half'], KM['half'], race['km'])
-            factors.setdefault(name, []).append(race['seconds'] / predicted)
-        if sources:
-            used.append(race)
-    result = {}
-    for name, values in factors.items():
-        mean = sum(values) / len(values)
-        result[name] = max(1 - CALIBRATION_LIMIT, min(1 + CALIBRATION_LIMIT, mean))
-    return result, used
-
-
-def predict_on(day, garmin, threshold, factors):
-    """Kalibrerad, sammanvägd prognos för en dag, eller None utan källor."""
-    sources = raw_sources(day, garmin, threshold)
-    if not sources:
-        return None
-    total = sum(WEIGHTS[name] for name in sources)
-    combined = {}
-    for key in KM:
-        combined[key] = sum(source['times'][key] * factors.get(name, 1.0) * WEIGHTS[name]
-                            for name, source in sources.items()) / total
-    return {'times': combined, 'sources': sources}
 
 
 def _fmt(seconds):
@@ -189,49 +227,64 @@ def _pace(seconds, km):
     return f'{per // 60}:{per % 60:02d}/km'
 
 
-def predictor(garmin_entries, metric_rows, activities, today, target=None, history_days=180):
+def predictor(garmin_entries, metric_rows, activities, today, target=None,
+              history_days=120, lthr_override=None):
     """Hela svaret för /api/race-predictor.
 
-    `target` är {'distance': '5k'|'10k'|'half'|'marathon', 'seconds': int,
-    'deadline': 'ÅÅÅÅ-MM-DD' eller None}."""
+    `activities` är löppass med `laps` (se lap_points) och `raw`. `target` är
+    {'distance', 'seconds', 'deadline'}."""
+    points = lap_points(activities)
+    lthr_series = threshold_hr_series(metric_rows)
     garmin = clean_garmin(garmin_entries)
-    threshold = clean_threshold(metric_rows)
-    races = races_from_activities(activities)
-    factors, calibration_races = calibration(races, garmin, threshold, today)
-
-    current = predict_on(today, garmin, threshold, factors)
-    if not current:
-        return {'available': False, 'today': today.isoformat(),
-                'reason': 'Ingen prognos ännu: Garmin har varken skickat en loppprognos '
-                          'eller en tröskelfart de senaste veckorna.'}
+    current = model_on(today, points, lthr_series, lthr_override)
 
     history = []
     for offset in range(history_days, -1, -1):
         day = today - timedelta(days=offset)
-        point = predict_on(day, garmin, threshold, factors)
-        if point:
-            history.append({'t': day.isoformat(),
-                            **{k: round(v) for k, v in point['times'].items()}})
+        point = model_on(day, points, lthr_series, lthr_override)
+        g = _garmin_at(garmin, day)
+        if point['available'] or g:
+            entry = {'t': day.isoformat()}
+            if point['available']:
+                entry.update({k: round(v) for k, v in point['times'].items()})
+            if g:
+                entry['garmin'] = {k: round(v) for k, v in g.items()}
+            history.append(entry)
+
+    garmin_now = _garmin_at(garmin, today)
+    threshold_half = _threshold_half(metric_rows, today)
+    comparisons = []
+    if garmin_now:
+        comparisons.append({'key': 'garmin', 'label': 'Garmins prognos', 'half': round(garmin_now['half'])})
+    if threshold_half:
+        comparisons.append({'key': 'threshold', 'label': 'Garmins tröskelfart × 1,03',
+                            'half': round(threshold_half)})
+
+    checks = []
+    for race in races_from_activities(activities):
+        before = model_on(race['date'] - timedelta(days=1), points, lthr_series, lthr_override)
+        checks.append({
+            'date': race['date'].isoformat(), 'name': race['name'], 'km': round(race['km'], 2),
+            'time': _fmt(race['seconds']),
+            'gapTime': _fmt(race['gapSeconds']) if race['gapSeconds'] else None,
+            'predicted': _fmt(riegel(before['half'], KM['half'], race['km'])) if before['available'] else None,
+        })
+
+    method = ('Trainyzes egen modell: dina varv på minst 6 minuter från de senaste 6 veckorna '
+              '(puls mot terrängjusterad fart, nyare väger tyngre), läst vid 97 % av din '
+              'tröskelpuls. Andra distanser via Riegels formel. Garmins prognos ingår inte, '
+              'och lopp justerar inget.')
+    if not current['available']:
+        return {'available': False, 'today': today.isoformat(), 'reason': current['reason'],
+                'history': history, 'comparisons': comparisons, 'checks': checks, 'method': method}
 
     def change(days):
-        then = next((p for p in history if p['t'] >= (today - timedelta(days=days)).isoformat()), None)
+        start = (today - timedelta(days=days)).isoformat()
+        then = next((p for p in history if p['t'] >= start and 'half' in p), None)
         if not then or then['t'] == today.isoformat():
             return None
         return {'days': days, 'from': then['t'],
                 **{k: round(current['times'][k] - then[k]) for k in KM}}
-
-    sources = []
-    for name, source in current['sources'].items():
-        factor = factors.get(name, 1.0)
-        sources.append({
-            'key': name, 'label': SOURCE_LABELS[name], 'weight': WEIGHTS[name],
-            'asOf': source['asOf'].isoformat(),
-            'calibration': round(factor, 4),
-            'half': round(source['times']['half'] * factor),
-            'raw': {k: round(v) for k, v in source['times'].items()},
-            **({'thresholdPaceSec': source['paceSec']} if 'paceSec' in source else {}),
-        })
-    spread = [s['half'] for s in sources]
 
     result = {
         'available': True,
@@ -240,25 +293,20 @@ def predictor(garmin_entries, metric_rows, activities, today, target=None, histo
                          'seconds': round(current['times'][k]),
                          'time': _fmt(current['times'][k]),
                          'pace': _pace(current['times'][k], KM[k])} for k in KM],
-        'range': {'half': [min(spread), max(spread)]} if len(spread) > 1 else None,
-        'sources': sources,
-        'calibration': {
-            'races': [{'date': r['date'].isoformat(), 'name': r['name'], 'km': r['km'],
-                       'time': _fmt(r['seconds'])} for r in calibration_races],
-            'note': ('Justerad mot dina egna lopp.' if calibration_races
-                     else 'Inga lopp i historiken ännu, så prognosen är inte kalibrerad mot dig.'),
-        },
+        'range': {'half': [round(current['half'] - current['seHalf']),
+                           round(current['half'] + current['seHalf'])]},
+        'model': {k: current[k] for k in ('lthr', 'targetHr', 'paceSec', 'laps', 'nearLaps',
+                                          'secPerBeat', 'easyPaceAt140')},
+        'comparisons': comparisons,
+        'checks': checks,
         'change28': change(28),
         'change90': change(90),
         'history': history,
-        'method': ('Garmins prognos och din tröskelfart (7-dagarssnitt, HM-fart = tröskelfart '
-                   '× 1,03), 50/50, kalibrerade mot dina lopp. Andra distanser via Riegels '
-                   'formel. Räknas om varje gång ny data synkas.'),
+        'method': method,
     }
     if target and target.get('distance') in KM and _num(target.get('seconds')):
         key, goal = target['distance'], float(target['seconds'])
-        predicted = current['times'][key]
-        gap = predicted - goal
+        gap = current['times'][key] - goal
         info = {'distance': key, 'label': LABELS[key], 'seconds': round(goal),
                 'time': _fmt(goal), 'pace': _pace(goal, KM[key]),
                 'gapSec': round(gap), 'reached': gap <= 0,

@@ -27,67 +27,84 @@ def garmin_day(day, half):
             'timeMarathon': round(times['marathon'])}
 
 
-def garmin_series(days, start_half, end_half):
-    return [garmin_day(TODAY - timedelta(days=days - i),
-                       round(start_half + (end_half - start_half) * i / days))
-            for i in range(days + 1)]
-
-
-def threshold_rows(days, pace):
-    return [{'date': (TODAY - timedelta(days=i)).isoformat(), 'lactate_pace': pace}
+def lthr_rows(hr=180, days=60):
+    return [{'date': (TODAY - timedelta(days=i)).isoformat(), 'lactate_hr': hr, 'lactate_pace': 240}
             for i in range(days)]
 
 
-def race(day, km, seconds):
-    return {'date': day.isoformat(), 'type': 'running', 'name': 'Varvet', 'distance': km * 1000,
-            'duration': seconds, 'raw': {'eventType': {'typeKey': 'race'}}}
+def speed_at(hr, base=2.8, per_beat=0.035):
+    """Konstruerad löpare: 2,8 m/s vid 140 slag, +0,035 m/s per slag."""
+    return base + per_beat * (hr - 140)
+
+
+def training_run(day, hrs, name='Pass', race=False, minutes=8):
+    laps = [[minutes * 60, speed_at(hr) * minutes * 60, hr, speed_at(hr), 'ACTIVE'] for hr in hrs]
+    raw = {'eventType': {'typeKey': 'race' if race else 'uncategorized'}}
+    return {'id': hash((day, name)), 'date': day.isoformat(), 'type': 'running', 'name': name,
+            'distance': sum(l[1] for l in laps), 'duration': sum(l[0] for l in laps), 'raw': raw,
+            'laps': laps}
+
+
+def steady_block(days=40, step=3, hrs=(140, 150, 160, 172, 174)):
+    return [training_run(TODAY - timedelta(days=d), hrs) for d in range(0, days, step)]
 
 
 class RacePredictorTests(unittest.TestCase):
-    def test_no_sources_means_no_prediction(self):
-        result = rp.predictor([], [], [], TODAY)
+    def test_no_laps_means_no_prediction(self):
+        result = rp.predictor([], lthr_rows(), [], TODAY)
         self.assertFalse(result['available'])
+        self.assertIn('varv', result['reason'])
 
-    def test_combines_garmin_and_threshold_equally(self):
-        result = rp.predictor(garmin_series(30, 5200, 5200), threshold_rows(30, 240), [], TODAY)
-        half = next(p for p in result['predictions'] if p['key'] == 'half')
-        threshold_half = 240 * rp.KM['half'] * rp.THRESHOLD_TO_HALF
-        self.assertAlmostEqual(half['seconds'], (5200 + threshold_half) / 2, delta=1)
-        self.assertEqual({s['key'] for s in result['sources']}, {'garmin', 'threshold'})
-
-    def test_threshold_alone_carries_prediction_without_garmin(self):
-        result = rp.predictor([], threshold_rows(10, 240), [], TODAY)
+    def test_reads_the_runners_own_line_at_97_percent_of_threshold(self):
+        result = rp.predictor([], lthr_rows(180), steady_block(), TODAY)
         self.assertTrue(result['available'])
-        self.assertEqual([s['key'] for s in result['sources']], ['threshold'])
+        expected = rp.KM['half'] * 1000 / speed_at(180 * rp.HALF_HR_FRACTION)
+        half = next(p for p in result['predictions'] if p['key'] == 'half')
+        self.assertAlmostEqual(half['seconds'], expected, delta=2)
+        self.assertEqual(result['model']['lthr'], 180)
 
-    def test_stale_threshold_is_ignored(self):
-        old = [{'date': (TODAY - timedelta(days=40)).isoformat(), 'lactate_pace': 240}]
-        self.assertFalse(rp.predictor([], old, [], TODAY)['available'])
+    def test_garmin_is_only_a_comparison(self):
+        garmin = [garmin_day(TODAY - timedelta(days=i), 4000) for i in range(30)]
+        with_garmin = rp.predictor(garmin, lthr_rows(), steady_block(), TODAY)
+        without = rp.predictor([], lthr_rows(), steady_block(), TODAY)
+        self.assertEqual(with_garmin['predictions'], without['predictions'])
+        self.assertEqual(with_garmin['comparisons'][0], {'key': 'garmin', 'label': 'Garmins prognos', 'half': 4000})
 
-    def test_calibrates_against_own_race_and_caps_it(self):
-        race_day = TODAY - timedelta(days=100)
-        garmin = garmin_series(200, 5000, 5000)
-        # Loppet gick 3 % långsammare än Garmin förutsade dagen innan.
-        result = rp.predictor(garmin, [], [race(race_day, rp.KM['half'], 5150)], TODAY)
-        source = result['sources'][0]
-        self.assertAlmostEqual(source['calibration'], 1.03, places=3)
-        self.assertAlmostEqual(result['predictions'][2]['seconds'], 5150, delta=2)
-        wild = rp.predictor(garmin, [], [race(race_day, rp.KM['half'], 6500)], TODAY)
-        self.assertEqual(wild['sources'][0]['calibration'], 1 + rp.CALIBRATION_LIMIT)
+    def test_short_reps_and_races_do_not_move_the_model(self):
+        base = rp.predictor([], lthr_rows(), steady_block(), TODAY)['predictions']
+        noisy = steady_block() + [
+            training_run(TODAY - timedelta(days=2), [178] * 6, minutes=3),
+            training_run(TODAY - timedelta(days=5), [186] * 10, name='Varvet', race=True)]
+        noisy[-2]['laps'] = [[180, 1500, 165, 8.0, 'ACTIVE']] * 6  # orimligt snabba korta drag
+        noisy[-1]['laps'] = [[600, 1800, 186, 3.0, 'ACTIVE']] * 10  # varmt, långsamt lopp
+        self.assertEqual(rp.predictor([], lthr_rows(), noisy, TODAY)['predictions'], base)
 
-    def test_history_and_change_follow_the_data(self):
-        result = rp.predictor(garmin_series(60, 5400, 5300), [], [], TODAY, history_days=60)
-        self.assertEqual(result['history'][-1]['t'], TODAY.isoformat())
-        self.assertLess(result['change28']['half'], 0)
+    def test_no_prediction_without_laps_near_threshold(self):
+        easy_only = steady_block(hrs=(135, 140, 145, 150))
+        result = rp.predictor([], lthr_rows(), easy_only, TODAY)
+        self.assertFalse(result['available'])
+        self.assertIn('nära tröskelpulsen', result['reason'])
+
+    def test_race_is_shown_as_a_check_not_used(self):
+        race = training_run(TODAY - timedelta(days=10), [180] * 10, name='X - Varvet (HM)', race=True)
+        result = rp.predictor([], lthr_rows(), steady_block() + [race], TODAY)
+        self.assertEqual(len(result['checks']), 1)
+        self.assertIsNotNone(result['checks'][0]['predicted'])
+
+    def test_history_has_gaps_where_the_model_lacked_data(self):
+        early = [training_run(TODAY - timedelta(days=d), (140, 150, 160, 172, 174)) for d in range(150, 120, -3)]
+        result = rp.predictor([], lthr_rows(days=200), early + steady_block(), TODAY, history_days=180)
+        days_with = [h['t'] for h in result['history'] if 'half' in h]
+        self.assertIn(TODAY.isoformat(), days_with)
+        self.assertNotIn((TODAY - timedelta(days=60)).isoformat(), days_with)
 
     def test_target_gap_and_required_rate(self):
         target = {'distance': 'half', 'seconds': 4920, 'deadline': '2027-03-14'}
-        result = rp.predictor(garmin_series(60, 5400, 5300), [], [], TODAY, target=target)
+        result = rp.predictor([], lthr_rows(), steady_block(), TODAY, target=target)
         t = result['target']
-        self.assertEqual(t['gapSec'], 5300 - 4920)
-        self.assertFalse(t['reached'])
-        self.assertAlmostEqual(t['neededPerWeekSec'], 380 / t['weeksLeft'], places=0)
-        self.assertGreater(t['recentPerWeekSec'], 0)
+        half = next(p for p in result['predictions'] if p['key'] == 'half')['seconds']
+        self.assertEqual(t['gapSec'], half - 4920)
+        self.assertAlmostEqual(t['neededPerWeekSec'], max(half - 4920, 0) / t['weeksLeft'], places=0)
 
 
 def run(day, label, km=10, seconds=3300, hr=150, speed=None, splits=None, event='uncategorized'):

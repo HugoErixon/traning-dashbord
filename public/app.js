@@ -1518,7 +1518,7 @@ document.addEventListener('keydown', event => {
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); }
     if (id === 'home') loadToday();
-    if (id === 'overview') { loadHealth(); loadOverview(); loadPotential(); }
+    if (id === 'overview') { loadHealth(); loadOverview(); loadRacePrediction(); }
   }
 
   renderThemeToggle();
@@ -2301,61 +2301,64 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   }
 
   function renderTrainingCockpit() {
-    // Det som fanns här var appens fjärde domare: fyra if-satser på CNS och
-    // ACWR som skrev ut ett eget "träningsbeslut" bredvid motorns. Talet det
-    // visade var dessutom exakt samma CNS-tal som ringen, under ett annat
-    // namn. Beslutet ägs nu av /api/today; kvar är veckans lista.
+    // Veckokalendern på Översikt. Beslutet om dagens pass ägs av /api/today;
+    // här visas bara vad som är inplanerat, dag för dag.
     const list = document.getElementById('cockpit-next-list');
     if (!list) return;
 
-    const stats = getWeekTrainingStats();
-    // Veckans resterande pass i första hand; är veckan slut eller tom visas
-    // de närmaste som är inplanerade, så listan aldrig står tom i onödan.
-    const nextMonday = getWeekBounds().end;
-    const upcoming = getNextSessions(14);
-    const thisWeek = upcoming.filter(s => s.date < nextMonday);
-    const next = thisWeek.length ? thisWeek : upcoming.slice(0, 5);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const year = today.getFullYear();
+    const { week: currentWeek } = getISOWeekInfo();
+    const open = s => s.status !== 'completed' && s.status !== 'skipped';
+    const dated = PLAN_SESSIONS.map(s => ({ ...s, date: getSessionDate(s, year) }));
+    // Den här veckan så länge något är kvar; annars nästa vecka med pass.
+    const remainingThisWeek = dated.some(s => s.week === currentWeek && s.date >= today && open(s));
+    const nextWeek = dated.filter(s => s.date >= today && open(s)).sort((x, y) => x.date - y.date)[0]?.week;
+    const week = remainingThisWeek || !nextWeek ? currentWeek : nextWeek;
+    const sessions = dated.filter(s => s.week === week);
+    const monday = getMondayOfISOWeek(week, year);
 
-    // "Kvar av veckan" i stället för planföljsamhet i procent. Procentsatsen
-    // mätte hur väl du lydde en plan som skrevs innan veckan började, och sjönk
-    // varje gång verkligheten kom emellan.
-    const compliance = document.getElementById('cockpit-compliance');
-    const remaining = stats.remaining?.length ?? 0;
-    compliance.textContent = stats.plannedKm
-      ? (remaining ? `${remaining} pass kvar` : 'Veckan är körd')
-      : 'Ingen plan';
-    compliance.className = 'cockpit-tag ' + (remaining ? 'good' : 'warn');
+    const plannedKm = Math.round(sessions.reduce((sum, s) => sum + (Number(s.km) || 0), 0) * 10) / 10;
+    const left = sessions.filter(s => s.date >= today && open(s) && s.type !== 'rest').length;
+    document.getElementById('cockpit-week-title').textContent = sessions.length
+      ? `Vecka ${week}${week === currentWeek ? '' : ' · nästa vecka'}`
+      : `Vecka ${week} · inget inplanerat`;
+    const tag = document.getElementById('cockpit-compliance');
+    tag.textContent = sessions.length
+      ? `${plannedKm.toLocaleString('sv-SE')} km${left ? ` · ${left} pass kvar` : ''}`
+      : 'Planera under Plan';
+    tag.className = 'wk-summary';
 
-    document.getElementById('cockpit-week-title').textContent = stats.plannedKm
-      ? `V${stats.week}: ${stats.completedKm.toFixed(1)} av ${stats.plannedKm} km`
-      : `V${stats.week}: plan saknas`;
-    if (!thisWeek.length && next.length) {
-      // Veckan är slut — listan visar redan nästa vecka, och rubriken ska
-      // beskriva det som står under den.
-      const nextWeek = next[0].week;
-      const km = next.filter(s => s.week === nextWeek).reduce((sum, s) => sum + (Number(s.km) || 0), 0);
-      document.getElementById('cockpit-week-title').textContent =
-        `V${nextWeek}: ${Math.round(km * 10) / 10} km inplanerat`;
-      compliance.textContent = 'Nästa vecka';
-      compliance.className = 'cockpit-tag good';
+    const kind = s => ({ run: 'quality', easy: 'easy', lift: 'strength', race: 'race', rest: 'rest' }[s.type] || 'easy');
+    const kindLabel = s => ({ run: 'Kvalitet', easy: 'Lugnt', lift: 'Styrka', race: 'Lopp', rest: 'Vila' }[s.type] || 'Pass');
+    const statusLabel = s => s.status === 'completed' ? 'Klart' : s.status === 'skipped' ? 'Överhoppat'
+      : s.status === 'missed' ? 'Missat' : '';
+    const days = [];
+    for (let dow = 0; dow < 7; dow++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + dow);
+      const daySessions = sessions.filter(s => (s.dow || 0) === dow);
+      const isToday = date.getTime() === today.getTime();
+      const past = date < today;
+      const items = daySessions.length ? daySessions.map(s => {
+        const sub = (s.type === 'lift' && s.strength_recommendation_text) || s.detail || '';
+        const status = statusLabel(s);
+        return `<div class="wk-session wk-${kind(s)}${status ? ' wk-done' : ''}" title="${escapeHtml(sub)}">
+          <div class="wk-session-top"><span class="wk-kind">${escapeHtml(kindLabel(s))}</span>
+            ${s.km ? `<span class="wk-km">${escapeHtml(String(s.km).replace('.', ','))} km</span>` : ''}</div>
+          <div class="wk-title">${escapeHtml(s.title)}</div>
+          ${sub ? `<div class="wk-detail">${escapeHtml(sub)}</div>` : ''}
+          ${status ? `<div class="wk-status">${escapeHtml(status)}</div>` : ''}
+        </div>`;
+      }).join('') : '<div class="wk-empty">Ledigt</div>';
+      days.push(`<div class="wk-day${isToday ? ' wk-today' : ''}${past ? ' wk-past' : ''}">
+        <div class="wk-day-head"><span>${escapeHtml(date.toLocaleDateString('sv-SE', { weekday: 'short' }).replace('.', ''))}</span>
+          <strong>${date.getDate()}</strong>${isToday ? '<em>Idag</em>' : ''}</div>
+        <div class="wk-items">${items}</div></div>`);
     }
-
-    const typeClass = s => s.type === 'race' ? 'bad' : s.type === 'run' ? 'warn' : s.type === 'lift' ? 'warn' : 'good';
-    const typeLabel = s => ({ run:'KVALITET', easy:'LUGNT', lift:'STYRKA', race:'LOPP', rest:'VILA' }[s.type] || String(s.type || 'PLAN').toUpperCase());
-    const dayFmt = d => d.toLocaleDateString('sv-SE', { weekday:'short', day:'numeric' });
-    document.getElementById('cockpit-next-list').innerHTML = (next.length ? next : [{ date:new Date(), title:'Inget kommande pass', detail:'Lägg till eller synka din plan.', type:'rest', km:0 }])
-      .map(s => `
-        <div class="cockpit-row">
-          <div class="cockpit-row-day">${escapeHtml(dayFmt(s.date))}</div>
-          <div>
-            <div class="cockpit-row-title">${escapeHtml(s.title)}</div>
-            <div class="cockpit-row-sub">${escapeHtml(
-              (s.type === 'lift' && s.strength_recommendation_text) || s.detail || (s.km ? `${s.km} km` : '')
-            )}</div>
-          </div>
-          <span class="cockpit-tag ${typeClass(s)}">${escapeHtml(typeLabel(s))}</span>
-        </div>
-      `).join('');
+    list.className = 'wk-grid';
+    list.innerHTML = days.join('');
   }
 
   function safeRenderTrainingCockpit() {
@@ -2770,7 +2773,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadPlan(), loadStrain(), loadSessionVerdict(), loadToday(), loadOverview(), loadPotential()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadPlan(), loadStrain(), loadSessionVerdict(), loadToday(), loadOverview(), loadRacePrediction()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -3745,6 +3748,7 @@ HEALTH DATA (current):
     div.className = role === 'user' ? 'msg user' : 'msg ai';
     div.innerHTML = `<div class="msg-from">${role === 'user' ? 'DU' : 'COACH'}</div>` + html;
     box.appendChild(div);
+    if (role === 'user') box.closest('.chat-wrap')?.classList.add('has-history');
     return div;
   }
 
@@ -3763,6 +3767,7 @@ HEALTH DATA (current):
     clearChatHistory();
     const box = document.getElementById('messages');
     if (box) box.innerHTML = chatIntroHtml;
+    box?.closest('.chat-wrap')?.classList.remove('has-history');
     document.getElementById('chat-input')?.focus();
   }
 
@@ -3776,7 +3781,7 @@ HEALTH DATA (current):
     inp.value = '';
     const box = document.getElementById('messages');
     appendChatMessage('user', escapeHtml(msg));
-    const aDiv = appendChatMessage('assistant', '<span style="color:var(--muted)">Thinking...</span>');
+    const aDiv = appendChatMessage('assistant', '<span class="typing" aria-label="Coachen skriver"><i></i><i></i><i></i></span>');
     box.scrollTop = box.scrollHeight;
     // Historiken skickas som den såg ut före den här frågan — frågan själv
     // ligger i message-fältet, och en dubblett skulle bara förvirra modellen.
@@ -4436,9 +4441,19 @@ HEALTH DATA (current):
 
   // En enkel linje i kortets riktiga storlek. Lägre tid är bättre, så axeln
   // vänds: en kurva som går uppåt betyder snabbare.
-  function rpDrawLine(el, points, {target = null, invert = true, color = 'var(--accent)'} = {}) {
+  // Ett uppehåll på mer än tio dagar ritas som ett avbrott i linjen, inte som
+  // en rak sträcka genom dagar då modellen saknade underlag.
+  function rpPath(points, x, y) {
+    return points.map((p, i) => {
+      const gap = i && (new Date(p.t) - new Date(points[i - 1].t)) > 10 * 864e5;
+      return `${i && !gap ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`;
+    }).join('');
+  }
+
+  function rpDrawLine(el, points, {target = null, invert = true, color = 'var(--accent)', compare = []} = {}) {
     if (!el) return;
     const clean = points.filter(p => Number.isFinite(p.v));
+    const other = compare.filter(p => Number.isFinite(p.v));
     if (clean.length < 2) {
       el.innerHTML = '<div class="ov-chart-empty">Behöver fler mätningar</div>';
       el._points = null;
@@ -4446,9 +4461,10 @@ HEALTH DATA (current):
     }
     const W = Math.max(200, Math.round(el.clientWidth || 300)), H = Math.round(el.clientHeight || 90);
     const pad = {l: 4, r: 6, t: 10, b: 10};
-    const t0 = new Date(clean[0].t + 'T12:00:00').getTime();
-    const t1 = Math.max(t0 + 864e5, new Date(clean.at(-1).t + 'T12:00:00').getTime());
-    const values = clean.map(p => p.v).concat(target != null ? [target] : []);
+    const all = clean.concat(other);
+    const t0 = Math.min(...all.map(p => new Date(p.t + 'T12:00:00').getTime()));
+    const t1 = Math.max(t0 + 864e5, ...all.map(p => new Date(p.t + 'T12:00:00').getTime()));
+    const values = all.map(p => p.v).concat(target != null ? [target] : []);
     let lo = Math.min(...values), hi = Math.max(...values);
     const span = Math.max(hi - lo, Math.abs(hi) * 0.01, 1);
     lo -= span * 0.12; hi += span * 0.12;
@@ -4457,7 +4473,9 @@ HEALTH DATA (current):
       const f = (v - lo) / (hi - lo);
       return pad.t + (invert ? f : 1 - f) * (H - pad.t - pad.b);
     };
-    const path = clean.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+    const path = rpPath(clean, x, y);
+    const comparePath = other.length > 1
+      ? `<path d="${rpPath(other, x, y)}" class="rp-compare-line" fill="none"/>` : '';
     const dots = clean.length <= 40
       ? clean.map(p => `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.6" fill="${color}"/>`).join('')
       : '';
@@ -4465,7 +4483,7 @@ HEALTH DATA (current):
     const goal = target != null
       ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}" class="rp-goal-line"/>`
       : '';
-    el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${goal}
+    el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${goal}${comparePath}
       <path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       ${dots}<circle cx="${x(last.t).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="4" fill="${color}"/>
       <line class="rp-hover-line" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/></svg>`;
@@ -4491,7 +4509,7 @@ HEALTH DATA (current):
     const change = data?.change28?.[raceDistance];
     const label = data?.predictions?.find(p => p.key === raceDistance)?.label || '';
     return change != null
-      ? `${label}: ${rpSigned(change)} senaste 4 veckorna${change < 0 ? ' (snabbare)' : change > 0 ? ' (långsammare)' : ''}`
+      ? `${label}: ${rpSigned(change)} senaste 4 veckorna${change < 0 ? ' (snabbare)' : change > 0 ? ' (långsammare)' : ''} · streckad linje = Garmin`
       : `${label}: för kort historik för en riktning.`;
   }
 
@@ -4500,7 +4518,8 @@ HEALTH DATA (current):
     if (!data?.available) return;
     const target = data.target?.distance === raceDistance ? data.target.seconds : null;
     rpDrawLine(document.getElementById('rp-chart'),
-      (data.history || []).map(p => ({t: p.t, v: p[raceDistance]})), {target});
+      (data.history || []).map(p => ({t: p.t, v: p[raceDistance]})), {target,
+        compare: (data.history || []).map(p => ({t: p.t, v: p.garmin?.[raceDistance]}))});
     document.getElementById('rp-readout').textContent = rpDefaultReadout();
     document.querySelectorAll('.rp-dist').forEach(btn => {
       const on = btn.dataset.distance === raceDistance;
@@ -4556,16 +4575,17 @@ HEALTH DATA (current):
         <small>${change != null ? escapeHtml(rpSigned(change)) + ' på 4 v' : escapeHtml(p.pace)}</small></button>`;
     }).join('');
 
-    document.getElementById('rp-sources').innerHTML = data.sources.map(src => {
-      const detail = src.key === 'threshold'
-        ? `tröskel ${rpPace(src.thresholdPaceSec)}/km`
-        : `Garmin sa ${rpTime(src.raw.half)}`;
-      const calib = Math.abs(src.calibration - 1) >= 0.001
-        ? ` · justerad ${src.calibration > 1 ? '+' : '−'}${Math.abs((src.calibration - 1) * 100).toFixed(1)} %` : '';
-      return `<div class="rp-source"><span>${escapeHtml(src.label)} <small>${Math.round(src.weight * 100)} %</small></span>
-        <strong>${rpTime(src.half)}</strong><small>${escapeHtml(detail + calib)}</small></div>`;
-    }).join('') + `<div class="rp-source rp-source-note"><span>Kalibrering</span><small>${escapeHtml(data.calibration.note)}${
-      data.calibration.races.length ? ' ' + data.calibration.races.map(r => `${escapeHtml(r.date)}: ${escapeHtml(r.time)}`).join(', ') : ''}</small></div>`;
+    const m = data.model || {};
+    const boxes = [`<div class="rp-source"><span>Byggd på</span><strong>${m.laps} varv</strong>
+        <small>stabila varv ≥ 6 min senaste 6 veckorna, ${m.nearLaps} nära tröskelpulsen</small></div>`,
+      `<div class="rp-source"><span>Läst vid puls</span><strong>${Math.round(m.targetHr)} slag</strong>
+        <small>97 % av tröskelpulsen ${m.lthr} · varje slag ≈ ${overviewNumber(m.secPerBeat, 1)} s/km</small></div>`];
+    (data.comparisons || []).forEach(c => boxes.push(`<div class="rp-source rp-source-compare"><span>Jämförelse: ${escapeHtml(c.label)}</span>
+        <strong>${rpTime(c.half)}</strong><small>Ingår inte i prognosen</small></div>`));
+    (data.checks || []).forEach(c => boxes.push(`<div class="rp-source rp-source-note"><span>Kontroll: ${escapeHtml(c.name.split(' - ').pop().split('(')[0].trim())}</span>
+        <strong>${escapeHtml(c.gapTime || c.time)}</strong><small>${escapeHtml(c.date)} · ${c.gapTime ? 'terrängjusterat, ' : ''}${
+          c.predicted ? `modellen sa ${escapeHtml(c.predicted)} dagen innan` : 'för lite data dagen innan'}. Justerar inget.</small></div>`));
+    document.getElementById('rp-sources').innerHTML = boxes.join('');
     document.getElementById('rp-method').textContent = data.method;
     const computed = data.computedAt ? data.computedAt.slice(0, 16).replace('T', ' ') : '';
     document.getElementById('rp-updated').textContent = data.refreshing
@@ -4602,7 +4622,8 @@ HEALTH DATA (current):
       const p = rpNearest(chart, event);
       if (!p) return;
       const when = new Date(p.t + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
-      document.getElementById('rp-readout').textContent = `${when}: ${rpTime(p.v)}`;
+      const g = (racePrediction?.history || []).find(h => h.t === p.t)?.garmin?.[raceDistance];
+      document.getElementById('rp-readout').textContent = `${when}: ${rpTime(p.v)}${g ? ` · Garmin ${rpTime(g)}` : ''}`;
     });
     chart?.addEventListener('pointerleave', () => {
       rpHoverEnd(chart);
@@ -4642,162 +4663,6 @@ HEALTH DATA (current):
     });
   }
   loadRacePrediction();
-
-  // Training potential: read-only, separate from scheduling and AI coaching.
-  let potentialData = null;
-  let potentialRequest = 0;
-  let potentialTimer = null;
-
-  function potentialRaceSeconds(text) {
-    const match = /^(\d{1,3}):([0-5]\d)$/.exec(text.trim());
-    if (!match) return null;
-    const seconds = Number(match[1]) * 60 + Number(match[2]);
-    return seconds >= 600 && seconds <= 43200 ? seconds : null;
-  }
-
-  function potentialTime(seconds) {
-    // Ten-second precision reflects the exploratory nature of these times.
-    const total = Math.round(seconds / 10) * 10;
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor(total % 3600 / 60);
-    const secs = String(total % 60).padStart(2, '0');
-    return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${secs}` : `${minutes}:${secs}`;
-  }
-
-  function drawPotentialChart(data) {
-    const el = document.getElementById('potential-chart');
-    const future = data.projection || [];
-    const today = Date.parse(data.generatedDate + 'T12:00:00Z');
-    const history = (data.history || []).map(p => ({...p, week: (Date.parse(p.date + 'T12:00:00Z') - today) / 604800000})).filter(p => p.week >= -12);
-    if (!future.length) {
-      el.innerHTML = '<p class="an-empty">Ingen framtidskurva för detta val. Läs förklaringen ovan eller välj ett eget antagande.</p>';
-      return;
-    }
-    const width = Math.max(320, el.clientWidth || 600), height = 255;
-    const left = 38, right = width - 15, top = 20, bottom = height - 35;
-    const first = Math.min(-1, ...history.map(p => p.week));
-    const values = [...history.map(p => p.vo2max), ...future.flatMap(p => [p.low, p.high])];
-    const min = Math.floor(Math.min(...values) - .5), max = Math.ceil(Math.max(...values) + .5);
-    const x = week => left + (week - first) / (data.weeks - first) * (right - left);
-    const y = value => bottom - (value - min) / (max - min) * (bottom - top);
-    const path = (points, field) => points.map((p, i) => `${i ? 'L' : 'M'}${x(p.week).toFixed(1)},${y(p[field]).toFixed(1)}`).join(' ');
-    const band = path(future, 'high') + ' ' + path([...future].reverse(), 'low').replace(/^M/, 'L') + ' Z';
-    const grid = Array.from({length: 5}, (_, i) => {
-      const v = min + (max - min) * i / 4;
-      return `<line class="potential-grid" x1="${left}" x2="${right}" y1="${y(v)}" y2="${y(v)}"/><text x="${left - 7}" y="${y(v) + 4}" text-anchor="end">${overviewNumber(v, 1)}</text>`;
-    }).join('');
-    const end = future[future.length - 1];
-    const description = `VO₂max från ${overviewNumber(data.currentVo2max, 1)} till ${overviewNumber(end.vo2max, 1)} på ${data.weeks} veckor. Känslighetsintervall ${overviewNumber(end.low, 1)} till ${overviewNumber(end.high, 1)}.`;
-    el.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(description)}">
-      ${grid}<path class="potential-band" d="${band}"/>
-      <line class="potential-grid" x1="${x(0)}" x2="${x(0)}" y1="${top}" y2="${bottom}" stroke-dasharray="3 4"/>
-      <path class="potential-history" d="${path(history, 'vo2max')}"/>
-      <path class="potential-line" d="${path(future, 'vo2max')}" stroke-dasharray="6 4"/>
-      ${history.map(p => `<circle cx="${x(p.week)}" cy="${y(p.vo2max)}" r="3" fill="var(--muted2)"><title>${escapeHtml(p.date)}: VO₂max ${overviewNumber(p.vo2max, 1)}, ${overviewNumber(p.km, 1)} km/vecka</title></circle>`).join('')}
-      ${future.filter(p => p.week % 4 === 0 || p.week === data.weeks).map(p => `<circle cx="${x(p.week)}" cy="${y(p.vo2max)}" r="4" fill="var(--accent)"><title>Vecka ${p.week}: ${overviewNumber(p.vo2max, 1)} (${overviewNumber(p.low, 1)}–${overviewNumber(p.high, 1)})</title></circle>`).join('')}
-      <text x="${left}" y="${height - 10}">Historik</text>
-      <text x="${x(0)}" y="${height - 10}" text-anchor="middle">Nu</text>
-      <text x="${right}" y="${height - 10}" text-anchor="end">+${data.weeks} veckor</text>
-    </svg>`;
-  }
-
-  function renderPotential(data) {
-    potentialData = data;
-    const model = data.model;
-    const projected = data.projection.at(-1);
-    const number = v => v == null ? '–' : overviewNumber(v, 1);
-    const hypothetical = data.mode === 'hypothesis';
-    document.getElementById('potential-mode').textContent = data.mode === 'history' ? 'Samband i din historik' : hypothetical ? 'Räkneexempel · eget antagande' : 'Kan inte beräknas';
-    document.getElementById('potential-status').textContent = hypothetical
-      ? `${model.available ? '' : model.reason + ' '}Här väljer du själv en tänkt VO₂max-förändring. Kilometerreglaget påverkar inte resultatet i detta läge.`
-      : model.reason;
-    document.getElementById('potential-controls').disabled = false;
-    document.getElementById('potential-race').disabled = !projected;
-    const method = document.getElementById('potential-method');
-    method.querySelector('[value="history"]').disabled = !model.available;
-    if (!model.available || hypothetical) method.value = 'hypothesis';
-    document.getElementById('potential-km-range').textContent = model.available
-      ? `Prövat underlag: ${number(model.minKm)}–${number(model.maxKm)} km/vecka` : 'Personligt mängdsamband saknas ännu';
-    document.getElementById('potential-assumption').hidden = method.value !== 'hypothesis';
-    document.getElementById('potential-results').hidden = false;
-    document.getElementById('potential-stats').innerHTML = `
-      <div><span>VO₂max nu · 7 d median</span><strong>${number(data.currentVo2max)}</strong><small>${escapeHtml(data.vo2Date || 'Mätning saknas')}</small></div>
-      <div><span>Scenario om ${data.weeks} veckor</span><strong>${number(projected?.vo2max)}</strong><small>${projected ? number(projected.low) + '–' + number(projected.high) + ' · känslighet' : 'Otillräckligt underlag'}</small></div>
-      <div><span>Löpning per vecka</span><strong>${number(data.weeklyKm)} <small>km</small></strong><small>Senaste 28 d: ${number(data.baselineKm)} km/v</small></div>`;
-    drawPotentialChart(data);
-    document.getElementById('potential-context').textContent = `Senaste 28 dagarna: sömn ${number(data.recovery.sleep_hours)} h/natt, HRV ${number(data.recovery.hrv_avg)} ms. Visas som bakgrund; ingen direkt omräkning till träningssvar.`;
-    document.getElementById('potential-warnings').innerHTML = data.warnings.map(w => `<p>${escapeHtml(w)}</p>`).join('');
-    document.getElementById('potential-races').innerHTML = data.races.map(r => `<article>
-      <h4>${escapeHtml(r.label)}</h4><strong>${potentialTime(r.seconds)}</strong>
-      <small>Scenario ${potentialTime(r.lowSeconds)}–${potentialTime(r.highSeconds)}</small>
-      <small>Nuvarande loppmotsvarighet ${potentialTime(r.currentSeconds)}</small></article>`).join('');
-    document.getElementById('potential-evidence').textContent = `${data.runningActivities} löppass och ${model.samples} användbara veckopunkter under senaste året. ${model.mae != null ? `Kontrollfel: ${number(model.mae)} VO₂max jämfört med ${number(model.persistenceMae)} för senaste-värdet-prognosen.` : 'För lite variation eller historik för en modellkontroll.'} ${model.available ? `Observerat mängdintervall: ${number(model.minKm)}–${number(model.maxKm)} km/vecka.` : ''}`;
-    document.getElementById('potential-history-table').innerHTML = `<table><caption>Veckounderlag (mängd som snitt av föregående fyra veckor)</caption><thead><tr><th scope="col">Vecka t.o.m.</th><th scope="col">km/vecka</th><th scope="col">VO₂max</th></tr></thead><tbody>${data.history.map(p => `<tr><td>${escapeHtml(p.date)}</td><td>${number(p.km)}</td><td>${number(p.vo2max)}</td></tr>`).join('')}</tbody></table>`;
-  }
-
-  async function loadPotential() {
-    const status = document.getElementById('potential-status');
-    if (!status) return;
-    const requestId = ++potentialRequest;
-    const params = new URLSearchParams({weeks: document.getElementById('potential-weeks').value});
-    if (potentialData) params.set('weekly_km', document.getElementById('potential-km').value);
-    if (document.getElementById('potential-method').value === 'hypothesis') params.set('gain', document.getElementById('potential-gain').value);
-    const timeText = document.getElementById('potential-race-time').value.trim();
-    const seconds = potentialRaceSeconds(timeText);
-    document.getElementById('potential-race-error').textContent = timeText && seconds == null ? 'Ange minuter:sekunder, till exempel 22:30 eller 210:00 (10–720 minuter).' : '';
-    if (seconds != null) {
-      params.set('race_distance', document.getElementById('potential-race-distance').value);
-      params.set('race_seconds', seconds);
-    }
-    status.textContent = 'Beräknar scenariot…';
-    document.getElementById('potential-results').hidden = true;
-    document.getElementById('potential-races').innerHTML = '';
-    try {
-      const response = await fetch(`/api/potential?${params}`);
-      const data = await response.json();
-      if (requestId !== potentialRequest) return;
-      if (!response.ok) throw new Error(data.message || data.error || 'Beräkningen kunde inte hämtas.');
-      if (!potentialData) {
-        document.getElementById('potential-km').max = Math.max(150, Math.min(200, Math.ceil(data.baselineKm)));
-        document.getElementById('potential-km').value = data.weeklyKm;
-      }
-      renderPotential(data);
-      potentialLabels();
-    } catch (error) {
-      if (requestId !== potentialRequest) return;
-      status.textContent = `Kunde inte ladda träningspotentialen: ${error.message} Försök med Uppdatera beräkningen.`;
-      document.getElementById('potential-mode').textContent = 'Kunde inte hämtas';
-    }
-  }
-
-  function potentialLabels() {
-    document.getElementById('potential-km-value').textContent = `${document.getElementById('potential-km').value} km`;
-    document.getElementById('potential-weeks-value').textContent = `${document.getElementById('potential-weeks').value} veckor`;
-    document.getElementById('potential-gain-value').textContent = `${document.getElementById('potential-gain').value} %`;
-    document.getElementById('potential-assumption').hidden = document.getElementById('potential-method').value !== 'hypothesis';
-  }
-
-  document.getElementById('potential-card')?.addEventListener('input', () => {
-    potentialLabels();
-    ++potentialRequest; // Ignore old responses even during the debounce delay.
-    document.getElementById('potential-results').hidden = true;
-    document.getElementById('potential-races').innerHTML = '';
-    document.getElementById('potential-status').textContent = 'Beräknar scenariot…';
-    clearTimeout(potentialTimer);
-    potentialTimer = setTimeout(loadPotential, 250);
-  });
-  document.getElementById('potential-retry')?.addEventListener('click', () => {
-    clearTimeout(potentialTimer);
-    loadPotential();
-  });
-  let potentialResize;
-  window.addEventListener('resize', () => {
-    clearTimeout(potentialResize);
-    potentialResize = setTimeout(() => {
-      if (potentialData && document.getElementById('page-overview')?.classList.contains('active')) drawPotentialChart(potentialData);
-    }, 150);
-  });
-  loadPotential();
 
   // ─── STRENGTH: sub-tabs (today's live workout vs history) ───
   let strengthCurrentTab = 'today';

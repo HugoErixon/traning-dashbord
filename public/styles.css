@@ -4916,60 +4916,6 @@
    Trender över veckor och månader. Riktningsfärgerna är statusfärger och
    bär alltid pil + ord, aldrig bara färg. */
     #page-overview .page-header { margin-bottom: 8px; }
-    .potential-card { padding: 22px; margin-bottom: 24px; min-width: 0; }
-    .potential-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-    .potential-heading h3 { font-size: 22px; margin: 0 0 6px; letter-spacing: -.025em; }
-    .potential-card p { line-height: 1.6; }
-    .potential-heading p, .potential-race p { color: var(--muted2); font-size: 13px; margin: 0 0 12px; }
-    .potential-note, .potential-details { color: var(--muted2); font-size: 12px; }
-    #potential-status { font-size: 13px; line-height: 1.6; margin: 14px 0; }
-    .potential-card fieldset { border: 0; padding: 0; min-width: 0; margin: 0; }
-    .potential-card .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    .potential-card fieldset:disabled { opacity: .5; }
-    .potential-controls { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; padding: 18px 0; border-top: 1px solid var(--border); }
-    .potential-card label { display: block; color: var(--muted2); font-size: 12px; }
-    .potential-card output { float: right; color: var(--text); font-weight: 700; }
-    .potential-card input[type=range] { display: block; width: 100%; margin: 18px 0 8px; accent-color: var(--accent); }
-    .potential-card select, .potential-card input[type=text] { width: 100%; margin-top: 9px; padding: 10px; border: 1px solid var(--border2); border-radius: 8px; background: var(--bg2); color: var(--text); font: inherit; }
-    .potential-card input:focus-visible, .potential-card select:focus-visible, .potential-card summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-    .potential-card .potential-assumption { background: var(--bg3); padding: 15px; border-radius: 10px; margin-bottom: 15px; }
-    .potential-card [hidden] { display: none !important; }
-    .potential-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 10px 0 18px; }
-    .potential-stats > div { padding: 15px; border: 1px solid var(--border); border-radius: 10px; }
-    .potential-stats span, .potential-stats small { display: block; color: var(--muted2); font-size: 11px; }
-    .potential-stats strong { display: block; margin: 7px 0; font: 700 27px var(--font-num); }
-    .potential-chart { width: 100%; min-width: 0; }
-    .potential-chart svg { width: 100%; height: auto; display: block; overflow: visible; }
-    .potential-chart text { fill: var(--muted2); font: 11px sans-serif; }
-    .potential-chart .potential-line { fill: none; stroke: var(--accent); stroke-width: 2.5; }
-    .potential-chart .potential-history { fill: none; stroke: var(--muted2); stroke-width: 2; }
-    .potential-chart .potential-band { fill: var(--accent); opacity: .12; }
-    .potential-chart .potential-grid { stroke: var(--border); stroke-width: 1; }
-    .potential-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 11px; color: var(--muted2); }
-    .potential-warnings p { border-left: 3px solid var(--amber); padding-left: 12px; color: var(--muted2); font-size: 12px; }
-    .potential-card .potential-race { border-top: 1px solid var(--border); margin-top: 22px; padding-top: 16px; }
-    .potential-race legend { font-size: 15px; font-weight: 650; padding: 0 8px 0 0; }
-    .potential-race-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 500px; }
-    .potential-races { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-    .potential-races article { background: var(--bg3); padding: 14px; border-radius: 10px; }
-    .potential-races h4 { color: var(--muted2); font-size: 12px; margin: 0; }
-    .potential-races strong { display: block; font: 700 23px var(--font-num); margin: 8px 0; }
-    .potential-races small { display: block; color: var(--muted2); font-size: 11px; line-height: 1.6; }
-    .potential-details { margin: 20px 0; border-top: 1px solid var(--border); padding-top: 16px; }
-    .potential-details summary { cursor: pointer; color: var(--text); }
-    .potential-details a { color: var(--accent); text-decoration: underline; }
-    #potential-history-table { overflow-x: auto; }
-    .potential-details table { width: 100%; border-collapse: collapse; text-align: left; }
-    .potential-details td, .potential-details th { padding: 7px; border-bottom: 1px solid var(--border); }
-    @media (max-width: 720px) {
-      .potential-card { padding: 16px; }
-      .potential-heading { flex-direction: column; gap: 4px; }
-      .potential-controls { grid-template-columns: 1fr; gap: 12px; }
-      .potential-stats { gap: 6px; }
-      .potential-stats > div { padding: 10px 7px; }
-      .potential-stats strong { font-size: 21px; }
-      .potential-races { grid-template-columns: repeat(2, 1fr); }
-    }
     .ov-link {
       margin-left: auto; padding: 0; border: 0; background: none; cursor: pointer;
       color: var(--accent); font: 600 11.5px var(--font-sans);
@@ -5105,8 +5051,10 @@
     .rp-chart svg { display: block; }
     .rp-goal-line { stroke: var(--amber); stroke-width: 1.4; stroke-dasharray: 5 4; }
     .rp-hover-line { stroke: var(--muted); stroke-width: 1; }
+    .rp-compare-line { stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 3 4; opacity: .8; }
+    .rp-source-compare strong { color: var(--muted2); }
     .rp-readout { min-height: 16px; margin-top: 4px; color: var(--muted2); font: 500 12px var(--font-num); }
-    .rp-sources { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .rp-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
     .rp-source { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-radius: 10px; background: var(--bg3); font-size: 12px; color: var(--muted2); }
     .rp-source strong { color: var(--text); font: 700 15px var(--font-num); }
     .rp-source small { color: var(--muted); font-size: 11px; line-height: 1.35; }
@@ -5124,6 +5072,86 @@
       .rp-distances { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .rp-sources { grid-template-columns: 1fr; }
     }
-    .ov-chat { margin-bottom: 16px; }
-    .ov-chat .messages { max-height: 420px; }
-    .ov-week-plan { margin-bottom: 16px; }
+
+    /* --- Coachchatt på Översikt (2026-11-08) --- */
+    .ov-chat { margin-bottom: 18px; display: flex; flex-direction: column; }
+    .ov-chat .chat-top { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .ov-chat .coach-avatar { flex: 0 0 auto; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px;
+      color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-soft)); box-shadow: 0 6px 18px var(--accent-glow); }
+    .ov-chat .coach-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .ov-chat .chat-title { font-size: 15px; font-weight: 700; letter-spacing: -.2px; }
+    .ov-chat .chat-sub { margin: 0; display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ov-chat .chat-reset { margin-left: auto; flex: 0 0 auto; border-radius: 999px; padding: 7px 13px; font: 600 11.5px var(--font-sans); letter-spacing: 0; text-transform: none; }
+    .ov-chat .messages { padding: 18px 20px; gap: 10px; min-height: 120px; max-height: 440px; scroll-behavior: smooth; }
+    .ov-chat .msg { max-width: min(78%, 620px); padding: 10px 14px; border: 0; border-radius: 18px; font-size: 14px; line-height: 1.55;
+      box-shadow: none; animation: msg-in .22s ease-out; }
+    .ov-chat .msg-from { display: none; }
+    .ov-chat .msg.ai { align-self: flex-start; background: var(--bg3); color: var(--text); border-bottom-left-radius: 6px; }
+    .ov-chat .msg.user { align-self: flex-end; color: #fff; background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #7b5cff));
+      border-bottom-right-radius: 6px; }
+    @keyframes msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .typing { display: inline-flex; gap: 4px; align-items: center; height: 18px; }
+    .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: typing 1.2s infinite ease-in-out; }
+    .typing i:nth-child(2) { animation-delay: .15s; }
+    .typing i:nth-child(3) { animation-delay: .3s; }
+    @keyframes typing { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+    .ov-chat .qprompts { display: flex; flex-wrap: nowrap; gap: 8px; padding: 0 20px 12px; overflow-x: auto; scrollbar-width: none; }
+    .ov-chat .qprompts::-webkit-scrollbar { display: none; }
+    .ov-chat.has-history .qprompts { display: none; }
+    .ov-chat .qp { flex: 0 0 auto; padding: 8px 13px; border: 1px solid var(--border2); border-radius: 999px; background: transparent;
+      color: var(--muted2); font: 500 12.5px var(--font-sans); letter-spacing: 0; text-transform: none; white-space: nowrap; cursor: pointer; }
+    .ov-chat .qp:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .ov-chat .chat-input { margin: 0 16px 16px; padding: 6px 6px 6px 16px; gap: 8px; align-items: center; border: 1px solid var(--border2);
+      border-radius: 999px; background: var(--bg3); transition: border-color .15s, box-shadow .15s; }
+    .ov-chat .chat-input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-dim); }
+    .ov-chat .chat-input input { flex: 1; min-width: 0; padding: 8px 0; border: 0; background: transparent; box-shadow: none; outline: none;
+      font: 14px var(--font-sans); color: var(--text); }
+    .ov-chat .chat-input input:focus { border: 0; }
+    .ov-chat .send-btn { flex: 0 0 auto; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%;
+      color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-soft)); cursor: pointer; transition: transform .12s; }
+    .ov-chat .send-btn:hover { transform: scale(1.05); opacity: 1; }
+    .ov-chat .send-btn:active { transform: scale(.95); }
+
+    /* --- Veckokalender på Översikt (2026-11-08) --- */
+    .wk-card { margin-bottom: 18px; padding: 18px 20px 20px; border: 1px solid var(--border); border-radius: var(--radius-xl);
+      background: var(--card-grad), var(--bg2); box-shadow: var(--shadow-card), var(--edge-top); }
+    .wk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .wk-heading { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+    .wk-summary { color: var(--muted2); font: 600 12.5px var(--font-num); white-space: nowrap; }
+    .wk-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+    .wk-loading { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+    .wk-day { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 8px; border-radius: 14px;
+      background: color-mix(in srgb, var(--bg3) 70%, transparent); border: 1px solid transparent; }
+    .wk-day.wk-today { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-dim); }
+    .wk-day.wk-past { opacity: .55; }
+    .wk-day-head { display: flex; align-items: baseline; gap: 6px; padding: 0 2px 2px; }
+    .wk-day-head span { color: var(--muted); font: 600 10.5px var(--font-sans); text-transform: uppercase; letter-spacing: .06em; }
+    .wk-day-head strong { font: 700 16px var(--font-num); }
+    .wk-day-head em { margin-left: auto; color: var(--accent); font: 700 10px var(--font-sans); font-style: normal; text-transform: uppercase; letter-spacing: .05em; }
+    .wk-session { --wk: var(--green); position: relative; display: flex; flex-direction: column; gap: 3px; padding: 8px 9px 9px 11px;
+      border-radius: 10px; background: var(--bg2); box-shadow: inset 3px 0 0 var(--wk); }
+    .wk-session.wk-quality { --wk: var(--amber); }
+    .wk-session.wk-race { --wk: var(--red); }
+    .wk-session.wk-strength { --wk: #A78BFA; }
+    .wk-session.wk-rest { --wk: var(--muted); background: transparent; box-shadow: inset 3px 0 0 var(--border2); }
+    .wk-session-top { display: flex; justify-content: space-between; gap: 4px; }
+    .wk-kind { color: var(--wk); font: 700 9.5px var(--font-sans); text-transform: uppercase; letter-spacing: .06em; }
+    .wk-km { color: var(--muted2); font: 600 10.5px var(--font-num); white-space: nowrap; }
+    .wk-title { font-size: 12.5px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+    .wk-detail { color: var(--muted); font-size: 11px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .wk-status { color: var(--green); font: 700 10px var(--font-sans); text-transform: uppercase; letter-spacing: .05em; }
+    .wk-empty { color: var(--muted); font-size: 11.5px; padding: 6px 2px; }
+    .wk-items { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+    @media (max-width: 1080px) {
+      .wk-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .ov-chat .chat-sub { display: none; }
+      .ov-chat .msg { max-width: 88%; }
+      .wk-grid { grid-template-columns: 1fr; gap: 6px; }
+      .wk-day { flex-direction: row; align-items: flex-start; gap: 10px; padding: 10px; }
+      .wk-day-head { flex: 0 0 40px; flex-direction: column; align-items: center; gap: 0; padding: 2px 0 0; }
+      .wk-day-head em { margin: 2px 0 0; font-size: 9px; }
+      .ov-chat .chat-input { flex-direction: row; margin: 0 12px 12px; }
+      .wk-detail { -webkit-line-clamp: 2; }
+    }

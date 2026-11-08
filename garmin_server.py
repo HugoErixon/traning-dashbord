@@ -49,7 +49,6 @@ from strength_progression import (
 import session_analysis
 import pace_progression
 import body_trends
-import training_potential
 import race_predictor
 import training_insights
 import sleep_analysis
@@ -4711,49 +4710,6 @@ def body_overview():
     return jsonify(body_trends.overview(health_rows, metric_rows, today, window))
 
 
-@app.get('/api/potential')
-def training_potential_scenario():
-    """Read-only scenarios using this user's stored history; no Garmin/LLM jobs."""
-    try:
-        weeks = int(request.args.get('weeks', 12))
-        if not 4 <= weeks <= 26:
-            raise ValueError()
-        values = {}
-        for key, low, high in (('weekly_km', 0, 200), ('gain', -10, 10),
-                               ('race_distance', 5, 42.195), ('race_seconds', 600, 43200)):
-            value = request.args.get(key)
-            values[key] = training_potential.number(value) if value is not None else None
-            if value is not None and (values[key] is None or not low <= values[key] <= high):
-                raise ValueError()
-        if (values['race_distance'] is None) != (values['race_seconds'] is None):
-            raise ValueError()
-        if values['race_distance'] is not None and values['race_distance'] not in dict(training_potential.DISTANCES):
-            raise ValueError()
-    except (ValueError, TypeError):
-        return _api_error('invalid_scenario', 'Kontrollera mängd, period och eventuell lopptid.', 400)
-    today = datetime.now(LOCAL_TZ).date()
-    start = (today - timedelta(days=365)).isoformat()
-    try:
-        with db() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute('''SELECT date, type, distance FROM activities
-                    WHERE user_id=%s AND date >= %s ORDER BY date''', (uid(), start))
-                activities = [dict(r) for r in cur.fetchall()]
-                cur.execute('''SELECT date, vo2max FROM metric_history
-                    WHERE user_id=%s AND date >= %s ORDER BY date''', (uid(), start))
-                metrics = [dict(r) for r in cur.fetchall()]
-                cur.execute('''SELECT date, sleep_hours, hrv_avg FROM health_history
-                    WHERE user_id=%s AND date >= %s ORDER BY date''',
-                            (uid(), (today - timedelta(days=28)).isoformat()))
-                health = [dict(r) for r in cur.fetchall()]
-        return jsonify(training_potential.potential(
-            activities, metrics, health, today, weekly_km=values['weekly_km'],
-            weeks=weeks, assumed_gain=values['gain'], race_distance=values['race_distance'],
-            race_seconds=values['race_seconds']))
-    except Exception as exc:
-        return _server_error(exc, 'potential.history_failed', message='Scenariot kunde inte beräknas.')
-
-
 # --- Race predictor och passanalyser -----------------------------------------
 # Prognosen räknas om vid varje anrop ur det som senast synkats. Garmins egen
 # prognoshistorik hämtas från Garmin Connect högst var tredje timme; svarar
@@ -4795,21 +4751,78 @@ def _race_target(user_id):
     return row[0] if row and isinstance(row[0], dict) else None
 
 
-def _race_prediction(user_id, username, allow_fetch=True, force_garmin=False):
-    today = datetime.now(LOCAL_TZ).date()
-    start = (today - timedelta(days=400)).isoformat()
+RACE_LAPS_KEY = 'laps:v1:{}'
+# Prognosen behöver varven från sex veckor bakåt och kurvan ett halvår till.
+RACE_HISTORY_DAYS = 230
+LAP_BACKFILL_LIMIT = 40
+
+
+def _lap_rows(splits):
+    """Garmins varv i kompakt form: [sekunder, meter, puls, terrängjusterad fart, typ]."""
+    rows = []
+    for lap in (splits or {}).get('lapDTOs') or (splits or {}).get('laps') or []:
+        rows.append([round(lap.get('duration') or 0, 1), round(lap.get('distance') or 0, 1),
+                     lap.get('averageHR'), lap.get('avgGradeAdjustedSpeed') or lap.get('averageSpeed'),
+                     lap.get('intensityType')])
+    return rows
+
+
+def _race_runs(user_id, since):
+    """Löppass med sparade varv. Varven ändras aldrig, så de hämtas en gång per pass."""
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute('''SELECT date, lactate_pace FROM metric_history
-                WHERE user_id=%s AND date >= %s ORDER BY date''', (user_id, start))
+            cur.execute('''SELECT id, date, type, name, distance, duration, avg_hr, raw FROM activities
+                WHERE user_id=%s AND date >= %s AND type ILIKE %s ORDER BY date''',
+                        (user_id, since, '%run%'))
+            runs = [dict(r) for r in cur.fetchall()]
+            keys = [f'{user_id}:' + RACE_LAPS_KEY.format(r['id']) for r in runs]
+            cur.execute('SELECT key, value FROM cache WHERE key = ANY(%s)', (keys,))
+            laps = {row['key']: row['value'] for row in cur.fetchall()}
+    for run in runs:
+        run['laps'] = laps.get(f'{user_id}:' + RACE_LAPS_KEY.format(run['id']))
+    return runs
+
+
+def _backfill_laps(user_id, username, runs, limit=LAP_BACKFILL_LIMIT):
+    """Hämta varv för pass som saknar dem; nyaste först, högst `limit` per gång."""
+    missing = [r for r in reversed(runs) if r.get('laps') is None
+               and 'treadmill' not in str(r.get('type') or '')][:limit]
+    if not missing or not username or not _garmin_connected(username):
+        return 0
+    client = get_garmin(username)
+    fetched = 0
+    for run in missing:
+        try:
+            rows = _lap_rows(client.get_activity_splits(run['id']))
+        except Exception as exc:
+            logger.warning('Lap fetch failed', extra={
+                'event': 'race_predictor.laps_failed', 'activity_id': run['id'],
+                'detail': str(exc)[:200]})
+            continue
+        set_cache(RACE_LAPS_KEY.format(run['id']), rows, user_id)
+        run['laps'] = rows
+        fetched += 1
+        time.sleep(0.5)
+    return fetched
+
+
+def _race_prediction(user_id, username, allow_fetch=True, force_garmin=False):
+    today = datetime.now(LOCAL_TZ).date()
+    since = (today - timedelta(days=RACE_HISTORY_DAYS)).isoformat()
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT date, lactate_pace, lactate_hr FROM metric_history
+                WHERE user_id=%s AND date >= %s ORDER BY date''', (user_id, since))
             metrics = [dict(r) for r in cur.fetchall()]
-            cur.execute('''SELECT date, type, name, distance, duration, raw FROM activities
-                WHERE user_id=%s AND date >= %s AND raw->'eventType'->>'typeKey' = 'race'
-                ORDER BY date''', (user_id, start))
-            races = [dict(r) for r in cur.fetchall()]
+    runs = _race_runs(user_id, since)
+    if allow_fetch:
+        try:
+            _backfill_laps(user_id, username, runs)
+        except Exception:
+            logger.exception('Lap backfill failed', extra={'event': 'race_predictor.backfill_failed'})
     return race_predictor.predictor(
         _garmin_race_history(user_id, username, allow_fetch, force=force_garmin), metrics,
-        races, today, target=_race_target(user_id))
+        runs, today, target=_race_target(user_id))
 
 
 # Prognosen sparas och räknas bara om när ett nytt löppass har kommit in —
@@ -4817,7 +4830,7 @@ def _race_prediction(user_id, username, allow_fetch=True, force_garmin=False):
 # direkt när passet sparats, så sidan har den färdig när man tittar.
 # Markören (antal löppass + senaste id) är skyddsnätet: missade synken att
 # starta omräkningen ser nästa sidvisning att markören ändrats och startar den.
-RACE_PREDICTION_CACHE_KEY = 'race-prediction:v1'
+RACE_PREDICTION_CACHE_KEY = 'race-prediction:v2'
 _race_refreshing = set()
 _race_refresh_guard = threading.Lock()
 
@@ -4904,10 +4917,21 @@ def _performance_prompt_block(user_id):
         return ''
     lines = []
     try:
-        pred = _race_prediction(user_id, None, allow_fetch=False)
+        row = get_cache(RACE_PREDICTION_CACHE_KEY, user_id)
+        stored = row[0] if row and isinstance(row[0], dict) else {}
+        pred = stored.get('payload') or _race_prediction(user_id, None, allow_fetch=False)
         if pred.get('available'):
             times = ', '.join(f"{p['label']} {p['time']} ({p['pace']})" for p in pred['predictions'])
-            lines.append(f'RACE PREDICTOR (computed from data, not a promise): {times}.')
+            lines.append(f'RACE PREDICTOR (Trainyze own model, computed from data, not a promise): {times}.')
+            model = pred.get('model') or {}
+            if model:
+                lines.append(
+                    f"- Built from {model.get('laps')} steady laps (>=6 min) of the last 6 weeks: "
+                    f"heart rate vs grade-adjusted pace, read at {model.get('targetHr')} bpm "
+                    f"(97 % of threshold HR {model.get('lthr')}). Each beat is worth about "
+                    f"{model.get('secPerBeat')} s/km. Garmin's own prediction is not part of it.")
+            for comp in pred.get('comparisons') or []:
+                lines.append(f"- For comparison, {comp['label']}: half marathon {race_predictor._fmt(comp['half'])}.")
             change = pred.get('change28')
             if change:
                 lines.append(f"- Half marathon change last 28 days: {change['half']:+d} s "
