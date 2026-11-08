@@ -83,6 +83,22 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   current maximal-effort result; never equate Garmin VO2max with VDOT or use an easy
   training run as a race. Sleep/HRV are context only. No plan creation, LLM, sync or DB
   writes occur here. Browser changes must discard stale responses after slider input.
+- **Race predictor (`race_predictor.py`, since 2026-11-08):** top of Översikt, `GET /api/race-predictor`.
+  Blends two sources 50/50 — Garmin's own race predictions (daily history via
+  `get_race_predictions`, cached `RACE_PREDICTION_TTL` = 3 h) and the threshold model (7-day avg
+  `lactate_pace` × 1.03 = HM pace, Riegel 1.06 for other distances) — then calibrates each source
+  against the athlete's own races (`eventType == race`, prediction from the day *before* the race,
+  capped ±6 %). The curve is the same prediction recomputed day by day with only that day's data.
+  Target lives in cache `race-target:v1` (`PUT /api/race-target`); Hugo's is HM 1:22, date
+  2027-03-14 (placeholder — military service starts end of March 2027). No LLM here.
+- **Session analysis (`training_insights.py`):** `GET /api/training-insights`. Easy runs trend on
+  meters per heartbeat (grade-adjusted speed / HR); threshold and intervals on *work-rep* pace from
+  Garmin's `INTERVAL_ACTIVE` split summary. Structured sessions are re-sorted by rep length
+  (≤ 5 min = intervals) because Garmin labels most short intervals TEMPO; single-rep "active"
+  splits are the whole run and are ignored. Races stay out of the trends.
+  `POST /api/training-analysis` asks the LLM for a schema-bound coach analysis (cached, on demand
+  only). `_performance_prompt_block()` puts predictor + trends into `_goal_prompt_block()` (so every
+  AI planning prompt sees them) and into the coach chat; it never fetches from Garmin.
 - **Strain:** `strain_analysis.py` scores each day 0-100 by weighing that day's Garmin
   `activityTrainingLoad` against the athlete's own chronic load (Garmin's chronic value
   when available, otherwise a 28-day average) — a raw load number means nothing on its

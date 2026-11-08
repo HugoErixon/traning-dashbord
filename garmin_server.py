@@ -50,6 +50,8 @@ import session_analysis
 import pace_progression
 import body_trends
 import training_potential
+import race_predictor
+import training_insights
 import sleep_analysis
 import strain_analysis
 import training_analysis
@@ -2705,15 +2707,20 @@ def save_user_goal(user_id, goal):
         conn.commit()
 
 
-def _goal_prompt_block(user_id):
-    """Målrader för AI-prompterna, byggda från användarens eget mål."""
+def _goal_prompt_block(user_id, performance=True):
+    """Målrader för AI-prompterna, byggda från användarens eget mål.
+
+    Med `performance` följer race predictor och passtrender med, så att varje
+    AI-planering utgår från var löparen faktiskt står mot målet."""
     goal = None
     try:
         goal = get_user_goal(user_id)
     except Exception as e:
         print('goal prompt fetch:', e)
     if not goal:
-        return 'GOAL: No explicit goal set yet — coach for general fitness, consistency and health.'
+        text = 'GOAL: No explicit goal set yet — coach for general fitness, consistency and health.'
+        extra = _performance_prompt_block(user_id) if performance else ''
+        return text + ('\n' + extra if extra else '')
     line = f"GOAL: {goal['goal_title']}"
     if goal.get('goal_deadline'):
         line += f" · Deadline: {goal['goal_deadline']}"
@@ -2722,6 +2729,9 @@ def _goal_prompt_block(user_id):
     lines = [line]
     if goal.get('secondary_goal'):
         lines.append(f"SECONDARY GOAL: {goal['secondary_goal']}")
+    performance = _performance_prompt_block(user_id) if performance else ''
+    if performance:
+        lines.append(performance)
     return '\n'.join(lines)
 
 
@@ -4744,6 +4754,266 @@ def training_potential_scenario():
         return _server_error(exc, 'potential.history_failed', message='Scenariot kunde inte beräknas.')
 
 
+# --- Race predictor och passanalyser -----------------------------------------
+# Prognosen räknas om vid varje anrop ur det som senast synkats. Garmins egen
+# prognoshistorik hämtas från Garmin Connect högst var tredje timme; svarar
+# Garmin inte används senast sparade historik, och utan den bär tröskelfarten
+# prognosen ensam.
+RACE_PREDICTION_TTL = int(config.get('RACE_PREDICTION_TTL', str(3 * 3600)))
+RACE_TARGET_KEY = 'race-target:v1'
+TRAINING_ANALYSIS_VERSION = 1
+
+
+def _garmin_race_history(user_id, username, allow_fetch=True):
+    key = 'garmin-race-predictions:v1'
+    row = None
+    try:
+        row = get_cache(key, user_id)
+    except Exception as exc:
+        print('race history cache:', exc)
+    if row and (time.time() - row[1]) < RACE_PREDICTION_TTL:
+        return row[0]
+    if allow_fetch and _garmin_connected(username):
+        today = datetime.now(LOCAL_TZ).date()
+        try:
+            entries = get_garmin(username).get_race_predictions(
+                (today - timedelta(days=365)).isoformat(), today.isoformat(), 'daily')
+            if isinstance(entries, list) and entries:
+                set_cache(key, entries, user_id)
+                return entries
+        except Exception as exc:
+            logger.warning('Garmin race predictions failed', extra={
+                'event': 'race_predictor.garmin_failed', 'detail': str(exc)[:200]})
+    return row[0] if row else []
+
+
+def _race_target(user_id):
+    try:
+        row = get_cache(RACE_TARGET_KEY, user_id)
+    except Exception as exc:
+        print('race target:', exc)
+        return None
+    return row[0] if row and isinstance(row[0], dict) else None
+
+
+def _race_prediction(user_id, username, allow_fetch=True):
+    today = datetime.now(LOCAL_TZ).date()
+    start = (today - timedelta(days=400)).isoformat()
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT date, lactate_pace FROM metric_history
+                WHERE user_id=%s AND date >= %s ORDER BY date''', (user_id, start))
+            metrics = [dict(r) for r in cur.fetchall()]
+            cur.execute('''SELECT date, type, name, distance, duration, raw FROM activities
+                WHERE user_id=%s AND date >= %s AND raw->'eventType'->>'typeKey' = 'race'
+                ORDER BY date''', (user_id, start))
+            races = [dict(r) for r in cur.fetchall()]
+    return race_predictor.predictor(
+        _garmin_race_history(user_id, username, allow_fetch), metrics, races, today,
+        target=_race_target(user_id))
+
+
+def _training_insights(user_id, days=90):
+    today = datetime.now(LOCAL_TZ).date()
+    start = (today - timedelta(days=max(days, 84) + 7)).isoformat()
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT date, type, name, distance, duration, avg_hr, raw FROM activities
+                WHERE user_id=%s AND date >= %s AND type ILIKE '%%run%%' ORDER BY date''',
+                        (user_id, start))
+            activities = [dict(r) for r in cur.fetchall()]
+    return training_insights.insights(activities, today, days)
+
+
+def _sleep_recovery_summary(user_id):
+    """Sju dygn mot 28 dygn för sömn, HRV och vilopuls."""
+    today = datetime.now(LOCAL_TZ).date()
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT date, sleep_hours, sleep_score, hrv_avg, resting_hr
+                FROM health_history WHERE user_id=%s AND date >= %s ORDER BY date''',
+                        (user_id, (today - timedelta(days=28)).isoformat()))
+            rows = [dict(r) for r in cur.fetchall()]
+    out = {}
+    week_start = (today - timedelta(days=7)).isoformat()
+    for field in ('sleep_hours', 'sleep_score', 'hrv_avg', 'resting_hr'):
+        values = [(str(r['date'])[:10], float(r[field])) for r in rows if r.get(field) is not None]
+        week = [v for d, v in values if d > week_start]
+        out[field] = {'week': round(sum(week) / len(week), 1) if week else None,
+                      'month': round(sum(v for _, v in values) / len(values), 1) if values else None}
+    return out
+
+
+def _performance_prompt_block(user_id):
+    """Race predictor och passanalyser som underlag för coachen och planeringen.
+
+    Hämtar aldrig från Garmin — en prompt ska inte vänta på nätverket. Varje
+    del sväljer sina egna fel så att en trasig källa inte fäller analysen."""
+    if APP_TESTING:
+        return ''
+    lines = []
+    try:
+        pred = _race_prediction(user_id, None, allow_fetch=False)
+        if pred.get('available'):
+            times = ', '.join(f"{p['label']} {p['time']} ({p['pace']})" for p in pred['predictions'])
+            lines.append(f'RACE PREDICTOR (computed from data, not a promise): {times}.')
+            change = pred.get('change28')
+            if change:
+                lines.append(f"- Half marathon change last 28 days: {change['half']:+d} s "
+                             '(negative = faster).')
+            target = pred.get('target')
+            if target:
+                lines.append(
+                    f"- Target: {target['label']} {target['time']} ({target['pace']}). Gap now "
+                    f"{target['gapSec']} s ({target['paceGapSec']} s/km)"
+                    + (f", {target['weeksLeft']} weeks to {target['deadline']}, needs "
+                       f"{target['neededPerWeekSec']} s/week; recent trend "
+                       f"{target.get('recentPerWeekSec', 'unknown')} s/week" if target.get('deadline') else '')
+                    + '. Plan sessions that close this gap, but be honest if it is not closing.')
+    except Exception as exc:
+        print('performance block predictor:', exc)
+    try:
+        lines.append('SESSION TRENDS (90 days, first half vs second half):\n'
+                     + training_insights.describe(_training_insights(user_id)))
+    except Exception as exc:
+        print('performance block insights:', exc)
+    return '\n'.join(lines)
+
+
+@app.get('/api/race-predictor')
+def race_predictor_view():
+    try:
+        return jsonify(_race_prediction(uid(), uname()))
+    except Exception as exc:
+        return _server_error(exc, 'race_predictor.failed', message='Prognosen kunde inte räknas.')
+
+
+@app.put('/api/race-target')
+def race_target_save():
+    data = request.get_json(silent=True) or {}
+    distance = str(data.get('distance') or '')
+    deadline = str(data.get('deadline') or '').strip() or None
+    try:
+        seconds = int(data.get('seconds'))
+    except (TypeError, ValueError):
+        seconds = 0
+    if distance not in race_predictor.KM or not 600 <= seconds <= 43200:
+        return _api_error('invalid_race_target', 'Ange distans och en måltid.', 400)
+    if deadline and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', deadline):
+        return _api_error('invalid_race_target', 'Datumet måste vara ÅÅÅÅ-MM-DD.', 400)
+    try:
+        set_cache(RACE_TARGET_KEY, {'distance': distance, 'seconds': seconds,
+                                    'deadline': deadline}, uid())
+        return jsonify(_race_prediction(uid(), uname()))
+    except Exception as exc:
+        return _server_error(exc, 'race_target.save_failed', message='Målet kunde inte sparas.')
+
+
+@app.get('/api/training-insights')
+def training_insights_view():
+    try:
+        days = int(request.args.get('days', 90))
+        if days not in (30, 90, 180):
+            raise ValueError()
+    except (TypeError, ValueError):
+        return _api_error('invalid_window', 'Perioden måste vara 30, 90 eller 180 dagar.', 400)
+    try:
+        return jsonify(_training_insights(uid(), days))
+    except Exception as exc:
+        return _server_error(exc, 'training_insights.failed', message='Analysen kunde inte räknas.')
+
+
+TRAINING_ANALYSIS_SCHEMA = {
+    'type': 'object',
+    'additionalProperties': False,
+    'required': ['headline', 'prediction', 'areas', 'focus'],
+    'properties': {
+        'headline': {'type': 'string'},
+        'prediction': {'type': 'string'},
+        'areas': {'type': 'array', 'items': {
+            'type': 'object', 'additionalProperties': False,
+            'required': ['key', 'verdict', 'finding', 'advice'],
+            'properties': {
+                'key': {'type': 'string', 'enum': ['easy', 'threshold', 'intervals', 'sleep', 'volume']},
+                'verdict': {'type': 'string', 'enum': ['improving', 'stable', 'declining', 'unclear']},
+                'finding': {'type': 'string'},
+                'advice': {'type': 'string'},
+            }}},
+        'focus': {'type': 'array', 'items': {'type': 'string'}},
+    },
+}
+
+
+def _training_analysis_prompt(user_id, username):
+    pred = _race_prediction(user_id, username, allow_fetch=False)
+    insight = _training_insights(user_id)
+    sleep = _sleep_recovery_summary(user_id)
+    pred_text = 'No prediction available.'
+    if pred.get('available'):
+        pred_text = json.dumps({k: pred.get(k) for k in
+                                ('predictions', 'range', 'sources', 'calibration', 'change28',
+                                 'change90', 'target')}, ensure_ascii=False, default=str)
+    return f"""You are an elite running coach analysing an athlete's training data. Every number below is computed from their Garmin data; do not invent other numbers. Respond ONLY with JSON matching the schema. All text in Swedish.
+
+{_goal_prompt_block(user_id, performance=False)}
+
+RACE PREDICTOR (Garmin's prediction and threshold model, calibrated to the athlete's own races):
+{pred_text}
+
+SESSION TRENDS (90 days, older half vs recent half):
+{training_insights.describe(insight)}
+
+SLEEP AND RECOVERY (7-day average vs 28-day average):
+{json.dumps(sleep, ensure_ascii=False)}
+
+{_notes_prompt_block(user_id)}
+
+TASK:
+- headline: one sentence on where the athlete stands right now.
+- prediction: 2-3 sentences explaining the race prediction and what moves it, and how far from the target they are. Be honest if the trend is too slow to reach it.
+- areas: one entry each for easy, threshold, intervals, sleep and volume. finding = what the data shows (cite the numbers), advice = one concrete change for the next weeks. Use verdict 'unclear' when data is too thin.
+- focus: 2-4 short, concrete priorities for the next 2 weeks, ordered by impact on the prediction.
+Easy-run efficiency (meters per heartbeat) rising means the aerobic base improves. Work pace means the pace of the work reps only, excluding warm-up and recoveries."""
+
+
+@app.get('/api/training-analysis')
+def training_analysis_cached():
+    today = datetime.now(LOCAL_TZ).date().isoformat()
+    row = get_cache(f'training-analysis:v{TRAINING_ANALYSIS_VERSION}', uid())
+    if row and isinstance(row[0], dict):
+        return jsonify({**row[0], 'stale': row[0].get('date') != today})
+    return jsonify({'analysis': None})
+
+
+@app.post('/api/training-analysis')
+def training_analysis_generate():
+    if not llm_available():
+        return _api_error('ai_not_configured', 'AI-analysen är inte konfigurerad.', 503)
+    key = f'training-analysis:v{TRAINING_ANALYSIS_VERSION}'
+    try:
+        with _ai_overview_lock(f'{uid()}:{key}'):
+            raw = call_llm(_training_analysis_prompt(uid(), uname()), max_tokens=2500,
+                           timeout=120, json_schema=TRAINING_ANALYSIS_SCHEMA)
+            cleaned = raw.strip().replace('```json', '').replace('```', '').strip()
+            analysis = json.loads(cleaned)
+            if not isinstance(analysis, dict) or not analysis.get('headline'):
+                raise ValueError('analysen saknar rubrik')
+            payload = {'analysis': analysis,
+                       'date': datetime.now(LOCAL_TZ).date().isoformat(),
+                       'generatedAt': datetime.now(LOCAL_TZ).isoformat(timespec='minutes')}
+            set_cache(key, payload, uid())
+            return jsonify({**payload, 'stale': False})
+    except (LLMQuotaError, LLMUnavailableError, LLMTransientError) as exc:
+        return _server_error(exc, 'training_analysis.provider_unavailable', status=503,
+                             code='ai_unavailable',
+                             message='AI-leverantören är tillfälligt otillgänglig. Försök igen senare.')
+    except (ValueError, json.JSONDecodeError) as exc:
+        return _server_error(exc, 'training_analysis.invalid_reply', status=502,
+                             message='Coachens analys gick inte att läsa. Försök igen.')
+    except Exception as exc:
+        return _server_error(exc, 'training_analysis.failed', message='Analysen kunde inte göras.')
+
+
 @app.get('/api/training-load')
 def training_load():
     row = get_cache('training_load', uid())
@@ -6363,6 +6633,11 @@ def _assistant_answer(data):
                     "along with what would have to change. Do not encourage the goal as if it "
                     "were within reach."
                 )
+        performance = _performance_prompt_block(uid())
+        if performance:
+            context += ("\n\nRACE PREDICTOR OCH PASSTRENDER (uträknat ur löparens data):\n"
+                        + performance + "\nAnvänd dessa siffror när löparen frågar om form, "
+                        "prognos eller mål; räkna inte fram egna lopptider.")
         return {'reply': call_llm(message, max_tokens=1024, system=context,
                                   history=history)}
     except (LLMQuotaError, LLMUnavailableError, LLMTransientError) as e:

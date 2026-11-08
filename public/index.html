@@ -125,6 +125,56 @@
       </div>
 
       <div class="section-header">
+        <span class="section-header-label">Race predictor</span>
+        <span class="section-header-note" id="rp-updated">Räknas om när ny data synkas</span>
+      </div>
+      <section class="rp-card an-card" id="rp-card" aria-labelledby="rp-title">
+        <div class="rp-status" id="rp-status" role="status">Räknar din prognos…</div>
+        <div class="rp-body" id="rp-body" hidden>
+          <div class="rp-main">
+            <div>
+              <span class="an-card-title" id="rp-title">Halvmaraton just nu</span>
+              <div class="rp-time" id="rp-time">–</div>
+              <div class="rp-sub" id="rp-sub"></div>
+            </div>
+            <div class="rp-target" id="rp-target"></div>
+          </div>
+          <div class="rp-distances" id="rp-distances" role="group" aria-label="Distans i kurvan"></div>
+          <div class="rp-chart" id="rp-chart" aria-hidden="true"></div>
+          <div class="rp-readout" id="rp-readout"></div>
+          <div class="rp-sources" id="rp-sources"></div>
+          <details class="rp-edit">
+            <summary>Ändra mål</summary>
+            <form id="rp-target-form" class="rp-form">
+              <label>Distans <select id="rp-target-distance">
+                <option value="5k">5 km</option><option value="10k">10 km</option>
+                <option value="half" selected>Halvmaraton</option><option value="marathon">Maraton</option>
+              </select></label>
+              <label>Måltid <input id="rp-target-time" type="text" inputmode="numeric" placeholder="1:22:00" required></label>
+              <label>Loppdatum <input id="rp-target-date" type="date"></label>
+              <button type="submit" class="settings-btn primary">Spara mål</button>
+              <span class="rp-form-msg" id="rp-target-msg" role="status"></span>
+            </form>
+          </details>
+          <p class="rp-method" id="rp-method"></p>
+        </div>
+      </section>
+
+      <div class="section-header">
+        <span class="section-header-label">Träningsanalys</span>
+        <span class="section-header-note">Senaste 90 dagarna, första halvan mot andra</span>
+      </div>
+      <div class="ti-grid" id="ti-grid"><p class="an-empty">Analyserar dina pass…</p></div>
+      <section class="ti-ai an-card" id="ti-ai" aria-labelledby="ti-ai-title">
+        <div class="an-card-head">
+          <div><span class="an-card-title" id="ti-ai-title">Coachens analys</span>
+            <span class="an-card-note" id="ti-ai-note">AI-analys av prognosen, passen och sömnen</span></div>
+          <button type="button" class="settings-btn primary" id="ti-ai-run">Analysera med coachen</button>
+        </div>
+        <div id="ti-ai-body"><p class="an-empty">Ingen analys än. Coachen läser prognosen, passtrenderna och sömnen och säger vad som flyttar prognosen mest.</p></div>
+      </section>
+
+      <div class="section-header">
         <span class="section-header-label">Just nu</span>
         <span class="section-header-note">Nattens mätningar</span>
       </div>

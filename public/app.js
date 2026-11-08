@@ -4378,6 +4378,357 @@ HEALTH DATA (current):
   }
   loadOverview();
 
+  // --- Race predictor och passanalyser ---------------------------------------
+  // Prognosen räknas på servern ur senast synkade data; här ritas den bara.
+  let racePrediction = null;
+  let raceDistance = null;
+  let trainingInsightsData = null;
+  const RP_DIRECTION = {
+    improving: ['↗', 'Förbättras'], declining: ['↘', 'Går åt fel håll'],
+    stable: ['→', 'Stabilt'], unclear: ['·', 'För lite data'],
+  };
+
+  function rpTime(seconds) {
+    const s = Math.round(Math.abs(seconds));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+  }
+  function rpPace(secPerKm) {
+    if (!secPerKm) return '–';
+    const s = Math.round(secPerKm);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+  function rpSigned(seconds) {
+    if (!seconds) return '±0 s';
+    return `${seconds < 0 ? '−' : '+'}${Math.abs(seconds) >= 60 ? rpTime(seconds) : Math.abs(Math.round(seconds)) + ' s'}`;
+  }
+  function rpParseTime(text) {
+    const parts = String(text || '').trim().split(':').map(Number);
+    if (!parts.length || parts.some(n => !Number.isFinite(n) || n < 0)) return null;
+    return parts.reduce((total, n) => total * 60 + n, 0) || null;
+  }
+
+  // En enkel linje i kortets riktiga storlek. Lägre tid är bättre, så axeln
+  // vänds: en kurva som går uppåt betyder snabbare.
+  function rpDrawLine(el, points, {target = null, invert = true, color = 'var(--accent)'} = {}) {
+    if (!el) return;
+    const clean = points.filter(p => Number.isFinite(p.v));
+    if (clean.length < 2) {
+      el.innerHTML = '<div class="ov-chart-empty">Behöver fler mätningar</div>';
+      el._points = null;
+      return;
+    }
+    const W = Math.max(200, Math.round(el.clientWidth || 300)), H = Math.round(el.clientHeight || 90);
+    const pad = {l: 4, r: 6, t: 10, b: 10};
+    const t0 = new Date(clean[0].t + 'T12:00:00').getTime();
+    const t1 = Math.max(t0 + 864e5, new Date(clean.at(-1).t + 'T12:00:00').getTime());
+    const values = clean.map(p => p.v).concat(target != null ? [target] : []);
+    let lo = Math.min(...values), hi = Math.max(...values);
+    const span = Math.max(hi - lo, Math.abs(hi) * 0.01, 1);
+    lo -= span * 0.12; hi += span * 0.12;
+    const x = t => pad.l + (new Date(t + 'T12:00:00').getTime() - t0) / (t1 - t0) * (W - pad.l - pad.r);
+    const y = v => {
+      const f = (v - lo) / (hi - lo);
+      return pad.t + (invert ? f : 1 - f) * (H - pad.t - pad.b);
+    };
+    const path = clean.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+    const dots = clean.length <= 40
+      ? clean.map(p => `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.6" fill="${color}"/>`).join('')
+      : '';
+    const last = clean.at(-1);
+    const goal = target != null
+      ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}" class="rp-goal-line"/>`
+      : '';
+    el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${goal}
+      <path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}<circle cx="${x(last.t).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="4" fill="${color}"/>
+      <line class="rp-hover-line" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/></svg>`;
+    el._points = clean.map(p => ({...p, x: x(p.t)}));
+  }
+
+  function rpNearest(el, event) {
+    if (!el?._points) return null;
+    const box = el.getBoundingClientRect();
+    const px = event.clientX - box.left;
+    let best = el._points[0];
+    for (const p of el._points) if (Math.abs(p.x - px) < Math.abs(best.x - px)) best = p;
+    const line = el.querySelector('.rp-hover-line');
+    if (line) { line.setAttribute('x1', best.x); line.setAttribute('x2', best.x); line.setAttribute('visibility', 'visible'); }
+    return best;
+  }
+  function rpHoverEnd(el) {
+    el?.querySelector('.rp-hover-line')?.setAttribute('visibility', 'hidden');
+  }
+
+  function rpDefaultReadout() {
+    const data = racePrediction;
+    const change = data?.change28?.[raceDistance];
+    const label = data?.predictions?.find(p => p.key === raceDistance)?.label || '';
+    return change != null
+      ? `${label}: ${rpSigned(change)} senaste 4 veckorna${change < 0 ? ' (snabbare)' : change > 0 ? ' (långsammare)' : ''}`
+      : `${label}: för kort historik för en riktning.`;
+  }
+
+  function renderRaceChart() {
+    const data = racePrediction;
+    if (!data?.available) return;
+    const target = data.target?.distance === raceDistance ? data.target.seconds : null;
+    rpDrawLine(document.getElementById('rp-chart'),
+      (data.history || []).map(p => ({t: p.t, v: p[raceDistance]})), {target});
+    document.getElementById('rp-readout').textContent = rpDefaultReadout();
+    document.querySelectorAll('.rp-dist').forEach(btn => {
+      const on = btn.dataset.distance === raceDistance;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  function renderRacePrediction(data) {
+    racePrediction = data;
+    const status = document.getElementById('rp-status');
+    const body = document.getElementById('rp-body');
+    if (!data.available) {
+      status.hidden = false;
+      status.textContent = data.reason || 'Ingen prognos ännu.';
+      body.hidden = true;
+      return;
+    }
+    status.hidden = true;
+    body.hidden = false;
+    raceDistance = raceDistance || data.target?.distance || 'half';
+    const main = data.predictions.find(p => p.key === (data.target?.distance || 'half')) || data.predictions[2];
+    document.getElementById('rp-title').textContent = `${main.label} just nu`;
+    document.getElementById('rp-time').textContent = main.time;
+    const range = main.key === 'half' && data.range?.half
+      ? ` · spann ${rpTime(data.range.half[0])}–${rpTime(data.range.half[1])}` : '';
+    document.getElementById('rp-sub').textContent = `${main.pace}${range}`;
+
+    const t = data.target;
+    const targetEl = document.getElementById('rp-target');
+    if (t) {
+      const tone = t.reached ? 'good' : (t.recentPerWeekSec != null && t.neededPerWeekSec != null
+        && t.recentPerWeekSec >= t.neededPerWeekSec ? 'good' : 'warn');
+      const pace = t.recentPerWeekSec != null && t.neededPerWeekSec != null
+        ? `<div class="rp-target-row"><span>Takt senaste 4 v</span><strong>${t.recentPerWeekSec > 0 ? '−' : '+'}${Math.abs(t.recentPerWeekSec)} s/vecka</strong></div>
+           <div class="rp-target-row"><span>Behövs till loppet</span><strong>−${t.neededPerWeekSec} s/vecka</strong></div>` : '';
+      targetEl.innerHTML = `<div class="rp-target-box" data-tone="${tone}">
+        <div class="rp-target-row"><span>Mål ${escapeHtml(t.label.toLowerCase())}</span><strong>${escapeHtml(t.time)} <small>${escapeHtml(t.pace)}</small></strong></div>
+        <div class="rp-target-row"><span>${t.reached ? 'Före målet med' : 'Kvar till målet'}</span><strong>${rpTime(Math.abs(t.gapSec))} <small>${Math.abs(t.paceGapSec)} s/km</small></strong></div>
+        ${t.deadline ? `<div class="rp-target-row"><span>Till ${escapeHtml(t.deadline)}</span><strong>${t.weeksLeft} veckor</strong></div>` : ''}
+        ${pace}</div>`;
+      document.getElementById('rp-target-distance').value = t.distance;
+      document.getElementById('rp-target-time').value = t.time;
+      document.getElementById('rp-target-date').value = t.deadline || '';
+    } else {
+      targetEl.innerHTML = '<p class="rp-target-empty">Sätt ett mål under "Ändra mål" så ser du hur långt kvar det är.</p>';
+    }
+
+    document.getElementById('rp-distances').innerHTML = data.predictions.map(p => {
+      const change = data.change28?.[p.key];
+      return `<button type="button" class="rp-dist" data-distance="${p.key}" aria-pressed="false">
+        <span>${escapeHtml(p.label)}</span><strong>${escapeHtml(p.time)}</strong>
+        <small>${change != null ? escapeHtml(rpSigned(change)) + ' på 4 v' : escapeHtml(p.pace)}</small></button>`;
+    }).join('');
+
+    document.getElementById('rp-sources').innerHTML = data.sources.map(src => {
+      const detail = src.key === 'threshold'
+        ? `tröskel ${rpPace(src.thresholdPaceSec)}/km`
+        : `Garmin sa ${rpTime(src.raw.half)}`;
+      const calib = Math.abs(src.calibration - 1) >= 0.001
+        ? ` · justerad ${src.calibration > 1 ? '+' : '−'}${Math.abs((src.calibration - 1) * 100).toFixed(1)} %` : '';
+      return `<div class="rp-source"><span>${escapeHtml(src.label)} <small>${Math.round(src.weight * 100)} %</small></span>
+        <strong>${rpTime(src.half)}</strong><small>${escapeHtml(detail + calib)}</small></div>`;
+    }).join('') + `<div class="rp-source rp-source-note"><span>Kalibrering</span><small>${escapeHtml(data.calibration.note)}${
+      data.calibration.races.length ? ' ' + data.calibration.races.map(r => `${escapeHtml(r.date)}: ${escapeHtml(r.time)}`).join(', ') : ''}</small></div>`;
+    document.getElementById('rp-method').textContent = data.method;
+    document.getElementById('rp-updated').textContent = `Uppdaterad ${new Date().toLocaleTimeString('sv-SE', {hour: '2-digit', minute: '2-digit'})} · räknas om när ny data synkas`;
+    renderRaceChart();
+  }
+
+  async function loadRacePrediction() {
+    const status = document.getElementById('rp-status');
+    if (!status) return;
+    try {
+      const response = await fetch('/api/race-predictor');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Prognosen kunde inte hämtas.');
+      renderRacePrediction(data);
+    } catch (error) {
+      status.hidden = false;
+      status.textContent = `Kunde inte räkna prognosen: ${error.message}`;
+    }
+  }
+
+  function tiValue(area, v) {
+    return area.key === 'easy' ? `${overviewNumber(v, 2)} m/slag` : `${rpPace(v)}/km`;
+  }
+
+  function renderTrainingInsights(data) {
+    trainingInsightsData = data;
+    const grid = document.getElementById('ti-grid');
+    grid.innerHTML = data.areas.map(area => {
+      const dm = RP_DIRECTION[area.direction] || RP_DIRECTION.unclear;
+      const tone = area.direction === 'improving' ? 'improving' : area.direction === 'declining' ? 'declining' : 'stable';
+      let big = '–', unit = '';
+      if (area.key === 'easy' && area.now?.paceSec) {
+        big = rpPace(area.now.paceSec); unit = `/km · ${Math.round(area.now.hr)} slag`;
+      } else if (area.latest?.workPaceSec) {
+        big = rpPace(area.latest.workPaceSec); unit = '/km senaste arbetsdelar';
+      }
+      return `<article class="ov-card ti-card ov-dir-${tone}" data-key="${escapeHtml(area.key)}">
+        <div class="ov-card-top"><span class="ov-card-label">${escapeHtml(area.label)}</span>
+          <span class="ov-badge"><b aria-hidden="true">${dm[0]}</b>${dm[1]}</span></div>
+        <div class="ov-card-value">${escapeHtml(big)} <small>${escapeHtml(unit)}</small></div>
+        <div class="ov-card-caption">${area.count} pass · ${escapeHtml(area.metric)}</div>
+        <div class="ov-chart ti-chart" data-key="${escapeHtml(area.key)}" aria-hidden="true"></div>
+        <div class="ti-readout" data-key="${escapeHtml(area.key)}"></div>
+        <div class="ov-card-change">${escapeHtml(area.text)}</div>
+      </article>`;
+    }).join('');
+    drawTrainingInsightCharts();
+  }
+
+  function drawTrainingInsightCharts() {
+    if (!trainingInsightsData) return;
+    document.querySelectorAll('#ti-grid .ti-chart').forEach(el => {
+      const area = trainingInsightsData.areas.find(a => a.key === el.dataset.key);
+      if (!area) return;
+      // Effektivitet: högre är bättre. Fart: lägre är bättre.
+      rpDrawLine(el, area.series, {invert: area.key !== 'easy',
+        color: area.key === 'easy' ? 'var(--green)' : area.key === 'threshold' ? 'var(--accent)' : 'var(--amber)'});
+    });
+  }
+
+  async function loadTrainingInsights() {
+    const grid = document.getElementById('ti-grid');
+    if (!grid) return;
+    try {
+      const response = await fetch('/api/training-insights?days=90');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Analysen kunde inte hämtas.');
+      renderTrainingInsights(data);
+    } catch (error) {
+      grid.innerHTML = `<p class="an-empty">Kunde inte analysera passen: ${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  const TI_AREA_LABELS = {easy: 'Lugna pass', threshold: 'Tröskel', intervals: 'Intervaller', sleep: 'Sömn', volume: 'Volym'};
+  function renderTrainingAnalysis(payload) {
+    const body = document.getElementById('ti-ai-body');
+    const button = document.getElementById('ti-ai-run');
+    const a = payload?.analysis;
+    if (!a) return;
+    button.textContent = 'Uppdatera analysen';
+    document.getElementById('ti-ai-note').textContent = payload.generatedAt
+      ? `Gjord ${payload.generatedAt.replace('T', ' ')}${payload.stale ? ' · äldre än idag' : ''}` : 'AI-analys';
+    body.innerHTML = `<p class="ti-ai-headline">${escapeHtml(a.headline)}</p>
+      <p class="ti-ai-prediction">${escapeHtml(a.prediction)}</p>
+      <div class="ti-ai-areas">${(a.areas || []).map(area => {
+        const dm = RP_DIRECTION[area.verdict] || RP_DIRECTION.unclear;
+        const tone = area.verdict === 'improving' ? 'improving' : area.verdict === 'declining' ? 'declining' : 'stable';
+        return `<div class="ti-ai-area ov-dir-${tone}"><div class="ov-card-top"><strong>${escapeHtml(TI_AREA_LABELS[area.key] || area.key)}</strong>
+          <span class="ov-badge"><b aria-hidden="true">${dm[0]}</b>${dm[1]}</span></div>
+          <p>${escapeHtml(area.finding)}</p><p class="ti-ai-advice">${escapeHtml(area.advice)}</p></div>`;
+      }).join('')}</div>
+      ${(a.focus || []).length ? `<div class="ti-ai-focus"><strong>Fokus kommande två veckor</strong><ol>${a.focus.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ol></div>` : ''}`;
+  }
+
+  async function loadTrainingAnalysis() {
+    try {
+      const response = await fetch('/api/training-analysis');
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) renderTrainingAnalysis(data);
+    } catch { /* ingen sparad analys är inget fel */ }
+  }
+
+  async function runTrainingAnalysis() {
+    const button = document.getElementById('ti-ai-run');
+    const note = document.getElementById('ti-ai-note');
+    button.disabled = true;
+    const previous = button.textContent;
+    button.textContent = 'Coachen analyserar…';
+    note.textContent = 'Kan ta upp till en och en halv minut';
+    try {
+      const response = await fetch('/api/training-analysis', {method: 'POST'});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Analysen misslyckades.');
+      renderTrainingAnalysis(data);
+    } catch (error) {
+      button.textContent = previous;
+      note.textContent = `Kunde inte analysera: ${error.message}`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  {
+    const chart = document.getElementById('rp-chart');
+    chart?.addEventListener('pointermove', event => {
+      const p = rpNearest(chart, event);
+      if (!p) return;
+      const when = new Date(p.t + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
+      document.getElementById('rp-readout').textContent = `${when}: ${rpTime(p.v)}`;
+    });
+    chart?.addEventListener('pointerleave', () => {
+      rpHoverEnd(chart);
+      document.getElementById('rp-readout').textContent = rpDefaultReadout();
+    });
+    document.getElementById('rp-distances')?.addEventListener('click', event => {
+      const btn = event.target.closest('.rp-dist');
+      if (!btn) return;
+      raceDistance = btn.dataset.distance;
+      renderRaceChart();
+    });
+    const grid = document.getElementById('ti-grid');
+    grid?.addEventListener('pointermove', event => {
+      const el = event.target.closest('.ti-chart');
+      if (!el) return;
+      const p = rpNearest(el, event);
+      const area = trainingInsightsData?.areas.find(a => a.key === el.dataset.key);
+      const out = grid.querySelector(`.ti-readout[data-key="${el.dataset.key}"]`);
+      if (!p || !area || !out) return;
+      const when = new Date(p.t + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
+      const extra = area.key === 'easy'
+        ? ` · ${rpPace(p.pace)}/km på ${p.hr} slag · ${overviewNumber(p.km, 1)} km`
+        : ` · ${p.reps || '?'} delar, ${overviewNumber(p.workMin, 0)} min arbete${p.hr ? ` · snittpuls ${p.hr}` : ''}`;
+      out.textContent = `${when}: ${tiValue(area, p.v)}${extra}`;
+    });
+    grid?.addEventListener('pointerleave', event => {
+      grid.querySelectorAll('.ti-chart').forEach(rpHoverEnd);
+      grid.querySelectorAll('.ti-readout').forEach(el => { el.textContent = ''; });
+    }, true);
+    document.getElementById('ti-ai-run')?.addEventListener('click', runTrainingAnalysis);
+    document.getElementById('rp-target-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const msg = document.getElementById('rp-target-msg');
+      const seconds = rpParseTime(document.getElementById('rp-target-time').value);
+      if (!seconds) { msg.textContent = 'Skriv tiden som t.ex. 1:22:00.'; return; }
+      msg.textContent = 'Sparar…';
+      try {
+        const response = await fetch('/api/race-target', {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({distance: document.getElementById('rp-target-distance').value, seconds,
+            deadline: document.getElementById('rp-target-date').value || null}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.message || 'Målet kunde inte sparas.');
+        raceDistance = data.target?.distance || raceDistance;
+        renderRacePrediction(data);
+        msg.textContent = 'Sparat.';
+      } catch (error) {
+        msg.textContent = error.message;
+      }
+    });
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { renderRaceChart(); drawTrainingInsightCharts(); }, 150);
+    });
+  }
+  loadRacePrediction();
+  loadTrainingInsights();
+  loadTrainingAnalysis();
+
   // Training potential: read-only, separate from scheduling and AI coaching.
   let potentialData = null;
   let potentialRequest = 0;
