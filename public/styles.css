@@ -5151,6 +5151,17 @@
     .plan-session-section + .plan-session-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
     .plan-session-section h3 { margin: 0 0 10px; font-size: 14px; }
     .plan-session-section p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.75; }
+    .plan-block-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; counter-reset: workout-block; }
+    .plan-block { --block-color: var(--green); position: relative; padding: 14px 14px 14px 46px; border-radius: 12px;
+      border: 1px solid var(--border); border-left: 3px solid var(--block-color); background: var(--bg3); counter-increment: workout-block; }
+    .plan-block::before { content: counter(workout-block); position: absolute; left: 14px; top: 15px;
+      font: 700 13px var(--font-num); color: var(--block-color); }
+    .plan-block-interval, .plan-block-pace { --block-color: var(--amber); }
+    .plan-block-recovery, .plan-block-cooldown { --block-color: var(--accent); }
+    .plan-block-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 6px; }
+    .plan-block-label { margin-right: auto; font-size: 12px; font-weight: 700; color: var(--block-color); }
+    .plan-block-target { font: 700 17px var(--font-num); color: var(--text); }
+    .plan-block p { font-size: 13px; line-height: 1.6; color: var(--muted2); }
     @media (max-width: 720px) {
       .plan-session-dialog { padding: 20px; border-radius: 18px; }
       .plan-session-header h2 { font-size: 20px; }

@@ -5312,6 +5312,56 @@ HEALTH DATA (current):
     return ` data-action="open-plan-session" data-plan-index="${index}" aria-haspopup="dialog" title="Visa passets upplägg"`;
   }
 
+  function planSessionBlocks(session) {
+    if (!['run', 'easy', 'race', 'bike', 'interval', 'threshold', 'long'].includes(session.type)) return [];
+    // Planen är fritext. Behåll originalorden och skilj bara tydliga delar åt;
+    // parenteser hör ihop (t.ex. 7 × (300 m snabbt + 300 m lugnt)).
+    const text = String(session.detail || '').trim();
+    const parts = [];
+    let start = 0, depth = 0, sentence = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '(') depth++;
+      if (text[i] === ')') depth = Math.max(0, depth - 1);
+      if (depth) continue;
+      const boundary = text.slice(i).match(/^(?:[.!?;]\s+|\n+|,\s+(?=\d+\s*[×x]|\d+(?:[.,]\d+)?\s*(?:km|min|m)\s+(?:uppv|nedjogg|i\s))|\s+\+\s+(?=\d+\s*[×x]|\d+(?:[.,]\d+)?\s*(?:km|min|m)\s+(?:uppv|nedjogg|i\s)))/i);
+      if (!boundary) continue;
+      parts.push({text: text.slice(start, i).trim(), sentence});
+      if (/^[.!?\n]/.test(boundary[0])) sentence++;
+      i += boundary[0].length - 1;
+      start = i + 1;
+    }
+    parts.push({text: text.slice(start).trim(), sentence});
+    const conditional = /→|\bom\b|\bannars\b|\bi stället\b|\bistället\b|\balternativ|\bvid behov\b/i;
+    const conditionalSentences = new Set(parts.filter(part => conditional.test(part.text)).map(part => part.sentence));
+    return parts.flatMap(({text: part, sentence}) => {
+      if (!part) return [];
+      // Villkor och råd får inte bli obligatoriska steg. De finns kvar i
+      // hela beskrivningen, liksom totalsiffror som inte är egna block.
+      if (conditionalSentences.has(sentence) || /^(?:cirka|ca|totalt|summa|håll|låt|ingen|inget|utan|hoppa över)\b/i.test(part)) return [];
+      const paces = [...part.matchAll(/\b\d{1,2}:[0-5]\d(?:\s*[–—-]\s*\d{1,2}:[0-5]\d)?\s*(?:min\s*)?\/\s*km\b/gi)].map(m => m[0]);
+      let kind, label;
+      if (/\buppv(?:ärmning)?\b/i.test(part)) { kind = 'warmup'; label = 'Uppvärmning'; }
+      else if (/\b(?:nedjogg|nedvarvning)\b/i.test(part)) { kind = 'cooldown'; label = 'Nedjogg'; }
+      else if (/\b\d+\s*[×x]\s*(?:\d+(?:[.,]\d+)?\s*(?:km|min|m|s|sek)\b|\d+\s*\/\s*\d+|\()/i.test(part)) { kind = 'interval'; label = 'Intervaller'; }
+      else if (/\b(?:vila|joggvila|gångvila)\b/i.test(part) && /\d/.test(part)) { kind = 'recovery'; label = 'Vila'; }
+      else if (/\bstegringar\b/i.test(part) && !/\bkm\b/i.test(part)) { kind = 'interval'; label = 'Stegringar'; }
+      else if (paces.length) { kind = 'pace'; label = 'Tempoblock'; }
+      else if (/\b\d+(?:[.,]\d+)?\s*km\b/i.test(part) && /\blugnt?\b|\bprattempo\b/i.test(part)) { kind = 'easy'; label = 'Lugn löpning'; }
+      else return [];
+      return [{kind, label, text: part, paces: [...new Set(paces)]}];
+    });
+  }
+
+  function renderPlanSessionBlocks(session) {
+    const blocks = planSessionBlocks(session);
+    if (!blocks.length) return '';
+    return `<section class="plan-session-section plan-blocks"><h3>Passets block</h3>
+      <ol class="plan-block-list">${blocks.map(block => `<li class="plan-block plan-block-${block.kind}">
+        <div class="plan-block-head"><span class="plan-block-label">${escapeHtml(block.label)}</span>
+          ${block.paces.map(pace => `<strong class="plan-block-target">${escapeHtml(pace)}</strong>`).join('')}</div>
+        <p>${escapeHtml(block.text)}</p></li>`).join('')}</ol></section>`;
+  }
+
   function openPlanSessionDetails(index) {
     const session = Number.isInteger(index) && PLAN_SESSIONS[index];
     if (!session || document.getElementById('plan-session-dialog')) return;
@@ -5332,7 +5382,8 @@ HEALTH DATA (current):
       </header>
       <div class="plan-session-meta"><span>${escapeHtml(date.toLocaleDateString('sv-SE', {weekday: 'long', day: 'numeric', month: 'long'}))}</span>
         ${session.km ? `<span>${escapeHtml(String(session.km).replace('.', ','))} km</span>` : ''}</div>
-      ${section('Upplägg, tempo och vila', session.detail || 'Inget detaljerat upplägg är sparat för det här passet.')}
+      ${renderPlanSessionBlocks(session)}
+      ${section('Hela passbeskrivningen', session.detail || 'Inget detaljerat upplägg är sparat för det här passet.')}
       ${session.type === 'lift' && session.strength_recommendation_text ? section('Övningar och belastning', session.strength_recommendation_text) : ''}
       ${session.ai_note ? section('Coachens anteckning', session.ai_note) : ''}`;
     dialog.addEventListener('close', () => {
