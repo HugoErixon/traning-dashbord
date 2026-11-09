@@ -602,6 +602,9 @@ async function performLogout() {
   // användare som loggar in på samma dator.
   clearChatHistory();
   try {
+    Object.keys(localStorage).filter(k => k.startsWith('trainyze:strength:')).forEach(k => localStorage.removeItem(k));
+  } catch (_) {}
+  try {
     await fetch('/api/logout', {method: 'POST'});
   } catch (_) {
     // Sessionen rensas ändå lokalt via omladdningen.
@@ -1443,24 +1446,13 @@ function executeAction(trigger, event) {
     qa('Jag vill köra styrketräning för löpare istället för dagens löppass. Kan du justera planen och ge ett pass?');
     document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
   }
-  else if (action === 'strength-tab') strengthTab(trigger.dataset.tab);
   else if (action === 'save-journal') saveJournalEntry();
   else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
   else if (action === 'send-chat') send();
   else if (action === 'reset-chat') resetChat();
   else if (action === 'edit-journal') editJournalDate(trigger.dataset.date);
   else if (action === 'delete-journal') deleteJournalEntry(event, Number(trigger.dataset.id));
-  else if (action === 'apply-strength-rx') applyStrengthRecommendation(trigger.dataset.context, Number(trigger.dataset.index));
-  else if (action === 'toggle-session') toggleSession(trigger.dataset.session);
-  else if (action === 'add-exercise') {
-    const context = trigger.dataset.context;
-    context ? addExercise(trigger.dataset.session, context) : addExercise(trigger.dataset.session);
-  } else if (action === 'delete-exercise') {
-    const context = trigger.dataset.context;
-    context
-      ? deleteExercise(Number(trigger.dataset.id), trigger.dataset.session, context)
-      : deleteExercise(Number(trigger.dataset.id), trigger.dataset.session);
-  }
+  else if (action === 'strength-window' || action.startsWith('st-')) strengthAction(action, trigger);
 }
 
 document.addEventListener('click', event => {
@@ -1490,7 +1482,7 @@ document.addEventListener('keydown', event => {
   // toppflikar längre, men de är fortfarande egna sidor — kartan är det som
   // gör att rätt flik lyser upp när man landar på en undervy.
   const NAV_SECTION = {
-    upcoming: 'upcoming', strength: 'upcoming',
+    upcoming: 'upcoming', strength: 'strength',
     health: 'health', sleep: 'health', journal: 'health',
     analysis: 'analysis', home: 'home', overview: 'overview',
     settings: 'settings', climate: 'settings',
@@ -3829,7 +3821,8 @@ HEALTH DATA (current):
           // inte falla ut i catch och skriva över det med ett felmeddelande —
           // planen är ändrad oavsett om vyn hann uppdateras.
           await Promise.allSettled([loadPlan()]);
-          await Promise.allSettled([loadToday(), loadTodayWorkout()]);
+          await Promise.allSettled([loadToday()]);
+          if (document.getElementById('page-strength')?.classList.contains('active')) renderStrengthPlanned();
         }
       } else {
         aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(failure || 'Inget svar.');
@@ -4447,14 +4440,14 @@ HEALTH DATA (current):
   // vänds: en kurva som går uppåt betyder snabbare.
   // Ett uppehåll på mer än tio dagar ritas som ett avbrott i linjen, inte som
   // en rak sträcka genom dagar då modellen saknade underlag.
-  function rpPath(points, x, y) {
+  function rpPath(points, x, y, gapDays = 10) {
     return points.map((p, i) => {
-      const gap = i && (new Date(p.t) - new Date(points[i - 1].t)) > 10 * 864e5;
+      const gap = i && (new Date(p.t) - new Date(points[i - 1].t)) > gapDays * 864e5;
       return `${i && !gap ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`;
     }).join('');
   }
 
-  function rpDrawLine(el, points, {target = null, invert = true, color = 'var(--accent)', compare = [], from = null, to = null} = {}) {
+  function rpDrawLine(el, points, {target = null, invert = true, color = 'var(--accent)', compare = [], from = null, to = null, gapDays = 10} = {}) {
     if (!el) return;
     const clean = points.filter(p => Number.isFinite(p.v));
     const other = compare.filter(p => Number.isFinite(p.v));
@@ -4480,7 +4473,7 @@ HEALTH DATA (current):
       const f = (v - lo) / (hi - lo);
       return pad.t + (invert ? f : 1 - f) * (H - pad.t - pad.b);
     };
-    const path = rpPath(clean, x, y);
+    const path = rpPath(clean, x, y, gapDays);
     const comparePath = other.length > 1
       ? `<path d="${rpPath(other, x, y)}" class="rp-compare-line" fill="none"/>` : '';
     const dots = clean.length <= 40
@@ -4689,406 +4682,483 @@ HEALTH DATA (current):
   loadRacePrediction();
 
   // ─── STRENGTH: sub-tabs (today's live workout vs history) ───
-  let strengthCurrentTab = 'today';
-  let activeStrengthRecommendations = [];
-  function loadStrengthPage() { strengthTab(strengthCurrentTab); }
-  function strengthTab(which) {
-    strengthCurrentTab = which;
-    document.getElementById('stab-today').classList.toggle('active', which === 'today');
-    document.getElementById('stab-history').classList.toggle('active', which === 'history');
-    document.getElementById('stab-analysis').classList.toggle('active', which === 'analysis');
-    document.getElementById('strength-today').style.display   = which === 'today'   ? 'block' : 'none';
-    document.getElementById('strength-history').style.display = which === 'history' ? 'block' : 'none';
-    document.getElementById('strength-analysis').style.display = which === 'analysis' ? 'block' : 'none';
-    if (which === 'today') loadTodayWorkout();
-    else if (which === 'history') loadStrength();
-    else loadStrengthAnalysis();
-  }
+  // --- Styrka: logga set för set i telefonen, se progress över tid ----------
+  // Loggkortet ritas från lokal state och uppdateras kort för kort, så att en
+  // omladdning av progressen aldrig tar fokus eller ett halvskrivet värde.
+  let strengthWindowDays = 90;
+  let strengthData = null;
+  let stSession = { sessionId: null, rows: [] };
+  let stOrder = [];      // övningar i dagens pass, i den ordning de lades till
+  let stDrafts = {};     // nyckel → {weight, reps, target}
+  let stRestStart = null;
+  let stRestTimer = null;
+  let stProgressTimer = null;
+
+  const stKey = name => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const stDraftStorage = () => `trainyze:strength:${strengthData?.today || new Date().toLocaleDateString('sv-SE')}`;
 
   function fmtKg(value) {
-    if (value === null || value === undefined || value === '') return '-';
-    return Number(value).toLocaleString('sv-SE', { maximumFractionDigits: 1 }) + ' kg';
+    if (value === null || value === undefined || value === '') return '–';
+    return Number(value).toLocaleString('sv-SE', { maximumFractionDigits: 2 }) + ' kg';
   }
-
-  function fmtSignedKg(value) {
-    if (value === null || value === undefined) return '-';
-    const n = Number(value);
-    const sign = n > 0 ? '+' : '';
-    return sign + n.toLocaleString('sv-SE', { maximumFractionDigits: 1 }) + ' kg';
-  }
-
   function fmtVolume(value) {
     const n = Number(value || 0);
     if (n >= 1000) return (n / 1000).toLocaleString('sv-SE', { maximumFractionDigits: 1 }) + ' ton';
     return n.toLocaleString('sv-SE', { maximumFractionDigits: 0 }) + ' kg';
   }
+  function stShortDate(iso) {
+    return iso ? new Date(iso + 'T12:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }) : '';
+  }
+  function stSetText(row) {
+    return `${row.weight ? fmtKg(row.weight) : 'Kroppsvikt'} × ${row.reps || '–'}`;
+  }
 
-  function strengthPrescriptionHtml(session, contextId) {
-    const recommendations = session?.strength_recommendations || [];
-    if (!recommendations.length) return '';
-    activeStrengthRecommendations = recommendations;
-    const rows = recommendations.map((rec, index) => {
-      const status = rec.confidence === 'caution' ? 'VARNING'
-        : rec.confidence === 'none' ? 'NY ÖVNING'
-        : rec.confidence === 'planned' ? 'UTAN VIKT'
-        : 'HISTORIK';
-      const statusClass = rec.confidence === 'caution' ? ' caution'
-        : rec.confidence === 'none' ? ' new' : '';
-      const lastRepLabel = rec.lastRepsMax != null && Number(rec.lastRepsMax) !== Number(rec.lastReps)
-        ? `${rec.lastReps}–${rec.lastRepsMax}`
-        : (rec.lastReps || '-');
-      const last = rec.lastWeight != null
-        ? `Senast ${rec.lastSets || 1}×${lastRepLabel} @ ${fmtKg(rec.lastWeight)} · ${fmtDateStr(rec.lastDate)}`
-        : rec.reason || '';
-      return `<div class="strength-rx-row${statusClass}">
-        <div class="strength-rx-main">
-          <div class="strength-rx-name">${escapeHtml(rec.exercise || '')}<span>${status}</span></div>
-          <div class="strength-rx-value">${escapeHtml(rec.prescription || '')}</div>
-          <div class="strength-rx-last">${escapeHtml(last)}</div>
+  function stSaveDrafts() {
+    try { localStorage.setItem(stDraftStorage(), JSON.stringify({ order: stOrder, drafts: stDrafts })); } catch (_) {}
+  }
+  function stLoadDrafts() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(stDraftStorage()) || 'null');
+      if (saved && Array.isArray(saved.order)) return saved;
+    } catch (_) {}
+    return { order: [], drafts: {} };
+  }
+
+  function stTodayLift() {
+    const info = getISOWeekInfo(new Date());
+    return (PLAN_SESSIONS || []).find(p => p.type === 'lift' && p.week === info.week && p.dow === info.dow) || null;
+  }
+  function stRowsFor(key) {
+    return stSession.rows.filter(r => stKey(r.exercise) === key);
+  }
+  function stName(key) {
+    return stRowsFor(key)[0]?.exercise || stDrafts[key]?.name || strengthData?.last?.[key]?.exercise || key;
+  }
+
+  // Förifyllt värde: senaste setet i dag, annars dagens rekommendation,
+  // annars förra gången.
+  function stDefaultDraft(key, target = null) {
+    const rows = stRowsFor(key);
+    const lastToday = rows.at(-1);
+    const previous = strengthData?.last?.[key];
+    const weight = lastToday ? lastToday.weight : target?.weight ?? previous?.weight ?? null;
+    const reps = parseInt(lastToday?.reps ?? target?.reps ?? previous?.reps ?? 10, 10) || 10;
+    return { weight: weight ?? '', reps, target };
+  }
+
+  function stAddExercise(name, target = null) {
+    const clean = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+    const key = stKey(clean);
+    if (!key) return null;
+    if (!stOrder.includes(key)) stOrder.push(key);
+    stDrafts[key] = { ...stDefaultDraft(key, target), ...(stDrafts[key] || {}), name: clean, target: target || stDrafts[key]?.target || null };
+    stSaveDrafts();
+    renderStrengthLog();
+    return key;
+  }
+
+  function stTargetText(target) {
+    if (!target) return '';
+    const reps = target.reps == null ? '' : `${target.reps}${target.unit === 'seconds' ? ' s' : ''}`;
+    return `Mål ${target.sets || ''}×${reps}${target.weight ? ' @ ' + fmtKg(target.weight) : ''}`;
+  }
+
+  function stExerciseHtml(key) {
+    const draft = stDrafts[key] || stDefaultDraft(key);
+    const rows = stRowsFor(key);
+    const sets = rows.flatMap(row => Array.from({ length: Number(row.sets || 1) }, () => row));
+    const previous = strengthData?.last?.[key];
+    const id = 'st-' + stOrder.indexOf(key);
+    const name = stName(key);
+    const setsHtml = sets.length
+      ? `<ol class="st-sets">${sets.map((row, i) => `<li><span class="st-set-no">${i + 1}</span><span class="st-set-val">${escapeHtml(stSetText(row))}</span>
+          <button type="button" class="st-set-del" data-action="st-remove-set" data-row="${Number(row.id)}" aria-label="Ta bort set ${i + 1} i ${escapeHtml(name)}">×</button></li>`).join('')}</ol>`
+      : '';
+    return `<article class="st-ex" data-key="${escapeHtml(key)}" aria-labelledby="${id}-name">
+      <header class="st-ex-head">
+        <h4 id="${id}-name">${escapeHtml(name)}</h4>
+        ${draft.target ? `<span class="st-ex-target">${escapeHtml(stTargetText(draft.target))}</span>` : ''}
+        ${sets.length ? '' : `<button type="button" class="st-ex-remove" data-action="st-remove-exercise" aria-label="Ta bort ${escapeHtml(name)} från passet">×</button>`}
+      </header>
+      ${previous ? `<p class="st-ex-last">Förra gången ${escapeHtml(stShortDate(previous.date))}: ${escapeHtml(previous.label)}</p>` : '<p class="st-ex-last">Ny övning – välj en vikt du klarar med 2 reps kvar.</p>'}
+      ${setsHtml}
+      <div class="st-entry">
+        <div class="st-stepper">
+          <label for="${id}-weight">kg</label>
+          <button type="button" data-action="st-step" data-field="weight" data-delta="-2.5" aria-label="Minska vikten 2,5 kg">−</button>
+          <input id="${id}-weight" data-field="weight" type="text" inputmode="decimal" value="${escapeHtml(draft.weight === '' || draft.weight == null ? '' : String(draft.weight).replace('.', ','))}" placeholder="0">
+          <button type="button" data-action="st-step" data-field="weight" data-delta="2.5" aria-label="Öka vikten 2,5 kg">+</button>
         </div>
-        <button type="button" class="strength-rx-use" data-action="apply-strength-rx" data-context="${escapeHtml(contextId)}" data-index="${index}">Fyll i</button>
-      </div>`;
-    }).join('');
-    return `<div class="strength-rx">
-      <div class="strength-rx-head">
-        <span>Rekommenderad progression</span>
-        <em>från din logg</em>
+        <div class="st-stepper">
+          <label for="${id}-reps">reps</label>
+          <button type="button" data-action="st-step" data-field="reps" data-delta="-1" aria-label="En rep färre">−</button>
+          <input id="${id}-reps" data-field="reps" type="text" inputmode="numeric" value="${escapeHtml(String(draft.reps ?? ''))}">
+          <button type="button" data-action="st-step" data-field="reps" data-delta="1" aria-label="En rep till">+</button>
+        </div>
+        <button type="button" class="st-log-btn" data-action="st-log-set">✓ Logga set ${sets.length + 1}</button>
       </div>
-      <div class="strength-rx-list">${rows}</div>
-    </div>`;
+    </article>`;
   }
 
-  function applyStrengthRecommendation(contextId, index) {
-    const rec = activeStrengthRecommendations[index];
-    if (!rec) return;
-    const name = document.getElementById('ex-name-' + contextId);
-    const sets = document.getElementById('ex-sets-' + contextId);
-    const reps = document.getElementById('ex-reps-' + contextId);
-    const weight = document.getElementById('ex-weight-' + contextId);
-    if (!name || !sets || !reps || !weight) return;
-    name.value = rec.exercise || '';
-    sets.value = rec.sets || '';
-    reps.value = rec.reps == null ? '' : String(rec.reps) + (rec.unit === 'seconds' ? ' sek' : '');
-    weight.value = rec.weight == null ? '' : rec.weight;
-    name.focus();
-  }
-
-  function strengthSessionTitle(session) {
-    const d = new Date(session.date);
-    const dateLabel = Number.isNaN(d.getTime())
-      ? ''
-      : d.toLocaleDateString('sv-SE', { day:'numeric', month:'short' });
-    let title = '';
-    if (!Number.isNaN(d.getTime())) {
-      const info = getISOWeekInfo(d);
-      const plannedLift = (PLAN_SESSIONS || []).find(p =>
-        p.type === 'lift' && p.week === info.week && p.dow === info.dow
-      );
-      title = plannedLift?.title || '';
-    }
-    const garminName = String(session.name || '').trim();
-    if (!title && garminName && !/^strength$/i.test(garminName)) title = garminName;
-    if (!title) title = 'Styrka';
-    return [title, dateLabel].filter(Boolean).join(' ');
-  }
-
-  async function loadStrengthAnalysis() {
-    const el = document.getElementById('strength-analysis-content');
+  function renderStrengthPlanned() {
+    const el = document.getElementById('st-planned');
     if (!el) return;
-    el.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'IBM Plex Mono\',monospace;">Analyserar styrkeloggar...</div>';
-    try {
-      const res = await fetch('/api/strength/analysis');
-      const data = await res.json();
-      const summary = data.summary || {};
-      const exercises = data.exercises || [];
-      if (!summary.exerciseLogs) {
-        el.innerHTML = '<div class="no-sessions">Logga några övningar först, så börjar analysen räkna progression, volym och personbästan.</div>';
-        return;
-      }
-
-      const maxWeekVolume = Math.max(1, ...(data.weeks || []).map(w => Number(w.volume || 0)));
-      const weeksHtml = (data.weeks || []).map(w => {
-        const h = Math.max(8, Math.round((Number(w.volume || 0) / maxWeekVolume) * 100));
-        const label = new Date(w.weekStart).toLocaleDateString('sv-SE', { month:'short', day:'numeric' });
-        return `<div class="strength-week">
-          <div class="strength-week-bar" style="height:${h}%"></div>
-          <div class="strength-week-label">${escapeHtml(label)}</div>
-        </div>`;
-      }).join('');
-
-      const bestHtml = (data.bestLifts || []).map(ex => `
-        <div class="strength-rank-row">
-          <span>${escapeHtml(ex.exercise)}</span>
-          <strong>${fmtKg(ex.bestE1rm)}</strong>
-        </div>`).join('') || '<div class="strength-empty">Ingen viktdata ännu.</div>';
-
-      const prsHtml = (data.recentPrs || []).map(pr => `
-        <div class="strength-pr">
-          <div>
-            <strong>${escapeHtml(pr.exercise)}</strong>
-            <span>${escapeHtml(fmtDateStr(pr.date))} · ${escapeHtml(pr.reps || '')} @ ${fmtKg(pr.weight)}</span>
-          </div>
-          <b>${fmtKg(pr.e1rm)}</b>
-        </div>`).join('') || '<div class="strength-empty">Inga nya personbästan i senaste loggen.</div>';
-
-      const rowsHtml = exercises.map(ex => `
-        <tr>
-          <td>
-            <strong>${escapeHtml(ex.exercise)}</strong>
-            <span>${escapeHtml(fmtDateStr(ex.lastDate))}</span>
-          </td>
-          <td>${ex.sessions}</td>
-          <td>${fmtVolume(ex.totalVolume)}</td>
-          <td>${fmtKg(ex.currentE1rm)}</td>
-          <td class="trend-${ex.trend}">${fmtSignedKg(ex.deltaE1rm)}</td>
-        </tr>`).join('');
-
-      el.innerHTML = `
-        <div class="strength-analysis-grid">
-          <div class="strength-metric-card">
-            <span>Senaste 28 dagar</span>
-            <strong>${summary.recentSessions28d || 0}</strong>
-            <em>styrkepass</em>
-          </div>
-          <div class="strength-metric-card">
-            <span>Total volym</span>
-            <strong>${fmtVolume(summary.totalVolume)}</strong>
-            <em>${summary.exerciseLogs || 0} loggade övningar</em>
-          </div>
-          <div class="strength-metric-card">
-            <span>Övningsbredd</span>
-            <strong>${summary.uniqueExercises || 0}</strong>
-            <em>unika övningar</em>
-          </div>
-        </div>
-
-        <div class="strength-analysis-layout">
-          <div class="strength-panel">
-            <div class="strength-panel-head">
-              <h3>Volym per vecka</h3>
-              <span>senaste 8 veckorna</span>
-            </div>
-            <div class="strength-week-chart">${weeksHtml}</div>
-          </div>
-          <div class="strength-panel">
-            <div class="strength-panel-head">
-              <h3>Starkaste lyften</h3>
-              <span>estimerad 1RM</span>
-            </div>
-            <div class="strength-rank-list">${bestHtml}</div>
-          </div>
-        </div>
-
-        <div class="strength-panel">
-          <div class="strength-panel-head">
-            <h3>Nya toppnoteringar</h3>
-            <span>senaste loggade bästa per övning</span>
-          </div>
-          <div class="strength-pr-list">${prsHtml}</div>
-        </div>
-
-        <div class="strength-panel">
-          <div class="strength-panel-head">
-            <h3>Progression per övning</h3>
-            <span>nuvarande e1RM mot förra loggen</span>
-          </div>
-          <div class="strength-table-wrap">
-            <table class="strength-analysis-table">
-              <thead><tr><th>Övning</th><th>Pass</th><th>Volym</th><th>e1RM</th><th>Trend</th></tr></thead>
-              <tbody>${rowsHtml}</tbody>
-            </table>
-          </div>
-        </div>`;
-    } catch(e) {
-      el.innerHTML = '<div class="no-sessions">Kunde inte ladda styrkeanalys: ' + escapeHtml(e.message) + '</div>';
-    }
+    const lift = stTodayLift();
+    const recs = (lift?.strength_recommendations || []).filter(r => r.exercise && !stOrder.includes(stKey(r.exercise)));
+    if (!lift) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.innerHTML = `<div class="st-planned-head"><strong>${escapeHtml(lift.title || 'Gympass')}</strong>
+        ${recs.length > 1 ? '<button type="button" class="st-chip st-chip-all" data-action="st-start-planned" data-index="all">Lägg till alla</button>' : ''}</div>
+      ${recs.length ? `<div class="st-planned-list">${recs.map(r => `<button type="button" class="st-chip" data-action="st-start-planned" data-index="${(lift.strength_recommendations || []).indexOf(r)}">
+        <span>${escapeHtml(r.exercise)}</span><small>${escapeHtml(stTargetText(r).replace('Mål ', ''))}</small></button>`).join('')}</div>`
+        : `<p class="st-log-sub">${lift.detail ? escapeHtml(lift.detail) : 'Alla planerade övningar är tillagda.'}</p>`}`;
   }
 
-  async function loadTodayWorkout() {
-    const el = document.getElementById('strength-today');
+  function renderStrengthQuick() {
+    const el = document.getElementById('st-quick');
     if (!el) return;
-    const today = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, used as session id
-    // Hitta dagens lift-pass i planen (samma vecko-/dagberäkning som renderTodaySession)
-    const now = new Date();
-    const jan4 = new Date(now.getFullYear(), 0, 4);
-    const startDay = jan4.getDay() || 7;
-    const monday = new Date(jan4); monday.setDate(jan4.getDate() - startDay + 1);
-    const isoWeek = Math.ceil(((now - monday) / 86400000 + 1) / 7);
-    const dow = (now.getDay() + 6) % 7;
-    const todays = (PLAN_SESSIONS || []).filter(p => p.week === isoWeek && p.dow === dow);
-    const lift = todays.find(p => p.type === 'lift');
-    const dateLabel = now.toLocaleDateString('sv-SE', { weekday:'long', day:'numeric', month:'long' });
+    const planned = (stTodayLift()?.strength_recommendations || []).map(r => stKey(r.exercise));
+    const names = (strengthData?.exerciseNames || [])
+      .filter(n => !stOrder.includes(stKey(n)) && !planned.includes(stKey(n))).slice(0, 8);
+    el.innerHTML = names.map(n => `<button type="button" class="st-chip" data-action="st-add-quick" data-name="${escapeHtml(n)}">+ ${escapeHtml(n)}</button>`).join('');
+    const list = document.getElementById('st-exercise-names');
+    const all = [...new Set([...(strengthData?.exerciseNames || []), ...SUGGESTIONS])];
+    if (list) list.innerHTML = all.map(n => `<option value="${escapeHtml(n)}">`).join('');
+  }
 
-    // Om dagens Garmin-styrkepass redan synkat: logga direkt mot det (backend länkar
-    // även ihop tidigare datum-loggade övningar med passet vid synk).
-    let sessionId = today, linkedActivity = null;
-    try {
-      const sr = await fetch('/api/strength');
-      const sess = (await sr.json()).sessions || [];
-      const todayAct = sess.find(s => (s.date || '').slice(0, 10) === today);
-      if (todayAct) { sessionId = String(todayAct.id); linkedActivity = todayAct; }
-    } catch(e) {}
-    const linkNote = linkedActivity
-      ? `<div style="font-size:11px;color:var(--green);margin-top:8px;">✓ Kopplat till Garmin-aktivitet "${escapeHtml(linkedActivity.name)}" — övningar sparas på det passet.</div>`
-      : `<div style="font-size:11px;color:var(--muted);margin-top:8px;">Inte synkat från Garmin än. Övningar loggas under dagens datum och kopplas automatiskt när klockan laddar upp passet.</div>`;
+  function stUpdateSub() {
+    const activity = strengthData?.todaySession?.activity;
+    const totalSets = stSession.rows.reduce((n, r) => n + Number(r.sets || 1), 0);
+    document.getElementById('st-log-sub').textContent = [
+      totalSets ? `${totalSets} set loggade` : 'Inga set loggade än',
+      activity ? `kopplat till Garmin-passet "${activity.name}"` : 'kopplas till Garmin-passet när klockan synkar',
+    ].join(' · ');
+  }
 
-    const contextId = 'today-' + sessionId;
-    activeStrengthRecommendations = [];
-    let ctx;
-    if (lift) {
-      ctx = `<div style="background:var(--bg2);border:1px solid rgba(245,158,11,0.25);border-left:3px solid var(--amber);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:var(--amber);margin-bottom:6px;">DAGENS GYMPASS · ${dateLabel}</div>
-        <div style="font-size:16px;font-weight:700;margin-bottom:4px;">${escapeHtml(lift.title || 'Styrka')}</div>
-        ${lift.detail ? `<div style="font-size:13px;color:var(--muted2);line-height:1.5;">${escapeHtml(lift.detail)}</div>` : ''}
-        ${strengthPrescriptionHtml(lift, contextId)}
-        ${lift.ai_note ? `<div style="font-size:12px;color:var(--blue);margin-top:6px;">Coach: ${escapeHtml(lift.ai_note)}</div>` : ''}
-        ${linkNote}
-      </div>`;
+  function renderStrengthLog() {
+    const today = strengthData?.today;
+    const day = today ? new Date(today + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
+    document.getElementById('st-log-title').textContent = `Dagens pass · ${day}`;
+    stUpdateSub();
+    const list = document.getElementById('st-exercises');
+    list.innerHTML = stOrder.length ? stOrder.map(stExerciseHtml).join('')
+      : '<p class="st-empty">Lägg till en övning nedan eller välj från planen, så loggar du ett set i taget.</p>';
+    renderStrengthPlanned();
+    renderStrengthQuick();
+  }
+
+  // Bara ett kort ritas om när ett set loggas — knappen behåller fokus och
+  // de andra korten rörs inte.
+  function stRerenderCard(key, focusLog = false) {
+    const card = document.querySelector(`#st-exercises .st-ex[data-key="${CSS.escape(key)}"]`);
+    if (!card) return renderStrengthLog();
+    card.outerHTML = stExerciseHtml(key);
+    stUpdateSub();
+    if (focusLog) document.querySelector(`#st-exercises .st-ex[data-key="${CSS.escape(key)}"] .st-log-btn`)?.focus();
+  }
+
+  function stCardKey(trigger) { return trigger.closest('.st-ex')?.dataset.key; }
+  function stParseWeight(text) {
+    const value = String(text ?? '').trim().replace(',', '.');
+    if (!value) return null;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 && n <= 1000 ? Math.round(n * 100) / 100 : NaN;
+  }
+  function stMessage(text, tone = '') {
+    const el = document.getElementById('st-msg');
+    if (!el) return;
+    el.textContent = text;
+    el.dataset.tone = tone;
+  }
+
+  function stStep(trigger) {
+    const key = stCardKey(trigger);
+    const field = trigger.dataset.field;
+    const input = trigger.closest('.st-stepper').querySelector('input');
+    const delta = Number(trigger.dataset.delta);
+    if (field === 'weight') {
+      const current = stParseWeight(input.value);
+      const next = Math.max(0, (Number.isFinite(current) ? current || 0 : 0) + delta);
+      input.value = next ? String(next).replace('.', ',') : '';
     } else {
-      const other = todays.find(p => p.type !== 'rest');
-      ctx = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px;">
-        <div style="font-size:13px;color:var(--text);">Inget gympass planerat idag (${dateLabel}).</div>
-        ${other ? `<div style="font-size:12px;color:var(--muted2);margin-top:4px;">Dagens plan: ${escapeHtml(other.title)}.</div>` : ''}
-        ${linkNote}
-      </div>`;
+      input.value = String(Math.max(1, Math.min(200, (parseInt(input.value, 10) || 0) + delta)));
     }
-
-    el.innerHTML = ctx + `
-      <div class="add-ex-form">
-        <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOG EXERCISE</div>
-        <div class="form-row">
-          <input class="ex-input-name" id="ex-name-${contextId}" list="ex-suggestions" placeholder="Exercise, e.g. bench press" autocomplete="off">
-          <input class="ex-input-sm" id="ex-sets-${contextId}" type="number" min="1" placeholder="Set">
-          <input class="ex-input-sm" id="ex-reps-${contextId}" placeholder="Reps">
-          <input class="ex-input-sm" id="ex-weight-${contextId}" type="number" step="0.5" placeholder="kg">
-          <input class="ex-input-note" id="ex-note-${contextId}" placeholder="Note (optional)">
-        </div>
-        <button class="add-ex-btn" data-action="add-exercise" data-session="${escapeHtml(sessionId)}" data-context="${escapeHtml(contextId)}">+ Add</button>
-      </div>
-      <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin:18px 0 10px;font-weight:500;">TODAY'S LOG</div>
-      <div class="ex-list" id="exlist-${contextId}"></div>`;
-
-    if (!document.getElementById('ex-suggestions')) {
-      const dl = document.createElement('datalist');
-      dl.id = 'ex-suggestions';
-      dl.innerHTML = SUGGESTIONS.map(s => `<option value="${s}">`).join('');
-      document.body.appendChild(dl);
-    }
-    // Enter i valfritt fält = lägg till snabbt under passet
-    ['ex-name-','ex-reps-','ex-weight-','ex-note-'].forEach(p => {
-      const inp = document.getElementById(p + contextId);
-      if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') addExercise(sessionId, contextId); });
-    });
-    loadExercises(sessionId, contextId);
+    stRememberInput(key, input);
+  }
+  function stRememberInput(key, input) {
+    if (!key || !stDrafts[key]) return;
+    stDrafts[key][input.dataset.field] = input.value;
+    stSaveDrafts();
   }
 
-  async function loadStrength() {
-    const container = document.getElementById('strength-list');
-    container.innerHTML = '<div style="color:var(--muted);font-size:13px;font-family:\'IBM Plex Mono\',monospace;">Loading sessions...</div>';
+  async function stLogSet(trigger) {
+    const key = stCardKey(trigger);
+    const card = trigger.closest('.st-ex');
+    const weight = stParseWeight(card.querySelector('input[data-field="weight"]').value);
+    const reps = parseInt(card.querySelector('input[data-field="reps"]').value, 10);
+    if (Number.isNaN(weight)) { stMessage('Vikten måste vara ett tal mellan 0 och 1000 kg.', 'bad'); return; }
+    if (!(reps >= 1 && reps <= 200)) { stMessage('Ange antal reps (1–200).', 'bad'); return; }
+    trigger.disabled = true;
+    trigger.textContent = 'Sparar…';
     try {
-      const res = await fetch('/api/strength');
-      const data = await res.json();
-      const sessions = data.sessions || [];
-      if (!sessions.length) {
-        container.innerHTML = '<div class="no-sessions">No strength sessions found in Garmin. Sync data to update.</div>';
-        return;
-      }
-      const today = new Date().toLocaleDateString('sv-SE');
-      const initialSession = sessions.find(s => (s.date || '').slice(0, 10) === today) || sessions[0];
-      container.innerHTML = sessions.map(s => `
-        <div class="strength-session ${initialSession && s.id === initialSession.id ? 'open' : ''}" id="sess-${s.id}">
-          <div class="strength-header" data-action="toggle-session" data-session="${escapeHtml(s.id)}">
-            <div class="strength-header-left">
-              <div class="strength-title">${escapeHtml(strengthSessionTitle(s))}</div>
-              <div class="strength-meta">${fmtDateStr(s.date)} &nbsp; - &nbsp; ${fmtDur(s.duration)} &nbsp; - &nbsp; ${Math.round(s.calories||0)} kcal${s.avgHR?' &nbsp; - &nbsp;  '+Math.round(s.avgHR)+' bpm':''}</div>
-            </div>
-            <span class="strength-chevron">▾</span>
-          </div>
-          <div class="strength-body">
-            <div class="ex-list" id="exlist-${s.id}"><div style="color:var(--muted);font-size:12px;font-family:'IBM Plex Mono',monospace;">Loading...</div></div>
-            <div class="add-ex-form">
-              <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--muted);letter-spacing:0.12em;margin-bottom:12px;font-weight:500;">LOG EXERCISE</div>
-              <div class="form-row">
-                <input class="ex-input-name" id="ex-name-${s.id}" list="ex-suggestions" placeholder="Exercise, e.g. bench press" autocomplete="off">
-                <input class="ex-input-sm" id="ex-sets-${s.id}" type="number" min="1" placeholder="Set">
-                <input class="ex-input-sm" id="ex-reps-${s.id}" placeholder="Reps">
-                <input class="ex-input-sm" id="ex-weight-${s.id}" type="number" step="0.5" placeholder="kg">
-                <input class="ex-input-note" id="ex-note-${s.id}" placeholder="Note (optional)">
-              </div>
-              <button class="add-ex-btn" data-action="add-exercise" data-session="${escapeHtml(s.id)}">+ Add</button>
-            </div>
-          </div>
-        </div>`).join('');
-
-      if (!document.getElementById('ex-suggestions')) {
-        const dl = document.createElement('datalist');
-        dl.id = 'ex-suggestions';
-        dl.innerHTML = SUGGESTIONS.map(s => `<option value="${s}">`).join('');
-        document.body.appendChild(dl);
-      }
-      if (initialSession) await loadExercises(initialSession.id);
-    } catch(e) {
-      container.innerHTML = '<div class="no-sessions">Error: ' + escapeHtml(e.message) + '</div>';
+      const response = await fetch(`/api/strength/${encodeURIComponent(stSession.sessionId)}/sets`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exercise: stName(key), weight, reps }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Setet kunde inte sparas.');
+      const index = stSession.rows.findIndex(r => r.id === data.row.id);
+      if (index >= 0) stSession.rows[index] = data.row; else stSession.rows.push(data.row);
+      stDrafts[key] = { ...stDrafts[key], weight: weight ?? '', reps };
+      stSaveDrafts();
+      stMessage(`Sparat: ${stName(key)} ${stSetText({ weight, reps })}.`, 'good');
+      stStartRest();
+      stRerenderCard(key, true);
+      stScheduleProgress();
+    } catch (error) {
+      // Värdena står kvar, så det räcker att trycka igen när täckningen är tillbaka.
+      stMessage(`${error.message} Tryck igen när du har täckning.`, 'bad');
+      trigger.disabled = false;
+      trigger.textContent = 'Försök igen';
     }
   }
 
-  async function toggleSession(id) {
-    const el = document.getElementById('sess-' + id);
-    const wasOpen = el.classList.contains('open');
-    el.classList.toggle('open');
-    if (!wasOpen) await loadExercises(id);
-  }
-
-  async function loadExercises(sessionId, contextId = sessionId) {
-    const list = document.getElementById('exlist-' + contextId);
-    if (!list) return;
+  async function stRemoveSet(trigger) {
+    const id = Number(trigger.dataset.row);
+    const row = stSession.rows.find(r => r.id === id);
+    if (!row) return;
+    const key = stKey(row.exercise);
+    trigger.disabled = true;
     try {
-      const res = await fetch('/api/strength/' + sessionId + '/exercises');
-      const data = await res.json();
-      renderExercises(sessionId, data.exercises || [], contextId);
-    } catch(e) { list.innerHTML = '<div style="color:var(--red);font-size:12px;">Could not load exercises</div>'; }
+      const response = Number(row.sets || 1) > 1
+        ? await fetch(`/api/strength/exercises/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sets: Number(row.sets) - 1 }) })
+        : await fetch(`/api/strength/exercises/${id}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Setet kunde inte tas bort.');
+      if (data.row) Object.assign(row, data.row);
+      else stSession.rows = stSession.rows.filter(r => r.id !== id);
+      stMessage(`Tog bort ett set ${stName(key)}.`);
+      stRerenderCard(key);
+      stScheduleProgress();
+    } catch (error) {
+      trigger.disabled = false;
+      stMessage(error.message, 'bad');
+    }
   }
 
-  function renderExercises(sessionId, exercises, contextId = sessionId) {
-    const list = document.getElementById('exlist-' + contextId);
-    if (!list) return;
-    if (!exercises.length) {
-      list.innerHTML = '<div style="color:var(--muted);font-size:12px;font-family:\'IBM Plex Mono\',monospace;padding:8px 0 12px;">No exercises logged yet.</div>';
+  function stStartRest() {
+    stRestStart = Date.now();
+    const box = document.getElementById('st-rest');
+    const out = document.getElementById('st-rest-time');
+    box.hidden = false;
+    clearInterval(stRestTimer);
+    const tick = () => {
+      const s = Math.floor((Date.now() - stRestStart) / 1000);
+      if (s > 15 * 60) { clearInterval(stRestTimer); box.hidden = true; return; }
+      out.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    };
+    tick();
+    stRestTimer = setInterval(tick, 1000);
+  }
+
+  // --- Progress ---
+  function renderStrengthSummary(data) {
+    const s = data.summary || {};
+    const period = data.days === 180 ? 'senaste halvåret' : `senaste ${data.days} dagarna`;
+    document.getElementById('st-period-note').textContent = period[0].toUpperCase() + period.slice(1);
+    const el = document.getElementById('st-summary');
+    if (!s.sessions && !s.lastDate) {
+      el.innerHTML = '<p class="ov-summary-text">Inga styrkepass loggade än. Logga ditt första set ovan, så börjar progressen räknas.</p>';
       return;
     }
-    list.innerHTML = exercises.map(ex => {
-      const detail = [ex.sets ? ex.sets+'x' : '', ex.reps || '', ex.weight ? ex.weight+'kg' : '', ex.note || ''].filter(Boolean).join(' ');
-      return `<div class="ex-row">
-        <span class="ex-name">${escapeHtml(ex.exercise)}</span>
-        <span class="ex-detail">${escapeHtml(detail)}</span>
-        <button class="ex-del" data-action="delete-exercise" data-id="${Number(ex.id)}" data-session="${escapeHtml(sessionId)}" data-context="${escapeHtml(contextId)}" title="Ta bort">x</button>
-      </div>`;
+    const diff = (now, before, fmt = v => v) => before ? ` <span class="st-diff">(förra perioden ${fmt(before)})</span>` : '';
+    const records = (data.records || []).slice(0, 3).map(r =>
+      `<li><strong>${escapeHtml(r.exercise)}</strong> ${escapeHtml(r.label)} · ${escapeHtml(stShortDate(r.date))}</li>`).join('');
+    el.innerHTML = `<div class="st-kpis">
+        <div class="st-kpi"><span>Pass</span><strong>${s.sessions}</strong><small>${s.perWeek} per vecka${diff(s.sessions, s.previousSessions)}</small></div>
+        <div class="st-kpi"><span>Set</span><strong>${s.sets}</strong><small>${diff(s.sets, s.previousSets).trim() || '&nbsp;'}</small></div>
+        <div class="st-kpi"><span>Volym</span><strong>${escapeHtml(fmtVolume(s.volume))}</strong><small>set × reps × kg${diff(s.volume, s.previousVolume, fmtVolume)}</small></div>
+        <div class="st-kpi"><span>Nya rekord</span><strong>${s.records}</strong><small>${s.lastDate ? 'senaste pass ' + escapeHtml(stShortDate(s.lastDate)) : ''}</small></div>
+      </div>
+      ${records ? `<ul class="st-records" aria-label="Senaste rekorden">${records}</ul>` : ''}`;
+  }
+
+  function renderStrengthWeeks(data) {
+    const weeks = data.weeks || [];
+    const max = Math.max(1, ...weeks.map(w => w.volume));
+    // En etikett per ~64 px, så att datumen inte krockar på en telefon.
+    const width = document.getElementById('st-weeks').clientWidth || 600;
+    const every = Math.max(1, Math.ceil(weeks.length / Math.max(3, Math.floor(width / 64))));
+    document.getElementById('st-weeks-badge').textContent = `${data.summary?.perWeek ?? 0} pass/vecka`;
+    document.getElementById('st-weeks').innerHTML = weeks.map((w, i) => {
+      const label = `Vecka från ${stShortDate(w.weekStart)}: ${fmtVolume(w.volume)}, ${w.sessions} pass, ${w.sets} set`;
+      return `<div class="st-week" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" role="img">
+        <div class="st-week-bar${w.volume ? '' : ' empty'}" style="height:${w.volume ? Math.max(6, Math.round(w.volume / max * 100)) : 2}%"></div>
+        <span class="st-week-label">${i % every === 0 ? escapeHtml(stShortDate(w.weekStart)) : ''}</span></div>`;
     }).join('');
   }
 
-  async function addExercise(sessionId, contextId = sessionId) {
-    const nameEl = document.getElementById('ex-name-' + contextId);
-    const name   = nameEl.value.trim();
-    const sets   = document.getElementById('ex-sets-'   + contextId).value;
-    const reps   = document.getElementById('ex-reps-'   + contextId).value.trim();
-    const weight = document.getElementById('ex-weight-' + contextId).value;
-    const note   = document.getElementById('ex-note-'   + contextId).value.trim();
-    if (!name) { nameEl.focus(); return; }
-    await fetch('/api/strength/' + sessionId + '/exercises', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ exercise: name, sets: sets ? parseInt(sets) : null, reps, weight: weight ? parseFloat(weight) : null, note })
+  function stDrawExerciseCharts() {
+    document.querySelectorAll('#st-grid .st-chart').forEach(el => {
+      const ex = (strengthData?.exercises || []).find(e => e.key === el.dataset.key);
+      if (!ex) return;
+      const points = ex.series.map(p => ({ t: p.t, v: ex.weighted ? p.e1rm : parseInt(p.topReps, 10) }));
+      rpDrawLine(el, points, { invert: false, gapDays: Infinity });
     });
-    ['ex-name-','ex-sets-','ex-reps-','ex-weight-','ex-note-'].forEach(p => document.getElementById(p + contextId).value = '');
-    await loadExercises(sessionId, contextId);
-    await loadPlan();
-    nameEl.focus();
   }
 
-  async function deleteExercise(exId, sessionId, contextId = sessionId) {
-    await fetch('/api/strength/exercises/' + exId, { method: 'DELETE' });
-    await loadExercises(sessionId, contextId);
-    await loadPlan();
+  function renderStrengthGrid(data) {
+    const grid = document.getElementById('st-grid');
+    const list = (data.exercises || []).slice(0, 9);
+    if (!list.length) { grid.innerHTML = ''; return; }
+    grid.innerHTML = list.map(ex => {
+      const tone = ex.change > 0 ? 'ov-dir-improving' : ex.change < 0 ? 'ov-dir-declining' : '';
+      const badge = ex.change == null ? '' : `<span class="ov-badge"><b>${ex.change > 0 ? '↗' : ex.change < 0 ? '↘' : '→'}</b>${ex.change > 0 ? '+' : ''}${escapeHtml(fmtKg(ex.change))}</span>`;
+      const value = ex.weighted
+        ? `${escapeHtml(fmtKg(ex.current).replace(' kg', ''))} <small>kg uppskattat max</small>`
+        : `${escapeHtml(ex.last.topReps || '–')} <small>reps</small>`;
+      return `<article class="ov-card st-card ${tone}">
+        <div class="ov-card-top"><h3 class="ov-card-label">${escapeHtml(ex.exercise)}</h3>${badge}</div>
+        <div class="ov-card-value">${value}</div>
+        <div class="ov-card-caption">Senast ${escapeHtml(stShortDate(ex.last.t))}: ${escapeHtml(ex.last.label)}</div>
+        <div class="ov-chart st-chart" data-key="${escapeHtml(ex.key)}" aria-hidden="true"></div>
+        <div class="ov-card-change">${ex.sessions} pass i perioden${ex.best ? ` · bästa ${escapeHtml(fmtKg(ex.best))}` : ''}</div>
+      </article>`;
+    }).join('');
+    stDrawExerciseCharts();
   }
+
+  function renderStrengthHistory(data) {
+    const el = document.getElementById('st-history');
+    const sessions = (data.sessions || []).filter(s => s.date !== data.today);
+    if (!sessions.length) { el.innerHTML = '<p class="st-empty">Inga tidigare pass i perioden.</p>'; return; }
+    el.innerHTML = sessions.map(s => {
+      const exercises = [...new Set(s.rows.map(r => r.exercise))];
+      return `<details class="st-past">
+        <summary><span class="st-past-date">${escapeHtml(new Date(s.date + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' }))}</span>
+          <span class="st-past-title">${escapeHtml(s.title || exercises.slice(0, 3).join(', ') + (exercises.length > 3 ? ' …' : ''))}</span>
+          <span class="st-past-meta">${s.sets} set · ${escapeHtml(fmtVolume(s.volume))}</span></summary>
+        <ul class="st-past-rows">${s.rows.map(r => `<li><span>${escapeHtml(r.exercise)}</span>
+          <strong>${r.sets}×${escapeHtml(r.reps || '–')}${r.weight ? ' @ ' + escapeHtml(fmtKg(r.weight)) : ''}</strong>
+          <button type="button" class="st-set-del" data-action="st-delete-row" data-row="${Number(r.id)}" aria-label="Ta bort ${escapeHtml(r.exercise)} ${r.sets}×${escapeHtml(r.reps || '')}">×</button></li>`).join('')}</ul>
+      </details>`;
+    }).join('');
+  }
+
+  function renderStrengthProgress(data) {
+    renderStrengthSummary(data);
+    renderStrengthWeeks(data);
+    renderStrengthGrid(data);
+    renderStrengthHistory(data);
+    renderStrengthQuick();
+  }
+
+  async function fetchStrength() {
+    const response = await fetch(`/api/strength/overview?days=${strengthWindowDays}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Styrkedatan kunde inte hämtas.');
+    return data;
+  }
+
+  async function loadStrengthPage() {
+    try {
+      strengthData = await fetchStrength();
+    } catch (error) {
+      document.getElementById('st-log-sub').textContent = error.message;
+      document.getElementById('st-summary').innerHTML = `<p class="ov-summary-text ov-error">${escapeHtml(error.message)}</p>`;
+      return;
+    }
+    stSession = { sessionId: strengthData.todaySession.sessionId, rows: strengthData.todaySession.rows || [] };
+    const saved = stLoadDrafts();
+    const logged = [...new Set(stSession.rows.map(r => stKey(r.exercise)))];
+    stOrder = [...new Set([...saved.order, ...logged])];
+    stDrafts = {};
+    stOrder.forEach(key => {
+      const kept = saved.drafts?.[key] || {};
+      stDrafts[key] = { ...stDefaultDraft(key, kept.target || null), ...kept };
+    });
+    renderStrengthLog();
+    renderStrengthProgress(strengthData);
+  }
+
+  // Progressen hämtas om en stund efter sista loggade setet, inte vid varje tryck.
+  function stScheduleProgress() {
+    clearTimeout(stProgressTimer);
+    stProgressTimer = setTimeout(async () => {
+      try {
+        const fresh = await fetchStrength();
+        strengthData = { ...fresh, todaySession: strengthData?.todaySession };
+        renderStrengthProgress(strengthData);
+      } catch (_) { /* nästa sidvisning försöker igen */ }
+    }, 1500);
+  }
+
+  async function setStrengthWindow(days) {
+    if (![30, 90, 180].includes(days) || days === strengthWindowDays) return;
+    strengthWindowDays = days;
+    document.querySelectorAll('.st-window-btn').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.days) === days));
+    try {
+      const fresh = await fetchStrength();
+      strengthData = { ...fresh, todaySession: strengthData?.todaySession || fresh.todaySession };
+      renderStrengthProgress(strengthData);
+    } catch (error) {
+      document.getElementById('st-summary').innerHTML = `<p class="ov-summary-text ov-error">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  function strengthAction(action, trigger) {
+    if (action === 'strength-window') setStrengthWindow(Number(trigger.dataset.days));
+    else if (action === 'st-step') stStep(trigger);
+    else if (action === 'st-log-set') stLogSet(trigger);
+    else if (action === 'st-remove-set') stRemoveSet(trigger);
+    else if (action === 'st-add-quick') stAddExercise(trigger.dataset.name);
+    else if (action === 'st-remove-exercise') {
+      const key = stCardKey(trigger);
+      stOrder = stOrder.filter(k => k !== key);
+      delete stDrafts[key];
+      stSaveDrafts();
+      renderStrengthLog();
+    } else if (action === 'st-start-planned') {
+      const recs = stTodayLift()?.strength_recommendations || [];
+      const chosen = trigger.dataset.index === 'all' ? recs : [recs[Number(trigger.dataset.index)]];
+      chosen.filter(Boolean).forEach(r => stAddExercise(r.exercise, { sets: r.sets, reps: r.reps, unit: r.unit, weight: r.weight }));
+    } else if (action === 'st-delete-row') {
+      if (!confirm('Ta bort raden från passet?')) return;
+      fetch(`/api/strength/exercises/${Number(trigger.dataset.row)}`, { method: 'DELETE' })
+        .then(r => { if (!r.ok) throw new Error(); stScheduleProgress(); trigger.closest('li')?.remove(); })
+        .catch(() => alert('Raden kunde inte tas bort.'));
+    }
+  }
+
+  {
+    const page = document.getElementById('page-strength');
+    document.getElementById('st-add-form')?.addEventListener('submit', event => {
+      event.preventDefault();
+      const input = document.getElementById('st-add-name');
+      const key = stAddExercise(input.value);
+      if (!key) { input.focus(); return; }
+      input.value = '';
+      document.querySelector(`#st-exercises .st-ex[data-key="${CSS.escape(key)}"] input[data-field="weight"]`)?.focus();
+    });
+    // Skrivna värden sparas lokalt direkt, så en omladdning mitt i passet inte tappar dem.
+    page?.addEventListener('input', event => {
+      const input = event.target.closest('.st-ex input[data-field]');
+      if (input) stRememberInput(stCardKey(input), input);
+    });
+    page?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      const input = event.target.closest('.st-ex input[data-field]');
+      if (!input) return;
+      event.preventDefault();
+      input.closest('.st-ex').querySelector('.st-log-btn')?.click();
+    });
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { if (page?.classList.contains('active')) stDrawExerciseCharts(); }, 150);
+    });
+  }
+
   document.getElementById('chat-input')?.addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
 
   // ─── TOOLTIPS ───────────────────────────────────────────────

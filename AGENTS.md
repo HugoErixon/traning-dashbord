@@ -75,6 +75,17 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   `#messages`/`#chat-input` ids and logic) → Just nu (CNS ring, HRV, resting pulse, last night's
   sleep) → "Veckans pass" (`#cockpit-next-list`, also moved from Idag: the rest of this week, or
   next week's sessions when this week is done) → trends.
+- **Styrka (`page-strength`, top-level nav since 2026-11-09):** built for logging on the phone mid-session.
+  `strength_overview.py` (pure) + `GET /api/strength/overview?days=30|90|180` give today's session key
+  (today's Garmin strength activity id, else the date — `link_manual_exercises_to_activities` moves date
+  rows onto the activity later), progress (estimated 1RM, Epley, from each session's best set; weekly
+  volume = sets × reps × kg; records = a session beating everything logged before it) and recent sessions.
+  `POST /api/strength/<session>/sets` logs **one set**; an identical set right after the session's latest
+  row is merged into it (`sets + 1`), so history keeps the old "3 × 10 @ 40 kg" row shape and
+  `strength_progression` keeps working. `PATCH /api/strength/exercises/<id>` edits a row (removing one set
+  = `sets - 1`). Exercise cards not yet logged and typed values live in `localStorage`
+  (`trainyze:strength:<date>`, cleared on logout) so a reload mid-workout loses nothing. On mobile the
+  Styrka tab replaces Inställningar in the bottom bar (settings stay on the account button).
 - **Training potential** (the "Vad kan mer träning ge?" scenario card, `training_potential.py`,
   `/api/potential`) was removed on 2026-11-08 at Hugo's request; the race predictor replaced it.
 - **Race predictor (`race_predictor.py`, since 2026-11-08):** top of Översikt, `GET /api/race-predictor`.

@@ -50,6 +50,7 @@ import session_analysis
 import pace_progression
 import body_trends
 import race_predictor
+import strength_overview
 import training_insights
 import sleep_analysis
 import strain_analysis
@@ -7152,6 +7153,157 @@ def delete_exercise(ex_id):
             cur.execute('DELETE FROM strength_exercises WHERE id=%s AND user_id=%s', (ex_id, uid()))
         conn.commit()
     return jsonify({'ok': True})
+
+# --- Styrkesidan: progress och loggning set för set ---
+STRENGTH_SESSION_ID = re.compile(r'^(\d{4}-\d{2}-\d{2}|\d{1,20})$')
+
+
+def _strength_rows(user_id):
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT id, session_id, exercise, sets, reps, weight, note, created_at
+                FROM strength_exercises WHERE user_id=%s ORDER BY created_at, id''', (user_id,))
+            rows = [dict(r) for r in cur.fetchall()]
+            cur.execute('SELECT id, raw FROM activities WHERE type = ANY(%s) AND user_id=%s',
+                        (list(STRENGTH_TYPES), user_id))
+            activities = [(r['id'], r['raw']) for r in cur.fetchall()]
+    return rows, activities
+
+
+@app.get('/api/strength/overview')
+def strength_overview_view():
+    days = request.args.get('days', 90, type=int)
+    if days not in (30, 90, 180):
+        days = 90
+    try:
+        try:
+            link_manual_exercises_to_activities(uid())
+        except Exception as exc:
+            print('Strength-länkning fel:', exc)
+        rows, activities = _strength_rows(uid())
+        today = datetime.now(LOCAL_TZ).date()
+        dates, titles, today_activity = {}, {}, None
+        for aid, raw in activities:
+            raw = raw or {}
+            local = _activity_local_date(raw)
+            if not local:
+                continue
+            dates[str(aid)] = local
+            name = str(raw.get('activityName') or '').strip()
+            if name and name.lower() not in ('strength', 'styrka', 'strength training'):
+                titles[str(aid)] = name
+            if local == today.isoformat() and (today_activity is None or int(aid) > int(today_activity['id'])):
+                today_activity = {'id': str(aid), 'name': name or 'Styrka'}
+        entries = strength_overview.normalize_rows(rows, dates, today)
+        payload = strength_overview.overview(entries, today, days, titles)
+        session_id = today_activity['id'] if today_activity else today.isoformat()
+        payload['todaySession'] = {
+            'sessionId': session_id,
+            'activity': today_activity,
+            'rows': [{'id': e['id'], 'exercise': e['exercise'], 'sets': e['sets'], 'reps': e['reps'],
+                      'weight': e['weight'], 'note': e['note']}
+                     for e in entries if e['sessionId'] in (session_id, today.isoformat())],
+        }
+        return jsonify(payload)
+    except Exception as exc:
+        return _server_error(exc, 'strength.overview_failed', message='Styrkedatan kunde inte hämtas.')
+
+
+def _strength_set_input(data, partial=False):
+    """Validerar ett set från telefonen. Returnerar (fält, felmeddelande)."""
+    fields = {}
+    if not partial or 'exercise' in data:
+        exercise = re.sub(r'\s+', ' ', str(data.get('exercise') or '')).strip()
+        if not exercise or len(exercise) > 80:
+            return None, 'Ange övningens namn (högst 80 tecken).'
+        fields['exercise'] = exercise
+    if not partial or 'reps' in data:
+        try:
+            reps = int(data.get('reps'))
+        except (TypeError, ValueError):
+            return None, 'Ange antal reps.'
+        if not 1 <= reps <= 200:
+            return None, 'Reps måste vara mellan 1 och 200.'
+        fields['reps'] = str(reps)
+    if not partial or 'weight' in data:
+        weight = data.get('weight')
+        if weight in (None, ''):
+            fields['weight'] = None
+        else:
+            try:
+                weight = round(float(weight), 2)
+            except (TypeError, ValueError):
+                return None, 'Vikten måste vara ett tal.'
+            if not 0 <= weight <= 1000:
+                return None, 'Vikten måste vara mellan 0 och 1000 kg.'
+            fields['weight'] = weight or None
+    if partial and 'sets' in data:
+        try:
+            sets = int(data.get('sets'))
+        except (TypeError, ValueError):
+            return None, 'Antal set måste vara ett heltal.'
+        if not 1 <= sets <= 50:
+            return None, 'Antal set måste vara mellan 1 och 50.'
+        fields['sets'] = sets
+    return fields, None
+
+
+@app.post('/api/strength/<session_id>/sets')
+def strength_log_set(session_id):
+    """Ett set i taget. Likadant set direkt efter förra slås ihop (sets + 1)."""
+    if not STRENGTH_SESSION_ID.match(session_id):
+        return _api_error('invalid_session', 'Okänt pass.', 400)
+    fields, error = _strength_set_input(request.get_json(silent=True) or {})
+    if error:
+        return _api_error('invalid_set', error, 400)
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT id, exercise, sets, reps, weight, created_at FROM strength_exercises
+                    WHERE session_id=%s AND user_id=%s FOR UPDATE''', (session_id, uid()))
+                target = strength_overview.merge_target(
+                    [dict(r) for r in cur.fetchall()], fields['exercise'], fields['reps'], fields['weight'])
+                if target:
+                    cur.execute('''UPDATE strength_exercises SET sets=coalesce(sets, 1) + 1, created_at=%s
+                        WHERE id=%s AND user_id=%s
+                        RETURNING id, exercise, sets, reps, weight, note''', (time.time(), target['id'], uid()))
+                else:
+                    cur.execute('''INSERT INTO strength_exercises
+                        (session_id, exercise, sets, reps, weight, note, created_at, user_id)
+                        VALUES (%s, %s, 1, %s, %s, '', %s, %s)
+                        RETURNING id, exercise, sets, reps, weight, note''',
+                                (session_id, fields['exercise'], fields['reps'], fields['weight'],
+                                 time.time(), uid()))
+                row = dict(cur.fetchone())
+            conn.commit()
+        return jsonify({'ok': True, 'row': row, 'merged': bool(target)})
+    except Exception as exc:
+        return _server_error(exc, 'strength.log_set_failed', message='Setet kunde inte sparas.')
+
+
+@app.patch('/api/strength/exercises/<int:ex_id>')
+def strength_update_row(ex_id):
+    fields, error = _strength_set_input(request.get_json(silent=True) or {}, partial=True)
+    if error:
+        return _api_error('invalid_set', error, 400)
+    if not fields:
+        return _api_error('invalid_set', 'Inget att ändra.', 400)
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                # Kolumnnamnen kommer från _strength_set_input, aldrig från klienten.
+                assignments = ', '.join(f'{name}=%s' for name in fields)
+                cur.execute(f'''UPDATE strength_exercises SET {assignments}
+                    WHERE id=%s AND user_id=%s RETURNING id, exercise, sets, reps, weight, note''',
+                            (*fields.values(), ex_id, uid()))
+                row = cur.fetchone()
+            conn.commit()
+        if not row:
+            return _api_error('not_found', 'Raden finns inte.', 404)
+        return jsonify({'ok': True, 'row': dict(row)})
+    except Exception as exc:
+        return _server_error(exc, 'strength.update_failed', message='Ändringen kunde inte sparas.')
+
 
 # --- Statiska filer ---
 # Planen fylls aldrig på av sig själv: pass skapas bara när användaren planerar
