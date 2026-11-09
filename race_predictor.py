@@ -63,6 +63,8 @@ LTHR_MAX_AGE_DAYS = 60
 GARMIN_MAX_AGE_DAYS = 14
 # Garmins tröskelfart × 1,03 ≈ HM-fart; bara som jämförelse.
 THRESHOLD_TO_HALF = 1.03
+# Uppskattad tröskelpuls = andel av maxpulsen när ingen uppmätt finns.
+ESTIMATED_LTHR_FRACTION = 0.90
 
 
 def _day(value):
@@ -256,12 +258,31 @@ def _pace(seconds, km):
     return f'{per // 60}:{per % 60:02d}/km'
 
 
+def estimate_lthr(activities, today):
+    """Uppskattad tröskelpuls när ingen klocka har mätt den (t.ex. Strava).
+
+    90 % av den högsta trovärdiga maxpulsen senaste halvåret. Den högsta
+    noteringen hoppas över om den sticker ut mer än fem slag — ofta en
+    sensorspik. Bara en uppskattning: har man aldrig tagit ut sig blir
+    maxpulsen och därmed prognosen för låg."""
+    peaks = sorted((hr for hr in (_num((row.get('raw') or {}).get('maxHR')) for row in activities or []
+                                  if 'run' in str(row.get('type') or '').lower()
+                                  and _day(row.get('date')) and 0 <= (today - _day(row.get('date'))).days <= 180)
+                    if hr and 150 <= hr <= 225), reverse=True)
+    if len(peaks) < 3:
+        return None
+    max_hr = peaks[1] if peaks[0] - peaks[1] > 5 else peaks[0]
+    return {'lthr': round(max_hr * ESTIMATED_LTHR_FRACTION), 'maxHr': round(max_hr)}
+
+
 def predictor(garmin_entries, metric_rows, activities, today, target=None,
-              history_days=180, lthr_override=None):
+              history_days=180, lthr_override=None, source='garmin', lthr_source=None, max_hr=None):
     """Hela svaret för /api/race-predictor.
 
     `activities` är löppass med `laps` (se lap_points) och `raw`. `target` är
-    {'distance', 'seconds', 'deadline'}."""
+    {'distance', 'seconds', 'deadline'}. `source` är 'garmin' eller 'strava';
+    `lthr_source` säger var en `lthr_override` kommer ifrån ('manual' eller
+    'estimated', med `max_hr` som underlag)."""
     points = lap_points(activities)
     lthr_series = threshold_hr_series(metric_rows)
     garmin = clean_garmin(garmin_entries)
@@ -299,14 +320,17 @@ def predictor(garmin_entries, metric_rows, activities, today, target=None,
             'predicted': _fmt(riegel(before['half'], KM['half'], race['km'])) if before['available'] else None,
         })
 
+    speed_text = ('fart (Strava ger ingen terrängjusterad fart, så backiga pass ser något '
+                  'långsammare ut)' if source == 'strava' else 'terrängjusterad fart')
     method = ('Trainyzes egen modell: dina varv på minst 6 minuter och dina intervalldrag på '
               '2–6 minuter (med pulsen i slutet av draget) från de senaste 6 veckorna — puls mot '
-              'terrängjusterad fart, nyare väger tyngre — läst vid 97 % av din '
+              f'{speed_text}, nyare väger tyngre — läst vid 97 % av din '
               'tröskelpuls. Andra distanser via Riegels formel. Garmins prognos ingår inte, '
               'och lopp justerar inget.')
     if not current['available']:
         return {'available': False, 'today': today.isoformat(), 'reason': current['reason'],
-                'history': history, 'comparisons': comparisons, 'checks': checks, 'method': method}
+                'history': history, 'comparisons': comparisons, 'checks': checks, 'method': method,
+                'source': source, 'lthrSource': lthr_source or 'garmin', 'maxHr': max_hr}
 
     def change(days):
         start = (today - timedelta(days=days)).isoformat()
@@ -333,7 +357,9 @@ def predictor(garmin_entries, metric_rows, activities, today, target=None,
         'change90': change(90),
         'history': history,
         'method': method,
+        'source': source,
     }
+    result['model'].update({'lthrSource': lthr_source or 'garmin', 'maxHr': max_hr})
     if target and target.get('distance') in KM and _num(target.get('seconds')):
         key, goal = target['distance'], float(target['seconds'])
         gap = current['times'][key] - goal

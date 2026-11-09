@@ -156,6 +156,8 @@
               </select></label>
               <label>Måltid <input id="rp-target-time" type="text" inputmode="numeric" placeholder="1:22:00" required></label>
               <label>Loppdatum <input id="rp-target-date" type="date"></label>
+              <label>Tröskelpuls <input id="rp-target-lthr" type="number" inputmode="numeric" min="140" max="215" step="1" placeholder="t.ex. 178" aria-describedby="rp-lthr-hint">
+                <small id="rp-lthr-hint">Valfritt, t.ex. från ett labbtest. Tomt = klockans eller den uppskattade.</small></label>
               <button type="submit" class="settings-btn primary">Spara mål</button>
               <span class="rp-form-msg" id="rp-target-msg" role="status"></span>
             </form>

@@ -112,6 +112,23 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   fetch) as soon as a new run is saved. The marker is the safety net — if a page load sees it has
   changed, it serves the stored prediction with `refreshing: true` and starts the refresh; the
   page re-polls. Saving a target recomputes synchronously.
+- **Race predictor on Strava (since 2026-11-09):** users without Garmin get the same model from Strava.
+  `_race_source()` picks Garmin first (connected or runs in `activities`), else Strava, else a "connect
+  Garmin or Strava" message. Strava activities live in cache `strava:history:v1` (a year, fetched page by
+  page once, then incrementally from the latest run minus 2 days; `_strava_activities()` is a view of it,
+  and a new run starts the prediction refresh). Laps come from `/activities/{id}/laps` into
+  `strava-laps:v1:<id>` via `strava_integration.lap_rows()`: auto-laps (1 km / 1 mile) are merged in order
+  into ≥ 6 min chunks unless pace differs > 12 %, manual laps stay as they are (marked ACTIVE; the
+  predictor's speed filter drops jog recoveries). Strava has **no grade-adjusted speed**. Backfill is
+  ≤ 30 runs per refresh and stops on 429 — Strava's rate limit is per app, shared by all users; the
+  15-min sync keeps refreshing while runs still lack laps. Strava `workout_type == 1` → `eventType race`.
+  Threshold HR: the user's own value (cache `threshold-hr:v1`, optional `lthr` in `PUT /api/race-target`,
+  also overrides Garmin's for Hugo) else, for Strava, **estimated** = 90 % of the highest credible max HR
+  of the last 180 days (`estimate_lthr`); the UI says which (`model.lthrSource`). Checked on Hugo's own
+  Strava 2026-11-09: 1:23:50 with LTHR 181 vs 1:23:54 from Garmin; the estimate (177) gave 1:27:10.
+  Disconnecting Strava deletes history, laps and the stored prediction (Strava terms).
+  Strava limits how many athletes an API app may connect (shown in Strava's app settings); a second user
+  had connected by 2026-11-09, so it is above 1, but check it before inviting many.
 - **Session analysis (`training_insights.py`):** `GET /api/training-insights`. Easy runs trend on
   meters per heartbeat (grade-adjusted speed / HR); threshold and intervals on *work-rep* pace from
   Garmin's `INTERVAL_ACTIVE` split summary. Structured sessions are re-sorted by rep length

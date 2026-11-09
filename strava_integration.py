@@ -18,6 +18,10 @@ class StravaError(RuntimeError):
     pass
 
 
+class StravaRateLimited(StravaError):
+    """Stravas gräns gäller hela appen, inte en användare — sluta fråga en stund."""
+
+
 def authorization_url(client_id, redirect_uri, state):
     return AUTH_URL + '?' + urlencode({
         'client_id': client_id,
@@ -68,6 +72,8 @@ def api_get(access_token, path, params=None, timeout=20):
     )
     if response.status_code == 401:
         raise StravaError('Strava-token är ogiltig eller återkallad.')
+    if response.status_code == 429:
+        raise StravaRateLimited('Stravas gräns för antal anrop är nådd just nu.')
     if not response.ok:
         raise StravaError(f'Strava API svarade med status {response.status_code}.')
     try:
@@ -81,6 +87,87 @@ def athlete_activities(access_token, days=120, per_page=100):
     return api_get(access_token, '/athlete/activities', {
         'after': after, 'page': 1, 'per_page': max(1, min(100, per_page)),
     })
+
+
+def athlete_activities_since(access_token, after_epoch, per_page=100, max_pages=10):
+    """Alla aktiviteter efter en tidpunkt, sida för sida (Strava ger högst 100 åt gången)."""
+    out = []
+    for page in range(1, max_pages + 1):
+        batch = api_get(access_token, '/athlete/activities', {
+            'after': int(after_epoch), 'page': page, 'per_page': per_page,
+        })
+        if not isinstance(batch, list) or not batch:
+            break
+        out.extend(batch)
+        if len(batch) < per_page:
+            break
+    return out
+
+
+def activity_laps(access_token, activity_id):
+    return api_get(access_token, f'/activities/{int(activity_id)}/laps')
+
+
+AUTO_LAP_METERS = (1000.0, 1609.34)
+MIN_CHUNK_SECONDS = 360
+# Två automatiska varv slås bara ihop om farten är ungefär densamma — annars
+# blandas ett drag ihop med joggen efter.
+MAX_CHUNK_SPEED_RATIO = 1.12
+
+
+def _is_auto_lap(lap):
+    meters = lap.get('distance') or 0
+    return any(abs(meters - auto) <= auto * 0.03 for auto in AUTO_LAP_METERS)
+
+
+def lap_rows(laps):
+    """Stravas varv i race predictorns kompakta form:
+    [sekunder, meter, snittpuls, fart m/s, typ, maxpuls].
+
+    Strava har ingen terrängjusterad fart och ingen intensitetstyp. Klockans
+    automatiska kilometer- eller milvarv slås ihop i följd tills en bit är minst
+    sex minuter, så att ett vanligt pass ger stabila punkter. Manuella varv
+    (intervalldrag) lämnas som de är och märks ACTIVE; race predictorn sorterar
+    själv bort joggvilor på farten."""
+    rows, chunk = [], []
+
+    def lap_values(lap):
+        seconds = lap.get('moving_time') or lap.get('elapsed_time') or 0
+        return float(seconds), float(lap.get('distance') or 0), lap.get('average_heartrate'), lap.get('max_heartrate')
+
+    def flush():
+        if not chunk:
+            return
+        seconds = sum(c[0] for c in chunk)
+        meters = sum(c[1] for c in chunk)
+        hr_parts = [(c[0], c[2]) for c in chunk if c[2]]
+        hr = sum(t * h for t, h in hr_parts) / sum(t for t, _ in hr_parts) if hr_parts else None
+        max_hr = max((c[3] for c in chunk if c[3]), default=None)
+        rows.append([round(seconds, 1), round(meters, 1), round(hr, 1) if hr else None,
+                     round(meters / seconds, 3) if seconds else None, 'ACTIVE', max_hr])
+        chunk.clear()
+
+    for lap in laps or []:
+        if not isinstance(lap, dict):
+            continue
+        values = lap_values(lap)
+        if not values[0] or not values[1]:
+            continue
+        if not _is_auto_lap(lap):
+            flush()
+            chunk.append(values)
+            flush()
+            continue
+        if chunk:
+            speed = values[1] / values[0]
+            mean = sum(c[1] for c in chunk) / sum(c[0] for c in chunk)
+            if max(speed, mean) / min(speed, mean) > MAX_CHUNK_SPEED_RATIO:
+                flush()
+        chunk.append(values)
+        if sum(c[0] for c in chunk) >= MIN_CHUNK_SECONDS:
+            flush()
+    flush()
+    return rows
 
 
 def activity_detail(access_token, activity_id):
@@ -141,6 +228,8 @@ def normalize_summary(activity):
         'locationName': location or None,
         'manufacturer': activity.get('device_name') or 'Strava',
         'stravaUrl': f'https://www.strava.com/activities/{activity_id}',
+        # Strava märker lopp med workout_type 1 (löpning); samma form som Garmins eventType.
+        'eventType': {'typeKey': 'race' if activity.get('workout_type') == 1 else 'uncategorized'},
     }
 
 

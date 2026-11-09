@@ -5064,6 +5064,8 @@
     .rp-form input, .rp-form select { border: 1px solid var(--border2); background: var(--bg3); color: var(--text); border-radius: 7px; padding: 8px; font: 13px var(--font-num); }
     .rp-form .settings-btn { flex: 0 0 auto; }
     .rp-form-msg { color: var(--muted); font-size: 12px; }
+    .rp-form label small { max-width: 200px; color: var(--muted); font-size: 10.5px; line-height: 1.35; }
+    .rp-form #rp-target-lthr { width: 110px; }
     .rp-method { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
     @media (max-width: 720px) {
       .rp-time { font-size: 42px; }

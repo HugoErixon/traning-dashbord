@@ -4517,6 +4517,16 @@ HEALTH DATA (current):
     return (racePrediction?.history || []).filter(p => !start || p.t >= start);
   }
 
+  function rpHasGarmin() {
+    return (racePrediction?.history || []).some(p => p.garmin);
+  }
+  // Varifrån tröskelpulsen kommer — en uppskattning ska synas som en uppskattning.
+  function rpLthrSource(m) {
+    if (m.lthrSource === 'manual') return 'din egen siffra';
+    if (m.lthrSource === 'estimated') return `uppskattad: 90 % av maxpulsen ${m.maxHr}, ändra under "Ändra mål"`;
+    return 'uppmätt av klockan';
+  }
+
   function rpDefaultReadout() {
     const data = racePrediction;
     const label = data?.predictions?.find(p => p.key === raceDistance)?.label || '';
@@ -4526,7 +4536,7 @@ HEALTH DATA (current):
     const change = own.at(-1)[raceDistance] - own[0][raceDistance];
     const since = new Date(own[0].t + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
     const partial = own[0].t > rpWindowStart() ? ` (sedan ${since}, då egen prognos finns)` : '';
-    return `${label}: ${rpSigned(change)} ${period}${partial}${change < 0 ? ' · snabbare' : change > 0 ? ' · långsammare' : ''} · streckad linje = Garmin`;
+    return `${label}: ${rpSigned(change)} ${period}${partial}${change < 0 ? ' · snabbare' : change > 0 ? ' · långsammare' : ''}${rpHasGarmin() ? ' · streckad linje = Garmin' : ''}`;
   }
 
   function renderRaceChart() {
@@ -4593,10 +4603,15 @@ HEALTH DATA (current):
     }).join('');
 
     const m = data.model || {};
+    const lthrInput = document.getElementById('rp-target-lthr');
+    if (lthrInput) {
+      lthrInput.value = m.lthrSource === 'manual' ? m.lthr : '';
+      lthrInput.placeholder = m.lthr ? String(m.lthr) : 't.ex. 178';
+    }
     const boxes = [`<div class="rp-source"><span>Byggd på</span><strong>${m.laps} varv + ${m.reps || 0} drag</strong>
         <small>varv ≥ 6 min och intervalldrag 2–6 min (slutpuls) senaste 6 veckorna, ${m.nearLaps} nära tröskelpulsen</small></div>`,
       `<div class="rp-source"><span>Läst vid puls</span><strong>${Math.round(m.targetHr)} slag</strong>
-        <small>97 % av tröskelpulsen ${m.lthr} · varje slag ≈ ${overviewNumber(m.secPerBeat, 1)} s/km</small></div>`];
+        <small>97 % av tröskelpulsen ${m.lthr} (${escapeHtml(rpLthrSource(m))}) · varje slag ≈ ${overviewNumber(m.secPerBeat, 1)} s/km</small></div>`];
     (data.comparisons || []).forEach(c => boxes.push(`<div class="rp-source rp-source-compare"><span>Jämförelse: ${escapeHtml(c.label)}</span>
         <strong>${rpTime(c.half)}</strong><small>Ingår inte i prognosen</small></div>`));
     (data.checks || []).forEach(c => boxes.push(`<div class="rp-source rp-source-note"><span>Kontroll: ${escapeHtml(c.name.split(' - ').pop().split('(')[0].trim())}</span>
@@ -4662,7 +4677,8 @@ HEALTH DATA (current):
         const response = await fetch('/api/race-target', {
           method: 'PUT', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({distance: document.getElementById('rp-target-distance').value, seconds,
-            deadline: document.getElementById('rp-target-date').value || null}),
+            deadline: document.getElementById('rp-target-date').value || null,
+            lthr: document.getElementById('rp-target-lthr').value || ''}),
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.message || 'Målet kunde inte sparas.');

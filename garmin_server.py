@@ -2463,17 +2463,55 @@ def _strava_username_for_user_id(user_id):
     return next((name for name, user in USERS.items() if user.get('id') == user_id), None)
 
 
-def _strava_activities(username, days=120, force=False):
-    cache_key = 'strava:activities'
-    if not force:
-        cached = get_cache(cache_key, USERS[username]['id'])
-        if cached and time.time() - cached[1] < 15 * 60:
-            return cached[0]
+STRAVA_HISTORY_KEY = 'strava:history:v1'
+STRAVA_HISTORY_DAYS = 365
+STRAVA_HISTORY_TTL = 15 * 60
+
+
+def _strava_history(username, force=False, allow_fetch=True):
+    """Användarens Strava-aktiviteter senaste året, äldst först.
+
+    Första gången hämtas hela året sida för sida; därefter bara det som
+    tillkommit sedan senaste passet (med två dagars marginal för pass som
+    laddats upp sent). Kommer ett nytt löppass räknas prognosen om."""
+    user_id = USERS[username]['id']
+    cached = get_cache(STRAVA_HISTORY_KEY, user_id)
+    stored = cached[0] if cached and isinstance(cached[0], list) else []
+    if not allow_fetch or (cached and not force and time.time() - cached[1] < STRAVA_HISTORY_TTL):
+        return stored
+    oldest = time.time() - STRAVA_HISTORY_DAYS * 86400
+    after = oldest
+    if stored:
+        latest = max(str(a.get('startTimeLocal') or '') for a in stored)
+        try:
+            after = max(oldest, datetime.fromisoformat(latest[:19]).timestamp() - 2 * 86400)
+        except ValueError:
+            pass
     token = _strava_access_token(username)
-    activities = [strava_integration.normalize_summary(activity) for activity in
-                  strava_integration.athlete_activities(token, days=days)]
-    set_cache(cache_key, activities, USERS[username]['id'])
-    return activities
+    fetched = [strava_integration.normalize_summary(a) for a in
+               strava_integration.athlete_activities_since(token, after)]
+    by_id = {a['activityId']: a for a in stored}
+    known = set(by_id)
+    by_id.update({a['activityId']: a for a in fetched})
+    cutoff = datetime.fromtimestamp(oldest).date().isoformat()
+    history = sorted((a for a in by_id.values() if str(a.get('startTimeLocal') or '')[:10] >= cutoff),
+                     key=lambda a: str(a.get('startTimeLocal') or ''))
+    set_cache(STRAVA_HISTORY_KEY, history, user_id)
+    new_runs = [a for a in fetched if a['activityId'] not in known
+                and 'run' in str((a.get('activityType') or {}).get('typeKey') or '')]
+    if new_runs and not APP_TESTING:
+        try:
+            refresh_race_prediction_async(user_id, username)
+        except Exception:
+            logger.exception('Race prediction refresh could not start', extra={
+                'event': 'race_predictor.refresh_start_failed', 'user_id': user_id})
+    return history
+
+
+def _strava_activities(username, days=120, force=False):
+    cutoff = (datetime.now(LOCAL_TZ).date() - timedelta(days=days)).isoformat()
+    return [a for a in _strava_history(username, force=force)
+            if str(a.get('startTimeLocal') or '')[:10] >= cutoff]
 
 
 @app.get('/api/users')
@@ -2882,6 +2920,16 @@ def strava_sync():
                              message='Strava kunde inte synkas just nu.')
 
 
+def _forget_strava_data(user_id):
+    """Stravas villkor: data som hämtats via deras API raderas när kopplingen tas bort."""
+    clear_cache('strava:activities', STRAVA_HISTORY_KEY, RACE_PREDICTION_CACHE_KEY, user_id=user_id)
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM cache WHERE key LIKE %s',
+                        (f'{user_id}:' + STRAVA_LAPS_KEY.format('%'),))
+        conn.commit()
+
+
 @app.post('/api/strava/disconnect')
 def strava_disconnect():
     username = uname()
@@ -2902,7 +2950,7 @@ def strava_disconnect():
         _strava_token_path(username).unlink(missing_ok=True)
     except OSError as exc:
         return _server_error(exc, 'strava.disconnect_failed')
-    clear_cache('strava:activities', user_id=uid())
+    _forget_strava_data(uid())
     return jsonify({'ok': True, 'connected': False})
 
 
@@ -4810,6 +4858,15 @@ def _backfill_laps(user_id, username, runs, limit=LAP_BACKFILL_LIMIT):
 def _race_prediction(user_id, username, allow_fetch=True, force_garmin=False):
     today = datetime.now(LOCAL_TZ).date()
     since = (today - timedelta(days=RACE_HISTORY_DAYS)).isoformat()
+    username = username or _username_for(user_id)
+    source = _race_source(user_id, username)
+    if source == 'strava':
+        return _strava_race_prediction(user_id, username, today, since, allow_fetch)
+    if source is None:
+        return {'available': False, 'today': today.isoformat(), 'source': None,
+                'history': [], 'comparisons': [], 'checks': [], 'method': '',
+                'reason': 'Koppla Garmin eller Strava under Inställningar, så räknas en prognos '
+                          'fram ur dina egna löppass.'}
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute('''SELECT date, lactate_pace, lactate_hr FROM metric_history
@@ -4821,9 +4878,127 @@ def _race_prediction(user_id, username, allow_fetch=True, force_garmin=False):
             _backfill_laps(user_id, username, runs)
         except Exception:
             logger.exception('Lap backfill failed', extra={'event': 'race_predictor.backfill_failed'})
+    manual = _threshold_hr(user_id)
     return race_predictor.predictor(
         _garmin_race_history(user_id, username, allow_fetch, force=force_garmin), metrics,
-        runs, today, target=_race_target(user_id))
+        runs, today, target=_race_target(user_id), lthr_override=manual,
+        lthr_source='manual' if manual else None)
+
+# --- Race predictor på Strava-data -----------------------------------------
+# Användare utan Garmin får samma egna modell ur sina Strava-pass. Skillnaderna:
+# varven hämtas från Strava (automatiska kilometervarv slås ihop, se
+# strava_integration.lap_rows), farten är inte terrängjusterad, och
+# tröskelpulsen är antingen användarens egen siffra eller uppskattad ur maxpulsen.
+STRAVA_LAPS_KEY = 'strava-laps:v1:{}'
+STRAVA_LAP_BACKFILL_LIMIT = 30
+THRESHOLD_HR_KEY = 'threshold-hr:v1'
+
+
+def _threshold_hr(user_id):
+    """Användarens egen tröskelpuls (t.ex. från ett labbtest), eller None."""
+    try:
+        row = get_cache(THRESHOLD_HR_KEY, user_id)
+    except Exception as exc:
+        print('threshold hr:', exc)
+        return None
+    value = (row[0] or {}).get('hr') if row and isinstance(row[0], dict) else None
+    return value if isinstance(value, (int, float)) and 140 <= value <= 215 else None
+
+
+def _has_garmin_runs(user_id):
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM activities WHERE user_id=%s AND type ILIKE %s LIMIT 1",
+                        (user_id, '%run%'))
+            return cur.fetchone() is not None
+
+
+def _race_source(user_id, username):
+    """'garmin', 'strava' eller None. Garmin går först, precis som i aktivitetslistan."""
+    if username and _garmin_connected(username):
+        return 'garmin'
+    try:
+        if _has_garmin_runs(user_id):
+            return 'garmin'
+    except Exception as exc:
+        print('race source:', exc)
+    if username and _strava_connected(username):
+        return 'strava'
+    return None
+
+
+def _strava_race_runs(user_id, username, since):
+    """Löppass från Strava-historiken i samma form som _race_runs, med sparade varv."""
+    history = _strava_history(username, allow_fetch=False)
+    runs = []
+    for activity in history:
+        type_key = (activity.get('activityType') or {}).get('typeKey') or ''
+        day = str(activity.get('startTimeLocal') or '')[:10]
+        if 'run' not in type_key or not day or day < since:
+            continue
+        runs.append({'id': activity['activityId'], 'date': day, 'type': type_key,
+                     'name': activity.get('activityName'), 'distance': activity.get('distance'),
+                     'duration': activity.get('duration'), 'avg_hr': activity.get('averageHR'),
+                     'raw': activity})
+    keys = [f'{user_id}:' + STRAVA_LAPS_KEY.format(r['id']) for r in runs]
+    if keys:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT key, value FROM cache WHERE key = ANY(%s)', (keys,))
+                laps = dict(cur.fetchall())
+        for run in runs:
+            run['laps'] = laps.get(f'{user_id}:' + STRAVA_LAPS_KEY.format(run['id']))
+    return sorted(runs, key=lambda r: r['date'])
+
+
+def _backfill_strava_laps(user_id, username, runs, limit=STRAVA_LAP_BACKFILL_LIMIT):
+    """Hämta varv för pass som saknar dem, nyaste först. Stravas anropsgräns gäller
+    hela appen (alla användare tillsammans), därför få per gång och stopp vid 429."""
+    missing = [r for r in reversed(runs) if r.get('laps') is None and r.get('avg_hr')
+               and 'treadmill' not in str(r.get('type') or '')][:limit]
+    if not missing:
+        return 0
+    token = _strava_access_token(username)
+    fetched = 0
+    for run in missing:
+        try:
+            rows = strava_integration.lap_rows(strava_integration.activity_laps(token, run['id']))
+        except strava_integration.StravaRateLimited:
+            logger.warning('Strava rate limit during lap backfill', extra={
+                'event': 'race_predictor.strava_rate_limited', 'user_id': user_id})
+            break
+        except Exception as exc:
+            logger.warning('Strava lap fetch failed', extra={
+                'event': 'race_predictor.strava_laps_failed', 'activity_id': run['id'],
+                'detail': str(exc)[:200]})
+            continue
+        set_cache(STRAVA_LAPS_KEY.format(run['id']), rows, user_id)
+        run['laps'] = rows
+        fetched += 1
+        time.sleep(0.3)
+    return fetched
+
+
+def _strava_race_prediction(user_id, username, today, since, allow_fetch=True):
+    runs = _strava_race_runs(user_id, username, since)
+    if allow_fetch:
+        try:
+            _backfill_strava_laps(user_id, username, runs)
+        except Exception:
+            logger.exception('Strava lap backfill failed', extra={
+                'event': 'race_predictor.strava_backfill_failed', 'user_id': user_id})
+    manual = _threshold_hr(user_id)
+    estimate = None if manual else race_predictor.estimate_lthr(runs, today)
+    if not manual and not estimate:
+        return {'available': False, 'today': today.isoformat(), 'source': 'strava',
+                'history': [], 'comparisons': [], 'checks': [], 'method': '',
+                'reason': 'Det behövs minst tre löppass med pulsband eller pulsklocka för att '
+                          'uppskatta tröskelpulsen. Prognosen dyker upp när fler pass med puls har synkats.'}
+    return race_predictor.predictor(
+        [], [], runs, today, target=_race_target(user_id),
+        lthr_override=manual or estimate['lthr'], source='strava',
+        lthr_source='manual' if manual else 'estimated',
+        max_hr=None if manual else estimate['maxHr'])
 
 
 # Prognosen sparas och räknas bara om när ett nytt löppass har kommit in —
@@ -4842,6 +5017,11 @@ def _username_for(user_id):
 
 
 def _race_marker(user_id):
+    username = _username_for(user_id)
+    if _race_source(user_id, username) == 'strava':
+        runs = [a for a in _strava_history(username, allow_fetch=False)
+                if 'run' in str((a.get('activityType') or {}).get('typeKey') or '')]
+        return f"strava:{len(runs)}:{max((a['activityId'] for a in runs), default=0)}"
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('''SELECT count(*), coalesce(max(id), 0) FROM activities
@@ -4979,7 +5159,18 @@ def race_target_save():
         return _api_error('invalid_race_target', 'Ange distans och en måltid.', 400)
     if deadline and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', deadline):
         return _api_error('invalid_race_target', 'Datumet måste vara ÅÅÅÅ-MM-DD.', 400)
+    lthr = data.get('lthr', ...)
+    if lthr not in (..., None, ''):
+        try:
+            lthr = int(lthr)
+        except (TypeError, ValueError):
+            lthr = 0
+        if not 140 <= lthr <= 215:
+            return _api_error('invalid_race_target', 'Tröskelpulsen måste vara mellan 140 och 215.', 400)
     try:
+        if lthr is not ...:
+            # Tomt fält = använd klockans uppmätta eller den uppskattade igen.
+            set_cache(THRESHOLD_HR_KEY, {'hr': lthr or None}, uid())
         set_cache(RACE_TARGET_KEY, {'distance': distance, 'seconds': seconds,
                                     'deadline': deadline}, uid())
         return jsonify(_store_race_prediction(uid(), uname()))
@@ -9778,6 +9969,11 @@ def auto_sync_job():
                     activities_out = _strava_activities(username, 120, True)
                     print(f'[{datetime.now().strftime("%H:%M")}] Strava-sync klar '
                           f'({username}): {len(activities_out)} aktiviteter')
+                    # Varven hämtas i omgångar; fortsätt tills alla löppass har dem.
+                    since = (datetime.now(LOCAL_TZ).date() - timedelta(days=RACE_HISTORY_DAYS)).isoformat()
+                    if any(r.get('laps') is None and r.get('avg_hr') and 'treadmill' not in r['type']
+                           for r in _strava_race_runs(rec['id'], username, since)):
+                        refresh_race_prediction_async(rec['id'], username)
                 except Exception as e:
                     print(f'Strava-sync fel ({username}):', e)
             continue
