@@ -257,7 +257,7 @@ def _pace(seconds, km):
 
 
 def predictor(garmin_entries, metric_rows, activities, today, target=None,
-              history_days=120, lthr_override=None):
+              history_days=180, lthr_override=None):
     """Hela svaret för /api/race-predictor.
 
     `activities` är löppass med `laps` (se lap_points) och `raw`. `target` är

@@ -4830,7 +4830,8 @@ def _race_prediction(user_id, username, allow_fetch=True, force_garmin=False):
 # direkt när passet sparats, så sidan har den färdig när man tittar.
 # Markören (antal löppass + senaste id) är skyddsnätet: missade synken att
 # starta omräkningen ser nästa sidvisning att markören ändrats och startar den.
-RACE_PREDICTION_CACHE_KEY = 'race-prediction:v2'
+# v3: historiken täcker 180 dagar så att Översiktens periodval (30/90/180) räcker.
+RACE_PREDICTION_CACHE_KEY = 'race-prediction:v3'
 _race_refreshing = set()
 _race_refresh_guard = threading.Lock()
 

@@ -91,11 +91,11 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   stretched into the unknown (Aug–Sep 2026 had no such laps and gave 1:49). Races never adjust
   anything; they appear as "checks" (the day before Varvet the model said 1:26:06; he ran
   1:26:45 grade-adjusted in ~30 °C). Garmin's prediction and Garmin threshold pace × 1.03 are
-  shown as comparison only (dashed line). Laps are cached once per activity in `cache`
+  shown as comparison only (dashed line). The chart follows Översikt's period buttons (30 d / 90 d / 6 mån, filtered client-side); the stored history therefore covers 180 days (cache key bumped to `race-prediction:v3`). Laps are cached once per activity in `cache`
   (`laps:v2:<id>`, compact rows incl. maxHR) and backfilled during the background refresh, ≤ 40 per run.
   Target lives in cache `race-target:v1` (`PUT /api/race-target`); Hugo's is HM 1:22, date
   2027-03-14 (placeholder — military service starts end of March 2027). No LLM here.
-  The result is **stored** (cache `race-prediction:v2` with a marker = run count + latest run id)
+  The result is **stored** (cache `race-prediction:v3` with a marker = run count + latest run id)
   and only recomputed when a new run arrives: `ingest_activities()` starts
   `refresh_race_prediction_async()` (background thread, one per user, forces a fresh Garmin
   fetch) as soon as a new run is saved. The marker is the safety net — if a page load sees it has

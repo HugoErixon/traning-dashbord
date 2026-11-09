@@ -4378,6 +4378,7 @@ HEALTH DATA (current):
     overviewWindowDays = days;
     document.querySelectorAll('.ov-window-btn').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.days) === days));
     loadOverview();
+    renderRaceChart();
   }
 
   async function loadOverview() {
@@ -4453,7 +4454,7 @@ HEALTH DATA (current):
     }).join('');
   }
 
-  function rpDrawLine(el, points, {target = null, invert = true, color = 'var(--accent)', compare = []} = {}) {
+  function rpDrawLine(el, points, {target = null, invert = true, color = 'var(--accent)', compare = [], from = null, to = null} = {}) {
     if (!el) return;
     const clean = points.filter(p => Number.isFinite(p.v));
     const other = compare.filter(p => Number.isFinite(p.v));
@@ -4465,8 +4466,11 @@ HEALTH DATA (current):
     const W = Math.max(200, Math.round(el.clientWidth || 300)), H = Math.round(el.clientHeight || 90);
     const pad = {l: 4, r: 6, t: 10, b: 10};
     const all = clean.concat(other);
-    const t0 = Math.min(...all.map(p => new Date(p.t + 'T12:00:00').getTime()));
-    const t1 = Math.max(t0 + 864e5, ...all.map(p => new Date(p.t + 'T12:00:00').getTime()));
+    // Axeln spänner över hela den valda perioden, så ett glapp i början syns
+    // som ett glapp och inte som att kurvan börjar perioden.
+    const stamps = all.map(p => new Date(p.t + 'T12:00:00').getTime());
+    const t0 = from ? new Date(from + 'T12:00:00').getTime() : Math.min(...stamps);
+    const t1 = Math.max(t0 + 864e5, to ? new Date(to + 'T12:00:00').getTime() : 0, ...stamps);
     const values = all.map(p => p.v).concat(target != null ? [target] : []);
     let lo = Math.min(...values), hi = Math.max(...values);
     const span = Math.max(hi - lo, Math.abs(hi) * 0.01, 1);
@@ -4507,22 +4511,39 @@ HEALTH DATA (current):
     el?.querySelector('.rp-hover-line')?.setAttribute('visibility', 'hidden');
   }
 
+  // Grafen följer Översiktens periodval (30 d / 90 d / 6 mån).
+  function rpWindowStart() {
+    const today = racePrediction?.today;
+    if (!today) return null;
+    const d = new Date(today + 'T12:00:00');
+    d.setDate(d.getDate() - overviewWindowDays);
+    return d.toLocaleDateString('sv-SE');
+  }
+  function rpWindowHistory() {
+    const start = rpWindowStart();
+    return (racePrediction?.history || []).filter(p => !start || p.t >= start);
+  }
+
   function rpDefaultReadout() {
     const data = racePrediction;
-    const change = data?.change28?.[raceDistance];
     const label = data?.predictions?.find(p => p.key === raceDistance)?.label || '';
-    return change != null
-      ? `${label}: ${rpSigned(change)} senaste 4 veckorna${change < 0 ? ' (snabbare)' : change > 0 ? ' (långsammare)' : ''} · streckad linje = Garmin`
-      : `${label}: för kort historik för en riktning.`;
+    const own = rpWindowHistory().filter(p => Number.isFinite(p[raceDistance]));
+    const period = overviewWindowDays === 180 ? 'senaste halvåret' : `senaste ${overviewWindowDays} dagarna`;
+    if (own.length < 2 || own[0].t === own.at(-1).t) return `${label}: för kort historik ${period} för en riktning.`;
+    const change = own.at(-1)[raceDistance] - own[0][raceDistance];
+    const since = new Date(own[0].t + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
+    const partial = own[0].t > rpWindowStart() ? ` (sedan ${since}, då egen prognos finns)` : '';
+    return `${label}: ${rpSigned(change)} ${period}${partial}${change < 0 ? ' · snabbare' : change > 0 ? ' · långsammare' : ''} · streckad linje = Garmin`;
   }
 
   function renderRaceChart() {
     const data = racePrediction;
     if (!data?.available) return;
     const target = data.target?.distance === raceDistance ? data.target.seconds : null;
+    const history = rpWindowHistory();
     rpDrawLine(document.getElementById('rp-chart'),
-      (data.history || []).map(p => ({t: p.t, v: p[raceDistance]})), {target,
-        compare: (data.history || []).map(p => ({t: p.t, v: p.garmin?.[raceDistance]}))});
+      history.map(p => ({t: p.t, v: p[raceDistance]})), {target, from: rpWindowStart(), to: data.today,
+        compare: history.map(p => ({t: p.t, v: p.garmin?.[raceDistance]}))});
     document.getElementById('rp-readout').textContent = rpDefaultReadout();
     document.querySelectorAll('.rp-dist').forEach(btn => {
       const on = btn.dataset.distance === raceDistance;
