@@ -5129,7 +5129,32 @@
     .wk-day-head strong { font: 700 16px var(--font-num); }
     .wk-day-head em { margin-left: auto; color: var(--accent); font: 700 10px var(--font-sans); font-style: normal; text-transform: uppercase; letter-spacing: .05em; }
     .wk-session { --wk: var(--green); position: relative; display: flex; flex-direction: column; gap: 3px; padding: 8px 9px 9px 11px;
+      width: 100%; border: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer;
       border-radius: 10px; background: var(--bg2); box-shadow: inset 3px 0 0 var(--wk); }
+    .wk-open { display: flex; justify-content: space-between; margin-top: 5px; color: var(--accent); font-size: 10px; font-weight: 600; }
+    .cal-session-pill[data-action="open-plan-session"] { width: 100%; text-align: left; cursor: pointer; }
+    [data-action="open-plan-session"]:hover { filter: brightness(1.12); }
+    [data-action="open-plan-session"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    body.plan-session-open { overflow: hidden; }
+    .plan-session-dialog { box-sizing: border-box; width: min(580px, calc(100% - 32px)); max-height: calc(100dvh - 32px);
+      margin: auto; padding: 26px; overflow-y: auto; overscroll-behavior: contain; color: var(--text);
+      background: var(--card-grad), var(--bg2); border: 1px solid var(--border2); border-radius: 22px; box-shadow: var(--shadow-overlay); }
+    .plan-session-dialog::backdrop { background: rgba(0, 0, 0, .6); backdrop-filter: blur(5px); }
+    .plan-session-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+    .plan-session-header h2 { margin: 8px 0 0; font-size: 23px; line-height: 1.25; overflow-wrap: anywhere; }
+    .plan-session-kicker { color: var(--accent); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    .plan-session-close { flex: 0 0 40px; height: 40px; border: 1px solid var(--border2); border-radius: 50%;
+      background: var(--bg3); color: var(--text); font-size: 24px; cursor: pointer; }
+    .plan-session-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .plan-session-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 24px; color: var(--muted2); font-size: 13px; }
+    .plan-session-meta span { padding: 6px 10px; background: var(--bg3); border-radius: 8px; }
+    .plan-session-section + .plan-session-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+    .plan-session-section h3 { margin: 0 0 10px; font-size: 14px; }
+    .plan-session-section p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.75; }
+    @media (max-width: 720px) {
+      .plan-session-dialog { padding: 20px; border-radius: 18px; }
+      .plan-session-header h2 { font-size: 20px; }
+    }
     .wk-session.wk-quality { --wk: var(--amber); }
     .wk-session.wk-race { --wk: var(--red); }
     .wk-session.wk-strength { --wk: #A78BFA; }

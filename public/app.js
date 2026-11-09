@@ -1402,6 +1402,8 @@ function executeAction(trigger, event) {
   else if (action === 'set-activity-feeling') setActivityFeeling(Number(trigger.dataset.value));
   else if (action === 'save-activity-feedback') saveActivityFeedback();
   else if (action === 'sync-calendar') syncGcal();
+  else if (action === 'open-plan-session') openPlanSessionDetails(Number(trigger.dataset.planIndex));
+  else if (action === 'close-plan-session') document.getElementById('plan-session-dialog')?.close();
   else if (action === 'open-activity') openActivityDetails(
     Number(trigger.dataset.activityId), trigger.dataset.activitySource);
   else if (action === 'open-today-activity') openTodayActivity();
@@ -2311,7 +2313,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const year = today.getFullYear();
     const { week: currentWeek } = getISOWeekInfo();
     const open = s => s.status !== 'completed' && s.status !== 'skipped';
-    const dated = PLAN_SESSIONS.map(s => ({ ...s, date: getSessionDate(s, year) }));
+    const dated = PLAN_SESSIONS.map((s, planIndex) => ({ ...s, planIndex, date: getSessionDate(s, year) }));
     // Den här veckan så länge något är kvar; annars nästa vecka med pass.
     const remainingThisWeek = dated.some(s => s.week === currentWeek && s.date >= today && open(s));
     const nextWeek = dated.filter(s => s.date >= today && open(s)).sort((x, y) => x.date - y.date)[0]?.week;
@@ -2344,13 +2346,14 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       const items = daySessions.length ? daySessions.map(s => {
         const sub = (s.type === 'lift' && s.strength_recommendation_text) || s.detail || '';
         const status = statusLabel(s);
-        return `<div class="wk-session wk-${kind(s)}${status ? ' wk-done' : ''}" title="${escapeHtml(sub)}">
-          <div class="wk-session-top"><span class="wk-kind">${escapeHtml(kindLabel(s))}</span>
-            ${s.km ? `<span class="wk-km">${escapeHtml(String(s.km).replace('.', ','))} km</span>` : ''}</div>
-          <div class="wk-title">${escapeHtml(s.title)}</div>
-          ${sub ? `<div class="wk-detail">${escapeHtml(sub)}</div>` : ''}
-          ${status ? `<div class="wk-status">${escapeHtml(status)}</div>` : ''}
-        </div>`;
+        return `<button type="button" class="wk-session wk-${kind(s)}${status ? ' wk-done' : ''}"${planSessionOpenAttrs(s.planIndex)}>
+          <span class="wk-session-top"><span class="wk-kind">${escapeHtml(kindLabel(s))}</span>
+            ${s.km ? `<span class="wk-km">${escapeHtml(String(s.km).replace('.', ','))} km</span>` : ''}</span>
+          <span class="wk-title">${escapeHtml(s.title)}</span>
+          ${sub ? `<span class="wk-detail">${escapeHtml(sub)}</span>` : ''}
+          ${status ? `<span class="wk-status">${escapeHtml(status)}</span>` : ''}
+          <span class="wk-open">Visa upplägg <span aria-hidden="true">↗</span></span>
+        </button>`;
       }).join('') : '<div class="wk-empty">Ledigt</div>';
       days.push(`<div class="wk-day${isToday ? ' wk-today' : ''}${past ? ' wk-past' : ''}">
         <div class="wk-day-head"><span>${escapeHtml(date.toLocaleDateString('sv-SE', { weekday: 'short' }).replace('.', ''))}</span>
@@ -5304,6 +5307,52 @@ HEALTH DATA (current):
     return text.slice(0, maxLen - 1).trimEnd().replace(/[,\-–—;:]+$/, '') + '…';
   }
 
+  // Båda planvyerna öppnar samma sparade pass, även när flera ligger på en dag.
+  function planSessionOpenAttrs(index) {
+    return ` data-action="open-plan-session" data-plan-index="${index}" aria-haspopup="dialog" title="Visa passets upplägg"`;
+  }
+
+  function openPlanSessionDetails(index) {
+    const session = Number.isInteger(index) && PLAN_SESSIONS[index];
+    if (!session || document.getElementById('plan-session-dialog')) return;
+    const opener = document.activeElement;
+    const dialog = document.createElement('dialog');
+    dialog.id = 'plan-session-dialog';
+    dialog.className = 'plan-session-dialog';
+    dialog.setAttribute('aria-labelledby', 'plan-session-title');
+    const date = getSessionDate(session, new Date().getFullYear());
+    const kind = {run: 'Kvalitet', easy: 'Lugnt', lift: 'Styrka', race: 'Lopp', rest: 'Vila', bike: 'Cykling'}[session.type] || 'Pass';
+    const status = {completed: 'Klart', skipped: 'Överhoppat', missed: 'Missat', rescheduled: 'Flyttat'}[session.status] || 'Planerat';
+    const section = (title, text) => `<section class="plan-session-section"><h3>${title}</h3><p>${escapeHtml(text)}</p></section>`;
+    dialog.innerHTML = `
+      <header class="plan-session-header">
+        <div><div class="plan-session-kicker">${escapeHtml(kind)} · ${escapeHtml(status)}</div>
+          <h2 id="plan-session-title">${escapeHtml(session.title || 'Planerat pass')}</h2></div>
+        <button type="button" class="plan-session-close" data-action="close-plan-session" aria-label="Stäng passdetaljer" autofocus>×</button>
+      </header>
+      <div class="plan-session-meta"><span>${escapeHtml(date.toLocaleDateString('sv-SE', {weekday: 'long', day: 'numeric', month: 'long'}))}</span>
+        ${session.km ? `<span>${escapeHtml(String(session.km).replace('.', ','))} km</span>` : ''}</div>
+      ${section('Upplägg, tempo och vila', session.detail || 'Inget detaljerat upplägg är sparat för det här passet.')}
+      ${session.type === 'lift' && session.strength_recommendation_text ? section('Övningar och belastning', session.strength_recommendation_text) : ''}
+      ${session.ai_note ? section('Coachens anteckning', session.ai_note) : ''}`;
+    dialog.addEventListener('close', () => {
+      dialog.remove();
+      document.body.classList.remove('plan-session-open');
+      if (opener?.isConnected) opener.focus({preventScroll: true});
+    }, {once: true});
+    // Klick utanför rutan stänger; klick i texten lämnar den öppen.
+    dialog.addEventListener('click', event => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
+    });
+    clearTimeout(tipTimeout);
+    tipBox.classList.remove('visible');
+    document.body.appendChild(dialog);
+    document.body.classList.add('plan-session-open');
+    dialog.showModal();
+  }
+
   function activityDateKey(activity) {
     return (activity.startTimeLocal || activity.beginTimestamp || activity.date || '').slice(0, 10);
   }
@@ -6114,7 +6163,7 @@ HEALTH DATA (current):
           const opacity = s.status === 'missed' || s.status === 'skipped' ? 'opacity:0.45;text-decoration:line-through;' : '';
           const modCls  = isModified ? ' csp-modified' : '';
           const doneCls = s.status === 'completed' ? ' csp-done' : '';
-          pillsHtml += `<span class="cal-session-pill ${cls}${modCls}${doneCls}" style="${opacity}" data-freetip="${escapeHtml(tipText)}">${escapeHtml(s.title)}${escapeHtml(statusNote)}</span>`;
+          pillsHtml += `<button type="button" class="cal-session-pill ${cls}${modCls}${doneCls}"${planSessionOpenAttrs(PLAN_SESSIONS.indexOf(s))} style="${opacity}" data-freetip="${escapeHtml(tipText)}">${escapeHtml(s.title)}${escapeHtml(statusNote)}</button>`;
         }
 
         dayEl.innerHTML = `
