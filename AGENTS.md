@@ -273,3 +273,11 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
 Check the diff carefully for anything touching `plan_sessions`, `users`, or migration
 logic, and ask Hugo which target DB URL to use if `migrate_db.py` genuinely needs to run
 — don't guess or auto-run it.
+
+**Schema `coach` (since 2026-11-14):** read-only views over Hugo's own rows (user_id 1),
+owned by `dashboard`, read by the Postgres role `trainyze_coach` (SELECT on `coach.*` only,
+read-only by default). They feed the Bryggan "Coach" room in `~/trainyze-coach`
+(`coach.py` + coach briefing), which gives a Claude agent full access to the training data
+without shell-level access to the app's credentials. `coach.cache` is an **allowlist** of
+cache keys — never widen it to tokens or other users. Postgres will refuse to drop or retype
+a column a view uses: drop/recreate the matching `coach.*` view in the same migration.
