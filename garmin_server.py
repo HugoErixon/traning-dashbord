@@ -48,6 +48,7 @@ from strength_progression import (
 )
 import session_analysis
 import pace_progression
+import vdot as vdot_model
 import body_trends
 import race_predictor
 import strength_overview
@@ -5501,7 +5502,7 @@ RECENT RUNS:
 {_recent_execution_block(uid())}
 
 MEASURED PACE CAPABILITY (anchor every pace you mention to this):
-{pace_progression.describe_anchor(pace_ctx['anchor'], pace_ctx['goalFeasibility'])}
+{pace_progression.describe_anchor(pace_ctx['anchor'], pace_ctx['goalFeasibility'], pace_ctx.get('vdot'))}
 
 WEEK STATUS W{iso_week}:
 - {f'Planned: {planned_km:.0f} km · Completed: {completed_km:.1f} km · Remaining: {remaining_km:.1f} km' if plan_count else f'No plan — Completed: {completed_km:.1f} km'}
@@ -6785,9 +6786,10 @@ def _assistant_answer(data):
         # Tempofrågor ska besvaras mot uppmätt tröskel, och ett mål som ligger
         # bortom nuvarande fysiologi ska sägas rakt ut — inte peppas bort.
         pace_context = _pace_context(uid())
-        if (pace_context.get('anchor') or {}).get('ltPaceSec'):
+        if (pace_context.get('anchor') or {}).get('ltPaceSec') or \
+                (pace_context.get('vdot') or {}).get('available'):
             context += "\n\nMEASURED PACE CAPABILITY:\n" + pace_progression.describe_anchor(
-                pace_context['anchor'], pace_context.get('goalFeasibility'))
+                pace_context['anchor'], pace_context.get('goalFeasibility'), pace_context.get('vdot'))
             feasibility = pace_context.get('goalFeasibility')
             if feasibility and feasibility['verdict'] == 'out_of_reach':
                 context += (
@@ -7538,17 +7540,123 @@ def _pace_context(user_id):
                 goal.get('goal_title'), goal.get('secondary_goal'))
     except Exception as e:
         print('Målets tempo kunde inte tolkas:', e)
-    if goal_pace and anchor.get('ltPaceSec'):
-        feasibility = pace_progression.goal_feasibility(goal_pace['paceSec'], anchor['ltPaceSec'])
+
+    vdot_info = _vdot_context(user_id, lt_pace, goal_pace)
+    vdot = vdot_info.get('vdot') if vdot_info.get('available') else None
+
+    if goal_pace and (anchor.get('ltPaceSec') or vdot):
+        feasibility = pace_progression.goal_feasibility(
+            goal_pace['paceSec'], anchor.get('ltPaceSec'), vdot=vdot)
 
     bands = {}
-    if anchor.get('ltPaceSec'):
+    if anchor.get('ltPaceSec') or vdot:
         for kind in ('interval', 'threshold', 'race', 'long', 'easy'):
-            band = pace_progression.target_band(kind, anchor['ltPaceSec'])
+            band = pace_progression.target_band(kind, anchor.get('ltPaceSec'), vdot)
             if band:
                 bands[kind] = band
 
-    return {'anchor': anchor, 'bands': bands, 'goalPace': goal_pace, 'goalFeasibility': feasibility}
+    return {'anchor': anchor, 'bands': bands, 'goalPace': goal_pace, 'goalFeasibility': feasibility,
+            'vdot': vdot_info}
+
+
+# VDOT (Daniels) är grunden för alla löptempon när det finns ett: användarens
+# eget värde, annars Trainyzes prognos, ett färskt lopp eller Garmins tröskelfart.
+# Läser bara sparad data — en prompt ska inte vänta på Garmin.
+VDOT_KEY = 'vdot:v1'
+
+
+def _manual_vdot(user_id):
+    try:
+        row = get_cache(VDOT_KEY, user_id)
+    except Exception as exc:
+        print('vdot manual:', exc)
+        return None
+    value = (row[0] or {}).get('vdot') if row and isinstance(row[0], dict) else None
+    return value if isinstance(value, (int, float)) else None
+
+
+def _parse_clock(text):
+    try:
+        parts = [int(p) for p in str(text).split(':')]
+    except (TypeError, ValueError):
+        return None
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    return None
+
+
+def _vdot_context(user_id, lt_pace=None, goal_pace=None):
+    today = datetime.now(LOCAL_TZ).date()
+    prediction = None
+    races = []
+    try:
+        row = get_cache(RACE_PREDICTION_CACHE_KEY, user_id)
+        stored = row[0] if row and isinstance(row[0], dict) else {}
+        prediction = stored.get('payload') if isinstance(stored.get('payload'), dict) else None
+        for check in (prediction or {}).get('checks') or []:
+            seconds = _parse_clock(check.get('gapTime') or check.get('time'))
+            if seconds and check.get('date'):
+                races.append({'date': date.fromisoformat(check['date']), 'km': check.get('km'),
+                              'seconds': seconds, 'name': check.get('name')})
+    except Exception as exc:
+        print('vdot prediction:', exc)
+    info = vdot_model.current(prediction, races, lt_pace_sec=lt_pace,
+                              manual=_manual_vdot(user_id), today=today)
+    # Målet: race predictorns måltid går först, annars målets text ("Halvmara 1:22").
+    goal = None
+    target = _race_target(user_id)
+    if target and target.get('distance') in race_predictor.KM and target.get('seconds'):
+        goal = {'label': f"{race_predictor.LABELS[target['distance']]} "
+                         f"{race_predictor._fmt(target['seconds'])}",
+                'vdot': vdot_model.goal_vdot(race_predictor.KM[target['distance']], target['seconds'])}
+    elif goal_pace and goal_pace.get('timeSec'):
+        goal = {'label': f"{goal_pace['distanceKm']:g} km {race_predictor._fmt(goal_pace['timeSec'])}",
+                'vdot': vdot_model.goal_vdot(goal_pace['distanceKm'], goal_pace['timeSec'])}
+    if goal and goal.get('vdot'):
+        info['goal'] = goal
+        goal['paces'] = vdot_model.paces(goal['vdot'])
+    return info
+
+
+def _vdot_prompt_block(user_id):
+    """VDOT-zonerna för planerande prompter; tomt när inget VDOT finns."""
+    try:
+        info = _pace_context(user_id).get('vdot') or {}
+        return vdot_model.describe(info, info.get('goal'))
+    except Exception as exc:
+        print('vdot prompt block:', exc)
+        return ''
+
+
+@app.get('/api/vdot')
+def vdot_view():
+    try:
+        return jsonify(_pace_context(uid())['vdot'])
+    except Exception as exc:
+        return _server_error(exc, 'vdot.failed', message='VDOT kunde inte räknas.')
+
+
+@app.put('/api/vdot')
+def vdot_save():
+    """Eget VDOT (t.ex. från ett färskt lopp); tomt = räkna fram det igen."""
+    data = request.get_json(silent=True) or {}
+    value = data.get('vdot')
+    if value in (None, ''):
+        value = None
+    else:
+        try:
+            value = round(float(str(value).replace(',', '.')), 1)
+        except (TypeError, ValueError):
+            value = 0
+        if not vdot_model.MIN_VDOT <= value <= vdot_model.MAX_VDOT:
+            return _api_error('invalid_vdot', 'VDOT måste vara mellan 25 och 85.', 400)
+    try:
+        set_cache(VDOT_KEY, {'vdot': value}, uid())
+        return jsonify(_pace_context(uid())['vdot'])
+    except Exception as exc:
+        return _server_error(exc, 'vdot.save_failed', message='VDOT kunde inte sparas.')
 
 
 def _upcoming_run_sessions(user_id, days=14):
@@ -7576,7 +7684,9 @@ def generate_pace_proposals(user_id):
     """
     context = _pace_context(user_id)
     anchor_sec = (context['anchor'] or {}).get('ltPaceSec')
-    if not anchor_sec:
+    vdot_info = context.get('vdot') or {}
+    vdot = vdot_info.get('vdot') if vdot_info.get('available') else None
+    if not anchor_sec and not vdot:
         return {'proposals': 0, 'error': 'no_anchor',
                 'message': 'Ingen tröskeldata att räkna på ännu.'}
 
@@ -7600,7 +7710,7 @@ def generate_pace_proposals(user_id):
             'currentTargetPace': current['text'] if current else None,
         })
 
-    prompt = f"""{pace_progression.describe_anchor(context['anchor'], context['goalFeasibility'])}
+    prompt = f"""{pace_progression.describe_anchor(context['anchor'], context['goalFeasibility'], context.get('vdot'))}
 
 {_recent_execution_block(user_id)}
 
@@ -7637,7 +7747,7 @@ Respond ONLY with JSON:
                 if not session:
                     continue
                 kind = kinds.get(session['id'], 'run')
-                verdict = pace_progression.validate_proposal(kind, item.get('paceSec'), anchor_sec)
+                verdict = pace_progression.validate_proposal(kind, item.get('paceSec'), anchor_sec, vdot)
                 if not verdict.get('paceSec'):
                     continue
                 band = context['bands'].get(kind) or {}
@@ -7655,10 +7765,10 @@ Respond ONLY with JSON:
                     (user_id, session['id'], kind, session['detail'], new_detail,
                      old_pace, verdict['paceSec'], verdict['status'], verdict['reason'],
                      str(item.get('rationale') or '')[:400],
-                     psycopg2.extras.Json(context['anchor']), now))
+                     psycopg2.extras.Json({**(context['anchor'] or {}), 'vdot': vdot}), now))
                 stored += 1
         conn.commit()
-    return {'proposals': stored, 'anchor': context['anchor']}
+    return {'proposals': stored, 'anchor': context['anchor'], 'vdot': vdot_info}
 
 
 @app.get('/api/plan/pace-proposals')
@@ -7882,7 +7992,8 @@ def _week_draft_prompt(user_id, week, text, today, locked):
     fitness = _recent_training_summary(user_id)
     try:
         pace_ctx = _pace_context(user_id)
-        pace_block = pace_progression.describe_anchor(pace_ctx['anchor'], pace_ctx['goalFeasibility'])
+        pace_block = pace_progression.describe_anchor(pace_ctx['anchor'], pace_ctx['goalFeasibility'],
+                                                      pace_ctx.get('vdot'))
     except Exception as exc:
         print('week draft pace block:', exc)
         pace_block = 'No measured pace anchor — describe intensity by effort and heart-rate zone.'
@@ -8149,6 +8260,7 @@ def generate_plan_from_goal():
         for r in library
     ], ensure_ascii=False)
 
+    vdot_block = _vdot_prompt_block(uid())
     goal_line = goal['goal_title']
     if goal.get('goal_deadline'):
         goal_line += f" · deadline {goal['goal_deadline']}"
@@ -8169,6 +8281,9 @@ CURRENT FITNESS:
 - VO2max: {fitness['vo2max'] or 'unknown'}
 - Strength exercises with verified working prescriptions: {library_json or 'none logged'}
 
+TRAINING PACES (VDOT):
+{vdot_block or 'No VDOT available — describe intensity by effort and heart-rate zone instead of exact paces.'}
+
 RULES:
 - "week" is the ISO week number, "dow" is 0-6 (0=Monday). Use only weeks {cur_week}-{end_week}, and in week {cur_week} only days >= {cur_dow}.
 - At most one session per day. Days without a session are rest days automatically — only add an explicit "rest" session when the rest itself matters (e.g. race week).
@@ -8177,6 +8292,7 @@ RULES:
 - If the goal is a race with a deadline, add a taper and place a "race" session on the goal date.
 - Include about 2 "lift" sessions per week unless the goal clearly says otherwise. In their detail, name concrete exercises with sets×reps (e.g. "Knäböj 5×5 · Bänkpress 4×6") so the weight engine can attach loads. Do NOT write kg values.
 - "detail" is concise workout instructions, max 140 characters, in Swedish.
+- Every running session takes its pace from the VDOT zones above (zone letter + pace, e.g. "6×1000 m I 3:37/km, 3 min jogg"). Quality is threshold (T) and interval (I) work; easy and long runs stay in E. Never invent a pace outside the zones.
 
 Return ONLY this JSON, no other text:
 {{"coaching_notes": "<3-5 Swedish sentences about how the plan is structured>",
@@ -8759,6 +8875,12 @@ def generate_coach_briefing(session, health=None, readiness=None, pace_anchor=No
 
     lt_str = _fmt(lt_sec) or "3:55–4:05/km"
     easy_str = _fmt(easy_sec) or "4:50–5:15/km"
+    # Med VDOT kommer tempona från Daniels zoner i stället för fasta gissningar.
+    zones = ((pace_anchor or {}).get('vdot') or {}).get('paces') or {}
+    if zones.get('T'):
+        lt_str = zones['T']['text']
+    if zones.get('E'):
+        easy_str = zones['E']['text']
 
     # Analysera passets karaktär
     is_short_intervals = any(x in full_text for x in ('200m', '300m', '400m', '500m', '600m', '800m'))
@@ -9462,6 +9584,10 @@ def ai_adjust_plan(user_request=None, history=None):
 """
 
     user_goal_text = _goal_prompt_block(first_uid)
+    vdot_block = _vdot_prompt_block(first_uid)
+    if vdot_block:
+        user_goal_text += ('\nTRAINING PACES (VDOT) — any session you add or rewrite takes its pace '
+                           'from these zones:\n' + vdot_block)
     prompt = f"""You are an experienced running coach with deep knowledge of physiology and training planning.
 {user_goal_text}
 Use the current goal, recent activity and the actual sessions below. Do not assume a fixed season or restart at an old training volume after a break. Always respond in Swedish (svenska). All JSON text fields must be written in Swedish.

@@ -129,6 +129,21 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   Disconnecting Strava deletes history, laps and the stored prediction (Strava terms).
   Strava limits how many athletes an API app may connect (shown in Strava's app settings); a second user
   had connected by 2026-11-09, so it is above 1, but check it before inviting many.
+- **VDOT training paces (`vdot.py`, since 2026-11-20):** every running pace comes from one Daniels VDOT
+  (Daniels–Gilbert formulas; checked against his tables — VDOT 50 gives T 4:15, I 3:55, 5 km 19:57).
+  Zones: E = 62–74 % of VDOT, T = 88 %, I = 97.5 %, R = I − 15 s/km, M and HM = predicted race pace.
+  Source order in `vdot.current()`: the user's own value (cache `vdot:v1`, `PUT /api/vdot`, empty =
+  automatic) → the stored race predictor's half marathon → a race ≤ 60 days old (from the predictor's
+  `checks`, GAP time when there is one) → Garmin threshold pace inverted. Only stored data is read, never
+  Garmin. `_pace_context()` carries it as `vdot`; with a VDOT `pace_progression.target_band()` /
+  `validate_proposal()` / `goal_feasibility()` use the Daniels zone (kind → zone: interval I, threshold T,
+  race HM, easy/long/run E) and fall back to the old threshold offsets without one. Goal feasibility then
+  compares against the zone's own pace, not the band edge. The zones go into `describe_anchor()` (review,
+  coach chat, pace proposals, week draft), the plan-from-goal prompt (which had no paces at all before)
+  and `ai_adjust_plan` via `_vdot_prompt_block()`; the coach briefing's fallback T/E paces too. The goal's
+  VDOT comes from the race target (`race-target:v1`), else the goal text. UI: the "Måltempon & zoner"
+  panel on Plan shows the zones, the goal's VDOT and an "Eget VDOT" field.
+  Hugo on 2026-11-20: VDOT 56.3 (prediction 1:22:35), goal 1:22 = 56.8; Garmin threshold 4:02 = 53.5.
 - **Session analysis (`training_insights.py`):** `GET /api/training-insights`. Easy runs trend on
   meters per heartbeat (grade-adjusted speed / HR); threshold and intervals on *work-rep* pace from
   Garmin's `INTERVAL_ACTIVE` split summary. Structured sessions are re-sorted by rep length

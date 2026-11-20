@@ -901,6 +901,16 @@
         </div>
         <div id="pace-bands" class="pace-bands"></div>
         <div id="pace-goal" class="pace-goal" style="display:none;"></div>
+        <details class="pace-vdot" id="pace-vdot" style="display:none;">
+          <summary>Vad är VDOT?</summary>
+          <p id="pace-vdot-about"></p>
+          <form class="pace-vdot-form" id="pace-vdot-form">
+            <label for="pace-vdot-input">Eget VDOT</label>
+            <input id="pace-vdot-input" name="vdot" type="text" inputmode="decimal" placeholder="Automatiskt" autocomplete="off">
+            <button class="pace-btn pace-btn-ok" type="submit">Spara</button>
+            <span class="pace-vdot-msg" id="pace-vdot-msg" role="status"></span>
+          </form>
+        </details>
         <div id="pace-proposals"></div>
 
         <details class="pace-calc-wrap" id="pace-calc-wrap">

@@ -3410,6 +3410,26 @@
       color: var(--muted3);
     }
     .pace-goal-warn b { color: var(--amber); }
+    .pace-vdot {
+      margin-bottom: 12px;
+      color: var(--muted2);
+      font-size: 12.5px;
+      line-height: 1.55;
+    }
+    .pace-vdot summary { cursor: pointer; color: var(--muted3); font-weight: 600; }
+    .pace-vdot p { margin: 8px 0 10px; }
+    .pace-vdot-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pace-vdot-form label { font-weight: 600; color: var(--text); }
+    .pace-vdot-form input {
+      width: 110px;
+      padding: 6px 9px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border2);
+      background: var(--bg);
+      color: var(--text);
+      font: 500 13px 'IBM Plex Mono', monospace;
+    }
+    .pace-vdot-msg { font-size: 12px; color: var(--muted2); }
     .pace-row {
       display: flex;
       align-items: center;

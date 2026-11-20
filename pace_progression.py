@@ -4,17 +4,18 @@ The running counterpart to strength_progression.py. That module already
 answers "what should I lift today?" deterministically from logged history;
 this one answers "what pace should this session actually be run at?".
 
-Everything is anchored to lactate threshold pace, because that is the marker
-Garmin measures directly and the one classic training zones are defined
-against. From the anchor we derive a band per session kind, and any pace an
-LLM proposes is validated against that band before it is allowed anywhere
-near the plan.
+When a VDOT is known (see vdot.py) every band comes from Daniels' zones for
+it, so all paces move together from one fitness number. Without one the
+bands fall back to offsets from lactate threshold pace, the marker Garmin
+measures directly. Any pace an LLM proposes is validated against the band
+before it is allowed anywhere near the plan.
 
 No database or network access — callers pass in the rows they loaded.
 """
 
 import re
 
+import vdot as vdot_model
 from session_analysis import format_pace
 
 # ── Zone model ────────────────────────────────────────────────────────────────
@@ -105,8 +106,12 @@ def derive_anchor(lt_pace_sec=None, executions=None, max_sessions=6):
     }
 
 
-def target_band(kind, anchor_sec):
+def target_band(kind, anchor_sec, vdot=None):
     """The pace band a session of this kind should be run at."""
+    if vdot:
+        band = vdot_model.band_for_kind(kind, vdot)
+        if band:
+            return band
     anchor_sec = _clean_pace(anchor_sec)
     offsets = ZONE_OFFSETS.get(kind)
     if anchor_sec is None or not offsets:
@@ -117,18 +122,18 @@ def target_band(kind, anchor_sec):
             'text': f"{format_pace(low)}–{format_pace(high)}"}
 
 
-def validate_proposal(kind, proposed_sec, anchor_sec):
+def validate_proposal(kind, proposed_sec, anchor_sec, vdot=None):
     """Check an LLM-proposed pace against what the athlete's physiology allows.
 
     Returns {'status', 'paceSec', 'reason'} where status is accepted, clamped
     or rejected. A clamped proposal is pulled back to the nearest edge of the
     band; a rejected one is replaced by the band itself.
     """
-    band = target_band(kind, anchor_sec)
+    band = target_band(kind, anchor_sec, vdot)
     proposed = _clean_pace(proposed_sec)
     if band is None:
         return {'status': 'rejected', 'paceSec': None,
-                'reason': 'no threshold anchor available to validate against'}
+                'reason': 'no threshold anchor or VDOT available to validate against'}
     if proposed is None:
         return {'status': 'rejected', 'paceSec': band['lowSec'],
                 'reason': 'proposed pace was missing or implausible'}
@@ -148,9 +153,10 @@ def validate_proposal(kind, proposed_sec, anchor_sec):
         return {'status': 'clamped', 'paceSec': edge,
                 'reason': (f"{format_pace(proposed)} was well outside the {kind} band "
                            f"{band['text']} ({drift_pct:.1f}%); using the band edge instead")}
+    basis = f"VDOT {vdot}" if vdot else f"threshold {format_pace(anchor_sec)}"
     return {'status': 'rejected', 'paceSec': edge,
             'reason': (f"{format_pace(proposed)} is not physiologically plausible for a "
-                       f"{kind} session at threshold {format_pace(anchor_sec)}")}
+                       f"{kind} session at {basis}")}
 
 
 # ── Goal parsing ──────────────────────────────────────────────────────────────
@@ -219,7 +225,7 @@ def parse_goal_pace(goal_title, goal_detail=None):
             'distanceKm': distance_km, 'timeSec': time_sec}
 
 
-def goal_feasibility(goal_pace_sec, anchor_sec, kind='race'):
+def goal_feasibility(goal_pace_sec, anchor_sec, kind='race', vdot=None):
     """Say plainly whether the stated goal pace is within reach.
 
     A half-marathon is run slightly slower than threshold, so a goal pace
@@ -228,11 +234,16 @@ def goal_feasibility(goal_pace_sec, anchor_sec, kind='race'):
     """
     goal = _clean_pace(goal_pace_sec)
     anchor = _clean_pace(anchor_sec)
-    if goal is None or anchor is None:
+    if goal is None or (anchor is None and not vdot):
         return None
 
-    band = target_band(kind, anchor)
-    gap_sec = round(band['lowSec'] - goal)  # positive = goal is faster than achievable
+    band = target_band(kind, anchor, vdot)
+    if band is None:
+        return None
+    # With VDOT the zone's own pace is the prediction; the band edge would
+    # flatter it by a few seconds per km.
+    capable = band.get('paceSec') or band['lowSec']
+    gap_sec = round(capable - goal)  # positive = goal is faster than achievable
 
     if gap_sec <= 0:
         verdict = 'within_reach'
@@ -244,15 +255,31 @@ def goal_feasibility(goal_pace_sec, anchor_sec, kind='race'):
     return {
         'goalPaceSec': round(goal),
         'goalPace': format_pace(goal),
-        'currentCapablePaceSec': band['lowSec'],
-        'currentCapablePace': format_pace(band['lowSec']),
+        'currentCapablePaceSec': capable,
+        'currentCapablePace': format_pace(capable),
         'gapSec': gap_sec,
         'verdict': verdict,
     }
 
 
-def describe_anchor(anchor, goal=None):
-    """Compact English lines for the LLM prompt."""
+def describe_anchor(anchor, goal=None, vdot_info=None):
+    """Compact English lines for the LLM prompt.
+
+    With a VDOT the Daniels zones are the bands; threshold pace is then only
+    background."""
+    if vdot_info and vdot_info.get('available'):
+        lines = [vdot_model.describe(vdot_info, (vdot_info or {}).get('goal'))]
+        if anchor and anchor.get('ltPaceSec'):
+            lines.append(f"(Garmin/measured lactate threshold pace for reference: {anchor['ltPace']}.)")
+        if goal:
+            lines.append(
+                f"Goal pace {goal['goalPace']} vs current HM-effort pace "
+                f"{goal['currentCapablePace']} → {goal['verdict']}"
+                + (f" (short by {goal['gapSec']} s/km)" if goal['gapSec'] > 0 else ''))
+        lines.append(
+            'Propose a target pace for each session inside its zone. '
+            'Any pace outside its zone will be clamped or rejected.')
+        return '\n'.join(lines)
     if not anchor or not anchor.get('ltPaceSec'):
         return 'No threshold anchor available — do not propose specific paces.'
 

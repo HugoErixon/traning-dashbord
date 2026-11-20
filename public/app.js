@@ -7196,25 +7196,105 @@ HEALTH DATA (current):
     updatePaceCalculatorFromSeconds(total, 'direct');
   }
 
+  // Daniels zoner i den ordning de används: lugnt → snabbast.
+  const VDOT_ZONES = [
+    ['E', 'E · Lugnt/långpass'], ['M', 'M · Maraton'], ['HM', 'Halvmaraton'],
+    ['T', 'T · Tröskel'], ['I', 'I · Intervall'], ['R', 'R · Repetition'],
+  ];
+  const vdotNumber = value => String(value).replace('.', ',');
+
+  function renderVdotInfo(vdot) {
+    const box = document.getElementById('pace-vdot');
+    if (!box) return;
+    box.style.display = '';
+    const source = vdot.available
+      ? (vdot.source === 'manual'
+          ? 'Du har angett VDOT själv. Töm fältet för att räkna fram det automatiskt igen.'
+          : `Just nu räknas det fram från ${vdot.sourceLabel}.`)
+      : (vdot.reason || '');
+    const others = (vdot.alternatives || [])
+      .map(a => `${a.label}: ${vdotNumber(a.vdot)}`).join(' · ');
+    document.getElementById('pace-vdot-about').textContent =
+      'VDOT är Jack Daniels mått på löpform, räknat ur en loppfart. Alla löptempon i planen '
+      + 'hämtas från det: lugnt (E), maratonfart (M), tröskel (T), intervall (I) och repetition (R). '
+      + 'När formen ändras flyttar alla tempon med. ' + source
+      + (others ? ` Som jämförelse: ${others}.` : '');
+    const input = document.getElementById('pace-vdot-input');
+    if (input && document.activeElement !== input) {
+      input.value = vdot.source === 'manual' ? vdotNumber(vdot.vdot) : '';
+    }
+    const form = document.getElementById('pace-vdot-form');
+    if (form && !form.dataset.bound) {
+      form.dataset.bound = '1';
+      form.addEventListener('submit', saveVdot);
+    }
+  }
+
+  async function saveVdot(event) {
+    event.preventDefault();
+    const input = document.getElementById('pace-vdot-input');
+    const msg = document.getElementById('pace-vdot-msg');
+    const raw = (input?.value || '').trim();
+    msg.textContent = 'Sparar…';
+    try {
+      const res = await fetch('/api/vdot', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({vdot: raw || null}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.textContent = data.message || 'Kunde inte spara.'; return; }
+      msg.textContent = raw ? 'Sparat.' : 'Räknas automatiskt igen.';
+      await loadPaceProposals();
+    } catch (_) {
+      msg.textContent = 'Servern kunde inte nås.';
+    }
+  }
+
   function renderPacePanel(data) {
     const panel = document.getElementById('pace-panel');
     const anchor = data.anchor || {};
-    if (!anchor.ltPaceSec) { panel.style.display = 'none'; return; }
+    const vdot = data.vdot || {};
+    if (!anchor.ltPaceSec && !vdot.available) { panel.style.display = 'none'; return; }
     panel.style.display = '';
 
     initPaceCalculator();
 
-    document.getElementById('pace-anchor-sub').textContent =
-      `Tröskel ${anchor.ltPace} · källa: ${anchor.source} · konfidens: ${anchor.confidence}`;
-
-    document.getElementById('pace-bands').innerHTML = Object.entries(data.bands || {})
-      .map(([kind, band]) => `<span class="pace-band" data-action="calc-load-pace" data-pace="${escapeHtml(band.text)}" role="button" tabindex="0" title="Klicka för att beräkna splittar &amp; löpband">`
-        + `<b>${escapeHtml(PACE_KIND_LABELS[kind] || kind)}</b> ${escapeHtml(band.text)}</span>`)
-      .join('');
+    const bandsEl = document.getElementById('pace-bands');
+    const bandChip = (label, text, pace) => `<span class="pace-band" data-action="calc-load-pace" data-pace="${escapeHtml(pace || text)}" role="button" tabindex="0" title="Klicka för att beräkna splittar &amp; löpband">`
+      + `<b>${escapeHtml(label)}</b> ${escapeHtml(text)}</span>`;
+    if (vdot.available) {
+      document.getElementById('pace-anchor-sub').textContent =
+        `VDOT ${vdotNumber(vdot.vdot)} · ${vdot.source === 'manual' ? 'eget värde' : vdot.sourceLabel}`
+        + (anchor.ltPace ? ` · Garmins tröskel ${anchor.ltPace}` : '');
+      bandsEl.innerHTML = VDOT_ZONES
+        .filter(([key]) => vdot.paces?.[key])
+        .map(([key, label]) => {
+          const zone = vdot.paces[key];
+          const text = key === 'E' ? zone.text : zone.pace;
+          const extra = zone.per400Sec ? ` · ${zone.per400Sec} s/400 m` : '';
+          return bandChip(label, text + extra, key === 'E' ? zone.text : zone.pace);
+        }).join('');
+    } else {
+      document.getElementById('pace-anchor-sub').textContent =
+        `Tröskel ${anchor.ltPace} · källa: ${anchor.source} · konfidens: ${anchor.confidence}`;
+      bandsEl.innerHTML = Object.entries(data.bands || {})
+        .map(([kind, band]) => bandChip(PACE_KIND_LABELS[kind] || kind, band.text)).join('');
+    }
+    renderVdotInfo(vdot);
 
     const goalEl = document.getElementById('pace-goal');
     const goal = data.goalFeasibility;
-    if (goal && goal.verdict === 'out_of_reach') {
+    const vdotGoal = vdot.available ? vdot.goal : null;
+    if (vdotGoal) {
+      const gap = Math.round((vdotGoal.vdot - vdot.vdot) * 10) / 10;
+      goalEl.style.display = '';
+      goalEl.className = gap > 1.5 ? 'pace-goal pace-goal-warn' : 'pace-goal';
+      goalEl.innerHTML = `Målet <b>${escapeHtml(vdotGoal.label)}</b> motsvarar VDOT <b>${vdotNumber(vdotGoal.vdot)}</b>`
+        + (gap > 0 ? ` — ${vdotNumber(gap)} över din nuvarande form. Där är tröskeln`
+            + ` ${escapeHtml(vdotGoal.paces?.T?.pace || '–')} och intervallerna ${escapeHtml(vdotGoal.paces?.I?.pace || '–')}.`
+          : ' — din nuvarande form räcker redan.');
+    } else if (goal && goal.verdict === 'out_of_reach') {
       goalEl.style.display = '';
       goalEl.className = 'pace-goal pace-goal-warn';
       goalEl.innerHTML = `Ditt mål kräver <b>${escapeHtml(goal.goalPace)}</b>, men din uppmätta`
