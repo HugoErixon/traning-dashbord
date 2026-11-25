@@ -2911,7 +2911,7 @@
       font-size: clamp(32px, 5.2vw, 46px);
       letter-spacing: -2px;
     }
-    .hg-card.c-daily .hg-score-row { gap: 10px; }
+    .hg-card.c-daily .hg-score-row { gap: 10px; flex-wrap: wrap; row-gap: 4px; }
     .hg-card.c-daily .hg-score-right { flex-shrink: 0; }
     .hg-daily-unit {
       color: var(--muted);
