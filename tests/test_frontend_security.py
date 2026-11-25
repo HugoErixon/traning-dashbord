@@ -29,7 +29,8 @@ class FrontendSecurityTests(unittest.TestCase):
     def test_user_and_ai_content_is_escaped_before_html_rendering(self):
         self.assertIn("escapeHtml(msg)", self.app)
         self.assertIn("function formatCoachReply(raw)", self.app)
-        self.assertIn("return escapeHtml(raw)", self.app)
+        # Markdown-renderingen escapar hela svaret innan något görs om till taggar.
+        self.assertIn("const lines = escapeHtml(raw)", self.app)
         # Ett återställt samtal renderas om från sessionStorage — samma
         # escaping måste gälla där, annars vore lagringen en väg runt den.
         self.assertIn("escapeHtml(m.content)", self.app)

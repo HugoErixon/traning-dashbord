@@ -24,6 +24,12 @@ import os
 import yaml
 import re
 import strava_integration
+import plan_calendar
+import season_plan
+import lab_tests
+import niggles
+import strength_program
+import weekly_report
 from plan_changes import PLAN_CHANGE_SCHEMA, InvalidPlanChange, validate_proposal
 from apscheduler.schedulers.background import BackgroundScheduler
 try:
@@ -195,6 +201,13 @@ OPENAI_COMPATIBLE_PROVIDERS = {
 CLAUDE_CLI_BIN = (config.get('CLAUDE_CLI_BIN') or shutil.which('claude')
                   or str(Path.home() / '.local' / 'bin' / 'claude'))
 CLAUDE_CLI_MODEL = config.get('CLAUDE_CLI_MODEL', 'sonnet')
+# Coachchatten är det enda anrop där en människa väntar på ett resonemang, så
+# den får den större modellen och mer tid. Bakgrundsjobben stannar på sonnet.
+CLAUDE_CLI_CHAT_MODEL = config.get('CLAUDE_CLI_CHAT_MODEL', 'opus')
+CLAUDE_CLI_CHAT_TIMEOUT = int(config.get('CLAUDE_CLI_CHAT_TIMEOUT') or 90)
+COACH_TIMEOUT = 40          # övriga leverantörer i kedjan
+COACH_MAX_TOKENS = 3000
+COACH_MESSAGE_MAX = 2000
 CLAUDE_CLI_EFFORT = str(config.get('CLAUDE_CLI_EFFORT') or '').strip()
 CLAUDE_CLI_USERS = {int(part) for part in
                     re.findall(r'\d+', str(config.get('CLAUDE_CLI_USERS', '1')))}
@@ -408,9 +421,10 @@ class LLMUnavailableError(RuntimeError):
 # anropet. Historiken kommer från klienten och normaliseras därför hårt: både
 # leverantörerna (som kräver att första turen är användarens och att rollerna
 # växlar) och prompt-kostnaden sätter gränser.
-CHAT_HISTORY_MAX_MESSAGES = 16
-CHAT_HISTORY_MAX_CHARS = 8000
-CHAT_MESSAGE_MAX_CHARS = 2000
+CHAT_HISTORY_MAX_MESSAGES = 24
+# Coachens svar får nu ta plats, så historiken behöver rymma några av dem.
+CHAT_HISTORY_MAX_CHARS = 24000
+CHAT_MESSAGE_MAX_CHARS = 8000
 
 
 def normalize_history(history):
@@ -708,8 +722,12 @@ _LLM_CALLERS = {'gemini': _call_gemini, 'anthropic': _call_anthropic,
                 'openai': _call_openai_compatible, 'claude_cli': _call_claude_cli}
 
 
+def _coach_provider_overrides():
+    return {'claude_cli': {'model': CLAUDE_CLI_CHAT_MODEL, 'timeout': CLAUDE_CLI_CHAT_TIMEOUT}}
+
+
 def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None,
-             json_mode=False, json_schema=None):
+             json_mode=False, json_schema=None, provider_overrides=None):
     """Skicka en prompt till leverantörskedjan och returnera svarstexten.
 
     `history` är tidigare turer i samma samtal ({'role', 'content'}), redan
@@ -719,7 +737,10 @@ def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None,
     Går igenom LLM_CHAIN i ordning och hoppar över leverantörer som nyligen
     svarat 429. Faller vidare vid kvot- och nätverksfel; ett riktigt fel (trasig
     prompt, tomt svar) kastas direkt eftersom det skulle upprepas överallt.
-    Kastar LLMQuotaError om alla leverantörer är slut på kvot."""
+    Kastar LLMQuotaError om alla leverantörer är slut på kvot.
+
+    `provider_overrides` = {leverantörstyp: {'model', 'timeout'}} gäller bara
+    det här anropet, t.ex. en större modell för coachchatten."""
     configured = [name for name in LLM_CHAIN if _provider_configured(name)]
     if not configured:
         raise RuntimeError('Ingen AI-leverantör är konfigurerad.')
@@ -732,9 +753,13 @@ def call_llm(prompt, max_tokens=1024, system=None, timeout=45, history=None,
     last_error = None
     for position, name in enumerate(order):
         spec = _provider_spec(name)
+        override = (provider_overrides or {}).get(spec['kind']) or {}
+        if override.get('model'):
+            spec = {**spec, 'model': override['model']}
+        call_timeout = override.get('timeout') or timeout
         caller = _LLM_CALLERS[spec['kind']]
         try:
-            text = caller(prompt, max_tokens, system, timeout, spec,
+            text = caller(prompt, max_tokens, system, call_timeout, spec,
                           allow_wait=(position == len(order) - 1), history=history,
                           json_mode=json_mode or bool(json_schema),
                           **({'json_schema': json_schema} if json_schema else {}))
@@ -1158,6 +1183,12 @@ def migrate_db():
                 cur.execute('ALTER TABLE plan_sessions ADD COLUMN IF NOT EXISTS execution JSONB')
             except Exception as e:
                 print('migrate_db plan_sessions execution:', e)
+            try:
+                # Reps kvar i tanken (RIR) per set, valfritt. Styr hur mycket
+                # nästa förslag höjer vikten — se strength_progression.py.
+                cur.execute('ALTER TABLE strength_exercises ADD COLUMN IF NOT EXISTS rir REAL')
+            except Exception as e:
+                print('migrate_db strength_exercises rir:', e)
             try:
                 # Planens ursprungliga text sparas när ett godkänt tempoförslag
                 # skriver om den, så anpassningen går att utvärdera i efterhand.
@@ -2768,6 +2799,16 @@ def _goal_prompt_block(user_id, performance=True):
     lines = [line]
     if goal.get('secondary_goal'):
         lines.append(f"SECONDARY GOAL: {goal['secondary_goal']}")
+    season = _season_prompt_block(user_id) if performance else ''
+    if season:
+        lines.append(season)
+    if performance:
+        # Labbtest, känningar och veckans styrkeprogram: varje planerande
+        # prompt ska se samma kropp och samma styrkeplan som coachen.
+        for extra in (_lab_prompt_block(user_id), _niggles_prompt_block(user_id),
+                      _strength_program_prompt_block(user_id)):
+            if extra:
+                lines.append(extra)
     performance = _performance_prompt_block(user_id) if performance else ''
     if performance:
         lines.append(performance)
@@ -3065,12 +3106,12 @@ def compute_bevel_rest_or_train(h):
     }
 
 def _session_date(year, week, dow):
-    return date.fromisocalendar(year, int(week), int(dow) + 1)
+    return plan_calendar.session_date(week, dow)
 
 def _mobile_widget_payload(user_id):
     today = date.today()
     year = today.year
-    iso_week = today.isocalendar()[1]
+    iso_week = plan_calendar.plan_week(today)
     monday = today - timedelta(days=today.weekday())
     next_monday = monday + timedelta(days=7)
 
@@ -4883,7 +4924,7 @@ def _race_prediction(user_id, username, allow_fetch=True, force_garmin=False):
     return race_predictor.predictor(
         _garmin_race_history(user_id, username, allow_fetch, force=force_garmin), metrics,
         runs, today, target=_race_target(user_id), lthr_override=manual,
-        lthr_source='manual' if manual else None)
+        lthr_source=_manual_lthr_source(user_id) if manual else None)
 
 # --- Race predictor på Strava-data -----------------------------------------
 # Användare utan Garmin får samma egna modell ur sina Strava-pass. Skillnaderna:
@@ -4895,15 +4936,24 @@ STRAVA_LAP_BACKFILL_LIMIT = 30
 THRESHOLD_HR_KEY = 'threshold-hr:v1'
 
 
-def _threshold_hr(user_id):
-    """Användarens egen tröskelpuls (t.ex. från ett labbtest), eller None."""
+def _threshold_hr_entry(user_id):
     try:
         row = get_cache(THRESHOLD_HR_KEY, user_id)
     except Exception as exc:
         print('threshold hr:', exc)
-        return None
-    value = (row[0] or {}).get('hr') if row and isinstance(row[0], dict) else None
+        return {}
+    return row[0] if row and isinstance(row[0], dict) else {}
+
+
+def _threshold_hr(user_id):
+    """Användarens egen tröskelpuls (egen siffra eller labbtest), eller None."""
+    value = _threshold_hr_entry(user_id).get('hr')
     return value if isinstance(value, (int, float)) and 140 <= value <= 215 else None
+
+
+def _manual_lthr_source(user_id):
+    """'lab' när tröskelpulsen kommer från ett inmatat labbtest, annars 'manual'."""
+    return 'lab' if _threshold_hr_entry(user_id).get('source') == 'lab' else 'manual'
 
 
 def _has_garmin_runs(user_id):
@@ -4998,7 +5048,7 @@ def _strava_race_prediction(user_id, username, today, since, allow_fetch=True):
     return race_predictor.predictor(
         [], [], runs, today, target=_race_target(user_id),
         lthr_override=manual or estimate['lthr'], source='strava',
-        lthr_source='manual' if manual else 'estimated',
+        lthr_source=_manual_lthr_source(user_id) if manual else 'estimated',
         max_hr=None if manual else estimate['maxHr'])
 
 
@@ -5169,7 +5219,9 @@ def race_target_save():
         if not 140 <= lthr <= 215:
             return _api_error('invalid_race_target', 'Tröskelpulsen måste vara mellan 140 och 215.', 400)
     try:
-        if lthr is not ...:
+        # Samma siffra som labbtestet satte = fältet bara visades igen; behåll
+        # då källan, annars tappar prognosen att pulsen är uppmätt i labb.
+        if lthr is not ... and lthr != _threshold_hr(uid()):
             # Tomt fält = använd klockans uppmätta eller den uppskattade igen.
             set_cache(THRESHOLD_HR_KEY, {'hr': lthr or None}, uid())
         set_cache(RACE_TARGET_KEY, {'distance': distance, 'seconds': seconds,
@@ -5249,8 +5301,8 @@ def sync():
         return _server_error(e, 'sync.failed', message='Garmin-synkningen misslyckades.')
 
 def _get_iso_week(d):
-    """Returnera ISO-veckonummer för ett date-objekt."""
-    return d.isocalendar()[1]
+    """Planvecka för ett date-objekt (ISO-vecka 2026, räknar vidare efter nyår)."""
+    return plan_calendar.plan_week(d)
 
 def _recent_execution_block(user_id, days=14, limit=6):
     """Rendera hur de senaste passen faktiskt genomfördes, för AI-prompterna.
@@ -5714,7 +5766,7 @@ def _week_prompt_block(user_id, today):
     if planned_km:
         summary.append(f'Week plan totals {planned_km:.0f} km')
 
-    out = f'THIS WEEK (ISO week {week}):'
+    out = f'THIS WEEK (plan week {week}):'
     if lines:
         out += '\n' + '\n'.join(lines)
     return out + '\n' + '\n'.join(summary)
@@ -6686,13 +6738,204 @@ def _assistant_response(result):
     return jsonify(result) if isinstance(result, dict) else result
 
 
+# ─────────────────────────────────────────────
+# COACHCHATTEN — en instruktion, byggd på servern
+# ─────────────────────────────────────────────
+# Webbsidan byggde förut sin egen, tunnare instruktion ("Max 3-4 meningar") som
+# ersatte serverns helt. Nu finns en källa: servern packar allt coachen behöver
+# och samma principer som Bryggans träningsassistent.
+COACH_PRINCIPLES = """Du är Trainyzes personliga coach för löpning och styrka. Löparen vill ta både löpningen och styrkan till nästa nivå mot sitt mål nedan. Du har hela underlaget nedan; använd det.
+
+SÅ RESONERAR DU
+- Väg samman beredskap, nattens sömn, HRV mot löparens egen baslinje, vilopuls, belastning, senaste passen och hur de faktiskt genomfördes, veckans säsongsram, styrkeprogrammet, känningar, kalendern och anteckningarna. Domaruppdrag i kalendern (Garmin loggar dem ofta som Ice Hockey) är också belastning, även när klockan inte kallar dem träning.
+- Kontrollera alla datum. Gårdagens sömn är inte nattens. Uppgifter som saknas är okända, aldrig noll – säg det hellre än att gissa.
+- ACWR är ett beskrivande mått, ingen skadegräns. HRV bedöms mot personens egen baslinje, inte mot en allmän gräns.
+- Känningar och nya symtom väger tyngre än bra klockvärden. Fråga om dagsform, smärta eller tillgänglig tid när det behövs för ett konkret passval.
+- Ge inte extra hårda pass för att fylla en belastningskvot, och behåll återhämtningsdagar även när värdena ser bra ut.
+
+SÅ SVARAR DU
+- För ett passval: ge ett realistiskt förstahandsval och ett lugnare alternativ, med syfte, längd och intensitet. Motivera med de 2–3 viktigaste signalerna och säg hur säker du är.
+- Tempon tar du från VDOT-zonerna och säsongsramen nedan, puls från labbtestets zoner när de finns. Lopptider tar du från prognosen – räkna inte fram egna.
+- Styrka: använd vikterna i styrkeprogrammet (de bygger på loggen och höjs när alla set klarats). Inga maxförsök under loppfart eller nedtrappning.
+- Är målet längre bort än nuvarande form, säg det rakt ut och vad som skulle behöva hända.
+- Anpassa längden efter frågan: en kort fråga får ett kort svar, en analys eller veckoplan får ta plats. Du får använda Markdown: korta rubriker (###), **fetstil** och punktlistor. Inga tabeller.
+- Svara alltid på svenska, rakt och personligt, som en erfaren tränare som känner löparen.
+- Du ändrar inte schemat i det här svaret. Påstå aldrig att pass har sparats, flyttats eller tagits bort; vill löparen spara ett förslag ska hen be dig uttryckligen ändra schemat."""
+
+
+def _upcoming_plan_block(user_id, today, days=8):
+    """Planerade pass de närmaste dagarna, med datum och hela upplägget."""
+    first = plan_calendar.plan_week(today)
+    try:
+        with db() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute('''SELECT week, dow, type, km, title, detail, status FROM plan_sessions
+                    WHERE user_id=%s AND week BETWEEN %s AND %s ORDER BY week, dow''',
+                            (user_id, first, first + 2))
+                rows = [dict(r) for r in cur.fetchall()]
+    except Exception as exc:
+        print('coach upcoming plan:', exc)
+        return ''
+    names = ['mån', 'tis', 'ons', 'tor', 'fre', 'lör', 'sön']
+    lines = []
+    for r in rows:
+        day = plan_calendar.session_date(r['week'], r['dow'])
+        if not today <= day <= today + timedelta(days=days):
+            continue
+        km = f" · {r['km']:g} km" if r.get('km') else ''
+        lines.append(f"  {day.isoformat()} {names[day.weekday()]}{' (idag)' if day == today else ''}: "
+                     f"{r['title']}{km} [{r['type']}, {r.get('status') or 'planned'}] — {r.get('detail') or ''}")
+    if not lines:
+        return 'PLANNED SESSIONS NEXT DAYS: none planned yet.'
+    return 'PLANNED SESSIONS NEXT DAYS:\n' + '\n'.join(lines)
+
+
+def _calendar_prompt_block(user_id, today, days=7):
+    row = get_cache('gcal_events', user_id)
+    if not row:
+        return ''
+    lines = []
+    for ev in (row[0] or []):
+        try:
+            ev_date = datetime.fromisoformat(ev.get('start', '')[:10]).date()
+        except Exception:
+            continue
+        if not today <= ev_date <= today + timedelta(days=days):
+            continue
+        time_part = ev.get('start', '')[11:16]
+        signals = _calendar_description_signals(ev)
+        lines.append(f"  {ev_date.isoformat()}{' ' + time_part if time_part else ''}: {ev.get('title', '')}"
+                     + (f" — {'; '.join(signals)}" if signals else ''))
+    return ('CALENDAR NEXT 7 DAYS:\n' + '\n'.join(lines)) if lines else 'CALENDAR NEXT 7 DAYS: nothing booked.'
+
+
+def _recent_activities_block(user_id, days=14):
+    """Alla aktiviteter, inte bara löpning — domaruppdrag och gym syns också."""
+    try:
+        acts = _recent_activities(user_id, days=days)
+    except Exception as exc:
+        print('coach activities:', exc)
+        return ''
+    lines = []
+    for a in acts:
+        raw = a.get('raw') or {}
+        minutes = round((raw.get('duration') or 0) / 60)
+        km = (a.get('distance') or 0) / 1000
+        bits = [str(a.get('date') or '')[:10], a.get('type') or '?']
+        if km >= 0.5:
+            bits.append(f'{km:.1f} km')
+        if minutes:
+            bits.append(f'{minutes} min')
+        if raw.get('averageHR'):
+            bits.append(f"snittpuls {round(raw['averageHR'])}")
+        if raw.get('activityTrainingLoad'):
+            bits.append(f"belastning {round(raw['activityTrainingLoad'])}")
+        lines.append('  ' + ' · '.join(bits) + (f" — {a.get('name')}" if a.get('name') else ''))
+    return ('ALL ACTIVITIES LAST 14 DAYS (oldest first):\n' + '\n'.join(lines)) if lines else ''
+
+
+def _journal_prompt_block(user_id, today, days=14):
+    """Dagboken: humör, energi och egna ord — det klockan inte ser."""
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT entry_date, mood, energy, text FROM journal_entries
+                    WHERE user_id=%s AND entry_date >= %s ORDER BY entry_date''',
+                            (user_id, (today - timedelta(days=days)).isoformat()))
+                rows = cur.fetchall()
+    except Exception as exc:
+        print('coach journal:', exc)
+        return ''
+    lines = []
+    for day, mood, energy, text in rows:
+        meta = ', '.join(x for x in (mood or '', f'energi {energy}/10' if energy else '') if x)
+        lines.append(f"  {day}{f' ({meta})' if meta else ''}: {str(text or '').strip()[:300]}")
+    return ('JOURNAL LAST 14 DAYS (the athlete\'s own words):\n' + '\n'.join(lines)) if lines else ''
+
+
+def _coach_system_prompt(user_id, message, history):
+    today = datetime.now(LOCAL_TZ).date()
+    week = plan_calendar.plan_week(today)
+    weekdays = ['måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag', 'söndag']
+    parts = [COACH_PRINCIPLES,
+             f"TODAY: {weekdays[today.weekday()]} {today.isoformat()}, calendar week "
+             f"{plan_calendar.iso_week_label(week)} (plan week {week})."]
+
+    def block(fn, *args):
+        try:
+            text = fn(*args)
+        except Exception as exc:  # en död datakälla får aldrig fälla svaret
+            print(f'coach block {getattr(fn, "__name__", fn)}:', exc)
+            return
+        if text:
+            parts.append(text)
+
+    # Mål, säsongsram, labbtest, känningar, styrkeprogram, prognos och trender.
+    block(_goal_prompt_block, user_id)
+    block(_recovery_prompt_block, user_id)
+
+    def today_status():
+        snap = latest_health_snapshot(user_id, today.isoformat()) or {}
+        rot = compute_bevel_rest_or_train(snap)
+        return (f"TODAY'S RECOMMENDATION FROM TRAINYZE'S RULES: {rot.get('headline')} ({rot.get('badge')}) · "
+                f"target strain {rot.get('targetStrain', {}).get('label')} · sleep debt "
+                f"{rot.get('sleepDebtMinutes', 0)} min. These are cautious local rules, not Garmin's algorithm.")
+    block(today_status)
+    block(_week_prompt_block, user_id, today)
+    block(_upcoming_plan_block, user_id, today)
+    block(_calendar_prompt_block, user_id, today)
+    block(_recent_activities_block, user_id)
+
+    def execution():
+        text = _recent_execution_block(user_id, days=21, limit=10)
+        return (text + '\nWhen the athlete asks about a specific session, use these measured numbers '
+                '(splits, heart rate, pace) and judge the execution honestly.') if text else ''
+    block(execution)
+    block(_recent_activity_feedback_block, user_id)
+    block(_notes_prompt_block, user_id, 10)
+    block(_journal_prompt_block, user_id, today)
+
+    def paces():
+        ctx = _pace_context(user_id)
+        if not ((ctx.get('anchor') or {}).get('ltPaceSec') or (ctx.get('vdot') or {}).get('available')):
+            return ''
+        text = 'MEASURED PACE CAPABILITY:\n' + pace_progression.describe_anchor(
+            ctx['anchor'], ctx.get('goalFeasibility'), ctx.get('vdot'))
+        feasibility = ctx.get('goalFeasibility')
+        if feasibility and feasibility['verdict'] == 'out_of_reach':
+            text += (f"\nThe stated goal pace is {feasibility['gapSec']} s/km faster than the measured "
+                     'threshold supports. Say so honestly if the goal comes up.')
+        return text
+    block(paces)
+
+    if _is_sleep_request(message, history):
+        def sleep():
+            out = []
+            coach = _build_sleep_coach()
+            if coach:
+                out.append('SÖMNSCHEMA:\n' + json.dumps(coach, ensure_ascii=False))
+            insights = _get_sleep_insights()
+            if insights:
+                out.append('SÖMNINSIKTER:\n' + json.dumps(insights, ensure_ascii=False))
+            return '\n\n'.join(out)
+        block(sleep)
+
+    if history:
+        parts.append(
+            "This is an ongoing conversation with the same athlete — the earlier turns are included. "
+            "Answer the latest message as a direct continuation: resolve 'det', 'den' or 'samma pass' "
+            "against what was already said, keep advice you already gave unless new information changes "
+            "it, and do not repeat greetings or context the athlete has just been told.")
+    return '\n\n'.join(parts)
+
+
 def _assistant_answer(data):
     """Svarar med en dict när coachen kunde svara, annars ett färdigt felsvar."""
     message = str(data.get('message') or '').strip()
     history = normalize_history(data.get('history'))
     if not message:
         return _api_error('message_required', 'Skriv en fråga först.', 400)
-    if len(message) > 500:
+    if len(message) > COACH_MESSAGE_MAX:
         return _api_error('request_too_large', 'Coachfrågan är för lång.', 400)
     if not llm_available():
         return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
@@ -6713,99 +6956,12 @@ def _assistant_answer(data):
                 reply = 'Planen har uppdaterats.'
             return {'reply': reply, 'planAdjusted': changes > 0, 'changes': changes}
 
-        custom_ctx = str(data.get('context') or '').strip()
-        if custom_ctx:
-            context = custom_ctx
-        else:
-            context = (
-                "Du är Trainyzes personliga elittränare och fysiologiska coach för löpning och konditionsidrott.\n"
-                "Ditt uppdrag är att hjälpa löparen att utvecklas maximalt över tid: bygga aerob bas, höja tröskelfarten, "
-                "optimera löpekonomin och undvika överbelastning eller skador.\n\n"
-                "COACHNINGSPRINCIPER:\n"
-                "1. Tydliga, handfasta råd: Ange alltid konkreta tempon (min/km), pulszoner, repetitioner och vilolängd. Flumma aldrig.\n"
-                "2. Fysiologisk precision: Förklara pedagogiskt *varför* en viss intensitet eller ett visst pass behövs (laktattröskel, "
-                "mitokondrietäthet, kapillarisering i Zon 2, VO2max, RPE).\n"
-                "3. Progressionsfokus: Identifiera löparens utvecklingsområden och ge råd som leder till långsiktiga PB.\n"
-                "4. Lyssna och anpassa: Om löparen känner sig sliten eller har ont om tid, ge en omedelbar justerad plan.\n"
-                "5. Språk och ton: Professionell, engagerad, empatisk och rak svensk löparcoach.\n"
-            )
-
-        context += ("\nDu har inte ändrat schemat i detta svar. Ge råd eller ett förslag, "
-                    "men påstå aldrig att pass har sparats, flyttats eller tagits bort. "
-                    "Be användaren att uttryckligen be dig ändra schemat för att spara förslaget.")
-
-        # Lägg till dagens hälso- och belastningskontext
-        try:
-            today_str = date.today().isoformat()
-            h_snap = latest_health_snapshot(uid(), today_str) or {}
-            cns = _cns_score_from_health(h_snap)
-            rot = compute_bevel_rest_or_train(h_snap)
-            context += f"\nDAGENS STATUS FÖR LÖPAREN ({today_str}):\n"
-            context += f"- Beredskap (CNS): {cns}/100\n"
-            context += f"- Dagens rekommendation: {rot.get('headline')} ({rot.get('badge')})\n"
-            context += f"- Mål-Strain idag: {rot.get('targetStrain', {}).get('label')}\n"
-            context += f"- Sömnskuld: {rot.get('sleepDebtMinutes', 0)} min\n"
-        except Exception:
-            pass
-
-        if history:
-            context += (
-                "\n\nThis is an ongoing conversation with the same athlete — the turns "
-                "before this message are included. Answer the latest message as a direct "
-                "continuation: resolve references like 'det', 'den' or 'samma pass' "
-                "against what was already said, keep any advice you have already given "
-                "unless new information changes it, and do not repeat greetings or "
-                "context the athlete has just been told."
-            )
-
-        if _is_sleep_request(message, history):
-            try:
-                sleep = _build_sleep_coach()
-                if sleep:
-                    context += "\n\nSÖMNSCHEMA:\n" + json.dumps(sleep, ensure_ascii=False)
-            except Exception as exc:
-                logger.warning('Could not build sleep coach context', extra={
-                    'event': 'assistant.sleep_coach_failed', 'detail': str(exc)[:200]
-                })
-            try:
-                insights = _get_sleep_insights()
-                if insights:
-                    context += "\n\nSÖMNINSIKTER:\n" + json.dumps(insights, ensure_ascii=False)
-            except Exception as exc:
-                logger.warning('Could not build sleep insights context', extra={
-                    'event': 'assistant.sleep_insights_failed', 'detail': str(exc)[:200]
-                })
-
-        execution_context = _recent_execution_block(uid(), days=21, limit=10)
-        if execution_context:
-            context += execution_context + (
-                "\n\nNär löparen frågar om ett specifikt genomfört pass, använd de uppmätta siffrorna ovan "
-                "(splittar, puls, tempo) och analysera utförandet ärligt."
-            )
-
-        # Tempofrågor ska besvaras mot uppmätt tröskel, och ett mål som ligger
-        # bortom nuvarande fysiologi ska sägas rakt ut — inte peppas bort.
-        pace_context = _pace_context(uid())
-        if (pace_context.get('anchor') or {}).get('ltPaceSec') or \
-                (pace_context.get('vdot') or {}).get('available'):
-            context += "\n\nMEASURED PACE CAPABILITY:\n" + pace_progression.describe_anchor(
-                pace_context['anchor'], pace_context.get('goalFeasibility'), pace_context.get('vdot'))
-            feasibility = pace_context.get('goalFeasibility')
-            if feasibility and feasibility['verdict'] == 'out_of_reach':
-                context += (
-                    f"\n\nThe stated goal pace is {feasibility['gapSec']} s/km faster than what "
-                    "this athlete's measured threshold currently supports. If the goal comes up, "
-                    "say so honestly and give the realistic time the current threshold implies, "
-                    "along with what would have to change. Do not encourage the goal as if it "
-                    "were within reach."
-                )
-        performance = _performance_prompt_block(uid())
-        if performance:
-            context += ("\n\nRACE PREDICTOR OCH PASSTRENDER (uträknat ur löparens data):\n"
-                        + performance + "\nAnvänd dessa siffror när löparen frågar om form, "
-                        "prognos eller mål; räkna inte fram egna lopptider.")
-        return {'reply': call_llm(message, max_tokens=1024, system=context,
-                                  history=history)}
+        # Webbsidans gamla "context" ignoreras med flit: en flik som laddats
+        # före uppdateringen ska inte kunna skicka in den korta instruktionen igen.
+        context = _coach_system_prompt(uid(), message, history)
+        return {'reply': call_llm(message, max_tokens=COACH_MAX_TOKENS, system=context,
+                                  history=history, timeout=COACH_TIMEOUT,
+                                  provider_overrides=_coach_provider_overrides())}
     except (LLMQuotaError, LLMUnavailableError, LLMTransientError) as e:
         return _server_error(e, 'assistant.provider_unavailable', status=503,
                              code='ai_unavailable',
@@ -7132,7 +7288,7 @@ def _strength_progression_history(user_id):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute('''
-                SELECT id, session_id, exercise, sets, reps, weight, note, created_at
+                SELECT id, session_id, exercise, sets, reps, weight, note, created_at, rir
                 FROM strength_exercises
                 WHERE user_id=%s
                 ORDER BY created_at ASC, id ASC
@@ -7156,14 +7312,13 @@ def _strength_progression_history(user_id):
         'reps': row[4],
         'weight': float(row[5]) if row[5] is not None else None,
         'note': row[6] or '',
+        'rir': float(row[8]) if row[8] is not None else None,
         'date': _session_day(row[1], activity_dates, row[7]),
     } for row in exercise_rows]
 
 
 def _plan_session_date(session, reference_day=None):
-    reference_day = reference_day or date.today()
-    iso_year = reference_day.isocalendar()[0]
-    return date.fromisocalendar(iso_year, int(session['week']), int(session['dow']) + 1)
+    return plan_calendar.session_date(session['week'], session['dow'])
 
 
 PLAN_SESSION_TYPES = ('run', 'easy', 'lift', 'race', 'rest')
@@ -7354,7 +7509,7 @@ STRENGTH_SESSION_ID = re.compile(r'^(\d{4}-\d{2}-\d{2}|\d{1,20})$')
 def _strength_rows(user_id):
     with db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute('''SELECT id, session_id, exercise, sets, reps, weight, note, created_at
+            cur.execute('''SELECT id, session_id, exercise, sets, reps, weight, note, created_at, rir
                 FROM strength_exercises WHERE user_id=%s ORDER BY created_at, id''', (user_id,))
             rows = [dict(r) for r in cur.fetchall()]
             cur.execute('SELECT id, raw FROM activities WHERE type = ANY(%s) AND user_id=%s',
@@ -7394,7 +7549,7 @@ def strength_overview_view():
             'sessionId': session_id,
             'activity': today_activity,
             'rows': [{'id': e['id'], 'exercise': e['exercise'], 'sets': e['sets'], 'reps': e['reps'],
-                      'weight': e['weight'], 'note': e['note']}
+                      'weight': e['weight'], 'note': e['note'], 'rir': e['rir']}
                      for e in entries if e['sessionId'] in (session_id, today.isoformat())],
         }
         return jsonify(payload)
@@ -7409,7 +7564,21 @@ def _strength_set_input(data, partial=False):
         exercise = re.sub(r'\s+', ' ', str(data.get('exercise') or '')).strip()
         if not exercise or len(exercise) > 80:
             return None, 'Ange övningens namn (högst 80 tecken).'
-        fields['exercise'] = exercise
+        # Kända övningar sparas med katalogens namn, så att "Bench press" och
+        # "Bänkpress" blir samma kurva.
+        fields['exercise'] = strength_overview.display_name(exercise)
+    if 'rir' in data:
+        rir = data.get('rir')
+        if rir in (None, ''):
+            fields['rir'] = None
+        else:
+            try:
+                rir = float(rir)
+            except (TypeError, ValueError):
+                return None, 'Reps kvar måste vara ett tal.'
+            if not 0 <= rir <= 10:
+                return None, 'Reps kvar måste vara 0–10.'
+            fields['rir'] = rir
     if not partial or 'reps' in data:
         try:
             reps = int(data.get('reps'))
@@ -7452,21 +7621,22 @@ def strength_log_set(session_id):
     try:
         with db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute('''SELECT id, exercise, sets, reps, weight, created_at FROM strength_exercises
+                cur.execute('''SELECT id, exercise, sets, reps, weight, rir, created_at FROM strength_exercises
                     WHERE session_id=%s AND user_id=%s FOR UPDATE''', (session_id, uid()))
                 target = strength_overview.merge_target(
-                    [dict(r) for r in cur.fetchall()], fields['exercise'], fields['reps'], fields['weight'])
+                    [dict(r) for r in cur.fetchall()], fields['exercise'], fields['reps'], fields['weight'],
+                    fields.get('rir'))
                 if target:
                     cur.execute('''UPDATE strength_exercises SET sets=coalesce(sets, 1) + 1, created_at=%s
                         WHERE id=%s AND user_id=%s
-                        RETURNING id, exercise, sets, reps, weight, note''', (time.time(), target['id'], uid()))
+                        RETURNING id, exercise, sets, reps, weight, note, rir''', (time.time(), target['id'], uid()))
                 else:
                     cur.execute('''INSERT INTO strength_exercises
-                        (session_id, exercise, sets, reps, weight, note, created_at, user_id)
-                        VALUES (%s, %s, 1, %s, %s, '', %s, %s)
-                        RETURNING id, exercise, sets, reps, weight, note''',
+                        (session_id, exercise, sets, reps, weight, note, created_at, user_id, rir)
+                        VALUES (%s, %s, 1, %s, %s, '', %s, %s, %s)
+                        RETURNING id, exercise, sets, reps, weight, note, rir''',
                                 (session_id, fields['exercise'], fields['reps'], fields['weight'],
-                                 time.time(), uid()))
+                                 time.time(), uid(), fields.get('rir')))
                 row = dict(cur.fetchone())
             conn.commit()
         return jsonify({'ok': True, 'row': row, 'merged': bool(target)})
@@ -7487,7 +7657,7 @@ def strength_update_row(ex_id):
                 # Kolumnnamnen kommer från _strength_set_input, aldrig från klienten.
                 assignments = ', '.join(f'{name}=%s' for name in fields)
                 cur.execute(f'''UPDATE strength_exercises SET {assignments}
-                    WHERE id=%s AND user_id=%s RETURNING id, exercise, sets, reps, weight, note''',
+                    WHERE id=%s AND user_id=%s RETURNING id, exercise, sets, reps, weight, note, rir''',
                             (*fields.values(), ex_id, uid()))
                 row = cur.fetchone()
             conn.commit()
@@ -7602,8 +7772,10 @@ def _vdot_context(user_id, lt_pace=None, goal_pace=None):
                               'seconds': seconds, 'name': check.get('name')})
     except Exception as exc:
         print('vdot prediction:', exc)
+    lab = _latest_lab_test(user_id)
+    lab_pace = {'paceSec': lab['lt2PaceSec'], 'date': lab['date']} if lab and lab.get('lt2PaceSec') else None
     info = vdot_model.current(prediction, races, lt_pace_sec=lt_pace,
-                              manual=_manual_vdot(user_id), today=today)
+                              manual=_manual_vdot(user_id), today=today, lab=lab_pace)
     # Målet: race predictorns måltid går först, annars målets text ("Halvmara 1:22").
     goal = None
     target = _race_target(user_id)
@@ -7628,6 +7800,470 @@ def _vdot_prompt_block(user_id):
     except Exception as exc:
         print('vdot prompt block:', exc)
         return ''
+
+
+# ─────────────────────────────────────────────
+# VECKORAPPORT (weekly_report.py)
+# ─────────────────────────────────────────────
+WEEKLY_REPORT_SENT_KEY = 'weekly_report_sent'
+
+
+def _weekly_report(user_id, week):
+    monday = plan_calendar.plan_monday(week)
+    sunday = monday + timedelta(days=6)
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT date, type, distance, name, raw FROM activities
+                WHERE user_id=%s AND date >= %s AND date < %s ORDER BY date''',
+                        (user_id, monday.isoformat(), (sunday + timedelta(days=1)).isoformat()))
+            activities = [dict(r) for r in cur.fetchall()]
+            cur.execute('''SELECT dow, type, km, title, status, execution FROM plan_sessions
+                WHERE user_id=%s AND week=%s ORDER BY dow''', (user_id, week))
+            sessions = [dict(r) for r in cur.fetchall()]
+    strength_days = {e['date'] for e in _strength_progression_history(user_id)
+                     if monday.isoformat() <= (e.get('date') or '') <= sunday.isoformat()}
+    frame = next_frame = None
+    try:
+        weeks, _ = _season_weeks(user_id)
+        frame = next((w for w in weeks or [] if w['week'] == week), None)
+        next_frame = next((w for w in weeks or [] if w['week'] == week + 1), None)
+    except Exception as exc:
+        print('weekly report season:', exc)
+    report = weekly_report.build(frame, next_frame, activities, sessions,
+                                 _niggle_status(user_id), strength_days)
+    report.update({'week': week, 'isoWeek': plan_calendar.iso_week_label(week),
+                   'from': monday.isoformat(), 'to': sunday.isoformat(),
+                   'phase': frame['phaseLabel'] if frame else None})
+    return report
+
+
+@app.get('/api/weekly-report')
+def weekly_report_view():
+    """Veckan som gick: på söndagar den pågående, annars förra veckan."""
+    today = datetime.now(LOCAL_TZ).date()
+    week = request.args.get('week', type=int)
+    if not week:
+        week = plan_calendar.plan_week(today) - (0 if today.weekday() == 6 else 1)
+    try:
+        return jsonify(_weekly_report(uid(), week))
+    except Exception as exc:
+        return _server_error(exc, 'weekly_report.failed', message='Veckorapporten kunde inte räknas.')
+
+
+def weekly_report_job():
+    """Söndag kväll: veckorapporten som push till alla som har notiser på."""
+    today = datetime.now(LOCAL_TZ).date()
+    week = plan_calendar.plan_week(today)
+    for username, rec in list(USERS.items()):
+        user_id = rec['id']
+        try:
+            sent = get_cache(WEEKLY_REPORT_SENT_KEY, user_id)
+            if sent and (sent[0] or {}).get('week') == week:
+                continue
+            report = _weekly_report(user_id, week)
+            delivered = send_push(user_id, report['push']['title'], report['push']['body'],
+                                  url='/#upcoming', tag='weekly-report')
+            # Markeras även när ingen enhet tog emot: rapporten finns på sidan,
+            # och en omstart ska inte skicka samma rapport två gånger.
+            set_cache(WEEKLY_REPORT_SENT_KEY, {'week': week, 'delivered': delivered}, user_id)
+            logger.info('Weekly report sent', extra={'event': 'weekly_report.sent',
+                                                     'user_id': user_id, 'devices': delivered})
+        except Exception:
+            logger.exception('Weekly report failed', extra={'event': 'weekly_report.failed',
+                                                           'user_id': user_id})
+
+
+# ─────────────────────────────────────────────
+# KÄNNINGAR (niggles.py) OCH STYRKEPROGRAM (strength_program.py)
+# ─────────────────────────────────────────────
+NIGGLES_KEY = 'niggles:v1'
+
+
+def _niggle_entries(user_id):
+    try:
+        row = get_cache(NIGGLES_KEY, user_id)
+    except Exception as exc:
+        print('niggles:', exc)
+        return []
+    entries = (row[0] or {}).get('entries') if row and isinstance(row[0], dict) else None
+    return entries if isinstance(entries, list) else []
+
+
+def _niggle_status(user_id):
+    return niggles.status(_niggle_entries(user_id), datetime.now(LOCAL_TZ).date())
+
+
+def _niggles_prompt_block(user_id):
+    try:
+        return niggles.describe(_niggle_status(user_id))
+    except Exception as exc:
+        print('niggles prompt block:', exc)
+        return ''
+
+
+def _niggles_payload(user_id):
+    rows = _niggle_status(user_id)
+    return {'niggles': rows, 'active': [r for r in rows if r['active']],
+            'areas': [{'key': k, 'label': v} for k, v in niggles.AREAS.items()]}
+
+
+@app.get('/api/niggles')
+def niggles_view():
+    try:
+        return jsonify(_niggles_payload(uid()))
+    except Exception as exc:
+        return _server_error(exc, 'niggles.failed', message='Känningarna kunde inte läsas.')
+
+
+@app.post('/api/niggles')
+def niggles_log():
+    """En avläsning: område, sida och 0–10. 0 betyder att det är borta."""
+    try:
+        entry = niggles.normalize(request.get_json(silent=True) or {}, datetime.now(LOCAL_TZ).date())
+    except ValueError as exc:
+        return _api_error('invalid_niggle', str(exc), 400)
+    try:
+        entries = niggles.add(_niggle_entries(uid()), entry, time.time())
+        set_cache(NIGGLES_KEY, {'entries': entries}, uid())
+        return jsonify(_niggles_payload(uid()))
+    except Exception as exc:
+        return _server_error(exc, 'niggles.save_failed', message='Känningen kunde inte sparas.')
+
+
+def _strength_program_for_week(user_id, week=None):
+    """Veckans styrkeprogram: belastningen följer säsongens fas, vikterna loggen."""
+    today = datetime.now(LOCAL_TZ).date()
+    week = week or plan_calendar.plan_week(today)
+    load, phase_label = 'heavy', None
+    try:
+        weeks, _ = _season_weeks(user_id)
+        frame = next((w for w in weeks or [] if w['week'] == week), None)
+        if frame:
+            load = frame['strength']['load']
+            phase_label = frame['phaseLabel'] + (' · avlastning' if frame['recovery'] else '')
+    except Exception as exc:
+        print('strength program season:', exc)
+    areas = niggles.active_areas(_niggle_status(user_id))
+    prog = strength_program.program(load, _strength_progression_history(user_id), today, areas)
+    prog['phase'] = phase_label
+    prog['week'] = week
+    prog['isoWeek'] = plan_calendar.iso_week_label(week)
+    prog['niggleAreas'] = [niggles.AREAS[a] for a in areas]
+    return prog
+
+
+def _strength_program_prompt_block(user_id):
+    try:
+        return strength_program.describe(_strength_program_for_week(user_id))
+    except Exception as exc:
+        print('strength program prompt block:', exc)
+        return ''
+
+
+@app.get('/api/strength/program')
+def strength_program_view():
+    try:
+        return jsonify(_strength_program_for_week(uid()))
+    except Exception as exc:
+        return _server_error(exc, 'strength.program_failed', message='Styrkeprogrammet kunde inte räknas.')
+
+
+# ─────────────────────────────────────────────
+# LABBTEST (lab_tests.py)
+# ─────────────────────────────────────────────
+# Ett labbtest mäter det klockan bara uppskattar: tröskelpulsen (LT2) ersätter
+# Garmins i prognosen och tröskelfarten blir en VDOT-källa före Garmins.
+LAB_TESTS_KEY = 'lab-tests:v1'
+
+
+def _lab_tests(user_id):
+    try:
+        row = get_cache(LAB_TESTS_KEY, user_id)
+    except Exception as exc:
+        print('lab tests:', exc)
+        return []
+    tests = (row[0] or {}).get('tests') if row and isinstance(row[0], dict) else None
+    return tests if isinstance(tests, list) else []
+
+
+def _latest_lab_test(user_id):
+    tests = _lab_tests(user_id)
+    return tests[0] if tests else None
+
+
+def _lab_prompt_block(user_id):
+    try:
+        return lab_tests.describe(_latest_lab_test(user_id))
+    except Exception as exc:
+        print('lab prompt block:', exc)
+        return ''
+
+
+def _lab_payload(user_id):
+    tests = _lab_tests(user_id)
+    latest = tests[0] if tests else None
+    garmin_lthr = None
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT lactate_hr, lactate_pace, vo2max FROM metric_history
+                    WHERE user_id=%s AND lactate_hr IS NOT NULL ORDER BY date DESC LIMIT 1''', (user_id,))
+                row = cur.fetchone()
+                if row:
+                    garmin_lthr = {'hr': row[0], 'paceSec': row[1], 'vo2max': row[2]}
+    except Exception as exc:
+        print('lab garmin compare:', exc)
+    view = []
+    for t in tests:
+        item = dict(t)
+        item['lt1Pace'] = lab_tests.fmt_pace(t.get('lt1PaceSec'))
+        item['lt2Pace'] = lab_tests.fmt_pace(t.get('lt2PaceSec'))
+        item['zones'] = lab_tests.hr_zones(t)
+        item['vdotFromPace'] = vdot_model.from_threshold_pace(t.get('lt2PaceSec'))
+        view.append(item)
+    vdot_info = _pace_context(user_id).get('vdot') or {}
+    return {'tests': view, 'latest': view[0] if view else None,
+            'garmin': garmin_lthr, 'thresholdHr': _threshold_hr(user_id),
+            'thresholdHrSource': _manual_lthr_source(user_id) if _threshold_hr(user_id) else 'garmin',
+            'vdot': vdot_info.get('vdot'), 'vdotSource': vdot_info.get('sourceLabel'),
+            'latestIsActive': bool(latest)}
+
+
+@app.get('/api/lab-tests')
+def lab_tests_view():
+    try:
+        return jsonify(_lab_payload(uid()))
+    except Exception as exc:
+        return _server_error(exc, 'lab_tests.failed', message='Labbtesten kunde inte läsas.')
+
+
+@app.post('/api/lab-tests')
+def lab_tests_save():
+    data = request.get_json(silent=True) or {}
+    try:
+        test = lab_tests.normalize(data, today=datetime.now(LOCAL_TZ).date())
+    except ValueError as exc:
+        return _api_error('invalid_lab_test', str(exc), 400)
+    user_id = uid()
+    try:
+        tests = lab_tests.add(_lab_tests(user_id), test)
+        set_cache(LAB_TESTS_KEY, {'tests': tests}, user_id)
+        if tests[0]['date'] == test['date'] and test.get('lt2Hr'):
+            set_cache(THRESHOLD_HR_KEY, {'hr': test['lt2Hr'], 'source': 'lab',
+                                         'date': test['date']}, user_id)
+        # Prognosen läses vid tröskelpulsen, så den räknas om direkt.
+        try:
+            _store_race_prediction(user_id, uname())
+        except Exception:
+            logger.exception('Race prediction after lab test failed',
+                             extra={'event': 'lab_tests.prediction_failed'})
+        return jsonify(_lab_payload(user_id))
+    except Exception as exc:
+        return _server_error(exc, 'lab_tests.save_failed', message='Labbtestet kunde inte sparas.')
+
+
+@app.delete('/api/lab-tests/<test_date>')
+def lab_tests_delete(test_date):
+    user_id = uid()
+    try:
+        tests = [t for t in _lab_tests(user_id) if t.get('date') != test_date]
+        set_cache(LAB_TESTS_KEY, {'tests': tests}, user_id)
+        entry = _threshold_hr_entry(user_id)
+        if entry.get('source') == 'lab':
+            latest = tests[0] if tests else None
+            set_cache(THRESHOLD_HR_KEY, {'hr': latest['lt2Hr'], 'source': 'lab', 'date': latest['date']}
+                      if latest and latest.get('lt2Hr') else {'hr': None}, user_id)
+        try:
+            _store_race_prediction(user_id, uname())
+        except Exception:
+            logger.exception('Race prediction after lab delete failed',
+                             extra={'event': 'lab_tests.prediction_failed'})
+        return jsonify(_lab_payload(user_id))
+    except Exception as exc:
+        return _server_error(exc, 'lab_tests.delete_failed', message='Labbtestet kunde inte tas bort.')
+
+
+# ─────────────────────────────────────────────
+# SÄSONGSPLAN (season_plan.py)
+# ─────────────────────────────────────────────
+# Ramen för varje vecka fram till målloppet. Utgångsvolymen fryses när
+# säsongen skapas (annars flyttar varje missat pass målen) och byggs bara om
+# när loppet ändras eller användaren ber om det. Tempona läses från dagens
+# VDOT varje gång, så nyckelpassen följer formen.
+SEASON_KEY = 'season-plan:v1'
+SEASON_RUN_TYPES = ('running', 'track_running', 'treadmill_running', 'trail_running')
+
+
+def _running_km_by_week(user_id, since_day):
+    """Löpkilometer och längsta pass per planvecka sedan `since_day`."""
+    km, longest = {}, {}
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT date, distance FROM activities
+                WHERE user_id=%s AND date >= %s AND type = ANY(%s)''',
+                        (user_id, since_day.isoformat(), list(SEASON_RUN_TYPES)))
+            for raw_date, distance in cur.fetchall():
+                try:
+                    day = datetime.fromisoformat(str(raw_date)[:10]).date()
+                except ValueError:
+                    continue
+                w = plan_calendar.plan_week(day)
+                dist = (distance or 0) / 1000
+                km[w] = km.get(w, 0) + dist
+                longest[w] = max(longest.get(w, 0), dist)
+    return km, longest
+
+
+def _planned_km_by_week(user_id, first_week):
+    out = {}
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT week, COALESCE(SUM(km), 0) FROM plan_sessions
+                WHERE user_id=%s AND week >= %s AND type IN ('run','easy','race')
+                  AND status IN ('planned','completed','rescheduled')
+                GROUP BY week""", (user_id, first_week))
+            for week, total in cur.fetchall():
+                out[int(week)] = float(total or 0)
+    return out
+
+
+def _season_target(user_id):
+    target = _race_target(user_id) or {}
+    distance = target.get('distance')
+    try:
+        race_day = date.fromisoformat(str(target.get('deadline') or '')[:10])
+    except ValueError:
+        race_day = None
+    if distance not in season_plan.RACE_KM or not race_day:
+        return None
+    return {'distance': distance, 'raceDate': race_day, 'seconds': target.get('seconds')}
+
+
+def _season_base(user_id, today):
+    """Utgångsläget: snittvolym de fyra senaste hela veckorna, längsta pass på sex."""
+    current = plan_calendar.plan_week(today)
+    km, longest = _running_km_by_week(user_id, plan_calendar.plan_monday(current - 6))
+    weeks = [km.get(w, 0) for w in range(current - 4, current)]
+    base_km = round(sum(weeks) / 4, 1) if any(weeks) else 30.0
+    base_long = round(max(longest.get(w, 0) for w in range(current - 6, current)), 1)
+    return base_km, base_long
+
+
+def _season_params(user_id, rebuild=False, peak_km=None):
+    target = _season_target(user_id)
+    if not target:
+        return None, None
+    today = datetime.now(LOCAL_TZ).date()
+    row = get_cache(SEASON_KEY, user_id)
+    stored = row[0] if row and isinstance(row[0], dict) else None
+    same_race = bool(stored and stored.get('raceDate') == target['raceDate'].isoformat()
+                     and stored.get('distance') == target['distance'])
+    if rebuild or not same_race:
+        base_km, base_long = _season_base(user_id, today)
+        stored = {'raceDate': target['raceDate'].isoformat(), 'distance': target['distance'],
+                  'baseKm': base_km, 'baseLongKm': base_long,
+                  'startWeek': plan_calendar.plan_week(today), 'createdAt': time.time(),
+                  'peakKm': peak_km if rebuild else None}
+        set_cache(SEASON_KEY, stored, user_id)
+    return stored, target
+
+
+def _season_weeks(user_id, rebuild=False, peak_km=None):
+    params, target = _season_params(user_id, rebuild=rebuild, peak_km=peak_km)
+    if not params:
+        return None, None
+    info = _pace_context(user_id).get('vdot') or {}
+    zones = info.get('paces') if info.get('available') else None
+    goal_zones = (info.get('goal') or {}).get('paces')
+    name = None
+    try:
+        goal = get_user_goal(user_id)
+        if goal and goal.get('goal_title'):
+            # "Málaga halvmaraton 7 mars 2027 under 1:22:00" → "Málaga halvmaraton"
+            name = re.split(r'\s+(?:under|på|\d)', goal['goal_title'], maxsplit=1)[0].strip()[:40] or None
+    except Exception as exc:
+        print('season goal:', exc)
+    weeks = season_plan.build(target['raceDate'], params['distance'], params['baseKm'],
+                              params['baseLongKm'], int(params['startWeek']),
+                              zones=zones, goal_zones=goal_zones,
+                              goal_seconds=target.get('seconds'), race_name=name,
+                              peak_override=params.get('peakKm'))
+    return weeks, {'params': params, 'target': target, 'vdot': info.get('vdot'), 'raceName': name}
+
+
+def _season_prompt_block(user_id, from_week=None, horizon=3):
+    try:
+        weeks, _ = _season_weeks(user_id)
+    except Exception as exc:
+        print('season prompt block:', exc)
+        return ''
+    if not weeks:
+        return ''
+    current = plan_calendar.plan_week(datetime.now(LOCAL_TZ).date())
+    return season_plan.describe(weeks, from_week or current, horizon=horizon, today_week=current)
+
+
+def _season_payload(user_id, rebuild=False, peak_km=None):
+    weeks, meta = _season_weeks(user_id, rebuild=rebuild, peak_km=peak_km)
+    if not weeks:
+        return {'available': False,
+                'reason': 'Sätt ett mållopp med datum (Översikt → Ändra mål) så byggs säsongsplanen.'}
+    today = datetime.now(LOCAL_TZ).date()
+    current = plan_calendar.plan_week(today)
+    first = weeks[0]['week']
+    actual, longest = _running_km_by_week(user_id, plan_calendar.plan_monday(first))
+    planned = _planned_km_by_week(user_id, first)
+    for w in weeks:
+        w['actualKm'] = round(actual.get(w['week'], 0), 1)
+        w['actualLongKm'] = round(longest.get(w['week'], 0), 1)
+        w['plannedKm'] = round(planned.get(w['week'], 0), 1)
+        w['current'] = w['week'] == current
+        w['past'] = w['week'] < current
+        w['status'] = season_plan.week_status(w['targetKm'], w['actualKm'], w['plannedKm'],
+                                              w['past'], w['current'])
+    params, target = meta['params'], meta['target']
+    return {
+        'available': True,
+        'race': {'date': target['raceDate'].isoformat(), 'distance': params['distance'],
+                 'label': meta['raceName'] or season_plan.RACE_LABELS[params['distance']],
+                 'goalSeconds': target.get('seconds'),
+                 'weeksLeft': weeks[-1]['week'] - current},
+        'baseKm': params['baseKm'], 'baseLongKm': params['baseLongKm'],
+        'peakKm': max(w['targetKm'] for w in weeks),
+        'peakOverride': params.get('peakKm'),
+        'vdot': meta['vdot'],
+        'currentWeek': current,
+        'weeks': weeks,
+    }
+
+
+@app.get('/api/season-plan')
+def season_plan_view():
+    try:
+        return jsonify(_season_payload(uid()))
+    except Exception as exc:
+        return _server_error(exc, 'season_plan.failed', message='Säsongsplanen kunde inte räknas.')
+
+
+@app.post('/api/season-plan/rebuild')
+def season_plan_rebuild():
+    """Räkna om utgångsvolymen från de fyra senaste veckorna, t.ex. efter en skada.
+    Valfritt `peakKm`: egen toppvolym per vecka (tomt = räknas fram)."""
+    data = request.get_json(silent=True) or {}
+    peak = data.get('peakKm')
+    if peak in (None, ''):
+        peak = None
+    else:
+        try:
+            peak = float(str(peak).replace(',', '.'))
+        except (TypeError, ValueError):
+            peak = -1
+        if not 10 <= peak <= 250:
+            return _api_error('invalid_peak', 'Toppvolymen måste vara 10–250 km per vecka.', 400)
+    try:
+        return jsonify(_season_payload(uid(), rebuild=True, peak_km=peak))
+    except Exception as exc:
+        return _server_error(exc, 'season_plan.rebuild_failed', message='Säsongsplanen kunde inte byggas om.')
 
 
 @app.get('/api/vdot')
@@ -7871,17 +8507,15 @@ def update_session(session_id):
 # ─────────────────────────────────────────────
 # PLANERA EN VECKA SJÄLV
 # ─────────────────────────────────────────────
-# plan_sessions lagrar bara ISO-veckonummer, inget år, så en vecka efter
-# nyår går inte att skilja från samma vecka i år. Därför stannar den manuella
-# planeringen vid årets sista vecka.
+# plan_sessions.week är en planvecka (plan_calendar): ISO-veckan 2026 som
+# räknar vidare efter nyår, så planeringen kan gå över årsskiftet.
 PLAN_WEEK_MAX_AHEAD = 12
 
 
 def _plannable_weeks(today=None):
     today = today or date.today()
-    first = today.isocalendar()[1]
-    last_of_year = date(today.year, 12, 28).isocalendar()[1]
-    return first, min(last_of_year, first + PLAN_WEEK_MAX_AHEAD)
+    first = plan_calendar.plan_week(today)
+    return first, first + PLAN_WEEK_MAX_AHEAD
 
 
 def _sanitize_week_plan(week, raw_sessions, today=None):
@@ -7890,7 +8524,8 @@ def _sanitize_week_plan(week, raw_sessions, today=None):
     today = today or date.today()
     first, last = _plannable_weeks(today)
     if not (first <= week <= last):
-        return None, f'Vecka {week} går inte att planera — välj vecka {first}–{last}.'
+        return None, (f'Vecka {plan_calendar.iso_week_label(week)} går inte att planera — välj vecka '
+                      f'{plan_calendar.iso_week_label(first)}–{plan_calendar.iso_week_label(last)}.')
     if not isinstance(raw_sessions, list):
         return None, 'sessions måste vara en lista.'
     first_dow = today.weekday() if week == first else 0
@@ -7956,7 +8591,7 @@ _DOW_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 def _week_draft_locked_days(user_id, week, today):
     """Dagar coachen inte får planera: passerade dagar och dagar som redan har
     ett genomfört eller avbokat pass. Samma regel som när veckan sparas."""
-    first_dow = today.weekday() if week == today.isocalendar()[1] else 0
+    first_dow = today.weekday() if week == plan_calendar.plan_week(today) else 0
     locked = set(range(first_dow))
     with db() as conn:
         with conn.cursor() as cur:
@@ -7988,7 +8623,7 @@ def _week_draft_neighbours_block(user_id, week):
 
 
 def _week_draft_prompt(user_id, week, text, today, locked):
-    monday = date.fromisocalendar(today.year, week, 1)
+    monday = plan_calendar.plan_monday(week)
     fitness = _recent_training_summary(user_id)
     try:
         pace_ctx = _pace_context(user_id)
@@ -8001,7 +8636,7 @@ def _week_draft_prompt(user_id, week, text, today, locked):
         f"  {dow} = {_DOW_NAMES[dow]} {(monday + timedelta(days=dow)).isoformat()}"
         + (' — LOCKED (already passed or done), never put a session here' if dow in locked else '')
         for dow in range(7))
-    return f"""You are a personal running and strength coach. The athlete has written how they want ISO week {week} to look. Turn it into a concrete week plan that serves their goal and fits their current load and recovery. Respond ONLY with JSON. All text must be in Swedish.
+    return f"""You are a personal running and strength coach. The athlete has written how they want plan week {week} to look. Turn it into a concrete week plan that serves their goal and fits their current load and recovery. Respond ONLY with JSON. All text must be in Swedish.
 
 ATHLETE'S WISHES FOR THE WEEK (their own words):
 \"\"\"{text}\"\"\"
@@ -8011,8 +8646,10 @@ DAYS (dow):
 
 {_goal_prompt_block(user_id)}
 
+{_season_prompt_block(user_id, from_week=week, horizon=1) or 'No season plan (no dated goal race).'}
+
 CURRENT FITNESS:
-- Running volume per ISO week, last 4 weeks: {fitness['weekly_km'] or 'no data'} km
+- Running volume per week, last 4 weeks: {fitness['weekly_km'] or 'no data'} km
 - Activities per week: {fitness['sessions_per_week']} · Longest recent run: {fitness['longest_run_km']} km
 - VO2max: {fitness['vo2max'] or 'unknown'}
 
@@ -8031,7 +8668,7 @@ RULES:
 - The athlete's wishes decide WHICH day gets WHAT KIND of session. A day they call free/ledig/vila gets no training. Never move a requested session to another day.
 - You decide the content: distance, paces, interval structure, exercises — sized to the goal, recent volume, load and recovery. If load or recovery argue for a softer version of a requested session (e.g. ACWR above 1.3, poor sleep, injury notes), keep the session type but make it lighter, and say so in "notes".
 - Days the athlete did not mention: add a session only if the goal clearly needs it and the load allows it; otherwise leave them empty (empty = rest). Say in "notes" what you did with them.
-- Max ~10% more running volume than the recent weekly average unless the athlete asks for more. No two hard days (intervals/tempo/race) back to back unless the athlete asked for it.
+- With a SEASON PLAN frame for this week: hold its target km (±10 %), its long run and its key sessions, placed on the days the athlete's wishes allow. Without one: max ~10% more running volume than the recent weekly average unless the athlete asks for more. No two hard days (intervals/tempo/race) back to back unless the athlete asked for it.
 - At most one session per day. Use only unlocked days.
 - Types: "run" = quality (intervals, tempo, threshold), "easy" = Z2/recovery/long run, "lift" = strength, "race" = race or test, "rest" = only when a rest day itself must be marked.
 - "km" is planned running distance (0 for lift/rest). "title" max 60 chars, e.g. "Intervaller 6×1000 m". "detail" max 200 chars of concrete instructions with paces or zones; for lift name exercises with sets×reps, no kg.
@@ -8054,7 +8691,7 @@ def draft_week_plan(week):
     today = date.today()
     first, last = _plannable_weeks(today)
     if not (first <= week <= last):
-        return _api_error('invalid_week_plan', f'Vecka {week} går inte att planera — välj vecka {first}–{last}.', 400)
+        return _api_error('invalid_week_plan', f'Vecka {plan_calendar.iso_week_label(week)} går inte att planera — välj vecka {plan_calendar.iso_week_label(first)}–{plan_calendar.iso_week_label(last)}.', 400)
     if not llm_available():
         return _api_error('ai_unavailable', 'AI-tjänsten är inte konfigurerad.', 503)
     try:
@@ -8062,7 +8699,7 @@ def draft_week_plan(week):
     except Exception as e:
         return _server_error(e, 'plan_week_draft.locked_failed', message='Planen kunde inte läsas.')
     if len(locked) >= 7:
-        return _api_error('week_locked', f'Vecka {week} har inga dagar kvar att planera.', 400)
+        return _api_error('week_locked', f'Vecka {plan_calendar.iso_week_label(week)} har inga dagar kvar att planera.', 400)
 
     prompt = _week_draft_prompt(uid(), week, text, today, locked)
     try:
@@ -8108,7 +8745,7 @@ def save_week_plan(week):
     sessions, error = _sanitize_week_plan(week, data.get('sessions'), today)
     if error:
         return _api_error('invalid_week_plan', error, 400)
-    first_dow = today.weekday() if week == today.isocalendar()[1] else 0
+    first_dow = today.weekday() if week == plan_calendar.plan_week(today) else 0
     try:
         with db() as conn:
             with conn.cursor() as cur:
@@ -8209,7 +8846,7 @@ def _recent_training_summary(user_id):
             if (act_type or '') not in run_types:
                 continue
             km = (distance or 0) / 1000
-            wk = datetime.fromisoformat(str(raw_date)[:10]).date().isocalendar()[1]
+            wk = plan_calendar.plan_week(datetime.fromisoformat(str(raw_date)[:10]).date())
             weeks[wk] = weeks.get(wk, 0) + km
             longest = max(longest, km)
         summary['weekly_km'] = [round(weeks[w], 1) for w in sorted(weeks)]
@@ -8236,7 +8873,7 @@ def generate_plan_from_goal():
         return _api_error('goal_required', 'Sätt ditt träningsmål först — schemat byggs utifrån det.', 400)
 
     today = date.today()
-    cur_week = today.isocalendar()[1]
+    cur_week = plan_calendar.plan_week(today)
     cur_dow = today.weekday()
     deadline = None
     if goal.get('goal_deadline'):
@@ -8248,7 +8885,7 @@ def generate_plan_from_goal():
         weeks_ahead = max(4, min(16, round((deadline - today).days / 7)))
     else:
         weeks_ahead = 10
-    end_week = min(52, cur_week + weeks_ahead)  # årsskifte: planen kapas vid v52
+    end_week = cur_week + weeks_ahead  # planveckor räknar vidare efter nyår
 
     fitness = _recent_training_summary(uid())
     try:
@@ -8272,11 +8909,11 @@ def generate_plan_from_goal():
 GOAL: {goal_line}
 SECONDARY GOAL: {goal.get('secondary_goal') or 'none stated'}
 
-TODAY: {today.isoformat()} · ISO week {cur_week}, weekday {cur_dow} (0=Monday)
-PLAN WINDOW: from today through ISO week {end_week} ({end_week - cur_week} weeks ahead)
+TODAY: {today.isoformat()} · plan week {cur_week}, weekday {cur_dow} (0=Monday)
+PLAN WINDOW: from today through plan week {end_week} (Monday {plan_calendar.plan_monday(end_week).isoformat()}, {end_week - cur_week} weeks ahead)
 
 CURRENT FITNESS:
-- Running volume per ISO week, last 4 weeks: {fitness['weekly_km'] or 'no data'} km
+- Running volume per week, last 4 weeks: {fitness['weekly_km'] or 'no data'} km
 - Activities per week: {fitness['sessions_per_week']} · Longest recent run: {fitness['longest_run_km']} km
 - VO2max: {fitness['vo2max'] or 'unknown'}
 - Strength exercises with verified working prescriptions: {library_json or 'none logged'}
@@ -8285,7 +8922,7 @@ TRAINING PACES (VDOT):
 {vdot_block or 'No VDOT available — describe intensity by effort and heart-rate zone instead of exact paces.'}
 
 RULES:
-- "week" is the ISO week number, "dow" is 0-6 (0=Monday). Use only weeks {cur_week}-{end_week}, and in week {cur_week} only days >= {cur_dow}.
+- "week" is the plan week number (it keeps counting past New Year: the week after plan week 53 is 54, not 1), "dow" is 0-6 (0=Monday). Use only weeks {cur_week}-{end_week}, and in week {cur_week} only days >= {cur_dow}.
 - At most one session per day. Days without a session are rest days automatically — only add an explicit "rest" session when the rest itself matters (e.g. race week).
 - Types: "run" (quality/intervals/tempo), "easy" (Z2/recovery), "lift" (strength), "race", "rest".
 - Start from the athlete's CURRENT weekly volume and build gradually, max ~10% per week, with a lighter recovery week roughly every fourth week.
@@ -8345,9 +8982,8 @@ Return ONLY this JSON, no other text:
 # AKTIVITETSMATCHNING
 # ─────────────────────────────────────────────
 def _iso_week_dow(d):
-    """Returnera (iso_week, dow_0mon) för ett date-objekt."""
-    iso = d.isocalendar()
-    return iso[1], iso[2] - 1  # dow: 0=mån
+    """Returnera (planvecka, dow_0mon) för ett date-objekt."""
+    return plan_calendar.plan_week_dow(d)
 
 def _latest_lactate_hr(user_id):
     """Senast kända tröskelpuls — används för att fånga för hårda lugna pass."""
@@ -9383,7 +10019,7 @@ def ai_adjust_plan(user_request=None, history=None):
         raise LLMUnavailableError('Ingen AI-leverantör är konfigurerad.')
 
     today     = date.today()
-    iso_week  = today.isocalendar()[1]
+    iso_week  = plan_calendar.plan_week(today)
     today_dow = today.weekday()
     req_text = (user_request or '').strip()
     history_tail = None
@@ -9404,7 +10040,7 @@ def ai_adjust_plan(user_request=None, history=None):
     requested_rest_offsets = _requested_rest_offsets(req_lower)
 
     tomorrow = today + timedelta(days=1)
-    tomorrow_week = tomorrow.isocalendar()[1]
+    tomorrow_week = plan_calendar.plan_week(tomorrow)
     tomorrow_dow = tomorrow.weekday()
 
     try:
@@ -9506,8 +10142,7 @@ def ai_adjust_plan(user_request=None, history=None):
     weekday_sv = ['måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag', 'söndag']
 
     def _date_for_session(s):
-        year = today.isocalendar()[0]
-        return date.fromisocalendar(year, int(s['week']), int(s['dow']) + 1)
+        return plan_calendar.session_date(s['week'], s['dow'])
 
     def _sess(s):
         session_date = _date_for_session(s)
@@ -10127,6 +10762,10 @@ if not APP_TESTING:
                       next_run_time=datetime.now(LOCAL_TZ) + timedelta(seconds=30),
                       coalesce=True, max_instances=1)
     scheduler.add_job(purge_old_sensor_readings, 'interval', hours=24)
+    # Söndag kväll, efter helgens pass. Missas den av en omstart tas den
+    # igen inom tre timmar; rapporten markeras per vecka och skickas en gång.
+    scheduler.add_job(weekly_report_job, 'cron', day_of_week='sun', hour=19, minute=0,
+                      misfire_grace_time=3 * 3600, coalesce=True)
     scheduler.start()
     logger.info('Scheduler started', extra={'event': 'scheduler.started'})
 

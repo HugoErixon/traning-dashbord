@@ -144,6 +144,50 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   VDOT comes from the race target (`race-target:v1`), else the goal text. UI: the "Måltempon & zoner"
   panel on Plan shows the zones, the goal's VDOT and an "Eget VDOT" field.
   Hugo on 2026-11-20: VDOT 56.3 (prediction 1:22:35), goal 1:22 = 56.8; Garmin threshold 4:02 = 53.5.
+- **Plan weeks cross New Year (`plan_calendar.py`, since 2026-11-25):** `plan_sessions` has no year column,
+  so `week` is a **plan week**: ISO week of 2026 that keeps counting (ISO week 1 2027 = plan week 54, Málaga
+  2027-03-07 = 62). Every 2026 row stayed valid without a migration. Compare and store plan weeks; show
+  `iso_week_label()` (JS `planWeekLabel()`, `isoWeekNumber()` for the app bar). JS `getISOWeek()` /
+  `getMondayOfISOWeek()` now return plan weeks (the old names were kept so callers did not change). The coach
+  room (`~/trainyze-coach/coach.py`) computes the same plan week.
+- **Season plan (`season_plan.py`, Plan page, since 2026-11-25):** `GET /api/season-plan`, `POST /api/season-plan/rebuild`
+  (optional `peakKm`). The frame for every week until the race in `race-target:v1`: phases counted back from the
+  race week (half: race week, 1 taper, 2 "loppfart", 5 race-specific, the rest base + threshold), recovery week
+  every 4th week back from the race (skipped next to Christmas, which is ~10 % lighter), volume ramping linearly
+  from the base to the peak (half: min(base × 1.2, base + 14)), long runs to 21 km, 2–3 key sessions per week with
+  paces from the current VDOT zones (goal pace in the sharpening phase). The base (4-week average before the
+  start) is **frozen** in cache `season-plan:v1` so targets do not drift; rebuilt only when the race changes or
+  on request. `season_plan.describe()` goes into `_goal_prompt_block()` (every planning prompt), and the week
+  draft gets that week's frame explicitly. Each week also names its strength load (`STRENGTH_BY_PHASE`).
+- **Lab test (`lab_tests.py`, Plan page, since 2026-11-25):** `GET/POST /api/lab-tests`, `DELETE /api/lab-tests/<date>`,
+  cache `lab-tests:v1`. LT2 heart rate is written to `threshold-hr:v1` with `source: 'lab'` (race predictor
+  `lthrSource: 'lab'`) and the prediction is recomputed; LT2 pace is a VDOT source after race and before Garmin's
+  threshold pace. Five HR zones from LT1/LT2 go into the prompts. Pace accepts "3:58" or a treadmill "15,1 km/h".
+- **Niggles (`niggles.py`, Översikt card, since 2026-11-25):** `GET/POST /api/niggles`, cache `niggles:v1`. One
+  reading per area/side 0–10; the latest decides, 0 closes it, older than 28 days is inactive, ≥ 3 days old asks for
+  a check-in. Active niggles go into every planning prompt and remove exercises from the strength programme
+  (severity ≥ 3, `strength_program.AVOID_BY_AREA`).
+- **Strength programme (`strength_program.py`, Styrka page, since 2026-11-25):** `GET /api/strength/program`. A
+  (squat, split squat, calf raise, bench, row, dead bug) and B (deadlift, RDL, calf raise, OHP, pulldown, chins,
+  back extension) in base/specific phases (fewer sets in specific), one maintenance session in sharpen/taper,
+  none in race week, a lighter A in recovery weeks. Weights come from `strength_progression` on the log.
+  **RIR** (reps in reserve) is an optional per-set column `strength_exercises.rir` (startup migration): RIR ≥ 3 on
+  every top set raises two steps, RIR 0 holds the weight. Known exercises are stored and shown under the catalogue
+  name (`strength_overview.display_name`), so "Bench press"/"Bänkpress" are one curve; the client gets the alias
+  map in `/api/strength/overview` (`aliases`). `Vadpress` is now weight-progressed.
+- **Weekly report (`weekly_report.py`, since 2026-11-25):** `GET /api/weekly-report` (Sundays the current week,
+  otherwise last week) shown on Plan; push every Sunday 19:00 (`weekly_report_job`, cron with 3 h misfire grace,
+  once per week via cache `weekly_report_sent`). Computed, not AI: km vs the season target, key sessions'
+  execution verdicts, strength sessions vs target, other load (matches/referee duty logged as Ice Hockey), niggles,
+  and next week's frame.
+- **Coach chat prompt is built on the server (since 2026-11-25):** `_coach_system_prompt()` — the client no
+  longer sends `context` (and the server ignores it, so an old tab cannot bring back "Max 3-4 meningar").
+  Principles follow the Bryggan assistant's `training.md`; data: goal + season + lab + niggles + strength
+  programme + predictor (`_goal_prompt_block`), recovery, today's rule-based recommendation, this week, planned
+  sessions next 8 days, calendar 7 days, all activities 14 days, execution, feedback, notes, journal, paces. The
+  chat runs `claude_cli` with `CLAUDE_CLI_CHAT_MODEL` (default `opus`) and `CLAUDE_CLI_CHAT_TIMEOUT` (90 s) via
+  `call_llm(provider_overrides=...)`; other providers get 40 s. Replies may use Markdown (headings, bold, lists),
+  rendered by `formatCoachReply()` after escaping. History caps raised to 24 messages / 24 000 chars.
 - **Session analysis (`training_insights.py`):** `GET /api/training-insights`. Easy runs trend on
   meters per heartbeat (grade-adjusted speed / HR); threshold and intervals on *work-rep* pace from
   Garmin's `INTERVAL_ACTIVE` split summary. Structured sessions are re-sorted by rep length

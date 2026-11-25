@@ -20,7 +20,7 @@ EXERCISES = {
     },
     'rdl': {
         'label': 'RDL',
-        'aliases': ('rdl', 'romanian deadlift', 'rumanska marklyft', 'rum\u00e4nska marklyft'),
+        'aliases': ('rdl', 'romanian deadlift', 'rumanska marklyft', 'rum\u00e4nska marklyft', 'rumansk marklyft', 'rum\u00e4nsk marklyft'),
         'increment': 2.5,
         'mode': 'weight',
         'default': (3, 8),
@@ -62,7 +62,7 @@ EXERCISES = {
     },
     'split_squat': {
         'label': 'Bulgariska utfall',
-        'aliases': ('bulgariska utfall', 'bulgarska utfall', 'bulgariska', 'bulgarska', 'split squat'),
+        'aliases': ('bulgariska utfall', 'bulgarska utfall', 'bulgarisk utfall', 'bulgariska', 'bulgarska', 'split squat'),
         'increment': 2.0,
         'mode': 'weight',
         'default': (3, 8),
@@ -76,14 +76,14 @@ EXERCISES = {
     },
     'triceps_press': {
         'label': 'Tricepspress',
-        'aliases': ('tricepspress', 'triceps press', 'triceps pushdown', 'pushdown'),
+        'aliases': ('tricepspress', 'triceps press', 'triceps pushdown', 'tricepspushdown', 'pushdown'),
         'increment': 2.5,
         'mode': 'weight',
         'default': (3, 10),
     },
     'plank': {
         'label': 'Plankan',
-        'aliases': ('plankan', 'plank'),
+        'aliases': ('plankan', 'planka', 'plank'),
         'increment': None,
         'mode': 'timed',
         'default': (3, 45),
@@ -119,13 +119,15 @@ EXERCISES = {
     'calf_raise': {
         'label': 'Vadpress',
         'aliases': ('vadpress', 'vadbagar', 'vadb\u00e5gar', 'vadhopp', 'calf raise'),
-        'increment': None,
-        'mode': 'bodyweight',
+        # Tung vadpress (maskin eller stång) är löparens viktigaste vadövning,
+        # så den progressionsstyrs på vikt. Utan vikt i loggen ges set och reps.
+        'increment': 5.0,
+        'mode': 'weight',
         'default': (3, 12),
     },
     'back_extension': {
         'label': 'Ryggh\u00e4v',
-        'aliases': ('rygghav', 'ryggh\u00e4v', 'back extension'),
+        'aliases': ('rygghav', 'ryggh\u00e4v', 'ryggresning', 'back extension'),
         'increment': None,
         'mode': 'bodyweight',
         'default': (3, 12),
@@ -379,7 +381,7 @@ def _recommend_target(target, entries, before_date=None):
 
         if top_sets >= target_sets and top_min_reps >= target_reps:
             recommended_weight = top_weight + increment
-            reason = f'Du klarade minst {target_reps} reps i alla {target_sets} set; h\u00f6j {increment:g} kg.'
+            reason = f'Du klarade minst {target_reps} reps i alla {target_sets} set; h\u00f6j {_format_weight(increment)} kg.'
         elif target_reps <= top_min_reps and target_total_reps <= all_total_reps * 1.1:
             if target_reps <= top_min_reps - 2 or target_total_reps <= all_total_reps * 0.9:
                 recommended_weight = top_weight + increment
@@ -396,6 +398,20 @@ def _recommend_target(target, entries, before_date=None):
                 recommended_weight = min(recommended_weight, top_weight)
             recommended_weight = max(increment, recommended_weight)
             reason = 'Vikten anpassas till fler set/reps och cirka 2 reps i reserv.'
+
+    # Reps kvar i tanken (RIR) från senaste passets tyngsta set: mycket kvar
+    # betyder att vikten var för lätt, noll betyder failure och ingen höjning.
+    rirs = [float(entry['rir']) for entry in top_rows if entry.get('rir') is not None]
+    if rirs:
+        min_rir = min(rirs)
+        result['lastRir'] = int(min_rir) if min_rir.is_integer() else min_rir
+        raised = recommended_weight > top_weight
+        if raised and min_rir >= 3:
+            recommended_weight = top_weight + 2 * increment
+            reason = f'Senast hade du minst {min_rir:g} reps kvar i alla set; h\u00f6j tv\u00e5 steg ({2 * increment:g} kg).'
+        elif raised and min_rir == 0:
+            recommended_weight = top_weight
+            reason = 'Senast gick setet till failure (0 reps kvar); beh\u00e5ll vikten tills du har 1\u20132 reps kvar.'
 
     if before_date and result['lastDate']:
         try:

@@ -53,9 +53,11 @@ class SanitizeWeekPlanTests(unittest.TestCase):
             with self.subTest(week=week):
                 self.assertIsNotNone(self.sanitize(week, [])[1])
 
-    def test_stops_at_the_last_week_of_the_year(self):
+    def test_planning_continues_past_new_year(self):
         december = date(2026, 12, 2)  # vecka 49; 2026 har 53 ISO-veckor
-        self.assertEqual(garmin_server._plannable_weeks(december), (49, 53))
+        self.assertEqual(garmin_server._plannable_weeks(december), (49, 61))
+        # Planvecka 54 är ISO-vecka 1 2027 och går nu att planera.
+        self.assertIsNone(garmin_server._sanitize_week_plan(54, [session(0)], today=december)[1])
 
     def test_passed_days_in_current_week_are_rejected(self):
         self.assertIsNotNone(self.sanitize(40, [session(1)])[1])

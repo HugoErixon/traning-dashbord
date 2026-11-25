@@ -188,7 +188,7 @@
           <button class="qp" data-action="quick-prompt" data-prompt="Hur påverkar min sömn och återhämtning träningen just nu, och vad bör jag tänka på denna vecka?">Sömn och återhämtning</button>
         </div>
         <div class="chat-input">
-          <input type="text" id="chat-input" maxlength="500" placeholder="Skriv till coachen…" aria-label="Meddelande till coachen" />
+          <input type="text" id="chat-input" maxlength="2000" placeholder="Skriv till coachen…" aria-label="Meddelande till coachen" />
           <button class="send-btn" data-action="send-chat" aria-label="Skicka"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z" fill="currentColor"/></svg></button>
         </div>
       </section>
@@ -256,6 +256,22 @@
 
 
       </div>
+
+      <!-- KÄNNINGAR — det klockan inte ser. Styr coachen, styrkeprogrammet och veckorapporten. -->
+      <section class="ng-card" id="niggle-card" aria-labelledby="niggle-title">
+        <div class="ng-head">
+          <h3 class="ng-title" id="niggle-title">Känningar</h3>
+          <button type="button" class="ng-add-toggle" data-action="niggle-toggle-form" aria-expanded="false" aria-controls="niggle-form">+ Logga känning</button>
+        </div>
+        <div id="niggle-list"><p class="ng-empty">Laddar…</p></div>
+        <form class="ng-form" id="niggle-form" hidden>
+          <label>Var<select name="area" id="niggle-area" required></select></label>
+          <label>Sida<select name="side"><option value="">–</option><option value="left">Vänster</option><option value="right">Höger</option><option value="both">Båda</option></select></label>
+          <fieldset class="ng-scale"><legend>Hur ont, 0–10</legend><div class="ng-scale-btns" id="niggle-scale"></div></fieldset>
+          <label class="ng-note">Anteckning<input name="note" type="text" maxlength="200" placeholder="t.ex. känns i början av passet, släpper efter 2 km"></label>
+          <div class="ng-actions"><button type="submit" class="pace-btn pace-btn-ok">Spara</button><span class="pace-vdot-msg" id="niggle-msg" role="status"></span></div>
+        </form>
+      </section>
 
       <div class="section-header">
         <span class="section-header-label">Veckans pass</span>
@@ -891,6 +907,65 @@
           <span style="font-size:12px;color:var(--muted3);font-family:'IBM Plex Mono',monospace;">Idag</span>
         </div>
       </div>
+      <section class="pace-panel weekly-panel" id="weekly-panel" aria-labelledby="weekly-title" hidden>
+        <div class="pace-panel-head">
+          <div>
+            <div class="pace-panel-title" id="weekly-title">Veckorapport</div>
+            <div class="pace-panel-sub" id="weekly-sub"></div>
+          </div>
+        </div>
+        <div id="weekly-body"></div>
+      </section>
+
+      <section class="pace-panel season-panel" id="season-panel" aria-labelledby="season-title">
+        <div class="pace-panel-head">
+          <div>
+            <div class="pace-panel-title" id="season-title">Säsongsplan</div>
+            <div class="pace-panel-sub" id="season-sub">Laddar…</div>
+          </div>
+        </div>
+        <div class="season-phases" id="season-phases"></div>
+        <ol class="season-weeks" id="season-weeks"></ol>
+        <details class="season-adjust" id="season-adjust" hidden>
+          <summary>Justera volymen</summary>
+          <p id="season-adjust-about"></p>
+          <form class="pace-vdot-form" id="season-adjust-form">
+            <label for="season-peak-input">Egen toppvolym</label>
+            <input id="season-peak-input" name="peakKm" type="text" inputmode="decimal" placeholder="Automatiskt" autocomplete="off">
+            <span class="season-unit">km/vecka</span>
+            <button class="pace-btn pace-btn-ok" type="submit">Bygg om säsongen</button>
+            <span class="pace-vdot-msg" id="season-adjust-msg" role="status"></span>
+          </form>
+        </details>
+      </section>
+
+      <section class="pace-panel lab-panel" id="lab-panel" aria-labelledby="lab-title">
+        <div class="pace-panel-head">
+          <div>
+            <div class="pace-panel-title" id="lab-title">Labbtest</div>
+            <div class="pace-panel-sub" id="lab-sub">Tröskel- och VO2max-test går före klockans uppskattningar.</div>
+          </div>
+        </div>
+        <div id="lab-latest"></div>
+        <details class="lab-form-wrap" id="lab-form-wrap">
+          <summary>Mata in ett testresultat</summary>
+          <form class="lab-form" id="lab-form">
+            <label>Datum<input name="date" type="date" required></label>
+            <label>Puls vid LT1<input name="lt1Hr" type="text" inputmode="numeric" placeholder="t.ex. 158"></label>
+            <label>Fart vid LT1<input name="lt1Pace" type="text" inputmode="decimal" placeholder="4:30 eller 13,3 km/h"></label>
+            <label>Puls vid LT2 (tröskel)<input name="lt2Hr" type="text" inputmode="numeric" placeholder="t.ex. 180"></label>
+            <label>Fart vid LT2<input name="lt2Pace" type="text" inputmode="decimal" placeholder="3:58 eller 15,1 km/h"></label>
+            <label>VO2max<input name="vo2max" type="text" inputmode="numeric" placeholder="ml/kg/min"></label>
+            <label>Maxpuls<input name="maxHr" type="text" inputmode="numeric" placeholder="t.ex. 196"></label>
+            <label class="lab-note">Anteckning<input name="note" type="text" maxlength="300" placeholder="t.ex. löpband 1 % lutning, laktat 2,0 / 4,0"></label>
+            <div class="lab-actions">
+              <button class="pace-btn pace-btn-ok" type="submit">Spara testet</button>
+              <span class="pace-vdot-msg" id="lab-msg" role="status"></span>
+            </div>
+          </form>
+        </details>
+      </section>
+
       <div class="pace-panel" id="pace-panel" style="display:none;">
         <div class="pace-panel-head">
           <div>
@@ -1091,6 +1166,12 @@
           <button type="button" class="an-window-btn st-window-btn" data-action="strength-window" data-days="180">6 mån</button>
         </div>
       </div>
+
+      <div class="section-header">
+        <span class="section-header-label">Veckans program</span>
+        <span class="section-header-note" id="st-program-note">Följer löpningens fas</span>
+      </div>
+      <section class="st-program" id="st-program" aria-live="polite"><p class="st-log-sub">Laddar programmet…</p></section>
 
       <div class="section-header">
         <span class="section-header-label">Dagens pass</span>

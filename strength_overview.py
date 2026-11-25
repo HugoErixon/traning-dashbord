@@ -12,6 +12,8 @@ volym men räknas som set.
 import re
 from datetime import date, datetime, timedelta
 
+from strength_progression import EXERCISES, canonical_exercise, normalize_name
+
 DATE_KEY = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 
 
@@ -29,8 +31,32 @@ def e1rm(weight, reps):
     return round(float(weight) * (1 + reps / 30), 1)
 
 
+def display_name(name):
+    """Katalogens namn när övningen känns igen ("Bench press" → "Bänkpress"),
+    annars namnet som det skrevs. Samma övning under två namn delade annars
+    kurvan och rekorden i två."""
+    clean = re.sub(r'\s+', ' ', str(name or '').strip())
+    canonical = canonical_exercise(clean)
+    return EXERCISES[canonical]['label'] if canonical else clean
+
+
 def exercise_key(name):
-    return re.sub(r'\s+', ' ', str(name or '').strip().lower())
+    return display_name(name).lower()
+
+
+def alias_map():
+    """{normaliserat alias: katalognamn} så att klienten kan slå ihop namn
+    redan när en övning läggs till."""
+    return {normalize_name(alias): spec['label']
+            for spec in EXERCISES.values() for alias in (*spec['aliases'], spec['label'])}
+
+
+def rir_value(value):
+    try:
+        rir = float(value)
+    except (TypeError, ValueError):
+        return None
+    return rir if 0 <= rir <= 10 else None
 
 
 def _num(value):
@@ -57,7 +83,7 @@ def normalize_rows(rows, activity_dates, today):
     created_at) → poster med datum, volym och e1RM, sorterade i loggordning."""
     entries = []
     for row in rows:
-        name = str(row.get('exercise') or '').strip()
+        name = display_name(row.get('exercise'))
         if not name:
             continue
         sets = max(1, int(_num(row.get('sets')) or 1))
@@ -74,6 +100,7 @@ def normalize_rows(rows, activity_dates, today):
             'repCount': reps,
             'weight': weight,
             'note': row.get('note') or '',
+            'rir': rir_value(row.get('rir')),
             'volume': round(sets * reps * weight, 1) if reps and weight else 0,
             'e1rm': e1rm(weight, reps),
             'createdAt': _num(row.get('created_at')) or 0,
@@ -85,7 +112,8 @@ def normalize_rows(rows, activity_dates, today):
 def _set_label(entry):
     reps = entry['reps'] or '–'
     weight = f" @ {entry['weight']:g} kg" if entry['weight'] else ''
-    return f"{entry['sets']}×{reps}{weight}"
+    rir = f" (RIR {entry['rir']:g})" if entry.get('rir') is not None else ''
+    return f"{entry['sets']}×{reps}{weight}{rir}"
 
 
 def _sessions(entries):
@@ -210,7 +238,7 @@ def overview(entries, today, days=90, session_titles=None):
             'volume': round(sum(r['volume'] for r in rows), 1),
             'sets': sum(r['sets'] for r in rows),
             'rows': [{'id': r['id'], 'exercise': r['exercise'], 'sets': r['sets'], 'reps': r['reps'],
-                      'weight': r['weight'], 'note': r['note']} for r in rows],
+                      'weight': r['weight'], 'note': r['note'], 'rir': r['rir']} for r in rows],
         })
 
     names = {}
@@ -235,10 +263,11 @@ def overview(entries, today, days=90, session_titles=None):
         'sessions': recent,
         'exerciseNames': [names[k] for k in frequent],
         'last': last_performance(entries, before=today.isoformat()),
+        'aliases': alias_map(),
     }
 
 
-def merge_target(session_rows, exercise, reps, weight):
+def merge_target(session_rows, exercise, reps, weight, rir=None):
     """Raden som ett nytt set ska slås ihop med, eller None.
 
     Bara om passets senast loggade rad är samma övning med samma vikt och
@@ -248,7 +277,8 @@ def merge_target(session_rows, exercise, reps, weight):
         return None
     last = max(session_rows, key=lambda r: (r.get('created_at') or 0, r.get('id') or 0))
     same_weight = (_num(last.get('weight')) or 0) == (_num(weight) or 0)
+    same_rir = rir_value(last.get('rir')) == rir_value(rir)
     if exercise_key(last.get('exercise')) == exercise_key(exercise) \
-            and str(last.get('reps') or '').strip() == str(reps).strip() and same_weight:
+            and str(last.get('reps') or '').strip() == str(reps).strip() and same_weight and same_rir:
         return last
     return None

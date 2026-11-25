@@ -181,7 +181,7 @@ def band_for_kind(kind, vdot):
 
 
 def current(prediction=None, races=None, lt_pace_sec=None, manual=None, today=None,
-            race_max_age_days=60):
+            race_max_age_days=60, lab=None):
     """Choose today's VDOT and say where it came from.
 
     Order: the athlete's own number, then Trainyze's race predictor (its half
@@ -189,7 +189,8 @@ def current(prediction=None, races=None, lt_pace_sec=None, manual=None, today=No
     distance is used), then a recent race, then Garmin's threshold pace. A race
     is only the main source when the predictor has nothing — a single hot,
     hilly race day must not set every training pace — but it is always listed
-    for comparison."""
+    for comparison. A lab test's threshold pace (`lab` = {'paceSec', 'date'})
+    is measured, so it ranks above Garmin's estimated threshold pace."""
     candidates = []
     manual = _clean(manual)
     if manual:
@@ -216,6 +217,12 @@ def current(prediction=None, races=None, lt_pace_sec=None, manual=None, today=No
                          'date': day.isoformat() if day else None}
     if best_race:
         candidates.append(best_race)
+
+    lab_value = from_threshold_pace((lab or {}).get('paceSec'))
+    if lab_value:
+        candidates.append({'source': 'lab', 'vdot': lab_value,
+                           'label': f"Labbtest {lab.get('date') or ''} (tröskelfart {format_pace(lab['paceSec'])})".replace('  ', ' '),
+                           'date': lab.get('date')})
 
     value = from_threshold_pace(lt_pace_sec)
     if value:

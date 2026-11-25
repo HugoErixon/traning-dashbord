@@ -2,6 +2,8 @@
 import math
 from datetime import date
 
+import plan_calendar
+
 
 SESSION_TYPES = ('run', 'easy', 'lift', 'race', 'rest')
 _FIELDS = {
@@ -168,8 +170,8 @@ def validate_proposal(result, sessions, today):
             if type(week) is not int or type(dow) is not int or not 0 <= dow <= 6:
                 fail(f'{action} saknar giltig vecka/dag ({week!r}, {dow!r})')
             try:
-                target = date.fromisocalendar(today.isocalendar().year, week, dow + 1)
-            except ValueError:
+                target = plan_calendar.session_date(week, dow)
+            except (ValueError, OverflowError):
                 fail(f'vecka {week} dag {dow} är inget riktigt datum')
             if target < today:
                 fail(f'{action} lägger passet på {target}, som redan passerat')

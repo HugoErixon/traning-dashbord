@@ -27,6 +27,25 @@ class OverviewTests(unittest.TestCase):
     def entries(self, rows, dates=None):
         return so.normalize_rows(rows, dates or {}, TODAY)
 
+    def test_same_exercise_under_two_names_is_one_curve(self):
+        data = so.overview(self.entries([
+            row(1, '2026-10-01', 'Bench press', 3, '8', 60),
+            row(2, '2026-10-20', 'Bänkpress', 3, '8', 62.5),
+            row(3, '2026-10-21', 'Lat pulldown', 3, '10', 50),
+            row(4, '2026-11-02', 'Latsdrag', 3, '10', 55),
+        ]), TODAY, 90)
+        names = sorted(e['exercise'] for e in data['exercises'])
+        self.assertEqual(names, ['Bänkpress', 'Latsdrag'])
+        self.assertTrue(all(e['sessions'] == 2 for e in data['exercises']))
+        self.assertEqual(data['aliases']['bench press'], 'Bänkpress')
+
+    def test_rir_is_part_of_the_set_and_blocks_merging(self):
+        rows = [dict(row(1, TODAY.isoformat(), 'Knäböj', 1, '5', 80), rir=2)]
+        self.assertIsNone(so.merge_target(rows, 'Knäböj', '5', 80, rir=1))
+        self.assertIsNotNone(so.merge_target(rows, 'Squat', '5', 80, rir=2))
+        entry = self.entries(rows)[0]
+        self.assertEqual(entry['rir'], 2)
+
     def test_progress_is_estimated_max_from_the_best_set_of_each_session(self):
         data = so.overview(self.entries([
             row(1, '2026-10-01', 'Bänkpress', 3, '8', 60),
@@ -35,7 +54,8 @@ class OverviewTests(unittest.TestCase):
             row(4, '2026-11-02', 'bänkpress ', 3, '8', 65),
         ]), TODAY, 90)
         ex = data['exercises'][0]
-        self.assertEqual(ex['exercise'], 'bänkpress')
+        # Känd övning visas med katalogens namn, hur den än skrevs.
+        self.assertEqual(ex['exercise'], 'Bänkpress')
         self.assertEqual([p['t'] for p in ex['series']], ['2026-10-01', '2026-10-15', '2026-11-02'])
         self.assertEqual(ex['current'], so.e1rm(65, 8))
         self.assertEqual(ex['change'], round(so.e1rm(65, 8) - so.e1rm(60, 8), 1))

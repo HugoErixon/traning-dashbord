@@ -117,7 +117,8 @@ class AssistantReplayTests(unittest.TestCase):
         self.assertEqual(second.get_json()['reply'], 'Ett helt annat svar.')
         self.assertEqual(sent_first.call_count, 1)
         self.assertEqual(sent_second.call_count, 1)
-        self.assertFalse(self.cache.store)
+        # Coachens underlag får cacha hälsodatan, men inget svar sparas för återuppspelning.
+        self.assertFalse([k for k in self.cache.store if 'assistant_reply' in k[1]])
 
     def test_a_failed_answer_is_not_replayed(self):
         # Ett fel kan bero på leverantören just då; nästa försök ska få chansen.
