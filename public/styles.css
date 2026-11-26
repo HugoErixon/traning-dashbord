@@ -5481,3 +5481,14 @@
     .ng-scale legend { font: 600 11px var(--font-sans); color: var(--muted2); margin-bottom: 4px; padding: 0; }
     .ng-note, .ng-actions { grid-column: 1 / -1; }
     .ng-actions { display: flex; gap: 10px; align-items: center; }
+
+/* Löpbandets fart i passvyn */
+.ad-belt.is-missing { border-color:color-mix(in srgb, var(--amber) 55%, var(--border)); }
+.ad-belt.is-missing .ad-feedback-head span { color:var(--amber); }
+.ad-belt-fill { display:flex; align-items:flex-end; gap:9px; margin-top:12px; }
+.ad-belt-fill label { flex:1 1 auto; }
+.ad-belt input { box-sizing:border-box; width:100%; border:1px solid var(--border2); border-radius:8px; background:var(--bg3); color:var(--text); padding:9px 10px; font:12px var(--font); }
+.ad-belt-fill-btn { border:1px solid var(--border2); border-radius:8px; padding:9px 14px; background:var(--bg3); color:var(--text); font-weight:650; cursor:pointer; }
+.ad-belt-table { margin-top:10px; }
+.ad-belt-table input { max-width:90px; padding:6px 8px; }
+.ad-belt-pace { color:var(--muted2); white-space:nowrap; }

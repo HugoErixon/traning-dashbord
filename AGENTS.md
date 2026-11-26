@@ -188,6 +188,13 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   chat runs `claude_cli` with `CLAUDE_CLI_CHAT_MODEL` (default `opus`) and `CLAUDE_CLI_CHAT_TIMEOUT` (90 s) via
   `call_llm(provider_overrides=...)`; other providers get 40 s. Replies may use Markdown (headings, bold, lists),
   rendered by `formatCoachReply()` after escaping. History caps raised to 24 messages / 24 000 chars.
+- **Treadmill belt speeds (`treadmill.py`, since 2026-11-26):** on a treadmill the watch guesses pace from the
+  wrist (Hugo's 4 × 2 km at exactly 15 km/h came back as 3:46–3:50/km, "faster than planned", +0.9 % fade). The
+  athlete enters the belt speed per lap in the activity view (km/h or "4:00"; standing-rest laps < 50 m get none),
+  `PUT /api/activities/<id>/treadmill`, cache `treadmill-speeds:v1:<id>`, keyed by Garmin lap position. It replaces
+  speed and distance for those laps in `analyze_run` (`paceSource: 'belt'`), the activity detail and its AI overview,
+  and the save recomputes `plan_sessions.execution` for that activity. Without speeds a treadmill run is judged on
+  heart rate only: no pace, rep verdict or fade, flag `treadmill_speed_missing` (headline "Ange bandets fart").
 - **Session analysis (`training_insights.py`):** `GET /api/training-insights`. Easy runs trend on
   meters per heartbeat (grade-adjusted speed / HR); threshold and intervals on *work-rep* pace from
   Garmin's `INTERVAL_ACTIVE` split summary. Structured sessions are re-sorted by rep length

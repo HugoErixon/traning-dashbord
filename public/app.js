@@ -1404,6 +1404,8 @@ function executeAction(trigger, event) {
   else if (action === 'save-adaptive-checkin') saveAdaptiveCheckin();
   else if (action === 'set-activity-feeling') setActivityFeeling(Number(trigger.dataset.value));
   else if (action === 'save-activity-feedback') saveActivityFeedback();
+  else if (action === 'fill-belt-speeds') fillBeltSpeeds();
+  else if (action === 'save-belt-speeds') saveBeltSpeeds();
   else if (action === 'sync-calendar') syncGcal();
   else if (action === 'open-plan-session') openPlanSessionDetails(Number(trigger.dataset.planIndex));
   else if (action === 'close-plan-session') document.getElementById('plan-session-dialog')?.close();
@@ -6650,6 +6652,95 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     </section>`;
   }
 
+  // ─── LÖPBANDETS FART ───
+  // Klockan gissar tempot på band (handled/fotsensor), så ett pass i jämna
+  // 15 km/h kan se ut som 3:46–3:50/km. Bandets fart ersätter klockans per
+  // varv och passet bedöms om (treadmill.py).
+  function parseBeltSpeed(value) {
+    const text = String(value ?? '').trim().replace(/\s*(km\/?h|kmh|km\/t)$/i, '');
+    if (!text) return null;
+    const pace = text.match(/^(\d{1,2}):(\d{2})$/);
+    const kmh = pace ? 3600 / (Number(pace[1]) * 60 + Number(pace[2])) : Number(text.replace(',', '.'));
+    return Number.isFinite(kmh) && kmh >= 3 && kmh <= 30 ? kmh : NaN;
+  }
+
+  function beltPaceText(value) {
+    const kmh = parseBeltSpeed(value);
+    if (kmh === null) return 'klockans';
+    return Number.isNaN(kmh) ? 'ogiltig' : `${formatActivityPace(3600 / kmh)} /km`;
+  }
+
+  function activityTreadmillCard(activity) {
+    if (!activity.treadmill || activity.source === 'strava' || !activity.laps?.length) return '';
+    const saved = activity.laps.some(lap => lap.beltKmh);
+    const rows = activity.laps.map((lap, position) => {
+      const value = lap.beltKmh != null ? String(lap.beltKmh).replace('.', ',') : '';
+      const standing = (lap.distance ?? 0) < 50;
+      return `<tr${standing ? ' class="is-rest"' : ''}><td>${escapeHtml(String(lap.index))}${standing ? ' <small>vila</small>' : ''}</td><td>${formatActivityDuration(lap.duration)}</td>
+        <td>${lap.averageHR ?? '–'}</td>
+        <td>${standing ? '–' : `<input class="ad-belt-input" data-lap="${position}" type="text" inputmode="decimal" autocomplete="off" value="${escapeHtml(value)}" placeholder="km/h" aria-label="Bandets fart varv ${escapeHtml(String(lap.index))}">`}</td>
+        <td class="ad-belt-pace">${standing ? 'ståvila' : escapeHtml(beltPaceText(value))}</td></tr>`;
+    }).join('');
+    return `<section class="ad-feedback ad-belt${saved ? '' : ' is-missing'}" id="activity-belt">
+      <div class="ad-feedback-head"><div><span>LÖPBAND</span><h3>${saved ? 'Bandets fart' : 'Ange bandets fart'}</h3></div>
+        <small>${saved ? 'Passet bedöms på bandets fart, inte klockans.' : 'Klockan gissar tempot på band. Tills farten är angiven bedöms passet bara på puls.'}</small></div>
+      <div class="ad-belt-fill"><label><span>Samma fart på alla tomma varv</span><input id="activity-belt-all" type="text" inputmode="decimal" autocomplete="off" placeholder="t.ex. 15 eller 4:00"></label>
+        <button type="button" class="ad-belt-fill-btn" data-action="fill-belt-speeds">Fyll i</button></div>
+      <div class="ad-table-wrap"><table class="ad-laps ad-belt-table"><thead><tr><th>Varv</th><th>Tid</th><th>Puls</th><th>km/h</th><th>Tempo</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="ad-feedback-save"><small id="activity-belt-status">Lämna tomt för varv där klockans värde duger, t.ex. joggvila.</small><button type="button" data-action="save-belt-speeds">Spara fart</button></div>
+    </section>`;
+  }
+
+  function fillBeltSpeeds() {
+    const value = document.getElementById('activity-belt-all')?.value.trim();
+    if (!value) return;
+    document.querySelectorAll('#activity-belt .ad-belt-input').forEach(input => {
+      if (!input.value.trim()) { input.value = value; updateBeltPace(input); }
+    });
+  }
+
+  function updateBeltPace(input) {
+    const cell = input.closest('tr')?.querySelector('.ad-belt-pace');
+    if (cell) cell.textContent = beltPaceText(input.value);
+  }
+
+  async function saveBeltSpeeds() {
+    if (!activeActivityAi || activeActivityAi.source !== 'garmin') return;
+    const card = document.getElementById('activity-belt');
+    const button = card?.querySelector('[data-action="save-belt-speeds"]');
+    const status = document.getElementById('activity-belt-status');
+    const laps = {};
+    for (const input of card?.querySelectorAll('.ad-belt-input') || []) {
+      const value = input.value.trim();
+      if (!value) continue;
+      if (Number.isNaN(parseBeltSpeed(value))) {
+        if (status) status.textContent = `Varv ${Number(input.dataset.lap) + 1}: skriv km/h (15,1) eller tempo (4:00).`;
+        input.focus();
+        return;
+      }
+      laps[input.dataset.lap] = value;
+    }
+    const activityId = activeActivityAi.id;
+    if (button) { button.disabled = true; button.textContent = 'Sparar…'; }
+    try {
+      const response = await fetch(`/api/activities/${activityId}/treadmill`, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({laps}),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Kunde inte spara.');
+      await openActivityDetails(activityId, 'garmin');
+      const headline = result.executions?.[0]?.headline;
+      const after = document.getElementById('activity-belt-status');
+      if (after) after.textContent = Object.keys(laps).length
+        ? `Sparat – passet är omräknat${headline ? `: ${headline}` : ''}.` : 'Bandets fart borttagen.';
+      loadPlan();
+      loadAdaptivePlan();
+    } catch (error) {
+      if (status) status.textContent = error.message;
+      if (button) { button.disabled = false; button.textContent = 'Spara fart'; }
+    }
+  }
+
   function activityFeedbackCard() {
     const feelings = [['1','😣','Tungt'],['2','😕','Segt'],['3','😐','Okej'],['4','🙂','Bra'],['5','🔥','Toppen']];
     return `<section class="ad-feedback" id="activity-feedback">
@@ -6897,7 +6988,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}${sourceUrl ? ` · <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Visa på Strava</a>` : ''}</div></div>
         ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>`;
     if (isStrengthActivity(activity)) return renderStrengthActivityDetail(activity, heading);
-    return `${heading}${activityAiOverviewPlaceholder()}${activityFeedbackCard()}
+    return `${heading}${activityTreadmillCard(activity)}${activityAiOverviewPlaceholder()}${activityFeedbackCard()}
       <div class="ad-metrics">${primary}</div>
       <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från ${sourceName}</span></div></div>
           <div class="ad-route">${activityRouteMap(activity.route)}</div></section>
@@ -6940,6 +7031,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       const activity = payload.activity || {};
       activity.source = normalizedSource;
       content.innerHTML = renderActivityDetail(activity);
+      content.querySelectorAll('.ad-belt-input').forEach(input =>
+        input.addEventListener('input', () => updateBeltPace(input)));
       initializeActivityMap(activity.route);
       activeActivityAi = {id:activityId, source:normalizedSource};
       loadActivityFeedback(activityId, normalizedSource, requestNumber);
