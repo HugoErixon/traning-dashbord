@@ -57,7 +57,10 @@ Trainyze has two frontends against the **same API** (`garmin_server.py`):
 
 - `node tools/iphone-sim.mjs` opens the app in an **iPhone 15 Pro simulator** window
   (393×852, Dynamic Island, safe areas 59/34 pt, touch emulation and iPhone UA via Chrome
-  DevTools Protocol) with live reload on file save. Add `--prod` to use real data.
+  DevTools Protocol) with live reload on file save. Add `--g3` for real data straight from
+  Trainyze on g3 (port 3000 over Tailscale `100.82.234.62`, falling back to LAN
+  `192.168.1.195`), or `--prod` for real data via trainyze.com. Both are read-only unless
+  `--skriv`; you log in once with a normal account (cookie kept in the simulator's profile).
 - `python3 tools/dev_shell.py` serves `/`, `/app/` and `/__iphone/` on `localhost:3100` with
   mock data. `--prod` proxies `/api/*` to trainyze.com **read-only** (only login/logout pass;
   writes return 403 `dev_readonly`); `--prod --skriv` allows writes. `--lan` exposes it to a

@@ -2,8 +2,9 @@
 // Öppnar Trainyzes mobilapp i ett eget iPhone 15 Pro-fönster.
 //
 //   node tools/iphone-sim.mjs            påhittad data
-//   node tools/iphone-sim.mjs --prod     din riktiga data (skrivskyddat)
-//   node tools/iphone-sim.mjs --prod --skriv
+//   node tools/iphone-sim.mjs --g3       din riktiga data direkt från G3 (skrivskyddat)
+//   node tools/iphone-sim.mjs --prod     din riktiga data via trainyze.com (skrivskyddat)
+//   lägg till --skriv för att tillåta ändringar
 //
 // Startar tools/dev_shell.py om den inte redan kör, öppnar Chrome som ett
 // fristående appfönster och slår på touch-emulering + iPhone-identitet via
@@ -21,8 +22,9 @@ const CDP_PORT = 9333;
 const BASE = `http://127.0.0.1:${PORT}`;
 const CACHE = join(homedir(), '.cache', 'trainyze-iphone');
 const args = process.argv.slice(2);
-const wantProd = args.includes('--prod');
-const serverArgs = [join(HERE, 'dev_shell.py'), ...(wantProd ? ['--prod'] : []), ...(args.includes('--skriv') ? ['--skriv'] : [])];
+const wantMode = args.includes('--g3') ? 'g3' : args.includes('--prod') ? 'prod' : 'mock';
+const serverArgs = [join(HERE, 'dev_shell.py'), ...(wantMode === 'mock' ? [] : [`--${wantMode}`]), ...(args.includes('--skriv') ? ['--skriv'] : [])];
+const MODE_TEXT = { mock: 'påhittad data', g3: 'riktig data från G3', prod: 'riktig data via trainyze.com' };
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 '
   + '(KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
 
@@ -36,13 +38,20 @@ async function serverInfo() {
   } catch { return null; }
 }
 
+async function stopServer() {
+  const { execFileSync } = await import('node:child_process');
+  try { execFileSync('pkill', ['-f', 'tools/dev_shell.py']); } catch { /* inget att stoppa */ }
+  for (let i = 0; i < 30 && await serverInfo(); i++) await sleep(100);
+}
+
 async function ensureServer() {
   const info = await serverInfo();
   if (info) {
-    if ((info.mode === 'prod') !== wantProd) {
-      console.log(`Obs: servern på port ${PORT} kör redan i läget "${info.mode}". Stoppa den först för att byta läge.`);
-    }
-    return;
+    if (info.mode === wantMode) return;
+    // Fel läge: stoppa den gamla servern (den startades av det här verktyget)
+    // och starta om i rätt läge.
+    console.log(`Byter utvecklingsserverns läge från "${info.mode}" till "${wantMode}".`);
+    await stopServer();
   }
   const log = openSync(join(CACHE, 'server.log'), 'a');
   const child = spawn('python3', serverArgs, { detached: true, stdio: ['ignore', log, log] });
@@ -165,5 +174,5 @@ const chrome = spawn(findChrome(), [
   '--class=TrainyzeIphone',
 ], { stdio: 'ignore', env: cleanEnv() });
 chrome.on('exit', () => process.exit(0));
-console.log(`iPhone 15 Pro-simulatorn öppnas (${wantProd ? 'riktig data' : 'påhittad data'}). Stäng fönstret för att avsluta.`);
+console.log(`iPhone 15 Pro-simulatorn öppnas (${MODE_TEXT[wantMode]}). Stäng fönstret för att avsluta.`);
 await emulateIphone();

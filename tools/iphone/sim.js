@@ -171,8 +171,10 @@
     try {
       const res = await fetch('/__dev/info', { cache: 'no-store' });
       const info = await res.json();
-      mode.textContent = info.mode === 'prod' ? (info.readonly ? 'Riktig data · skrivskyddat' : 'Riktig data · SKRIV PÅ') : 'Påhittad data';
-      mode.className = 'mode' + (info.mode === 'prod' ? (info.readonly ? ' prod' : ' write') : '');
+      const real = info.mode !== 'mock';
+      const source = info.mode === 'g3' ? 'G3' : 'trainyze.com';
+      mode.textContent = real ? `Riktig data (${source}) · ${info.readonly ? 'skrivskyddat' : 'SKRIV PÅ'}` : 'Påhittad data';
+      mode.className = 'mode' + (real ? (info.readonly ? ' prod' : ' write') : '');
       if (version && info.version !== version) {
         // En ändring i själva simulatorn kräver att ramen laddas om, annars räcker appen.
         reloadApp();

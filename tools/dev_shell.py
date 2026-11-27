@@ -3,7 +3,8 @@
 Ingen databas, ingen Garmin, ingen Python-miljö behövs; bara Python 3.
 
     python3 tools/dev_shell.py              # påhittad data (mock), http://localhost:3100
-    python3 tools/dev_shell.py --prod       # din riktiga data från trainyze.com, skrivskyddat
+    python3 tools/dev_shell.py --g3         # din riktiga data direkt från G3 (hemmanätet/Tailscale), skrivskyddat
+    python3 tools/dev_shell.py --prod       # din riktiga data via trainyze.com (internet), skrivskyddat
     python3 tools/dev_shell.py --prod --skriv   # riktig data, även ändringar tillåts
     python3 tools/dev_shell.py --lan        # nås även från telefonen (samma nät/Tailscale)
 
@@ -12,8 +13,11 @@ Sidor:
     /app/        mobilappen (public/app/)
     /__iphone/   iPhone 15 Pro-simulatorn som visar /app/ (tools/iphone/)
 
---prod skickar alla /api/-anrop vidare till trainyze.com. Du loggar in med ditt
-vanliga konto; sessionskakan sparas bara för localhost. Skrivskyddat läge
+--g3 skickar alla /api/-anrop direkt till Trainyze på G3 (port 3000), först via
+Tailscale (100.82.234.62) och annars via hemmanätet (192.168.1.195). Snabbast och
+oberoende av internet och Cloudflare. --prod går i stället via trainyze.com.
+I båda lägena loggar du in med ditt vanliga konto en gång; sessionskakan sparas
+bara för localhost (i simulatorns egen Chrome-profil, i upp till 30 dagar). Skrivskyddat läge
 släpper bara igenom inloggning och utloggning – allt annat som skulle ändra
 något (plan, anteckningar, coachfrågor som kan flytta pass) stoppas med ett
 tydligt besked. Lägg till --skriv när du verkligen vill testa sådant.
@@ -38,6 +42,10 @@ ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / 'public'
 IPHONE = Path(__file__).resolve().parent / 'iphone'
 PROD_HOST = 'trainyze.com'
+# Trainyze på G3 lyssnar på port 3000. Tailscale först (fungerar även borta),
+# sedan hemmanätet.
+G3_CANDIDATES = [('100.82.234.62', 3000), ('192.168.1.195', 3000)]
+UPSTREAM = None  # (scheme, host, port), sätts i main()
 WRITE_ALLOWED_READONLY = {'/api/login', '/api/logout'}
 mimetypes.add_type('application/manifest+json', '.webmanifest')
 CSP = (
@@ -218,10 +226,11 @@ class Handler(BaseHTTPRequestHandler):
     def _route(self):
         path = urlparse(self.path).path
         if path.startswith('/api/'):
-            return self._proxy() if ARGS.prod else self._mock(path)
+            return self._proxy() if UPSTREAM else self._mock(path)
         if path == '/__dev/info':
-            return self._json({'mode': 'prod' if ARGS.prod else 'mock',
-                               'readonly': bool(ARGS.prod and not ARGS.skriv), 'version': asset_version()})
+            return self._json({'mode': ('g3' if ARGS.g3 else 'prod') if UPSTREAM else 'mock',
+                               'upstream': f'{UPSTREAM[1]}:{UPSTREAM[2]}' if UPSTREAM else None,
+                               'readonly': bool(UPSTREAM and not ARGS.skriv), 'version': asset_version()})
         if path == '/__dev/version':
             return self._json({'version': asset_version()})
         if path in ('/__iphone', '/app'):
@@ -244,7 +253,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if not path.startswith('/api/'):
             return self._send(405, b'Method Not Allowed', 'text/plain')
-        if ARGS.prod:
+        if UPSTREAM:
             return self._proxy()
         length = int(self.headers.get('Content-Length') or 0)
         try:
@@ -270,20 +279,25 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else None
         if self.command not in ('GET', 'HEAD') and not ARGS.skriv and path not in WRITE_ALLOWED_READONLY:
             return self._json({'error': 'Skrivskyddat utvecklingsläge: ändringar mot den riktiga datan är avstängda. '
-                                        'Starta med --prod --skriv för att tillåta dem.',
+                                        'Starta med --skriv för att tillåta dem.',
                                'code': 'dev_readonly'}, status=403)
-        headers = {'Host': PROD_HOST, 'User-Agent': 'trainyze-dev-proxy',
+        scheme, host, port = UPSTREAM
+        headers = {'Host': PROD_HOST if scheme == 'https' else f'{host}:{port}',
+                   'User-Agent': 'trainyze-dev-proxy',
                    'Accept': self.headers.get('Accept', 'application/json')}
         for name in ('Cookie', 'Content-Type', 'X-CSRF-Token'):
             if self.headers.get(name):
                 headers[name] = self.headers[name]
         try:
-            conn = http.client.HTTPSConnection(PROD_HOST, timeout=90, context=ssl.create_default_context())
+            if scheme == 'https':
+                conn = http.client.HTTPSConnection(host, port, timeout=90, context=ssl.create_default_context())
+            else:
+                conn = http.client.HTTPConnection(host, port, timeout=90)
             conn.request(self.command, self.path, body=body, headers=headers)
             resp = conn.getresponse()
             data = resp.read()
         except OSError as exc:
-            return self._json({'error': f'trainyze.com kunde inte nås: {exc}', 'code': 'network'}, status=502)
+            return self._json({'error': f'{host} kunde inte nås: {exc}', 'code': 'network'}, status=502)
         extra = []
         for key, value in resp.getheaders():
             if key.lower() == 'set-cookie':
@@ -293,17 +307,40 @@ class Handler(BaseHTTPRequestHandler):
         self._send(resp.status, data, resp.getheader('Content-Type', 'application/json'), extra)
 
 
+def find_g3():
+    """Första G3-adressen som svarar på /api/healthz."""
+    for host, port in G3_CANDIDATES:
+        try:
+            conn = http.client.HTTPConnection(host, port, timeout=3)
+            conn.request('GET', '/api/healthz')
+            if conn.getresponse().status == 200:
+                return ('http', host, port)
+        except OSError:
+            continue
+    return None
+
+
 def main():
     global ARGS
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--port', type=int, default=3100)
     ap.add_argument('--lan', action='store_true', help='lyssna på alla nätverk (för telefonen)')
-    ap.add_argument('--prod', action='store_true', help='använd riktig data från trainyze.com')
-    ap.add_argument('--skriv', action='store_true', help='tillåt ändringar i --prod-läge')
+    ap.add_argument('--g3', action='store_true', help='riktig data direkt från G3 (hemmanätet/Tailscale)')
+    ap.add_argument('--prod', action='store_true', help='riktig data via trainyze.com (internet)')
+    ap.add_argument('--skriv', action='store_true', help='tillåt ändringar i --g3/--prod-läge')
     ap.add_argument('--verbose', action='store_true')
     ARGS = ap.parse_args()
+    global UPSTREAM
+    if ARGS.g3:
+        UPSTREAM = find_g3()
+        if not UPSTREAM:
+            raise SystemExit('G3 svarar inte på port 3000 via Tailscale eller hemmanätet. '
+                             'Prova --prod (via trainyze.com) eller kontrollera att Tailscale är på.')
+    elif ARGS.prod:
+        UPSTREAM = ('https', PROD_HOST, 443)
     host = '0.0.0.0' if ARGS.lan else '127.0.0.1'
-    mode = ('riktig data från trainyze.com' + ('' if ARGS.skriv else ' (skrivskyddat)')) if ARGS.prod else 'påhittad data'
+    source = f'G3 ({UPSTREAM[1]})' if ARGS.g3 else 'trainyze.com'
+    mode = (f'riktig data från {source}' + ('' if ARGS.skriv else ' (skrivskyddat)')) if UPSTREAM else 'påhittad data'
     print(f'Trainyze dev – {mode}', flush=True)
     print(f'  Webbsidan:  http://localhost:{ARGS.port}/', flush=True)
     print(f'  Mobilappen: http://localhost:{ARGS.port}/app/', flush=True)
