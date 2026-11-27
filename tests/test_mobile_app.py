@@ -37,11 +37,11 @@ class MobileAppTests(unittest.TestCase):
         res = self.client.get('/app/')
         self.assertEqual(res.status_code, 200)
         html = res.get_data(as_text=True)
-        self.assertIn('id="login-form"', html)
+        self.assertIn('href="/app/manifest.json"', html)
         self.assertNotIn('__ASSETV__', html)
-        versions = re.findall(r'/app/app\.(?:js|css)\?v=([0-9a-f]{12})', html)
-        self.assertEqual(len(versions), 2)
-        self.assertEqual(versions[0], garmin_server.ASSET_VERSION)
+        versions = re.findall(r'(?:app\.js|styles\.css|ambient-fibers\.js)\?v=([0-9a-f]{12})', html)
+        self.assertEqual(len(versions), 3)
+        self.assertEqual(set(versions), {garmin_server.ASSET_VERSION})
 
     def test_app_without_slash_redirects(self):
         res = self.client.get('/app')
@@ -49,7 +49,7 @@ class MobileAppTests(unittest.TestCase):
         self.assertTrue(res.headers['Location'].endswith('/app/'))
 
     def test_app_assets_are_served(self):
-        for path in ('/app/app.js', '/app/app.css', '/app/manifest.json'):
+        for path in ('/app/app.js', '/app/styles.css', '/app/ambient-fibers.js', '/app/manifest.json'):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
 
@@ -64,11 +64,13 @@ class MobileAppTests(unittest.TestCase):
         self.assertEqual(res.headers.get('X-Frame-Options'), 'DENY')
         self.assertIn("script-src 'self'", res.headers.get('Content-Security-Policy', ''))
 
-    def test_app_html_has_no_inline_scripts(self):
-        # CSP tillåter bara script från egen origin; ett inline-script skulle
-        # tyst blockeras på iPhone.
+    def test_app_assets_resolve_inside_app(self):
+        # Kopian av webbsidan använder relativa sökvägar; de ska peka på filer i
+        # public/app/, annars laddar appen tyst webbsidans versioner.
         html = (ROOT / 'public' / 'app' / 'index.html').read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'<script(?![^>]*\bsrc=)[^>]*>', html), [])
+        for ref in re.findall(r'(?:src|href)="(?!https?://|/|#|data:)([^"?]+)', html):
+            with self.subTest(ref=ref):
+                self.assertTrue((ROOT / 'public' / 'app' / ref).is_file(), f'{ref} saknas i public/app/')
 
     def test_app_assets_change_the_asset_version(self):
         before = garmin_server._asset_version()
@@ -76,7 +78,7 @@ class MobileAppTests(unittest.TestCase):
 
         def changed(self_path):
             data = real_read(self_path)
-            return data + b'\n/* nytt */' if self_path.parent.name == 'app' and self_path.suffix == '.css' else data
+            return data + b'\n/* nytt */' if self_path.parent.name == 'app' and self_path.name == 'styles.css' else data
 
         with mock.patch.object(Path, 'read_bytes', changed):
             after = garmin_server._asset_version()

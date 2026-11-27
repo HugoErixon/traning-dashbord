@@ -36,14 +36,22 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
 Trainyze has two frontends against the **same API** (`garmin_server.py`):
 
 - **Website**: `/` → `public/index.html`, `public/app.js`, `public/styles.css`.
-- **Mobile app (PWA)**: `/app/` → `public/app/` (`index.html`, `app.js`, `app.css`,
-  `manifest.json` with `scope`/`start_url` `/app/`). It is built mobile-first for iPhone and
-  installed via Safari → Share → Add to Home Screen. Views are hash routes: `#idag`, `#plan`,
-  `#coach`, `#halsa`, `#mer`. It shows its own login, so `/app/` is always served; the API
-  enforces auth. It reuses `/sw.js` (scope `/`) for push. Keep it free of inline scripts
-  (CSP `script-src 'self'`, there's a test). Its files count toward `ASSET_VERSION`.
-- Change the app without touching the website, and vice versa. Server decisions (today's
-  verdict, readiness score) come from the API; don't recompute them in either client.
+- **Mobile app (PWA)**: `/app/` → `public/app/`. It started on 2026-11-28 as an **exact copy**
+  of the website code that ran on trainyze.com (main `f737d5f`): `app.js`, `styles.css`,
+  `ambient-fibers.js` byte-identical, `index.html` differing only in the manifest link
+  (`/app/manifest.json`, `scope`/`start_url` `/app/`, standalone). From there it is developed
+  on its own toward the best possible training app; the website is not touched by app work.
+  The copy uses relative asset paths, so files must exist in `public/app/` (there's a test).
+  `/app/` is always served (the page shows its own login; the API enforces auth). It reuses
+  `/sw.js` (scope `/`) for push. Its files count toward `ASSET_VERSION`.
+- Server decisions (today's verdict, readiness score) come from the API; don't recompute them
+  in either client.
+- The pages have no `viewport-fit=cover`, so on iPhone the home-screen app starts *below* the
+  status bar, which takes the page's `theme-color`. The simulator reproduces that from the
+  page's own meta tags. If you add `viewport-fit=cover` + `black-translucent`, the app has to
+  handle safe areas itself, and the simulator then draws it behind the status bar.
+- The CSP blocks inline scripts, so the inline theme script in `index.html` never runs in
+  production. The dev server sends the same CSP, so the simulator shows the same behaviour.
 
 **Developing the frontends on a laptop** (no Postgres/venv needed, only Python 3 + Node):
 

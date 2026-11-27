@@ -1,637 +1,8005 @@
-// Trainyze mobilapp (PWA).
-//
-// En egen, mobil-först frontend mot samma API som webbsidan. Webbsidan på "/"
-// lämnas orörd; appen bor under /app/ och installeras på iPhone via Safari →
-// Dela → "Lägg till på hemskärmen".
-//
-// Vyerna (Idag, Plan, Coach, Hälsa, Mer) styrs med hashen så att bakåt-gesten
-// och omladdning fungerar. Allt som visas kommer från API:t; inget räknas om
-// här som servern redan bestämmer (t.ex. dagens besked och beredskapstalet).
-'use strict';
+  // Device mode for behavior hooks; layout itself is handled by responsive CSS.
+  const phoneMedia = window.matchMedia('(max-width: 720px), (pointer: coarse)');
+  function applyDeviceMode() {
+    document.documentElement.dataset.device = phoneMedia.matches ? 'phone' : 'desktop';
+  }
+  applyDeviceMode();
+  phoneMedia.addEventListener?.('change', applyDeviceMode);
 
-(() => {
-  const $ = (sel, root = document) => root.querySelector(sel);
-  const params = new URLSearchParams(location.search);
+const originalFetch = window.fetch.bind(window);
+const dashboardShell = document.querySelector('.shell');
+let csrfToken = '';
+let currentUserIsAdmin = false;
+let currentUsername = '';
+let garminConnected = false;
+let garminMfaStateId = null;
+let stravaConfigured = false;
+let stravaConnected = false;
+let stravaAthlete = null;
+let calendarConnected = false;
+let userGoal = null;
+let goalPromptShownThisLoad = false;
+let authResolved = false;
+let sessionExpired = false;
+let resolveAuth;
+const authReady = new Promise(resolve => { resolveAuth = resolve; });
+dashboardShell.hidden = true;
 
-  // ── Simulatorläge ───────────────────────────────────────────────────────
-  // I iPhone-simulatorn på datorn ligger appen i en iframe, där env(safe-area-*)
-  // alltid är 0. Simulatorn skickar därför med iPhone 15 Pros marginaler.
-  if (params.has('sim')) {
-    const root = document.documentElement;
-    root.classList.add('is-sim');
-    root.style.setProperty('--safe-top', (params.get('top') || '59') + 'px');
-    root.style.setProperty('--safe-bottom', (params.get('bottom') || '34') + 'px');
-    window.addEventListener('message', event => {
-      if (event.origin !== location.origin || !event.data) return;
-      if (event.data.type === 'trainyze:theme') applyTheme(event.data.value);
+function clearLegacyCredentials() {
+  localStorage.removeItem('sitePassword');
+  localStorage.removeItem('site_user');
+}
+
+function completeAuth(data) {
+  csrfToken = data.csrfToken || '';
+  currentUserIsAdmin = !!data.isAdmin;
+  currentUsername = data.username || '';
+  garminConnected = !!data.garminConnected;
+  stravaConfigured = !!data.stravaConfigured;
+  stravaConnected = !!data.stravaConnected;
+  stravaAthlete = data.stravaAthlete || null;
+  const usersBtn = document.getElementById('users-btn');
+  if (usersBtn) usersBtn.style.display = currentUserIsAdmin ? '' : 'none';
+  const mobileUsersBtn = document.getElementById('mobile-users-btn');
+  if (mobileUsersBtn) mobileUsersBtn.style.display = currentUserIsAdmin ? '' : 'none';
+  const navClimate = document.getElementById('nav-climate');
+  if (navClimate) navClimate.style.display = currentUserIsAdmin ? '' : 'none';
+  const settingsClimate = document.getElementById('settings-climate-link');
+  if (settingsClimate) settingsClimate.style.display = currentUserIsAdmin ? '' : 'none';
+  const settingsUsers = document.getElementById('settings-users-link');
+  if (settingsUsers) settingsUsers.style.display = currentUserIsAdmin ? '' : 'none';
+  const settingsAi = document.getElementById('settings-ai-link');
+  if (settingsAi) settingsAi.style.display = currentUserIsAdmin ? '' : 'none';
+  updateGarminSidebar();
+  updateStravaSidebar();
+  loadSettingsPage();
+  loadUserGoal();
+  const screen = document.getElementById('login-screen');
+  if (screen) screen.remove();
+  dashboardShell.hidden = false;
+  if (!authResolved) {
+    authResolved = true;
+    resolveAuth();
+  } else if (sessionExpired) {
+    location.reload();
+  }
+  sessionExpired = false;
+}
+
+function whileAuthenticated(callback) {
+  return () => {
+    if (authResolved && !sessionExpired && !document.getElementById('login-screen')) callback();
+  };
+}
+
+function showLogin(message) {
+  dashboardShell.hidden = true;
+  const existing = document.getElementById('login-screen');
+  if (existing) {
+    const error = document.getElementById('login-error');
+    if (message && error) {
+      error.textContent = message;
+      error.style.display = 'block';
+    }
+    return;
+  }
+  const inputStyle = "width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:14px;outline:none;margin-bottom:10px;box-sizing:border-box;";
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="login-screen" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:999;">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:40px;width:320px;text-align:center;">
+        <div id="login-view">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Träningsdashboard</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Logga in för att fortsätta</p>
+          <input id="login-user" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Användarnamn" style="${inputStyle}" />
+          <input id="login-input" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord" style="${inputStyle}margin-bottom:12px;" />
+          <button id="login-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Logga in</button>
+          <p id="login-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;">Fel användarnamn eller lösenord</p>
+          <p style="margin-top:10px;font-size:12.5px;">
+            <a id="show-forgot-link" href="#" style="color:var(--blue);">Glömt lösenord?</a>
+          </p>
+          <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
+            Inget konto? <a id="show-register-link" href="#" style="color:var(--blue);">Registrera dig</a>
+          </p>
+        </div>
+        <div id="forgot-view" style="display:none;">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Glömt lösenord</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Vi mejlar en återställningslänk</p>
+          <input id="forgot-email" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="E-postadress" style="${inputStyle}margin-bottom:12px;" />
+          <button id="forgot-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Skicka återställningslänk</button>
+          <p id="forgot-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
+          <p id="forgot-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
+          <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
+            <a id="forgot-back-link" href="#" style="color:var(--blue);">Tillbaka till inloggning</a>
+          </p>
+        </div>
+        <div id="reset-view" style="display:none;">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Nytt lösenord</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Välj ett nytt lösenord</p>
+          <input id="reset-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Nytt lösenord (minst 8 tecken)" style="${inputStyle}" />
+          <input id="reset-password-confirm" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Upprepa lösenord" style="${inputStyle}margin-bottom:12px;" />
+          <button id="reset-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Spara nytt lösenord</button>
+          <p id="reset-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
+          <p id="reset-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
+        </div>
+        <div id="register-view" style="display:none;">
+          <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;">Skapa konto</h2>
+          <p style="font-size:12.5px;color:var(--muted2);margin-bottom:24px;font-family:'IBM Plex Mono',monospace;">Registrera dig med e-post</p>
+          <input id="register-user" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Användarnamn" style="${inputStyle}" />
+          <input id="register-email" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="E-postadress" style="${inputStyle}" />
+          <input id="register-password" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lösenord (minst 8 tecken)" style="${inputStyle}margin-bottom:12px;" />
+          <button id="register-submit" type="button" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:12px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Registrera dig</button>
+          <p id="register-error" role="alert" style="font-size:12px;color:var(--red);margin-top:10px;display:none;"></p>
+          <p id="register-success" role="status" style="font-size:12.5px;color:var(--green);margin-top:10px;display:none;"></p>
+          <p style="margin-top:16px;font-size:12.5px;color:var(--muted2);">
+            Har du redan ett konto? <a id="show-login-link" href="#" style="color:var(--blue);">Logga in</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  `);
+  document.getElementById('login-submit').addEventListener('click', tryLogin);
+  document.getElementById('login-input').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryLogin();
+  });
+  document.getElementById('login-user').addEventListener('keydown', event => {
+    if (event.key === 'Enter') document.getElementById('login-input').focus();
+  });
+  document.getElementById('register-submit').addEventListener('click', tryRegister);
+  document.getElementById('register-password').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryRegister();
+  });
+  document.getElementById('show-register-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('register-view').style.display = 'block';
+    document.getElementById('register-user').focus();
+  });
+  document.getElementById('show-login-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('register-view').style.display = 'none';
+    document.getElementById('login-view').style.display = 'block';
+    document.getElementById('login-user').focus();
+  });
+  document.getElementById('show-forgot-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('forgot-view').style.display = 'block';
+    document.getElementById('forgot-email').focus();
+  });
+  document.getElementById('forgot-back-link').addEventListener('click', event => {
+    event.preventDefault();
+    document.getElementById('forgot-view').style.display = 'none';
+    document.getElementById('login-view').style.display = 'block';
+    document.getElementById('login-user').focus();
+  });
+  document.getElementById('forgot-submit').addEventListener('click', tryForgotPassword);
+  document.getElementById('forgot-email').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryForgotPassword();
+  });
+  document.getElementById('reset-submit').addEventListener('click', tryResetPassword);
+  document.getElementById('reset-password-confirm').addEventListener('keydown', event => {
+    if (event.key === 'Enter') tryResetPassword();
+  });
+
+  const resetToken = new URLSearchParams(window.location.search).get('reset');
+  if (resetToken) {
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('reset-view').style.display = 'block';
+    document.getElementById('reset-password').focus();
+    return;
+  }
+  if (new URLSearchParams(window.location.search).get('auth') === 'register') {
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('register-view').style.display = 'block';
+    document.getElementById('register-user').focus();
+    return;
+  }
+  document.getElementById('login-user').focus();
+}
+
+async function performRegister(username, email, password) {
+  const response = await originalFetch('/api/register', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, email, password}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Registreringen misslyckades.');
+  }
+  return data;
+}
+
+async function tryRegister() {
+  const username = document.getElementById('register-user').value.trim();
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value;
+  const button = document.getElementById('register-submit');
+  const error = document.getElementById('register-error');
+  const success = document.getElementById('register-success');
+  error.style.display = 'none';
+  success.style.display = 'none';
+  if (!username || !email || !password) {
+    error.textContent = 'Fyll i alla fält.';
+    error.style.display = 'block';
+    return;
+  }
+  button.disabled = true;
+  try {
+    const data = await performRegister(username, email, password);
+    success.textContent = data.message || 'Kolla din inkorg för en verifieringslänk.';
+    success.style.display = 'block';
+    document.getElementById('register-user').value = '';
+    document.getElementById('register-email').value = '';
+    document.getElementById('register-password').value = '';
+  } catch (registerError) {
+    error.textContent = registerError.message;
+    error.style.display = 'block';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function performForgotPassword(email) {
+  const response = await originalFetch('/api/forgot-password', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Något gick fel. Försök igen.');
+  }
+  return data;
+}
+
+async function tryForgotPassword() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const button = document.getElementById('forgot-submit');
+  const error = document.getElementById('forgot-error');
+  const success = document.getElementById('forgot-success');
+  error.style.display = 'none';
+  success.style.display = 'none';
+  if (!email) {
+    error.textContent = 'Fyll i din e-postadress.';
+    error.style.display = 'block';
+    return;
+  }
+  button.disabled = true;
+  try {
+    const data = await performForgotPassword(email);
+    success.textContent = data.message || 'Om kontot finns har vi skickat en återställningslänk.';
+    success.style.display = 'block';
+    document.getElementById('forgot-email').value = '';
+  } catch (forgotError) {
+    error.textContent = forgotError.message;
+    error.style.display = 'block';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function performResetPassword(token, password) {
+  const response = await originalFetch('/api/reset-password', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({token, password}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || 'Länken är ogiltig eller har gått ut.');
+  }
+  return data;
+}
+
+async function tryResetPassword() {
+  const token = new URLSearchParams(window.location.search).get('reset') || '';
+  const password = document.getElementById('reset-password').value;
+  const passwordConfirm = document.getElementById('reset-password-confirm').value;
+  const button = document.getElementById('reset-submit');
+  const error = document.getElementById('reset-error');
+  const success = document.getElementById('reset-success');
+  error.style.display = 'none';
+  success.style.display = 'none';
+  if (!password || password.length < 8) {
+    error.textContent = 'Lösenordet måste vara minst 8 tecken.';
+    error.style.display = 'block';
+    return;
+  }
+  if (password !== passwordConfirm) {
+    error.textContent = 'Lösenorden matchar inte.';
+    error.style.display = 'block';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await performResetPassword(token, password);
+    success.textContent = 'Lösenordet har återställts. Du kan nu logga in.';
+    success.style.display = 'block';
+    document.getElementById('reset-password').value = '';
+    document.getElementById('reset-password-confirm').value = '';
+    const url = new URL(window.location.href);
+    url.searchParams.delete('reset');
+    window.history.replaceState({}, '', url);
+    setTimeout(() => {
+      document.getElementById('reset-view').style.display = 'none';
+      document.getElementById('login-view').style.display = 'block';
+      document.getElementById('login-user').focus();
+    }, 1500);
+  } catch (resetError) {
+    error.textContent = resetError.message;
+    error.style.display = 'block';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function performLogin(username, password) {
+  const response = await originalFetch('/api/login', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, password}),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    const error = new Error(data.error || 'Fel användarnamn eller lösenord.');
+    error.status = response.status;
+    throw error;
+  }
+  completeAuth(data);
+}
+
+async function tryLogin() {
+  const username = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-input').value;
+  const button = document.getElementById('login-submit');
+  const error = document.getElementById('login-error');
+  button.disabled = true;
+  error.style.display = 'none';
+  try {
+    await performLogin(username, password);
+  } catch (loginError) {
+    error.textContent = loginError.message;
+    error.style.display = 'block';
+    document.getElementById('login-input').value = '';
+    document.getElementById('login-input').focus();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+window.fetch = async (input, options = {}) => {
+  const url = typeof input === 'string' ? input : input.url;
+  const isApi = url.startsWith('/api/');
+  const isAuthEndpoint = url === '/api/login' || url === '/api/session';
+  if (isApi && !isAuthEndpoint) await authReady;
+
+  const requestOptions = {...options, credentials: 'same-origin'};
+  const method = String(requestOptions.method || 'GET').toUpperCase();
+  if (isApi && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !isAuthEndpoint) {
+    const headers = new Headers(requestOptions.headers || {});
+    headers.set('X-CSRF-Token', csrfToken);
+    requestOptions.headers = headers;
+  }
+  const response = await originalFetch(input, requestOptions);
+  if (isApi && !isAuthEndpoint && response.status === 401) {
+    sessionExpired = true;
+    showLogin('Sessionen har gått ut. Logga in igen.');
+  }
+  return response;
+};
+
+async function initializeAuth() {
+  const legacyUsername = localStorage.getItem('site_user') || '';
+  const legacyPassword = localStorage.getItem('sitePassword') || '';
+  clearLegacyCredentials();
+  try {
+    const response = await originalFetch('/api/session', {credentials: 'same-origin'});
+    const data = await response.json();
+    if (response.ok && data.authenticated) {
+      completeAuth(data);
+      return;
+    }
+    if (legacyPassword) {
+      try {
+        await performLogin(legacyUsername, legacyPassword);
+        return;
+      } catch (_) {
+        // The old credential is deliberately discarded even when migration fails.
+      }
+    }
+    showLogin();
+  } catch (_) {
+    showLogin('Servern kunde inte nås. Försök igen om en stund.');
+  }
+}
+
+initializeAuth();
+
+authReady.then(() => {
+  const params = new URLSearchParams(window.location.search);
+  const activityId = Number(params.get('activity'));
+  if (!Number.isSafeInteger(activityId) || activityId <= 0) return;
+  const source = params.get('source') === 'strava' ? 'strava' : 'garmin';
+  params.delete('activity');
+  params.delete('source');
+  const query = params.toString();
+  history.replaceState({}, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
+  openActivityDetails(activityId, source);
+});
+
+// --- Träningsmål per användare ---
+async function loadUserGoal() {
+  try {
+    const res = await fetch('/api/goals');
+    const data = await res.json();
+    if (res.ok) userGoal = data.goal;
+  } catch (_) {
+    userGoal = null;
+  }
+  renderGoalUi();
+  if (!userGoal && !goalPromptShownThisLoad) {
+    goalPromptShownThisLoad = true;
+    openGoalModal(true);
+  }
+}
+
+function formatGoalDate(iso) {
+  try {
+    return new Date(iso + 'T00:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short', year: 'numeric'});
+  } catch (_) {
+    return iso;
+  }
+}
+
+function renderGoalUi() {
+  const text = document.getElementById('goal-days-text');
+  const bar = document.getElementById('days-bar');
+  const calSub = document.getElementById('calendar-goal-sub');
+  if (!userGoal) {
+    if (text) text.textContent = 'Sätt ditt träningsmål →';
+    if (bar) bar.style.width = '0%';
+    if (calSub) calSub.textContent = 'Träningsplan och kalender';
+    return;
+  }
+  const g = userGoal;
+  if (text) {
+    if (g.goal_deadline) {
+      const left = Math.max(0, Math.ceil((new Date(g.goal_deadline + 'T00:00:00') - new Date()) / 86400000));
+      text.innerHTML = `<span style="color:var(--accent);font-weight:700;font-family:var(--font-num);">${left}</span> dagar till mål · ${escapeHtml(formatGoalDate(g.goal_deadline))}`;
+      if (bar && g.start_date) {
+        const total = Math.ceil((new Date(g.goal_deadline + 'T00:00:00') - new Date(g.start_date + 'T00:00:00')) / 86400000);
+        bar.style.width = total > 0 ? Math.min(100, Math.max(0, (1 - left / total) * 100)) + '%' : '0%';
+      }
+    } else {
+      text.textContent = `Mål: ${g.goal_title}`;
+      if (bar) bar.style.width = '0%';
+    }
+  }
+  if (calSub) calSub.textContent = g.goal_title + (g.goal_deadline ? ' – ' + formatGoalDate(g.goal_deadline) : '');
+}
+
+function closeGoalModal() {
+  document.getElementById('goal-modal')?.remove();
+}
+
+function openGoalModal(isOnboarding) {
+  if (document.getElementById('goal-modal')) return;
+  const g = userGoal || {};
+  const heading = isOnboarding ? 'Välkommen! Vad tränar du mot?' : 'Ditt träningsmål';
+  const intro = isOnboarding
+    ? 'Sätt ditt eget träningsmål — det styr vad coachen och dashboarden fokuserar på. Du kan ändra det när som helst.'
+    : 'Målet styr coachens råd och nedräkningen på startsidan.';
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="goal-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:998;">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:28px;width:420px;max-width:92vw;max-height:85vh;overflow-y:auto;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <h2 style="font-size:16px;font-weight:800;">${heading}</h2>
+          <button type="button" data-action="close-goal-modal" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:4px;">✕</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">${intro}</p>
+        <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Mål *</label>
+        <input id="goal-title-input" type="text" maxlength="200" placeholder="t.ex. Milen under 45 min" value="${escapeHtml(g.goal_title || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
+        <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Deadline (valfritt)</label>
+        <input id="goal-deadline-input" type="date" value="${escapeHtml(g.goal_deadline || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
+        <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Nuvarande bästa (valfritt)</label>
+        <input id="goal-best-input" type="text" maxlength="200" placeholder="t.ex. 48:30 (Vårruset)" value="${escapeHtml(g.current_best || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:12px;box-sizing:border-box;" />
+        <label style="display:block;font-size:11px;font-weight:700;letter-spacing:0.05em;color:var(--muted2);text-transform:uppercase;margin-bottom:6px;font-family:'IBM Plex Mono',monospace;">Sekundärt mål (valfritt)</label>
+        <input id="goal-secondary-input" type="text" maxlength="300" placeholder="t.ex. Styrka 2 pass/vecka" value="${escapeHtml(g.secondary_goal || '')}" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:16px;box-sizing:border-box;" />
+        <button type="button" data-action="save-goal" id="goal-save-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Spara mål</button>
+        <button type="button" data-action="save-goal-rebuild" id="goal-rebuild-btn" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:11px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;margin-top:8px;">Spara mål & bygg om schemat</button>
+        ${isOnboarding ? '<button type="button" data-action="close-goal-modal" style="width:100%;background:none;border:none;color:var(--muted2);font-size:12px;margin-top:10px;cursor:pointer;font-family:\'IBM Plex Mono\',monospace;">Hoppa över — jag sätter det senare</button>' : ''}
+        <p id="goal-modal-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;color:var(--red);"></p>
+      </div>
+    </div>
+  `);
+  const overlay = document.getElementById('goal-modal');
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) closeGoalModal();
+  });
+  document.getElementById('goal-title-input').focus();
+}
+
+function showGoalModalMessage(text, color) {
+  const msg = document.getElementById('goal-modal-msg');
+  if (!msg) return;
+  msg.textContent = text;
+  msg.style.color = color || 'var(--red)';
+  msg.style.display = text ? 'block' : 'none';
+}
+
+async function saveGoalFromForm(keepOpen = false) {
+  const title = document.getElementById('goal-title-input').value.trim();
+  const button = document.getElementById('goal-save-btn');
+  if (!title) {
+    showGoalModalMessage('Skriv in ett mål först.');
+    return false;
+  }
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/goals', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        goalTitle: title,
+        goalDeadline: document.getElementById('goal-deadline-input').value,
+        currentBest: document.getElementById('goal-best-input').value.trim(),
+        secondaryGoal: document.getElementById('goal-secondary-input').value.trim(),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showGoalModalMessage(data.error || 'Kunde inte spara målet.');
+      return false;
+    }
+    userGoal = data.goal;
+    renderGoalUi();
+    if (!keepOpen) closeGoalModal();
+    return true;
+  } catch (error) {
+    showGoalModalMessage('Servern kunde inte nås. Försök igen.');
+    return false;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function saveGoalAndRebuildPlan() {
+  const saved = await saveGoalFromForm(true);
+  if (!saved) return;
+  if (!confirm('Bygga om hela schemat utifrån målet?\n\nKommande planerade pass ersätts av en ny plan från coachen. Genomförda och missade pass behålls som historik.')) {
+    closeGoalModal();
+    return;
+  }
+  const rebuildBtn = document.getElementById('goal-rebuild-btn');
+  const saveBtn = document.getElementById('goal-save-btn');
+  if (rebuildBtn) { rebuildBtn.disabled = true; rebuildBtn.textContent = 'Coachen bygger din plan…'; }
+  if (saveBtn) saveBtn.disabled = true;
+  showGoalModalMessage('Coachen bygger din nya plan utifrån målet och din nuvarande form — det kan ta upp till en minut…', 'var(--muted2)');
+  try {
+    const res = await fetch('/api/plan/generate', {method: 'POST'});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showGoalModalMessage(data.error || 'Planen kunde inte skapas. Försök igen.');
+      return;
+    }
+    showGoalModalMessage(`Klart! ${data.sessions} pass inlagda t.o.m. vecka ${data.endWeek}. Sidan laddas om…`, 'var(--accent)');
+    setTimeout(() => location.reload(), 2000);
+  } catch (error) {
+    showGoalModalMessage('Servern kunde inte nås. Försök igen.');
+  } finally {
+    if (rebuildBtn) { rebuildBtn.disabled = false; rebuildBtn.textContent = 'Spara mål & bygg om schemat'; }
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function performLogout() {
+  // Coachsamtalet är personligt — det får inte ligga kvar i fliken åt nästa
+  // användare som loggar in på samma dator.
+  clearChatHistory();
+  try {
+    Object.keys(localStorage).filter(k => k.startsWith('trainyze:strength:')).forEach(k => localStorage.removeItem(k));
+  } catch (_) {}
+  try {
+    await fetch('/api/logout', {method: 'POST'});
+  } catch (_) {
+    // Sessionen rensas ändå lokalt via omladdningen.
+  }
+  location.reload();
+}
+
+// --- Garmin-koppling ---
+function updateGarminSidebar() {
+  const row = document.querySelector('.garmin-sync-row');
+  const label = document.getElementById('garmin-sync-time');
+  renderSettingsPage();
+  if (!row || !label) return;
+  if (garminConnected) {
+    row.removeAttribute('data-action');
+    row.removeAttribute('role');
+    row.style.cursor = '';
+    row.title = '';
+  } else {
+    label.textContent = 'Ej kopplad — klicka här';
+    row.dataset.action = 'open-garmin-connect';
+    row.setAttribute('role', 'button');
+    row.style.cursor = 'pointer';
+    row.title = 'Koppla ditt Garmin-konto';
+  }
+}
+
+function closeGarminConnectModal() {
+  garminMfaStateId = null;
+  document.getElementById('garmin-modal')?.remove();
+}
+
+function openGarminConnectModal() {
+  if (garminConnected || document.getElementById('garmin-modal')) return;
+  garminMfaStateId = null;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="garmin-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:998;">
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:28px;width:400px;max-width:92vw;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <h2 style="font-size:16px;font-weight:800;">Koppla Garmin Connect</h2>
+          <button type="button" data-action="close-garmin-connect" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:4px;">✕</button>
+        </div>
+        <div id="garmin-step-credentials">
+          <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Logga in med ditt Garmin-konto. Lösenordet används en gång för att skapa en nyckel och sparas aldrig.</p>
+          <input id="garmin-email" type="email" autocomplete="off" placeholder="E-post (Garmin)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:8px;box-sizing:border-box;" />
+          <input id="garmin-password" type="password" autocomplete="off" placeholder="Lösenord (Garmin)" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;outline:none;margin-bottom:10px;box-sizing:border-box;" />
+          <button type="button" data-action="garmin-connect-submit" id="garmin-connect-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Anslut</button>
+        </div>
+        <div id="garmin-step-mfa" style="display:none;">
+          <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Garmin har skickat en engångskod till din e-post. Ange den här.</p>
+          <input id="garmin-mfa-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Engångskod" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:15px;letter-spacing:0.2em;text-align:center;outline:none;margin-bottom:10px;box-sizing:border-box;" />
+          <button type="button" data-action="garmin-mfa-submit" id="garmin-mfa-btn" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Verifiera</button>
+        </div>
+        <div id="garmin-step-done" style="display:none;text-align:center;">
+          <p style="font-size:14px;font-weight:700;margin-bottom:8px;">Garmin kopplat! ✓</p>
+          <p style="font-size:12px;color:var(--muted2);margin-bottom:16px;font-family:'IBM Plex Mono',monospace;line-height:1.5;">Din träningsdata hämtas nu i bakgrunden — sidan laddas om automatiskt om en stund.</p>
+          <button type="button" data-action="garmin-reload-now" style="width:100%;background:var(--blue);border:none;border-radius:8px;padding:11px;color:var(--accent-ink);font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;font-weight:700;cursor:pointer;">Ladda om nu</button>
+        </div>
+        <p id="garmin-modal-msg" role="alert" style="font-size:12px;margin-top:10px;display:none;"></p>
+      </div>
+    </div>
+  `);
+  const overlay = document.getElementById('garmin-modal');
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) closeGarminConnectModal();
+  });
+  document.getElementById('garmin-password').addEventListener('keydown', event => {
+    if (event.key === 'Enter') submitGarminCredentials();
+  });
+  document.getElementById('garmin-mfa-code').addEventListener('keydown', event => {
+    if (event.key === 'Enter') submitGarminMfaCode();
+  });
+  document.getElementById('garmin-email').focus();
+}
+
+function showGarminModalMessage(text, isError) {
+  const msg = document.getElementById('garmin-modal-msg');
+  if (!msg) return;
+  msg.textContent = text;
+  msg.style.color = isError ? 'var(--red)' : 'var(--muted2)';
+  msg.style.display = text ? 'block' : 'none';
+}
+
+function garminModalShowStep(step) {
+  for (const name of ['credentials', 'mfa', 'done']) {
+    const el = document.getElementById(`garmin-step-${name}`);
+    if (el) el.style.display = name === step ? '' : 'none';
+  }
+}
+
+function garminConnectSucceeded() {
+  garminConnected = true;
+  garminMfaStateId = null;
+  updateGarminSidebar();
+  const label = document.getElementById('garmin-sync-time');
+  if (label) label.textContent = 'Hämtar din data…';
+  garminModalShowStep('done');
+  showGarminModalMessage('', false);
+  setTimeout(() => { if (document.getElementById('garmin-modal')) location.reload(); }, 25000);
+}
+
+async function submitGarminCredentials() {
+  const email = document.getElementById('garmin-email').value.trim();
+  const password = document.getElementById('garmin-password').value;
+  const button = document.getElementById('garmin-connect-btn');
+  if (!email || !password) {
+    showGarminModalMessage('Fyll i både e-post och lösenord.', true);
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Kontaktar Garmin…';
+  showGarminModalMessage('Detta kan ta upp till en minut.', false);
+  try {
+    const res = await fetch('/api/garmin/connect', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, password}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showGarminModalMessage(data.error || 'Kopplingen misslyckades. Försök igen.', true);
+      return;
+    }
+    document.getElementById('garmin-password').value = '';
+    if (data.mfaRequired) {
+      garminMfaStateId = data.stateId;
+      garminModalShowStep('mfa');
+      showGarminModalMessage('', false);
+      document.getElementById('garmin-mfa-code').focus();
+      return;
+    }
+    garminConnectSucceeded();
+  } catch (error) {
+    showGarminModalMessage('Servern kunde inte nås. Försök igen.', true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Anslut';
+  }
+}
+
+async function submitGarminMfaCode() {
+  const code = document.getElementById('garmin-mfa-code').value.trim();
+  const button = document.getElementById('garmin-mfa-btn');
+  if (!code) {
+    showGarminModalMessage('Ange engångskoden från Garmin.', true);
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Verifierar…';
+  try {
+    const res = await fetch('/api/garmin/mfa', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({stateId: garminMfaStateId, code}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showGarminModalMessage(data.error || 'Verifieringen misslyckades.', true);
+      if (res.status === 410 || data.code === 'invalid_mfa_code') {
+        garminMfaStateId = null;
+        garminModalShowStep('credentials');
+      }
+      return;
+    }
+    garminConnectSucceeded();
+  } catch (error) {
+    showGarminModalMessage('Servern kunde inte nås. Försök igen.', true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Verifiera';
+  }
+}
+
+// --- Strava OAuth ---
+function updateStravaSidebar() {
+  const row = document.querySelector('.strava-sync-row');
+  const label = document.getElementById('strava-sync-time');
+  renderSettingsPage();
+  if (!row || !label) return;
+  label.textContent = stravaConnected
+    ? `Strava${stravaAthlete ? ` · ${stravaAthlete}` : ' anslutet'}`
+    : (stravaConfigured ? 'Koppla Strava' : 'Aktivera Strava');
+  row.dataset.action = 'open-strava';
+  row.setAttribute('role', 'button');
+  row.style.cursor = 'pointer';
+  row.title = stravaConnected ? 'Hantera Strava' : 'Koppla ditt Strava-konto';
+  row.classList.toggle('is-connected', stravaConnected);
+}
+
+function closeStravaModal() {
+  document.getElementById('strava-modal')?.remove();
+}
+
+function openStravaModal() {
+  if (document.getElementById('strava-modal')) return;
+  const connectedCopy = stravaAthlete
+    ? `Ansluten som ${escapeHtml(stravaAthlete)}.`
+    : 'Ditt Strava-konto är anslutet.';
+  const body = stravaConnected ? `
+    <p>${connectedCopy} Aktiviteter från Garmin fortsätter vara förstahandskälla när båda tjänsterna är anslutna, så passen visas inte dubbelt.</p>
+    <button type="button" data-action="sync-strava" id="strava-primary-btn" class="strava-connect-btn">Synka Strava nu</button>
+    <button type="button" data-action="disconnect-strava" id="strava-disconnect-btn" class="strava-secondary-btn">Koppla från Strava</button>` : `
+    <p>${stravaConfigured
+      ? 'Godkänn Trainyze hos Strava för att visa dina aktiviteter, kartor, varv, puls, effekt och annan passdata.'
+      : 'Strava-stödet är installerat men administratören behöver lägga in appens Client ID och Secret på servern innan konton kan anslutas.'}</p>
+    <button type="button" data-action="connect-strava" id="strava-primary-btn" class="strava-connect-btn" ${stravaConfigured ? '' : 'disabled'}>Anslut med Strava</button>`;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="strava-modal" class="strava-overlay" role="presentation">
+      <div class="strava-modal" role="dialog" aria-modal="true" aria-labelledby="strava-title">
+        <div class="strava-modal-head"><div><span>STRAVA</span><h2 id="strava-title">${stravaConnected ? 'Strava är anslutet' : 'Koppla Strava'}</h2></div>
+          <button type="button" data-action="close-strava" aria-label="Stäng">✕</button></div>
+        <div class="strava-modal-body">${body}<p id="strava-modal-msg" role="status"></p></div>
+      </div>
+    </div>`);
+  const overlay = document.getElementById('strava-modal');
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) closeStravaModal();
+  });
+}
+
+function showStravaMessage(text, isError = false) {
+  const message = document.getElementById('strava-modal-msg');
+  if (!message) return;
+  message.textContent = text;
+  message.classList.toggle('is-error', isError);
+}
+
+async function connectStrava() {
+  const button = document.getElementById('strava-primary-btn')
+    || document.getElementById('settings-strava-primary');
+  if (button) button.disabled = true;
+  showStravaMessage('Öppnar Strava…');
+  try {
+    const response = await fetch('/api/strava/connect', {method: 'POST'});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Strava kunde inte öppnas.');
+    const popup = window.open(payload.authorizationUrl, 'trainyze-strava', 'popup,width=620,height=780');
+    if (!popup) location.assign(payload.authorizationUrl);
+  } catch (error) {
+    showStravaMessage(error.message, true);
+    if (!document.getElementById('strava-modal')) alert(error.message);
+    if (button) button.disabled = false;
+  }
+}
+
+async function syncStrava() {
+  const button = document.getElementById('strava-primary-btn')
+    || document.getElementById('settings-strava-primary');
+  if (button) button.disabled = true;
+  if (button) button.textContent = 'Synkar…';
+  showStravaMessage('Hämtar dina senaste aktiviteter…');
+  try {
+    const response = await fetch('/api/strava/sync', {method: 'POST'});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Strava kunde inte synkas.');
+    showStravaMessage(`${payload.activities} aktiviteter hämtade. Kalendern uppdateras nu.`);
+    await loadRecentActivities(false);
+  } catch (error) {
+    showStravaMessage(error.message, true);
+    if (!document.getElementById('strava-modal')) alert(error.message);
+  } finally {
+    if (button) button.disabled = false;
+    renderSettingsPage();
+  }
+}
+
+async function disconnectStrava() {
+  if (!confirm('Koppla från Strava? Redan sparad Garmin-data påverkas inte.')) return;
+  const button = document.getElementById('strava-disconnect-btn');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch('/api/strava/disconnect', {method: 'POST'});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Strava kunde inte kopplas från.');
+    stravaConnected = false;
+    stravaAthlete = null;
+    closeStravaModal();
+    updateStravaSidebar();
+    await loadRecentActivities(false);
+  } catch (error) {
+    showStravaMessage(error.message, true);
+    if (button) button.disabled = false;
+  }
+}
+
+window.addEventListener('message', async event => {
+  if (event.origin !== location.origin || event.data?.type !== 'strava-oauth') return;
+  if (event.data.status !== 'connected') {
+    showStravaMessage('Strava kunde inte anslutas. Kontrollera behörigheten och försök igen.', true);
+    return;
+  }
+  try {
+    const response = await fetch('/api/strava/status');
+    const payload = await response.json();
+    stravaConnected = !!payload.connected;
+    stravaAthlete = payload.athleteName || null;
+    closeStravaModal();
+    updateStravaSidebar();
+    openStravaModal();
+    showStravaMessage('Anslutningen lyckades. Dina aktiviteter synkas i bakgrunden.');
+    await loadRecentActivities(false);
+  } catch (_) {
+    showStravaMessage('Strava anslöts, men sidan behöver laddas om för att visa statusen.', true);
+  }
+});
+
+function setIntegrationState(id, connected, label) {
+  const element = document.getElementById(id);
+  if (!element) return;
+  element.classList.toggle('is-connected', connected);
+  element.innerHTML = `<i></i>${escapeHtml(label)}`;
+}
+
+function renderSettingsPage() {
+  const username = currentUsername || 'Konto';
+  const displayName = username ? username.charAt(0).toUpperCase() + username.slice(1) : 'Konto';
+  const accountName = document.getElementById('topbar-account-name');
+  const settingsName = document.getElementById('settings-username');
+  const avatar = document.getElementById('settings-avatar');
+  const role = document.getElementById('settings-role');
+  const accountTitle = document.getElementById('settings-account-title');
+  if (accountName) accountName.textContent = displayName;
+  if (settingsName) settingsName.textContent = displayName;
+  if (avatar) avatar.textContent = displayName.charAt(0).toUpperCase();
+  if (role) role.textContent = currentUserIsAdmin ? 'Administratör' : 'Användare';
+  if (accountTitle) accountTitle.textContent = `Inloggad som ${displayName}`;
+
+  setIntegrationState('settings-garmin-state', garminConnected,
+    garminConnected ? 'Ansluten' : 'Ej ansluten');
+  setIntegrationState('settings-strava-state', stravaConnected,
+    stravaConnected ? 'Ansluten' : (stravaConfigured ? 'Ej ansluten' : 'Ej konfigurerad'));
+  setIntegrationState('settings-calendar-state', calendarConnected,
+    calendarConnected ? 'Ansluten' : 'Ej ansluten');
+
+  const garminPrimary = document.getElementById('settings-garmin-primary');
+  const garminDisconnect = document.getElementById('settings-garmin-disconnect');
+  if (garminPrimary) garminPrimary.textContent = garminConnected ? 'Synka Garmin nu' : 'Koppla Garmin';
+  if (garminDisconnect) garminDisconnect.style.display = garminConnected ? '' : 'none';
+  const stravaPrimary = document.getElementById('settings-strava-primary');
+  const stravaDisconnect = document.getElementById('settings-strava-disconnect');
+  if (stravaPrimary) {
+    stravaPrimary.textContent = stravaConnected ? 'Synka Strava nu' : 'Koppla Strava';
+    stravaPrimary.disabled = !stravaConnected && !stravaConfigured;
+  }
+  if (stravaDisconnect) stravaDisconnect.style.display = stravaConnected ? '' : 'none';
+  const calendarPrimary = document.getElementById('settings-calendar-primary');
+  if (calendarPrimary) calendarPrimary.disabled = !calendarConnected;
+
+  const connectedCount = [garminConnected, stravaConnected, calendarConnected].filter(Boolean).length;
+  const summary = document.getElementById('settings-connection-summary');
+  if (summary) summary.textContent = `${connectedCount} av 3 anslutna`;
+  const topLabel = document.getElementById('topbar-connection-label');
+  if (topLabel) topLabel.textContent = `${connectedCount} anslutningar`;
+  const topDot = document.getElementById('topbar-connection-dot');
+  if (topDot) topDot.classList.toggle('is-connected', connectedCount > 0);
+}
+
+async function loadSettingsPage() {
+  renderSettingsPage();
+  try {
+    const [stravaResponse, calendarResponse] = await Promise.all([
+      fetch('/api/strava/status'), fetch('/api/calendar/status'),
+    ]);
+    if (stravaResponse.ok) {
+      const status = await stravaResponse.json();
+      stravaConfigured = !!status.configured;
+      stravaConnected = !!status.connected;
+      stravaAthlete = status.athleteName || null;
+    }
+    if (calendarResponse.ok) {
+      const status = await calendarResponse.json();
+      calendarConnected = !!status.hasToken;
+    }
+  } catch (_) {
+    // Senast kända status står kvar om en leverantör tillfälligt inte svarar.
+  }
+  renderSettingsPage();
+}
+
+async function disconnectGarmin() {
+  if (!confirm('Koppla från Garmin Connect? Strava används då som aktivitetskälla om det är anslutet.')) return;
+  try {
+    const response = await fetch('/api/garmin/disconnect', {method: 'POST'});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Garmin kunde inte kopplas från.');
+    garminConnected = false;
+    updateGarminSidebar();
+    await loadRecentActivities(false);
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+// --- Användarhantering (admin) ---
+function closeUsersPanel() {
+  document.getElementById('users-panel')?.remove();
+}
+
+async function openUsersPanel() {
+  if (document.getElementById('users-panel')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="users-panel" class="users-overlay" role="presentation">
+      <div class="users-modal" role="dialog" aria-modal="true" aria-labelledby="users-title">
+        <div class="users-modal-header">
+          <div>
+            <div class="panel-eyebrow">ADMINISTRATION</div>
+            <h2 id="users-title">Hantera användare</h2>
+          </div>
+          <button type="button" data-action="close-users" class="users-close" aria-label="Stäng">✕</button>
+        </div>
+        <p class="users-modal-intro">Skapa och överblicka konton. Garmin kopplas separat av varje användare.</p>
+        <div class="users-summary" id="users-summary" aria-live="polite">Laddar användare…</div>
+        <div class="users-list-toolbar">
+          <label class="users-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="users-search" type="search" placeholder="Sök användare" autocomplete="off" aria-label="Sök användare" />
+          </label>
+        </div>
+        <div id="users-list" class="users-list"><p class="users-empty">Laddar…</p></div>
+        <div class="users-create">
+          <div class="users-section-heading">
+            <div>
+              <div class="panel-eyebrow">NYTT KONTO</div>
+              <h3>Lägg till användare</h3>
+            </div>
+            <span class="users-section-hint">Lösenordet visas bara nu</span>
+          </div>
+          <div class="users-form-grid">
+            <label class="users-field">Användarnamn<input id="new-user-name" type="text" autocomplete="off" placeholder="t.ex. anna" /></label>
+            <label class="users-field">Temporärt lösenord<div class="users-password-field"><input id="new-user-password" type="text" autocomplete="off" placeholder="Minst 8 tecken" /><button type="button" data-action="random-password" title="Slumpa ett starkt lösenord" aria-label="Slumpa lösenord">✦</button></div></label>
+          </div>
+          <button type="button" data-action="create-user" id="create-user-btn" class="users-create-btn">Skapa användare <span aria-hidden="true">→</span></button>
+          <p id="users-panel-msg" role="status" class="users-panel-msg"></p>
+        </div>
+      </div>
+    </div>
+  `);
+  const overlay = document.getElementById('users-panel');
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) closeUsersPanel();
+  });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeUsersPanel();
+  });
+  document.getElementById('users-search').addEventListener('input', filterUsersList);
+  document.getElementById('new-user-password').addEventListener('keydown', event => {
+    if (event.key === 'Enter') createUserFromForm();
+  });
+  document.getElementById('users-search').focus();
+  await loadUsersList();
+}
+
+let usersPanelData = [];
+
+async function loadUsersList() {
+  const list = document.getElementById('users-list');
+  if (!list) return;
+  try {
+    const res = await fetch('/api/users');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Kunde inte hämta användare');
+    usersPanelData = data.users;
+    updateUsersSummary();
+    renderUsersList(usersPanelData);
+  } catch (error) {
+    list.innerHTML = `<p class="users-empty users-error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function updateUsersSummary() {
+  const summary = document.getElementById('users-summary');
+  if (!summary) return;
+  const connected = usersPanelData.filter(u => u.garminConnected).length;
+  summary.innerHTML = `<span><strong>${usersPanelData.length}</strong> ${usersPanelData.length === 1 ? 'konto' : 'konton'}</span><span><i class="users-summary-dot connected"></i>${connected} med Garmin</span>`;
+}
+
+function renderUsersList(users) {
+  const list = document.getElementById('users-list');
+  if (!list) return;
+  list.innerHTML = users.map(u => {
+    const initial = escapeHtml(u.username.slice(0, 1).toUpperCase());
+    return `
+      <div class="user-row">
+        <div class="user-avatar">${initial}</div>
+        <div class="user-main"><strong>${escapeHtml(u.username)}</strong><span class="user-status ${u.garminConnected ? 'is-connected' : ''}"><i></i>${u.garminConnected ? 'Garmin ansluten' : 'Garmin ej ansluten'}</span></div>
+        ${u.isAdmin ? '<span class="user-role">ADMIN</span>' : '<span class="user-role user-role-muted">ANVÄNDARE</span>'}
+        ${u.isAdmin ? '' : `<button type="button" data-action="delete-user" data-id="${Number(u.id)}" data-username="${escapeHtml(u.username)}" class="user-delete" title="Ta bort ${escapeHtml(u.username)}" aria-label="Ta bort ${escapeHtml(u.username)}">✕</button>`}
+      </div>`;
+  }).join('') || '<p class="users-empty">Ingen användare matchar sökningen.</p>';
+}
+
+function filterUsersList(event) {
+  const query = event.target.value.trim().toLowerCase();
+  renderUsersList(usersPanelData.filter(u => u.username.toLowerCase().includes(query)));
+}
+
+function showUsersPanelMessage(text, isError) {
+  const msg = document.getElementById('users-panel-msg');
+  if (!msg) return;
+  msg.textContent = text;
+  msg.style.color = isError ? 'var(--red)' : 'var(--accent)';
+  msg.style.display = 'block';
+}
+
+function fillRandomPassword() {
+  const input = document.getElementById('new-user-password');
+  if (!input) return;
+  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(14);
+  crypto.getRandomValues(bytes);
+  input.value = Array.from(bytes, b => alphabet[b % alphabet.length]).join('');
+}
+
+async function createUserFromForm() {
+  const nameInput = document.getElementById('new-user-name');
+  const passwordInput = document.getElementById('new-user-password');
+  const button = document.getElementById('create-user-btn');
+  const username = nameInput.value.trim();
+  const password = passwordInput.value;
+  if (!username || !password) {
+    showUsersPanelMessage('Fyll i både användarnamn och lösenord.', true);
+    return;
+  }
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showUsersPanelMessage(data.error || 'Kunde inte skapa användaren.', true);
+      return;
+    }
+    showUsersPanelMessage(`${username} skapad. Dela lösenordet på ett säkert sätt — det visas inte igen.`, false);
+    nameInput.value = '';
+    passwordInput.value = '';
+    await loadUsersList();
+    document.getElementById('users-search')?.focus();
+  } catch (error) {
+    showUsersPanelMessage('Servern kunde inte nås.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteUser(userId, username) {
+  if (!confirm(`Ta bort användaren "${username}"? Kontot försvinner men träningsdatan ligger kvar i databasen.`)) return;
+  try {
+    const res = await fetch(`/api/users/${userId}`, {method: 'DELETE'});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showUsersPanelMessage(data.error || 'Kunde inte ta bort användaren.', true);
+      return;
+    }
+    await loadUsersList();
+  } catch (error) {
+    showUsersPanelMessage('Servern kunde inte nås.', true);
+  }
+}
+
+function adaptiveNumber(id) {
+  const value = document.getElementById(id)?.value;
+  return value === '' || value == null ? null : Number(value);
+}
+
+function renderAdaptivePlan(payload) {
+  // Kortet är inte längre en andra domare — beslutet står i panelen ovanför.
+  // Här fyller vi bara i vad användaren redan svarat i dag, så att formuläret
+  // visar dagens svar i stället för att se tomt ut.
+  const card = document.getElementById('adaptive-plan-card');
+  if (!card || !payload) return;
+  const checkin = payload.checkin || {};
+  const fields = {
+    'adaptive-energy': checkin.energy, 'adaptive-soreness': checkin.soreness,
+    'adaptive-pain': checkin.pain, 'adaptive-stress': checkin.stress,
+    'adaptive-minutes': checkin.available_minutes, 'adaptive-pain-area': checkin.pain_area,
+    'adaptive-note': checkin.note,
+  };
+  Object.entries(fields).forEach(([id, value]) => {
+    const field = document.getElementById(id);
+    if (field && value != null) field.value = value;
+  });
+  const illness = document.getElementById('adaptive-illness');
+  if (illness) illness.checked = !!checkin.illness;
+}
+
+async function loadAdaptivePlan() {
+  try {
+    const response = await fetch('/api/adaptive-plan/today');
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || 'Kunde inte räkna dagens anpassning.');
+    renderAdaptivePlan(payload);
+  } catch (error) {
+    const detail = document.getElementById('adaptive-plan-detail');
+    if (detail) detail.textContent = error.message;
+  }
+}
+
+// ── Dagens besked ────────────────────────────────────────────────────────
+// En enda plats i gränssnittet som säger vad du ska göra i dag. Talet,
+// rubriken och skälen kommer ur samma svar från /api/today, så de kan inte
+// glida isär. AI-texten från /api/training-review skrivs fortfarande ut, men
+// som motivering bakom "Varför?" — den fäller inte längre en egen dom.
+const DECISION_BADGE = {
+  keep: 'KÖR', reduce: 'LÄTTA', reschedule: 'FLYTTA',
+  rest: 'VILA', no_session: 'VILODAG',
+};
+const CONFIDENCE_TEXT = { high: 'starkt underlag', medium: 'tunt underlag', low: 'svagt underlag' };
+
+function renderToday(payload) {
+  if (!payload) return;
+  const panel = document.getElementById('today-panel');
+  if (panel) panel.dataset.tone = payload.tone || 'neutral';
+
+  const badge = document.getElementById('review-badge');
+  if (badge) {
+    badge.textContent = DECISION_BADGE[payload.action] || '–';
+    badge.className = 'today-badge badge-' +
+      ({ good: 'green', warn: 'amber', bad: 'red' }[payload.tone] || 'amber');
+  }
+
+  const confidence = document.getElementById('decision-confidence');
+  if (confidence) confidence.textContent = CONFIDENCE_TEXT[payload.confidence] || '';
+
+  const headline = document.getElementById('review-headline');
+  if (headline) headline.textContent = payload.headline || payload.summary || 'Väntar på underlag';
+  const body = document.getElementById('review-body');
+  if (body) body.textContent = payload.detail || '';
+
+  // Skälen är motorns egna, i den ordning den viktade dem. De ersätter de
+  // lösryckta "begränsningarna" som tidigare räknades fram separat i klienten.
+  const reasons = document.getElementById('decision-reasons');
+  if (reasons) {
+    reasons.replaceChildren(...(payload.reasons || []).slice(0, 4).map(text => {
+      const chip = document.createElement('span');
+      chip.className = 'decision-chip';
+      chip.textContent = text;
+      return chip;
+    }));
+  }
+
+  const warning = document.getElementById('decision-warning');
+  if (warning) {
+    const text = (payload.warnings || []).join(' ');
+    warning.textContent = text;
+    warning.style.display = text ? '' : 'none';
+  }
+
+  // Coach Briefing
+  if (payload.coachBriefing) {
+    const cb = payload.coachBriefing;
+    const rpeEl = document.getElementById('coach-briefing-rpe');
+    const purpEl = document.getElementById('coach-briefing-purpose');
+    const execEl = document.getElementById('coach-briefing-execution');
+    const tipsEl = document.getElementById('coach-briefing-tips');
+    const fuelEl = document.getElementById('coach-briefing-fueling');
+
+    if (rpeEl && cb.rpe) rpeEl.textContent = cb.rpe;
+    if (purpEl && cb.purpose) purpEl.textContent = cb.purpose;
+    if (execEl && cb.execution) execEl.textContent = cb.execution;
+    if (tipsEl && cb.tips) tipsEl.textContent = cb.tips;
+    if (fuelEl && cb.fueling) fuelEl.textContent = cb.fueling;
+  }
+
+  // Ringen visar samma beredskapstal som beslutet vilar på. Räknades det fram
+  // separat här kunde ring och besked hamna på olika sidor om en gräns.
+  if (payload.readiness != null) setReadinessRing(payload.readiness);
+}
+
+function setReadinessRing(score) {
+  const val = document.getElementById('readiness-ring-val');
+  const prog = document.getElementById('readiness-ring-prog');
+  if (val) val.textContent = Math.round(score);
+  if (prog) {
+    const circumference = 239;
+    prog.style.strokeDashoffset = circumference * (1 - Math.max(0, Math.min(100, score)) / 100);
+  }
+}
+
+async function loadToday() {
+  try {
+    const response = await fetch('/api/today');
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.message || payload.error || 'Dagens besked kunde inte hämtas.');
+    renderToday(payload);
+  } catch (error) {
+    const headline = document.getElementById('review-headline');
+    const body = document.getElementById('review-body');
+    if (headline) headline.textContent = 'Dagens besked är tillfälligt otillgängligt';
+    if (body) body.textContent = error.message;
+  }
+  // Incheckningsfältens sparade svar ligger i den adaptiva payloaden.
+  loadAdaptivePlan();
+}
+
+async function saveAdaptiveCheckin() {
+  const button = document.querySelector('[data-action="save-adaptive-checkin"]');
+  const status = document.getElementById('adaptive-checkin-status');
+  const note = document.getElementById('adaptive-note')?.value.trim() || '';
+  const payload = {
+    energy: adaptiveNumber('adaptive-energy'),
+    soreness: adaptiveNumber('adaptive-soreness'),
+    pain: adaptiveNumber('adaptive-pain'),
+    stress: adaptiveNumber('adaptive-stress'),
+    available_minutes: adaptiveNumber('adaptive-minutes'),
+    pain_area: document.getElementById('adaptive-pain-area')?.value.trim() || '',
+    illness: !!document.getElementById('adaptive-illness')?.checked,
+    illness_symptoms: note,
+    note,
+  };
+  if (button) { button.disabled = true; button.textContent = 'Räknar om…'; }
+  if (status) status.textContent = 'Sparar dagens känsla…';
+  try {
+    const response = await fetch('/api/adaptive-plan/checkin', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Incheckningen kunde inte sparas.');
+    renderAdaptivePlan(result);
+    if (status) status.textContent = 'Sparad – dagens råd är omräknat.';
+  } catch (error) {
+    if (status) status.textContent = error.message;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Spara och räkna om'; }
+  }
+}
+
+// ── Dag- och nattläge ────────────────────────────────────────────────────
+// Utan sparat val följer appen systemet. Först när man växlar manuellt
+// skrivs ett val ner, och då ska det valet vinna över systemet på alla
+// enheter man är inloggad på — därav data-theme på <html>, inte en klass.
+function currentTheme() {
+  const forced = document.documentElement.getAttribute('data-theme');
+  if (forced === 'light' || forced === 'dark') return forced;
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('trainyze:theme', theme); } catch (e) { /* privat läge */ }
+  renderThemeToggle();
+}
+
+function renderThemeToggle() {
+  const icon = document.getElementById('theme-toggle-icon');
+  const label = document.getElementById('theme-toggle-label');
+  if (!icon || !label) return;
+  const dark = currentTheme() === 'dark';
+  // Knappen visar vad den byter TILL, inte vad som gäller nu — annars läser
+  // man den som en statusindikator och trycker åt fel håll.
+  label.textContent = dark ? 'Dagläge' : 'Nattläge';
+  icon.innerHTML = dark
+    ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/></svg>'
+    : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
+}
+
+function toggleTheme() {
+  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+}
+
+function executeAction(trigger, event) {
+  const action = trigger.dataset.action;
+  if (action === 'goto') goto(trigger.dataset.page);
+  else if (action === 'toggle-theme') toggleTheme();
+  else if (action === 'open-users') openUsersPanel();
+  else if (action === 'close-users') closeUsersPanel();
+  else if (action === 'create-user') createUserFromForm();
+  else if (action === 'delete-user') deleteUser(Number(trigger.dataset.id), trigger.dataset.username);
+  else if (action === 'random-password') fillRandomPassword();
+  else if (action === 'open-garmin-connect') openGarminConnectModal();
+  else if (action === 'close-garmin-connect') closeGarminConnectModal();
+  else if (action === 'garmin-connect-submit') submitGarminCredentials();
+  else if (action === 'garmin-mfa-submit') submitGarminMfaCode();
+  else if (action === 'garmin-reload-now') location.reload();
+  else if (action === 'settings-garmin-primary') garminConnected
+    ? refreshData() : openGarminConnectModal();
+  else if (action === 'disconnect-garmin') disconnectGarmin();
+  else if (action === 'open-strava') openStravaModal();
+  else if (action === 'close-strava') closeStravaModal();
+  else if (action === 'connect-strava') connectStrava();
+  else if (action === 'sync-strava') syncStrava();
+  else if (action === 'disconnect-strava') disconnectStrava();
+  else if (action === 'enable-push') enablePush();
+  else if (action === 'disable-push') disablePush();
+  else if (action === 'send-test-push') sendTestPush();
+  else if (action === 'settings-strava-primary') stravaConnected
+    ? syncStrava() : connectStrava();
+  else if (action === 'open-goal-modal') openGoalModal(false);
+  else if (action === 'close-goal-modal') closeGoalModal();
+  else if (action === 'save-goal') saveGoalFromForm();
+  else if (action === 'save-goal-rebuild') saveGoalAndRebuildPlan();
+  else if (action === 'logout') performLogout();
+  else if (action === 'open-ai-control') location.href = '/ai';
+  else if (action === 'refresh-data') refreshData();
+  else if (action === 'save-adaptive-checkin') saveAdaptiveCheckin();
+  else if (action === 'set-activity-feeling') setActivityFeeling(Number(trigger.dataset.value));
+  else if (action === 'save-activity-feedback') saveActivityFeedback();
+  else if (action === 'fill-belt-speeds') fillBeltSpeeds();
+  else if (action === 'save-belt-speeds') saveBeltSpeeds();
+  else if (action === 'sync-calendar') syncGcal();
+  else if (action === 'open-plan-session') openPlanSessionDetails(Number(trigger.dataset.planIndex));
+  else if (action === 'close-plan-session') document.getElementById('plan-session-dialog')?.close();
+  else if (action === 'open-activity') openActivityDetails(
+    Number(trigger.dataset.activityId), trigger.dataset.activitySource);
+  else if (action === 'open-today-activity') openTodayActivity();
+  else if (action === 'close-activity') closeActivityDetails();
+  else if (action === 'retry-activity-ai') retryActivityAiOverview();
+  else if (action === 'activity-map-expand') toggleActivityMapExpanded();
+  else if (action === 'activity-map-zoom-in') zoomActivityMap(1);
+  else if (action === 'activity-map-zoom-out') zoomActivityMap(-1);
+  else if (action === 'activity-map-reset') fitActivityMapToRoute();
+  else if (action === 'refresh-insights') loadInsights(true);
+  else if (action === 'open-trend-breakdown') openTrendBreakdown();
+  else if (action === 'close-trend-breakdown') closeTrendBreakdown();
+  else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
+  else if (action === 'plan-week') {
+    openWeekPlanner(Number(trigger.dataset.week));
+    if (trigger.closest('#season-panel')) document.getElementById('week-planner')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+  else if (action === 'lab-delete') deleteLabTest(trigger.dataset.date);
+  else if (action === 'niggle-checkin') niggleCheckIn(trigger);
+  else if (action === 'niggle-pick') nigglePick(trigger);
+  else if (action === 'niggle-toggle-form') niggleToggleForm(trigger);
+  else if (action === 'save-week-plan') saveWeekPlan();
+  else if (action === 'draft-week-plan') draftWeekPlan();
+  else if (action === 'close-week-planner') closeWeekPlanner();
+  else if (action === 'analysis-window') setAnalysisWindow(Number(trigger.dataset.days));
+  else if (action === 'overview-window') setOverviewWindow(Number(trigger.dataset.days));
+  else if (action === 'analysis-metric') selectAnalysisMetric(trigger.dataset.metric);
+  else if (action === 'pace-generate') generatePaceProposals();
+  else if (action === 'pace-decide') decidePaceProposals(trigger.dataset.decision, trigger.dataset.id);
+  else if (action === 'calc-load-pace') loadPaceIntoCalculator(trigger.dataset.pace);
+  else if (action === 'coach-ask-pacing') {
+    qa('Hur ska jag lägga upp dagens pass vad gäller farthållning, intervallsplittar och pulszoner?');
+    document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
+  }
+  else if (action === 'coach-ask-shorten') {
+    qa('Jag har ont om tid idag. Hur kan jag korta ner dagens pass och behålla den viktigaste träningseffekten?');
+    document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
+  }
+  else if (action === 'coach-ask-tired') {
+    qa('Jag känner mig lite sliten idag. Hur anpassar vi dagens pass eller intensitet bäst?');
+    document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
+  }
+  else if (action === 'coach-ask-switch') {
+    qa('Jag vill köra styrketräning för löpare istället för dagens löppass. Kan du justera planen och ge ett pass?');
+    document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
+  }
+  else if (action === 'save-journal') saveJournalEntry();
+  else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
+  else if (action === 'send-chat') send();
+  else if (action === 'reset-chat') resetChat();
+  else if (action === 'edit-journal') editJournalDate(trigger.dataset.date);
+  else if (action === 'delete-journal') deleteJournalEntry(event, Number(trigger.dataset.id));
+  else if (action === 'strength-window' || action.startsWith('st-')) strengthAction(action, trigger);
+}
+
+document.addEventListener('click', event => {
+  const trigger = event.target.closest('[data-action]');
+  if (trigger) executeAction(trigger, event);
+});
+
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && document.getElementById('activity-overlay')?.classList.contains('is-open')) {
+    if (activityMapState?.element.classList.contains('is-expanded')) {
+      toggleActivityMapExpanded(true);
+      return;
+    }
+    closeActivityDetails();
+    return;
+  }
+  const trigger = event.target.closest('[data-action][role="button"]');
+  if (trigger && (event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault();
+    executeAction(trigger, event);
+  }
+});
+
+  // Navigation
+  // Vilken toppflik en sida hör under. Styrka, Sömn och Dagbok har inga egna
+  // toppflikar längre, men de är fortfarande egna sidor — kartan är det som
+  // gör att rätt flik lyser upp när man landar på en undervy.
+  const NAV_SECTION = {
+    upcoming: 'upcoming', strength: 'strength',
+    health: 'health', sleep: 'health', journal: 'health',
+    analysis: 'analysis', home: 'home', overview: 'overview',
+    settings: 'settings', climate: 'settings',
+  };
+
+  function goto(id) {
+    const page = document.getElementById('page-' + id);
+    if (!page) return;
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    page.classList.add('active');
+    const section = NAV_SECTION[id] || id;
+    document.querySelectorAll('.nav-item').forEach(n => {
+      if (n.dataset.page === section) n.classList.add('active');
+    });
+    document.querySelectorAll('.subnav-item').forEach(n => {
+      n.classList.toggle('active', n.dataset.page === id);
+    });
+    document.querySelector('.topbar-account')?.classList.toggle('is-active', id === 'settings');
+    window.scrollTo(0, 0);
+    if (id === 'health')   loadHealth();
+    if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
+    if (id === 'analysis') { loadAnalysis(); loadInsights(); }
+    if (id === 'strength') loadStrengthPage();
+    if (id === 'journal')  loadJournal();
+    if (id === 'upcoming') { checkGcalStatus(); loadPaceProposals(); loadWeeklyReport(); loadSeasonPlan(); loadLabTests(); }
+    if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
+    if (id === 'settings') { loadSettingsPage(); refreshPushUi(); }
+    if (id === 'home') loadToday();
+    if (id === 'overview') { loadHealth(); loadOverview(); loadRacePrediction(); loadNiggles(); }
+  }
+
+  renderThemeToggle();
+  // Har man inte valt läge själv ska appen följa systemet direkt när det byter,
+  // utan omladdning. Har man valt är bytet redan låst av data-theme.
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (!document.documentElement.getAttribute('data-theme')) renderThemeToggle();
+  });
+
+  // Nedräkning och målrad ritas av renderGoalUi() när målet laddats.
+  loadHealth();
+  loadToday();
+
+
+function setHG(scoreId, barId, badgeId, descId, score, desc) {
+    const el = document.getElementById(scoreId);
+    const bar = document.getElementById(barId);
+    const badge = document.getElementById(badgeId);
+    const descEl = document.getElementById(descId);
+    if (!el) return;
+    el.textContent = Math.round(score);
+    bar.style.width = Math.min(score, 100) + '%';
+    descEl.textContent = desc;
+    if (score >= 75) {
+      el.style.color = 'var(--green)';
+      badge.className = 'hg-status hs-great';
+      badge.textContent = 'Good';
+    } else if (score >= 50) {
+      el.style.color = 'var(--amber)';
+      badge.className = 'hg-status hs-ok';
+      badge.textContent = 'Ok';
+    } else {
+      el.style.color = 'var(--red)';
+      badge.className = 'hg-status hs-low';
+      badge.textContent = 'Rest';
+    }
+  }
+
+  // Dagens rörelse: steg, kalorier, sträcka och intensitetsminuter från
+  // Garmins dygnssammanfattning. Kortet döljs helt när dagen saknar data.
+  function renderDailyActivity(daily) {
+    const card = document.getElementById('hg-daily');
+    if (!card) return;
+    if (daily.steps == null && daily.caloriesActive == null) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = '';
+
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    const nf = value => (value == null ? '-' : value.toLocaleString('sv-SE'));
+
+    const pct = daily.stepPct;
+    const reached = pct != null && pct >= 100;
+    const colour = reached ? 'var(--accent)' : pct != null && pct >= 70 ? 'var(--amber)' : 'var(--muted2)';
+
+    const score = document.getElementById('hg-daily-score');
+    if (score) { score.textContent = nf(daily.steps); score.style.color = colour; }
+
+    const badge = document.getElementById('hg-daily-badge');
+    if (badge) {
+      badge.textContent = pct == null ? 'Inget stegmål' : reached ? 'Mål uppnått' : pct + '% av målet';
+      badge.className = 'hg-status ' + (reached ? 'hs-great' : pct != null && pct >= 70 ? 'hs-ok' : 'hs-low');
+    }
+
+    setText('hg-daily-summary', daily.stepGoal ? 'Mål ' + nf(daily.stepGoal) : '');
+
+    const bar = document.getElementById('hg-daily-bar');
+    if (bar) bar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+
+    setText('hg-daily-desc', daily.steps == null
+      ? 'Ingen stegdata från Garmin ännu.'
+      : reached
+        ? `Stegmålet är passerat med ${nf(daily.steps - daily.stepGoal)} steg.`
+        : daily.stepGoal
+          ? `${nf(daily.stepGoal - daily.steps)} steg kvar till dagens mål.`
+          : 'Steg registrerade, men inget mål är satt i Garmin.');
+
+    setMetric('hd-cal-active', 'hd-cal-active-status', nf(daily.caloriesActive), 'kcal', 'kcal', 'var(--accent)');
+    setMetric('hd-cal-total', 'hd-cal-total-status', nf(daily.caloriesTotal), 'kcal', 'kcal', '');
+    setText('hd-cal-total-desc', daily.caloriesBmr != null
+      ? `Varav ${nf(daily.caloriesBmr)} kcal basalomsättning`
+      : 'Inklusive basalomsättning');
+
+    setText('hd-daily-dist', daily.distanceM != null ? (daily.distanceM / 1000).toFixed(1) : '-');
+
+    const goal = daily.intensityGoal;
+    setMetric('hd-intensity', 'hd-intensity-status',
+      daily.intensityMinutes != null ? daily.intensityMinutes : '-',
+      '', goal ? '/ ' + goal + ' i veckan' : '',
+      goal && daily.intensityMinutes >= goal ? 'var(--accent)' : '');
+  }
+
+  function setMetric(valId, statusId, value, unit, statusText, col) {
+    const v = document.getElementById(valId);
+    const s = document.getElementById(statusId);
+    if (v) { v.textContent = value; v.style.color = col || ''; }
+    if (s) { s.textContent = statusText || unit || ''; s.style.color = col || ''; }
+  }
+
+  // ─── SÖMNSIDAN ──────────────────────────────────────────────
+  // Nattens siffror kommer från /api/health, historik och härledda mått
+  // från /api/sleep (se sleep_analysis.py).
+  const SL_STAGES = [
+    {key: 'deep',  label: 'Djup',  color: 'var(--stage-deep)', target: '15–25%'},
+    {key: 'rem',   label: 'REM',   color: 'var(--stage-rem)', target: '20–25%'},
+    {key: 'light', label: 'Lätt',  color: 'var(--stage-light)', target: ''},
+    {key: 'awake', label: 'Vaken', color: 'var(--stage-awake)', target: ''},
+  ];
+
+  function slFmtHours(seconds) {
+    if (!seconds) return '–';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return h + ' h ' + String(m).padStart(2, '0') + ' min';
+  }
+
+  function slClock(value) {
+    if (!value) return null;
+    const text = String(value);
+    const match = text.match(/(\d{1,2}):(\d{2})/);
+    return match ? match[1].padStart(2, '0') + ':' + match[2] : null;
+  }
+
+  function renderSleepPage(h) {
+    const sleep = h.sleep || {};
+    const totalSec = sleep.totalSec || 0;
+    const score = sleep.score || 0;
+    const deep = sleep.deepPct || 0;
+    const rem = sleep.remPct || 0;
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+
+    // Poängring
+    const ring = document.getElementById('sl-score-ring');
+    const circumference = 2 * Math.PI * 57;
+    const colour = score >= 80 ? 'var(--accent)' : score >= 60 ? 'var(--amber)' : 'var(--red)';
+    if (ring) {
+      ring.style.strokeDasharray = circumference.toFixed(1);
+      ring.style.strokeDashoffset = (circumference * (1 - Math.min(1, score / 100))).toFixed(1);
+      ring.style.stroke = colour;
+    }
+    const scoreEl = document.getElementById('sl-score');
+    if (scoreEl) { scoreEl.textContent = score || '–'; scoreEl.style.color = colour; }
+
+    setText('sl-verdict', !totalSec ? 'Ingen sömn registrerad i natt'
+      : score >= 80 ? 'God återhämtning'
+      : score >= 60 ? 'Godkänt, men det finns mer att hämta'
+      : 'Prioritera sömnen i natt');
+
+    // Total sömn mot mål
+    const targetSec = 7.5 * 3600;
+    setText('sl-total', slFmtHours(totalSec));
+    setText('sl-total-sub', !totalSec ? 'Ingen data'
+      : totalSec >= targetSec ? 'Mål uppnått'
+      : 'Saknar ' + slFmtHours(targetSec - totalSec));
+    const totalBar = document.getElementById('sl-total-bar');
+    if (totalBar) totalBar.style.width = Math.min(100, totalSec / targetSec * 100) + '%';
+
+    renderSleepStages(sleep);
+    renderSleepStageChart(sleep.levels || [], sleep.startGMT, sleep.endGMT);
+  }
+
+  function renderSleepStages(sleep) {
+    const bar = document.getElementById('sl-stagebar');
+    const legend = document.getElementById('sl-stage-legend');
+    const note = document.getElementById('sl-stage-note');
+    if (!bar || !legend) return;
+
+    const total = sleep.totalSec || 0;
+    const values = {
+      deep: sleep.deepPct || 0,
+      rem: sleep.remPct || 0,
+      light: sleep.lightPct != null ? sleep.lightPct : null,
+      awake: sleep.awakePct != null ? sleep.awakePct : null,
+    };
+    // Garmin skickar inte alltid lätt sömn — räkna ut resten så stapeln går ihop.
+    if (values.light === null) {
+      values.light = Math.max(0, 100 - values.deep - values.rem - (values.awake || 0));
+    }
+
+    if (!total) {
+      bar.innerHTML = '';
+      legend.innerHTML = '<p class="sl-empty">Ingen stadiedata för i natt.</p>';
+      if (note) note.textContent = '';
+      return;
+    }
+
+    bar.innerHTML = SL_STAGES
+      .filter(stage => values[stage.key])
+      .map(stage => `<span class="sl-stage-seg" style="width:${values[stage.key]}%;background:${stage.color}"`
+        + ` data-freetip="${escapeHtml(stage.label + ' ' + values[stage.key] + '%')}"></span>`)
+      .join('');
+
+    legend.innerHTML = SL_STAGES.map(stage => {
+      const value = values[stage.key];
+      if (value === null || value === undefined) return '';
+      const low = stage.key === 'deep' ? value < 15 : stage.key === 'rem' ? value < 20 : false;
+      return `<div class="sl-stage-item">
+        <span class="sl-stage-dot" style="background:${stage.color}"></span>
+        <span class="sl-stage-name">${escapeHtml(stage.label)}</span>
+        <strong class="sl-stage-val${low ? ' sl-low' : ''}">${value}%</strong>
+        ${stage.target ? `<span class="sl-stage-target">mål ${escapeHtml(stage.target)}</span>` : ''}
+      </div>`;
+    }).join('');
+
+    const shortfalls = [];
+    if (values.deep < 15) shortfalls.push('djupsömnen under 15%');
+    if (values.rem < 20) shortfalls.push('REM under 20%');
+    if (note) note.textContent = shortfalls.length ? shortfalls.join(' · ') : 'Fördelningen ser bra ut';
+  }
+
+  // ─── Historik, läggdags och regelbundenhet ───
+  async function loadSleepOverview() {
+    try {
+      const res = await fetch('/api/sleep?days=21');
+      if (!res.ok) return;
+      const data = await res.json();
+      renderSleepTonight(data.tonight);
+      renderSleepHistory(data.nights || [], data.summary || {});
+      renderSleepSummary(data.summary || {}, data.nights || []);
+    } catch (_) {
+      // Sidan fungerar ändå med nattens siffror.
+    }
+  }
+
+  function renderSleepTonight(tonight) {
+    const panel = document.getElementById('sl-tonight');
+    if (!panel) return;
+    const night = tonight && tonight.night;
+    if (!night || !night.bedtime) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+
+    document.getElementById('sl-tonight-eyebrow').textContent =
+      (tonight.headline || 'I kväll').toUpperCase();
+    document.getElementById('sl-tonight-bed').textContent = night.bedtime;
+    document.getElementById('sl-tonight-wake').textContent =
+      night.wake ? `för att vakna ${night.wake}` : '';
+    document.getElementById('sl-tonight-why').textContent =
+      night.reason || tonight.summary || '';
+
+    const steps = [];
+    if (night.windDown) steps.push(['Varva ner', night.windDown]);
+    if (night.acPrecool) steps.push(['Kyl sovrummet', night.acPrecool]);
+    if (night.targetHours) steps.push(['Mål i natt', night.targetHours + ' h']);
+    document.getElementById('sl-tonight-steps').innerHTML = steps
+      .map(([label, value]) => `<div class="sl-step"><span>${escapeHtml(label)}</span>`
+        + `<strong>${escapeHtml(String(value))}</strong></div>`)
+      .join('');
+  }
+
+  function renderSleepHistory(nights, summary) {
+    const container = document.getElementById('sl-history');
+    if (!container) return;
+    const withHours = nights.filter(n => n.sleep_hours != null);
+    if (!withHours.length) {
+      container.innerHTML = '<p class="sl-empty">Ingen historik ännu.</p>';
+      return;
+    }
+
+    const target = summary.targetH || 7.5;
+    const peak = Math.max(target + 1.5, ...withHours.map(n => n.sleep_hours));
+    // Äldst till vänst så tiden löper åt höger.
+    const ordered = withHours.slice().reverse();
+
+    container.innerHTML = `<div class="sl-bars" style="--target:${(target / peak * 100).toFixed(1)}%">`
+      + ordered.map(n => {
+        const height = Math.max(3, n.sleep_hours / peak * 100);
+        const score = n.sleep_score;
+        const tone = score == null ? 'sl-bar-none'
+          : score >= 80 ? 'sl-bar-good' : score >= 60 ? 'sl-bar-ok' : 'sl-bar-low';
+        const day = new Date(n.date + 'T00:00:00');
+        const tip = `${n.date} · ${n.sleep_hours.toFixed(1)} h`
+          + (score != null ? ` · poäng ${score}` : '');
+        return `<span class="sl-bar ${tone}" style="height:${height.toFixed(1)}%"`
+          + ` data-freetip="${escapeHtml(tip)}">`
+          + `<i>${day.getDate()}</i></span>`;
+      }).join('')
+      + '</div>';
+  }
+
+  function renderSleepSummary(summary, nights) {
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+
+    // Sömnskuld
+    const debt = summary.debt;
+    if (debt) {
+      const owed = debt.debtH > 0;
+      setText('sl-debt', owed ? '-' + debt.debtH.toFixed(1) + ' h' : '+' + debt.surplusH.toFixed(1) + ' h');
+      setText('sl-debt-sub', `${debt.nights} nätter · snitt ${debt.averageH.toFixed(1)} h`);
+      const bar = document.getElementById('sl-debt-bar');
+      if (bar) {
+        // Full stapel = en hel natts sömn skuldsatt, inte veckomålet.
+        const scale = owed ? debt.debtH / 7.5 : debt.surplusH / 7.5;
+        bar.style.width = Math.min(100, Math.max(3, scale * 100)) + '%';
+        bar.className = owed ? 'sl-meter-amber' : 'sl-meter-good';
+      }
+      const el = document.getElementById('sl-debt');
+      if (el) el.style.color = owed ? 'var(--amber)' : 'var(--green)';
+    }
+
+    // Streck
+    setText('sl-streak', summary.streak != null ? summary.streak : '–');
+    setText('sl-streak-sub', summary.streak === 1 ? 'natt i rad på 7,5 h' : 'nätter i rad på 7,5 h');
+
+    // Sänggående — måste komma från samma natt som siffrorna ovanför, annars
+    // visas en tid från en helt annan natt bredvid nattens totalsumma.
+    const latest = (nights || [])[0];
+    const bed = latest && slClock(latest.sleep_start);
+    const wake = latest && slClock(latest.sleep_end);
+    if (bed) {
+      setText('sl-window', wake ? `${bed} – ${wake}` : bed);
+      setText('sl-window-sub', 'sänggående och uppstigning');
+    } else {
+      setText('sl-window', '–');
+      setText('sl-window-sub', 'Garmin har inte rapporterat tider för natten');
+    }
+
+    // Trendchips
+    const trendsEl = document.getElementById('sl-trends');
+    if (trendsEl) {
+      const labels = {sleep_score: 'Poäng', sleep_hours: 'Timmar', deep_pct: 'Djup', rem_pct: 'REM'};
+      const arrows = {improving: '↑', declining: '↓', stable: '→'};
+      trendsEl.innerHTML = Object.entries(summary.trends || {})
+        .filter(([, t]) => t)
+        .map(([field, t]) => `<span class="sl-trend sl-trend-${t.direction}">`
+          + `${arrows[t.direction] || ''} ${escapeHtml(labels[field] || field)}</span>`)
+        .join('');
+    }
+
+    // Läggdagsrytm
+    const consistency = summary.consistency;
+    const consistencyEl = document.getElementById('sl-consistency');
+    const pill = document.getElementById('sl-consistency-pill');
+    if (consistency && consistencyEl) {
+      const words = {steady: 'Jämn', drifting: 'Vandrar', irregular: 'Oregelbunden'};
+      if (pill) {
+        pill.textContent = words[consistency.verdict] || '';
+        pill.className = 'sl-pill sl-pill-' + consistency.verdict;
+      }
+      consistencyEl.innerHTML = `
+        <div class="sl-con-main"><strong>${escapeHtml(consistency.averageBedtime || '–')}</strong>
+          <span>snittid för sänggående</span></div>
+        <div class="sl-con-range">
+          <span>Tidigast <b>${escapeHtml(consistency.earliest || '–')}</b></span>
+          <span>Senast <b>${escapeHtml(consistency.latest || '–')}</b></span>
+        </div>
+        <p class="sl-con-note">Spridning ±${consistency.spreadMin} min över ${consistency.nights} nätter.
+          ${consistency.verdict === 'steady'
+            ? 'Kroppen vet när den ska sova — behåll det.'
+            : 'Jämnare tider ger djupare sömn även vid samma antal timmar.'}</p>`;
+    }
+
+    // Bästa och sämsta natt
+    const extremes = document.getElementById('sl-extremes');
+    if (extremes && summary.best) {
+      const row = (item, label, tone) => `<div class="sl-extreme">
+        <span class="sl-extreme-label">${label}</span>
+        <strong class="${tone}">${item.score}</strong>
+        <span class="sl-extreme-date">${escapeHtml(item.date)}</span></div>`;
+      extremes.innerHTML = row(summary.best, 'Bäst', 'sl-good')
+        + (summary.worst ? row(summary.worst, 'Sämst', 'sl-low') : '');
+    }
+  }
+
+  function renderSleepStageChart(levels, startGMT, endGMT) {
+    const container = document.getElementById('sleep-stage-canvas');
+    const empty = document.getElementById('sleep-chart-empty');
+    if (!container) return;
+
+    const timesEl = document.getElementById('sleep-chart-times');
+
+    if (!levels || levels.length === 0) {
+      container.innerHTML = '';
+      container.style.display = 'none';
+      if (timesEl) timesEl.style.display = 'none';
+      if (empty) empty.style.display = 'block';
+      return;
+    }
+    container.style.display = 'block';
+    if (empty) empty.style.display = 'none';
+
+    const parseGMT = s => {
+      if (!s) return null;
+      if (typeof s === 'number') return new Date(s);
+      return new Date(s.replace(' ', 'T') + 'Z');
+    };
+
+    const sorted = [...levels].sort((a, b) => parseGMT(a.startGMT) - parseGMT(b.startGMT));
+    const chartStart = parseGMT(startGMT) || parseGMT(sorted[0].startGMT);
+    const chartEnd   = parseGMT(endGMT)   || parseGMT(sorted[sorted.length - 1].endGMT);
+    if (!chartStart || !chartEnd) return;
+    const totalMs = chartEnd - chartStart;
+
+    // All times shown in Swedish local time (Europe/Stockholm), DST-aware.
+    const TZ = 'Europe/Stockholm';
+    // Offset (ms) between an absolute instant and its Stockholm wall-clock.
+    const tzOffsetMs = d => {
+      const p = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        .formatToParts(d).reduce((a, x) => (a[x.type] = x.value, a), {});
+      const h = p.hour === '24' ? 0 : +p.hour;
+      return Date.UTC(+p.year, +p.month - 1, +p.day, h, +p.minute, +p.second) - d.getTime();
+    };
+
+    // Sleep start/end times below the chart
+    const fmtLocal = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+    if (timesEl) {
+      timesEl.style.display = 'flex';
+      const sEl = document.getElementById('sleep-chart-t-start');
+      const eEl = document.getElementById('sleep-chart-t-end');
+      if (sEl) sEl.innerHTML = `<span style="color:var(--muted3);">Somnade</span> <span style="color:var(--muted3);">${fmtLocal(chartStart)}</span>`;
+      if (eEl) eEl.innerHTML = `<span style="color:var(--muted3);">Vaknade</span> <span style="color:var(--muted3);">${fmtLocal(chartEnd)}</span>`;
+    }
+
+    const STAGE = {
+      0: { color: 'var(--stage-deep)', name: 'Djup' },
+      1: { color: 'var(--stage-light)', name: 'Lätt' },
+      2: { color: 'var(--stage-awake)', name: 'Vaken' },
+      3: { color: 'var(--stage-rem)', name: 'REM' },
+    };
+
+    const W = container.clientWidth || 600;
+    const BAR_H = 68;
+    const TICK_H = 20;
+    const H = BAR_H + TICK_H;
+
+    const fmtTime = d => d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+    const fmtDur = ms => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m/60)+'h '+(m%60)+'m' : m+'m'; };
+
+    const parts = [
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;overflow:visible;">`,
+      `<defs><clipPath id="sleep-bar-clip"><rect x="0" y="0" width="${W}" height="${BAR_H}" rx="7"/></clipPath></defs>`,
+      `<rect x="0" y="0" width="${W}" height="${BAR_H}" rx="7" fill="rgba(255,255,255,0.05)"/>`,
+      `<g clip-path="url(#sleep-bar-clip)">`,
+    ];
+
+    // Single-row segments
+    for (const seg of sorted) {
+      const level = Math.round(seg.activityLevel ?? seg.level ?? 1);
+      const info  = STAGE[level] ?? STAGE[1];
+      const t0 = parseGMT(seg.startGMT);
+      const t1 = parseGMT(seg.endGMT);
+      if (!t0 || !t1) continue;
+      const x = ((t0 - chartStart) / totalMs) * W;
+      const w = Math.max(1, ((t1 - t0) / totalMs) * W);
+      parts.push(`<rect class="sleep-seg" data-stage="${level}" x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${BAR_H}" fill="${info.color}" data-name="${info.name}" data-t0="${fmtTime(t0)}" data-t1="${fmtTime(t1)}" data-dur="${fmtDur(t1 - t0)}" data-color="${info.color}" style="cursor:pointer;transition:opacity 0.12s;"/>`);
+    }
+
+    parts.push(`</g>`);
+
+    // Hour ticks every 2h, aligned to round *local* hours (DST-aware)
+    const startMs = chartStart.getTime();
+    const offset = tzOffsetMs(chartStart);             // local = utc + offset
+    const STEP = 2 * 3600000;
+    const firstTickMs = Math.ceil((startMs + offset) / STEP) * STEP - offset;
+    for (let t = firstTickMs; t <= startMs + totalMs; t += STEP) {
+      const tx = (((t - startMs) / totalMs) * W).toFixed(1);
+      if (parseFloat(tx) < 0 || parseFloat(tx) > W) continue;
+      const label = fmtLocal(new Date(t));
+      parts.push(`<line x1="${tx}" y1="${BAR_H}" x2="${tx}" y2="${BAR_H + 5}" style="stroke:var(--muted)" stroke-width="1"/>`);
+      parts.push(`<text x="${tx}" y="${BAR_H + 16}" text-anchor="middle" font-size="11" style="fill:var(--muted3)" font-family="var(--font-mono,monospace)">${label}</text>`);
+    }
+
+    parts.push('</svg>');
+    container.innerHTML = parts.join('');
+
+    // Interactions
+    const svgEl = container.querySelector('svg');
+    if (!svgEl) return;
+    const allSegs = svgEl.querySelectorAll('.sleep-seg');
+
+    svgEl.addEventListener('mouseover', e => {
+      const seg = e.target.closest('.sleep-seg');
+      if (seg) {
+        const activeStage = seg.dataset.stage;
+        allSegs.forEach(s => { s.style.opacity = s.dataset.stage === activeStage ? '1' : '0.18'; });
+        clearTimeout(tipTimeout);
+        tipBox.innerHTML = `
+          <div class="tip-title" style="color:${seg.dataset.color}">${seg.dataset.name}</div>
+          <div class="tip-desc">${seg.dataset.t0} – ${seg.dataset.t1}</div>
+          <div class="tip-desc" style="color:var(--muted2);margin-top:2px;">${seg.dataset.dur}</div>`;
+        const vw = window.innerWidth;
+        let left = e.clientX + 12;
+        if (left + 180 > vw - 8) left = e.clientX - 192;
+        tipBox.style.left = left + 'px';
+        tipBox.style.top  = (e.clientY - 40) + 'px';
+        tipBox.classList.add('visible');
+      } else {
+        allSegs.forEach(s => { s.style.opacity = '1'; });
+        hideTip();
+      }
+    });
+
+    svgEl.addEventListener('mouseleave', () => {
+      allSegs.forEach(s => { s.style.opacity = '1'; });
+      hideTip();
     });
   }
 
-  // ── Tema ────────────────────────────────────────────────────────────────
-  const THEME_KEY = 'trainyze:app-theme';
-  function storedTheme() {
-    try { return localStorage.getItem(THEME_KEY) || 'system'; } catch (_) { return 'system'; }
-  }
-  function applyTheme(value) {
-    const theme = ['light', 'dark'].includes(value) ? value : 'system';
-    if (theme === 'system') document.documentElement.removeAttribute('data-theme');
-    else document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem(THEME_KEY, theme); } catch (_) { /* privat läge */ }
-  }
-  applyTheme(storedTheme());
+  let currentHealthData = null;
 
-  // ── Hjälpare ────────────────────────────────────────────────────────────
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-  const num = value => (typeof value === 'number' && Number.isFinite(value) ? value : null);
-  const fmtDuration = sec => {
-    if (!num(sec)) return '–';
-    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
-    return h ? `${h} h ${m} min` : `${m} min`;
-  };
-  const fmtKm = km => (num(km) ? `${km.toLocaleString('sv-SE', { maximumFractionDigits: 1 })} km` : '');
-  const DAY_SHORT = ['mån', 'tis', 'ons', 'tor', 'fre', 'lör', 'sön'];
-  const isoDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const todayIso = () => isoDate(new Date());
+  function clamp(n, lo, hi) {
+    return Math.max(lo, Math.min(hi, n));
+  }
 
-  // plan_sessions lagrar planvecka + veckodag. Planveckor räknas från måndagen
-  // i ISO-vecka 1 2026 (plan_calendar.PLAN_EPOCH) och fortsätter över nyår.
-  const PLAN_EPOCH = new Date(2025, 11, 29);
-  const sessionDate = (week, dow) => {
-    const d = new Date(PLAN_EPOCH);
-    d.setDate(d.getDate() + 7 * (Number(week) - 1) + Number(dow));
-    return d;
-  };
-  const isoWeekNumber = date => {
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function todayLocalDate() {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 10);
+  }
+
+  // Kalenderns veckonummer (1–53), det som visas för människor.
+  function isoWeekNumber(date = new Date()) {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    const day = d.getUTCDay() || 7;
-    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  }
+
+  // Planens veckor (plan_calendar.py): ISO-veckan 2026 som räknar vidare efter
+  // nyår, så vecka 1 2027 är planvecka 54. Jämför och lagra planveckor, visa
+  // planWeekLabel().
+  const PLAN_EPOCH_UTC = Date.UTC(2025, 11, 29);
+  function getISOWeek(date) {
+    const day = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+    const monday = day - ((date.getDay() + 6) % 7) * 86400000;
+    return Math.round((monday - PLAN_EPOCH_UTC) / (7 * 86400000)) + 1;
+  }
+
+  function getMondayOfISOWeek(week) {
+    const d = new Date(PLAN_EPOCH_UTC + (week - 1) * 7 * 86400000);
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+
+  function planWeekLabel(week) {
+    return isoWeekNumber(getMondayOfISOWeek(week));
+  }
+
+  function getISOWeekInfo(date = new Date()) {
+    return { week: getISOWeek(date), dow: (date.getDay() + 6) % 7, year: date.getFullYear() };
+  }
+
+  // Init appbar immediately (before health data)
+  (function initAppbar() {
+    const hiEl = document.getElementById('appbar-hi');
+    if (hiEl) {
+      const hr = new Date().getHours();
+      const greet = hr < 12 ? 'God morgon' : hr < 17 ? 'God eftermiddag' : 'God kväll';
+      hiEl.textContent = greet + ', Hugo';
+    }
+    const dateEl = document.getElementById('appbar-date');
+    if (dateEl) {
+      const d = new Date();
+      const days = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
+      dateEl.textContent = days[d.getDay()] + ' · vecka ' + isoWeekNumber(d);
+    }
+  })();
+
+  function getWeekBounds(date = new Date()) {
+    const start = new Date(date);
+    start.setDate(date.getDate() - ((date.getDay() || 7) - 1));
+    start.setHours(0,0,0,0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 7);
+    return { start, end };
+  }
+
+  function isRunActivity(a) {
+    return ['running','track_running','treadmill_running','trail_running'].includes(a.activityType?.typeKey);
+  }
+
+  function sessionLoadEstimate(s) {
+    if (!s) return 0;
+    if (s.type === 'lift') return 40;
+    const perKm = { easy: 7, run: 22, race: 25, rest: 0 };
+    return (s.km || 0) * (perKm[s.type] ?? 9);
+  }
+
+  // Samma formel som servern (_cns_score_from_health): en del som saknas
+  // viktas bort i stället för att räknas som 50 — annars hoppade talet mellan
+  // ~95 och ~65 beroende på om beredskap och HRV hann med i payloaden.
+  function computeCnsScore(h) {
+    if (!h) return null;
+    if (h.cns && 'score' in h.cns) return h.cns.score;
+    const hrvPct = h.hrv?.component ?? h.hrv?.pct;
+    const parts = [];
+    if (hrvPct != null) parts.push([0.40, Math.min(hrvPct, 100)]);
+    if (h.sleep?.score != null) parts.push([0.30, h.sleep.score]);
+    if (h.readiness?.score != null) parts.push([0.20, h.readiness.score]);
+    if (h.stress?.avg != null) parts.push([0.10, 100 - Math.min(h.stress.avg, 100)]);
+    const weight = parts.reduce((sum, [w]) => sum + w, 0);
+    if (!weight) return null;
+    return Math.round(parts.reduce((sum, [w, v]) => sum + w * v, 0) / weight);
+  }
+
+  function getHrvBaselineText(hrv) {
+    if (!hrv) return 'Ingen baslinje';
+    if (hrv.balancedLow != null && hrv.balancedUpper != null) {
+      return `baslinje ${hrv.balancedLow}-${hrv.balancedUpper} ms`;
+    }
+    if (hrv.weeklyAvg != null) return `snitt ${hrv.weeklyAvg} ms`;
+    return 'Ingen baslinje';
+  }
+
+  function getHrvStatusLabel(status) {
+    const key = String(status || '').toUpperCase();
+    return {
+      BALANCED: 'HRV balanserad',
+      UNBALANCED: 'HRV i obalans',
+      LOW: 'HRV låg',
+      POOR: 'HRV mycket låg',
+    }[key] || '';
+  }
+
+  function getHrvStatusText(hrv) {
+    if (!hrv) return 'HRV otillgängligt';
+    const status = hrv.status && hrv.status !== 'NONE' ? getHrvStatusLabel(hrv.status) : null;
+    if (status) return status;
+    if (hrv.pct != null) return `HRV ${hrv.pct}%`;
+    return 'HRV otillgängligt';
+  }
+
+  function getHrvVerdictText(hrv) {
+    const statusText = getHrvStatusLabel(hrv?.status);
+    if (statusText) {
+      const key = String(hrv.status || '').toUpperCase();
+      return {
+        BALANCED: 'HRV balanserad — autonoma nervsystemet ligger i ditt normala spann',
+        UNBALANCED: 'HRV i obalans — utanför ditt normala spann, träna med viss försiktighet',
+        LOW: 'HRV låg — under baslinjen, prioritera återhämtning',
+        POOR: 'HRV mycket låg — längre låg trend, vila rekommenderas',
+      }[key] || statusText;
+    }
+    if (!hrv?.verdict) return 'HRV-data saknas';
+    return String(hrv.verdict)
+      .replace(/Balanced\s*[—-]\s*autonomic system in your normal range/i, 'HRV balanserad — autonoma nervsystemet ligger i ditt normala spann')
+      .replace(/Unbalanced\s*[—-]\s*outside your normal range,\s*train with caution/i, 'HRV i obalans — utanför ditt normala spann, träna med viss försiktighet')
+      .replace(/Low\s*[—-]\s*below baseline,\s*prioritize recovery/i, 'HRV låg — under baslinjen, prioritera återhämtning')
+      .replace(/Poor\s*[—-]\s*sustained low HRV,\s*rest needed/i, 'HRV mycket låg — längre låg trend, vila rekommenderas')
+      .replace(/Not enough baseline data yet/i, 'Inte tillräckligt med baslinjedata ännu');
+  }
+
+  function getHrvClass(hrv) {
+    if (hrv?.light === 'green') return 'good';
+    if (hrv?.light === 'red') return 'bad';
+    if (hrv?.light === 'amber') return 'warn';
+    const pct = hrv?.component ?? hrv?.pct;
+    if (pct == null) return 'warn';
+    return pct >= 85 ? 'good' : pct >= 70 ? 'warn' : 'bad';
+  }
+
+  function getHrvColor(hrv) {
+    if (hrv?.light === 'green') return 'var(--green)';
+    if (hrv?.light === 'red') return 'var(--red)';
+    if (hrv?.light === 'amber') return 'var(--amber)';
+    const pct = hrv?.component ?? hrv?.pct ?? 0;
+    return pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
+  }
+
+  function stressMeta(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return { color:'var(--muted2)', status:'Ingen data', badge:'Ingen data', pct:0 };
+    if (n <= 25) return { color:'var(--green)', status:'Vila', badge:'Vila', pct:n };
+    if (n <= 50) return { color:'var(--green)', status:'Låg stress', badge:'Låg', pct:n };
+    if (n <= 75) return { color:'var(--amber)', status:'Måttlig stress', badge:'Måttlig', pct:n };
+    return { color:'var(--red)', status:'Hög stress', badge:'Hög', pct:n };
+  }
+
+  function setCnsDriver(key, value, pct, color) {
+    const val = document.getElementById(`cns-driver-${key}-val`);
+    const bar = document.getElementById(`cns-driver-${key}-bar`);
+    if (val) {
+      val.textContent = value ?? '-';
+      val.style.color = color || 'var(--muted2)';
+    }
+    if (bar) {
+      bar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+      bar.style.background = color || 'var(--muted2)';
+    }
+  }
+
+  function drawStressHistory(points, current, avg) {
+    const svg = document.getElementById('stress-history-chart');
+    if (!svg) return;
+    const values = (points || []).map(p => Number(p.value)).filter(Number.isFinite);
+    if (values.length < 2) {
+      svg.innerHTML = '<text x="18" y="72" fill="currentColor" style="color:var(--muted);font-size:11px;">Mer historik visas efter några synkar.</text>';
+      return;
+    }
+    const W = 320, H = 132, PX = 18, PT = 28, PB = 24;
+    const chartH = H - PT - PB;
+    const max = Math.min(100, Math.max(70, ...values, current ?? 0, avg ?? 0) + 8);
+    const min = Math.max(0, Math.min(15, ...values, current ?? 100, avg ?? 100) - 8);
+    const span = Math.max(1, max - min);
+    const pts = values.map((v, i) => ({
+      x: PX + (i / Math.max(1, values.length - 1)) * (W - PX * 2),
+      y: PT + (1 - ((v - min) / span)) * chartH
+    }));
+    const lineD = pts.map((p, i) => {
+      if (i === 0) return `M${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+      const prev = pts[i - 1];
+      const cx = (prev.x + p.x) / 2;
+      return `C${cx.toFixed(1)},${prev.y.toFixed(1)} ${cx.toFixed(1)},${p.y.toFixed(1)} ${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+    }).join(' ');
+    const baseY = H - PB;
+    const areaD = `${lineD} L${pts[pts.length - 1].x.toFixed(1)},${baseY} L${pts[0].x.toFixed(1)},${baseY} Z`;
+    const avgY = avg == null ? null : PT + (1 - ((avg - min) / span)) * chartH;
+    const last = pts[pts.length - 1];
+    const first = pts[0];
+    const avgLabel = avg == null ? '-' : Number(avg).toFixed(1);
+    const lastValue = values[values.length - 1];
+    const stressColor = stressMeta(lastValue).color;
+    const grid = [0.25, 0.5, 0.75].map(t => {
+      const y = PT + chartH * t;
+      return `<line x1="${PX}" y1="${y.toFixed(1)}" x2="${W - PX}" y2="${y.toFixed(1)}" class="stress-grid-line"/>`;
+    }).join('');
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="stress-area-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" style="stop-color:var(--amber)" stop-opacity="0.28"/>
+          <stop offset="72%" style="stop-color:var(--amber)" stop-opacity="0.04"/>
+          <stop offset="100%" style="stop-color:var(--amber)" stop-opacity="0"/>
+        </linearGradient>
+        <filter id="stress-line-glow" x="-10%" y="-80%" width="120%" height="260%">
+          <feGaussianBlur stdDeviation="2.2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect x="0" y="0" width="${W}" height="${H}" rx="12" class="stress-chart-bg"/>
+      ${grid}
+      ${avgY == null ? '' : `<line x1="${PX}" y1="${avgY.toFixed(1)}" x2="${W - PX}" y2="${avgY.toFixed(1)}" class="stress-avg-line"/>`}
+      <path d="${areaD}" class="stress-area"/>
+      <path d="${lineD}" class="stress-line-shadow"/>
+      <path d="${lineD}" class="stress-line" filter="url(#stress-line-glow)"/>
+      <circle cx="${first.x.toFixed(1)}" cy="${first.y.toFixed(1)}" r="2" class="stress-end-dot stress-start-dot"/>
+      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="6.5" class="stress-current-halo"/>
+      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="3.4" fill="${stressColor}" class="stress-current-dot"/>
+      <text x="${PX}" y="15" class="stress-chart-label">Senaste 30 dagar</text>
+      <text x="${W - PX}" y="15" text-anchor="end" class="stress-chart-label">Snitt ${avgLabel}</text>
+      <text x="${last.x.toFixed(1)}" y="${Math.max(25, last.y - 12).toFixed(1)}" text-anchor="middle" class="stress-current-label">${Math.round(lastValue)}</text>`;
+  }
+
+  function getSessionDate(session, year) {
+    const monday = getMondayOfISOWeek(session.week, year);
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + (session.dow || 0));
+    return d;
+  }
+
+  function getNextSessions(limit = 5) {
+    const now = new Date();
+    now.setHours(0,0,0,0);
+    const year = now.getFullYear();
+    return PLAN_SESSIONS
+      .map(s => ({ ...s, date: getSessionDate(s, year) }))
+      .filter(s => s.date >= now && s.status !== 'completed' && s.status !== 'skipped')
+      .sort((a,b) => a.date - b.date)
+      .slice(0, limit);
+  }
+
+  function getWeekTrainingStats() {
+    const { week } = getISOWeekInfo();
+    const { start, end } = getWeekBounds();
+    const planned = PLAN_SESSIONS.filter(s => s.week === week);
+
+    // Deduplicate by slot: after reseed, DB can have both a 'completed' and a
+    // 'planned' row for the same session. Prefer 'planned'; fall back to any.
+    // The key includes type and title — deduplicating on the day alone hid
+    // every session but one whenever a day held both a lift and a run, and the
+    // week's planned distance was understated by the ones it dropped.
+    const dedupMap = new Map();
+    for (const s of planned) {
+      const slot = `${s.dow}|${s.type}|${s.title}`;
+      if (!dedupMap.has(slot) || s.status === 'planned') dedupMap.set(slot, s);
+    }
+    const uniquePlanned = [...dedupMap.values()];
+    const plannedKm = uniquePlanned.reduce((sum, s) => sum + (s.km || 0), 0);
+
+    const completedRuns = recentActivities.filter(a => {
+      const d = new Date(a.startTimeLocal || a.beginTimestamp);
+      return d >= start && d < end && isRunActivity(a);
+    });
+    const completedKm = completedRuns.reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
+    const completedLoad = recentActivities
+      .filter(a => {
+        const d = new Date(a.startTimeLocal || a.beginTimestamp);
+        return d >= start && d < end;
+      })
+      .reduce((sum, a) => sum + (a.activityTrainingLoad || 0), 0);
+    const todayDow = (new Date().getDay() + 6) % 7;
+    const remaining = uniquePlanned.filter(s => s.dow >= todayDow && s.status !== 'completed' && s.status !== 'skipped');
+    const remainingLoad = remaining.reduce((sum, s) => sum + sessionLoadEstimate(s), 0);
+    return { week, planned: uniquePlanned, plannedKm, completedKm, completedLoad, remaining, remainingLoad };
+  }
+
+  function renderTrainingCockpit() {
+    // Veckokalendern på Översikt. Beslutet om dagens pass ägs av /api/today;
+    // här visas bara vad som är inplanerat, dag för dag.
+    const list = document.getElementById('cockpit-next-list');
+    if (!list) return;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const year = today.getFullYear();
+    const { week: currentWeek } = getISOWeekInfo();
+    const open = s => s.status !== 'completed' && s.status !== 'skipped';
+    const dated = PLAN_SESSIONS.map((s, planIndex) => ({ ...s, planIndex, date: getSessionDate(s, year) }));
+    // Den här veckan så länge något är kvar; annars nästa vecka med pass.
+    const remainingThisWeek = dated.some(s => s.week === currentWeek && s.date >= today && open(s));
+    const nextWeek = dated.filter(s => s.date >= today && open(s)).sort((x, y) => x.date - y.date)[0]?.week;
+    const week = remainingThisWeek || !nextWeek ? currentWeek : nextWeek;
+    const sessions = dated.filter(s => s.week === week);
+    const monday = getMondayOfISOWeek(week, year);
+
+    const plannedKm = Math.round(sessions.reduce((sum, s) => sum + (Number(s.km) || 0), 0) * 10) / 10;
+    const left = sessions.filter(s => s.date >= today && open(s) && s.type !== 'rest').length;
+    document.getElementById('cockpit-week-title').textContent = sessions.length
+      ? `Vecka ${week}${week === currentWeek ? '' : ' · nästa vecka'}`
+      : `Vecka ${week} · inget inplanerat`;
+    const tag = document.getElementById('cockpit-compliance');
+    tag.textContent = sessions.length
+      ? `${plannedKm.toLocaleString('sv-SE')} km${left ? ` · ${left} pass kvar` : ''}`
+      : 'Planera under Plan';
+    tag.className = 'wk-summary';
+
+    const kind = s => ({ run: 'quality', easy: 'easy', lift: 'strength', race: 'race', rest: 'rest' }[s.type] || 'easy');
+    const kindLabel = s => ({ run: 'Kvalitet', easy: 'Lugnt', lift: 'Styrka', race: 'Lopp', rest: 'Vila' }[s.type] || 'Pass');
+    const statusLabel = s => s.status === 'completed' ? 'Klart' : s.status === 'skipped' ? 'Överhoppat'
+      : s.status === 'missed' ? 'Missat' : '';
+    const days = [];
+    for (let dow = 0; dow < 7; dow++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + dow);
+      const daySessions = sessions.filter(s => (s.dow || 0) === dow);
+      const isToday = date.getTime() === today.getTime();
+      const past = date < today;
+      const items = daySessions.length ? daySessions.map(s => {
+        const sub = (s.type === 'lift' && s.strength_recommendation_text) || s.detail || '';
+        const status = statusLabel(s);
+        return `<button type="button" class="wk-session wk-${kind(s)}${status ? ' wk-done' : ''}"${planSessionOpenAttrs(s.planIndex)}>
+          <span class="wk-session-top"><span class="wk-kind">${escapeHtml(kindLabel(s))}</span>
+            ${s.km ? `<span class="wk-km">${escapeHtml(String(s.km).replace('.', ','))} km</span>` : ''}</span>
+          <span class="wk-title">${escapeHtml(s.title)}</span>
+          ${sub ? `<span class="wk-detail">${escapeHtml(sub)}</span>` : ''}
+          ${status ? `<span class="wk-status">${escapeHtml(status)}</span>` : ''}
+          <span class="wk-open">Visa upplägg <span aria-hidden="true">↗</span></span>
+        </button>`;
+      }).join('') : '<div class="wk-empty">Ledigt</div>';
+      days.push(`<div class="wk-day${isToday ? ' wk-today' : ''}${past ? ' wk-past' : ''}">
+        <div class="wk-day-head"><span>${escapeHtml(date.toLocaleDateString('sv-SE', { weekday: 'short' }).replace('.', ''))}</span>
+          <strong>${date.getDate()}</strong>${isToday ? '<em>Idag</em>' : ''}</div>
+        <div class="wk-items">${items}</div></div>`);
+    }
+    list.className = 'wk-grid';
+    list.innerHTML = days.join('');
+  }
+
+  function safeRenderTrainingCockpit() {
+    try {
+      renderTrainingCockpit();
+      // Update appbar volume
+      try {
+        const stats = getWeekTrainingStats();
+        const volEl = document.getElementById('appbar-volume');
+        if (volEl) {
+          volEl.innerHTML = stats.completedKm.toFixed(1) + '<span style="font-size:11px;color:var(--muted);font-weight:500"> km</span>';
+        }
+      } catch(e2) {}
+    } catch(e) {
+      const titleEl = document.getElementById('cockpit-week-title');
+      if (titleEl) titleEl.textContent = 'Veckan kunde inte ritas upp';
+      console.error('Cockpit render error:', e);
+    }
+  }
+
+  async function loadHealth() {
+    try {
+      const res = await fetch('/api/health');
+      const h = await res.json();
+      if (h.error) return;
+      currentHealthData = h;
+      renderSleepPage(h);
+      const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
+
+      // ── CNS-SCORE (ersätter Recovery) ──
+      // Formel: 0.40×HRV% + 0.30×sömnpoäng + 0.20×Garmin-beredskap + 0.10×(100-stress)
+      // Baserat på Flatt & Esco (2016)
+      const cnsScore = computeCnsScore(h) ?? 0;
+
+      const cnsCol   = cnsScore >= 70 ? 'var(--green)' : cnsScore >= 45 ? 'var(--amber)' : 'var(--red)';
+      const cnsTitle = cnsScore >= 70 ? 'Redo för kvalitetspass' : cnsScore >= 45 ? 'Normalt pass ok' : 'Vila eller Z2 idag';
+      const cnsDesc  = cnsScore >= 70
+        ? 'CNS fullt återhämtat. HRV, sömn och beredskap är gröna – perfekt dag för intervaller eller tröskelpass.'
+        : cnsScore >= 45
+        ? 'Acceptabel CNS-status. Planerat pass går bra, men undvik maxansträngning.'
+        : 'CNS visar tydliga tecken på otillräcklig återhämtning. Prioritera vila, lugn Z2, eller flytta fram kvalitetspasset.';
+
+      const sleepMissing = !(h.sleep && h.sleep.totalSec);
+      if (sleepMissing) {
+        const cs = document.getElementById('cns-score');
+        cs.textContent = '–'; cs.style.color = 'var(--muted2)';
+        document.getElementById('cns-title').textContent = 'Ingen sömndata';
+        document.getElementById('cns-desc').textContent  = 'I natt registrerades inte (klockan av eller slut på batteri), så CNS-poängen kan inte beräknas. Den kommer tillbaka automatiskt efter nästa synkade natt.';
+        document.getElementById('cns-bar').style.width   = '0%';
+        document.getElementById('hg-recovery').style.setProperty('--cns-color', 'var(--muted2)');
+      } else {
+        document.getElementById('cns-score').textContent = cnsScore;
+        document.getElementById('cns-score').style.color = cnsCol;
+        document.getElementById('cns-title').textContent = cnsTitle;
+        document.getElementById('cns-desc').textContent  = cnsDesc;
+        document.getElementById('cns-bar').style.width   = cnsScore + '%';
+        document.getElementById('cns-bar').style.background = cnsCol;
+        document.getElementById('hg-recovery').style.setProperty('--cns-color', cnsCol);
+      }
+
+      // HRV Traffic Light (Kiviniemi-metoden: ±5% från veckoavg)
+      const hrvDiff = h.hrv?.lastNightAvg && h.hrv?.weeklyAvg
+        ? ((h.hrv.lastNightAvg - h.hrv.weeklyAvg) / h.hrv.weeklyAvg) * 100
+        : null;
+      let hrvLight = h.hrv?.light || 'amber';
+      let hrvLightText = getHrvVerdictText(h.hrv);
+      if (!h.hrv?.light && hrvDiff !== null) {
+        if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% – kvalitetspass går bra`; }
+        else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% – vila eller Z2`; }
+        else                    { hrvLight = 'amber'; hrvLightText = `HRV +/-${Math.abs(hrvDiff).toFixed(0)}% – normalt pass`; }
+      }
+      ['green','amber','red'].forEach(c => document.getElementById('hrv-dot-' + c).className = 'hrv-dot');
+      document.getElementById('hrv-dot-' + hrvLight).classList.add('active-' + hrvLight);
+      document.getElementById('hrv-light-label').textContent = hrvLightText;
+
+      // CNS delmetriker
+      if (h.hrv?.lastNightAvg != null) {
+        const pct = h.hrv.component ?? h.hrv.pct ?? 0;
+        const pctCol = getHrvColor(h.hrv);
+        document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
+        document.getElementById('cns-hrv-val').style.color = pctCol;
+        const statusText = h.hrv.status && h.hrv.status !== 'NONE' ? `${getHrvStatusLabel(h.hrv.status)} - ` : '';
+        document.getElementById('cns-hrv-sub').textContent = `${statusText}${getHrvBaselineText(h.hrv)}`;
+      } else {
+        document.getElementById('cns-hrv-val').textContent = '–';
+        document.getElementById('cns-hrv-val').style.color = 'var(--muted2)';
+        document.getElementById('cns-hrv-sub').textContent = 'Ingen data i natt';
+      }
+      if (h.readiness?.score != null) {
+        const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('cns-readiness-val').textContent = h.readiness.score;
+        document.getElementById('cns-readiness-val').style.color = rc;
+        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
+        document.getElementById('cns-readiness-sub').textContent = lblMap[h.readiness.level] || '/ 100';
+      } else {
+        document.getElementById('cns-readiness-val').textContent = '–';
+        document.getElementById('cns-readiness-val').style.color = 'var(--muted2)';
+        document.getElementById('cns-readiness-sub').textContent = 'Ingen data';
+      }
+      if (h.restingHR?.value != null) {
+        const rhr = h.restingHR.value;
+        const rc = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
+        document.getElementById('cns-rhr-val').textContent = rhr;
+        document.getElementById('cns-rhr-val').style.color = rc;
+        document.getElementById('cns-rhr-sub').textContent = `snitt ${h.restingHR.sevenDayAvg || '-'} bpm`;
+      } else {
+        document.getElementById('cns-rhr-val').textContent = '–';
+        document.getElementById('cns-rhr-val').style.color = 'var(--muted2)';
+        document.getElementById('cns-rhr-sub').textContent = 'Ingen data';
+      }
+
+      // CNS-drivare
+      const sleepDriver = h.sleep?.score;
+      const sleepDriverColor = sleepDriver == null ? 'var(--muted2)' : sleepDriver >= 80 ? 'var(--green)' : sleepDriver >= 60 ? 'var(--amber)' : 'var(--red)';
+      setCnsDriver('sleep', sleepDriver == null ? '-' : `${sleepDriver}/100`, sleepDriver || 0, sleepDriverColor);
+
+      const stressDriver = h.stress?.avg;
+      const stressRecovery = stressDriver == null ? null : Math.max(0, 100 - stressDriver);
+      const stressDriverColor = stressDriver == null ? 'var(--muted2)' : stressDriver <= 35 ? 'var(--green)' : stressDriver <= 60 ? 'var(--amber)' : 'var(--red)';
+      setCnsDriver('stress', stressDriver == null ? '-' : `${stressDriver}/100`, stressRecovery || 0, stressDriverColor);
+
+      const bbDriver = h.bodyBattery?.current;
+      const bbDriverColor = bbDriver == null ? 'var(--muted2)' : bbDriver >= 60 ? 'var(--green)' : bbDriver >= 30 ? 'var(--amber)' : 'var(--red)';
+      setCnsDriver('bb', bbDriver == null ? '-' : `${bbDriver}/100`, bbDriver || 0, bbDriverColor);
+
+      const driverSummary = document.getElementById('cns-driver-summary');
+      if (driverSummary) {
+        const weakSignals = [
+          sleepDriver != null && sleepDriver < 60 ? 'sömn' : '',
+          stressDriver != null && stressDriver > 60 ? 'stress' : '',
+          bbDriver != null && bbDriver < 35 ? 'batteri' : ''
+        ].filter(Boolean);
+        driverSummary.textContent = weakSignals.length ? `Begränsas av ${weakSignals.join(', ')}` : 'Stabil helhetsbild';
+      }
+
+      // ── SÖMN ──
+      let sleepScore = 50;
+      if (h.sleep?.totalSec) {
+        sleepScore = h.sleep.score || 50;
+        const totalH = Math.floor(h.sleep.totalSec / 3600);
+        const totalM = Math.floor((h.sleep.totalSec % 3600) / 60);
+
+        // Sleep score
+        const sc = h.sleep.score;
+        const scCol = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
+        const scStatus = sc >= 90 ? 'Utmärkt' : sc >= 80 ? 'Bra' : sc >= 60 ? 'Acceptabel' : 'Dålig';
+        setMetric('hd-sscore-val', 'hd-sscore-status', sc || '-', '/ 100', scStatus, scCol);
+
+        // Deep sleep
+        const deep = h.sleep.deepPct;
+        const deepCol = deep >= 15 ? 'var(--green)' : deep >= 10 ? 'var(--amber)' : 'var(--red)';
+        const deepStatus = deep >= 20 ? 'Utmärkt' : deep >= 15 ? 'Normal' : deep >= 10 ? 'Något lågt' : 'För lite';
+        setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus}  ·  mål 15–25%`, deepCol);
+        document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + '  ·  mål: 15–25% av sömnen';
+
+        // REM
+        const rem = h.sleep.remPct;
+        const remCol = rem >= 20 ? 'var(--green)' : rem >= 15 ? 'var(--amber)' : 'var(--red)';
+        const remStatus = rem >= 20 ? 'Utmärkt' : rem >= 15 ? 'Normal' : rem >= 10 ? 'Något lågt' : 'För lite';
+        setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus}  ·  mål 20–25%`, remCol);
+        document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + '  ·  mål: 20–25% av sömnen';
+
+        // Total sleep
+        const totalCol = totalH >= 7 ? 'var(--green)' : totalH >= 6 ? 'var(--amber)' : 'var(--red)';
+        const totalStatus = totalH >= 8 ? 'Utmärkt' : totalH >= 7 ? 'Bra' : totalH >= 6 ? 'Lite kort' : 'För lite';
+        setMetric('hd-stotal-val', 'hd-stotal-status', `${totalH}h ${totalM}m`, '', totalStatus, totalCol);
+
+        const sleepDesc = sleepScore >= 80
+          ? `${totalH}h ${totalM}m sömn – god återhämtning under natten.`
+          : sleepScore >= 60
+          ? `${totalH}h ${totalM}m sömn – acceptabelt, men kan bli bättre.`
+          : `${totalH}h ${totalM}m sömn – prioritera mer sömn i natt.`;
+        setHG('hg-sleep-score', 'hg-sleep-bar', 'hg-sleep-badge', 'hg-sleep-desc', sleepScore, sleepDesc);
+
+        // Sömnbrist - 7,5 h/natt mål = 52,5 h/vecka
+        // Beräkna baserat på dagensömnstid × dagar hittills i veckan
+        const SLEEP_TARGET_H = 7.5;
+        const todayDowSleep = new Date().getDay() || 7; // 1=mån
+        const daysIntoWeek = todayDowSleep;
+        const targetSoFar = SLEEP_TARGET_H * daysIntoWeek * 3600;
+        const actualSoFar = h.sleep.totalSec; // förenklat: ger i alla fall dagens underskott
+        const dailyDebt = Math.max(0, SLEEP_TARGET_H * 3600 - h.sleep.totalSec);
+        const dailyDebtH = Math.floor(dailyDebt / 3600);
+        const dailyDebtM = Math.round((dailyDebt % 3600) / 60);
+        const debtEl = document.getElementById('sleep-debt-val');
+        if (dailyDebt < 900) {
+          debtEl.textContent = 'Inget underskott';
+          debtEl.style.color = 'var(--green)';
+        } else {
+          debtEl.textContent = `-${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m idag`;
+          debtEl.style.color = dailyDebt > 3600 ? 'var(--red)' : 'var(--amber)';
+        }
+
+        // Sömnflaggor (djupsömn, REM, CNS-konsekvenser)
+        const flags = [];
+        if (deep < 10)  flags.push({ text: ' Låg djupsömn – hoppa över styrka', cls: 'bad' });
+        else if (deep >= 15) flags.push({ text: ' Djupsömn ok', cls: 'ok' });
+        else            flags.push({ text: '~ Djupsömn låg', cls: 'warn' });
+        if (rem < 15)   flags.push({ text: ' Låg REM – undvik intervaller', cls: 'bad' });
+        else if (rem >= 20) flags.push({ text: ' REM ok', cls: 'ok' });
+        else            flags.push({ text: '~ REM något låg', cls: 'warn' });
+        const flagRow = document.getElementById('sleep-flag-row');
+        flagRow.innerHTML = flags.map(f => `<span class="sleep-flag ${f.cls}">${f.text}</span>`).join('');
+        document.getElementById('hg-sleep-score').style.color = sleepScore >= 80 ? 'var(--purple)' : sleepScore >= 60 ? 'var(--amber)' : 'var(--red)';
+        const badge = document.getElementById('hg-sleep-badge');
+        badge.className = sleepScore >= 80 ? 'hg-status hs-purple' : sleepScore >= 60 ? 'hg-status hs-ok' : 'hg-status hs-low';
+        badge.textContent = sleepScore >= 80 ? 'Bra' : sleepScore >= 60 ? 'Ok' : 'Dålig';
+      } else {
+        // Ingen sömndata (klockan synkade ingen natt) — skriv ut det istället för att låta korten ladda
+        const muted = 'var(--muted2)';
+        const sEl = document.getElementById('hg-sleep-score');
+        sEl.textContent = '–'; sEl.style.color = muted;
+        document.getElementById('hg-sleep-bar').style.width = '0%';
+        const badge = document.getElementById('hg-sleep-badge');
+        badge.className = 'hg-status'; badge.style.color = muted; badge.textContent = 'Ingen data';
+        document.getElementById('hg-sleep-summary').textContent = '';
+        document.getElementById('hg-sleep-desc').textContent =
+          'Ingen sömn registrerad i natt — klockan synkade ingen natt (av eller slut på batteri). Sömnvärden återkommer automatiskt efter nästa registrerade natt.';
+        ['hd-sscore', 'hd-deep', 'hd-rem', 'hd-stotal'].forEach(id => setMetric(id + '-val', id + '-status', '–', '', '', muted));
+        const debtEl = document.getElementById('sleep-debt-val');
+        debtEl.textContent = '–'; debtEl.style.color = muted;
+        document.getElementById('sleep-flag-row').innerHTML = '<span class="sleep-flag warn">Ingen sömndata för i natt</span>';
+      }
+
+      // ── ENERGI & STRESS ──
+      let energyScore = 50;
+      if (h.bodyBattery?.current != null || h.stress?.avg != null) {
+        const bb = h.bodyBattery?.current ?? 50;
+        const stress = h.stress?.avg ?? 50;
+        energyScore = Math.round(bb * 0.6 + (100 - stress) * 0.4);
+
+        // Body Battery
+        const bbCol = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
+        const bbStatus = bb >= 75 ? 'Hög energi' : bb >= 50 ? 'Måttlig' : bb >= 25 ? 'Låg' : 'Tom – vila';
+        setMetric('hd-bb-val', 'hd-bb-status', bb, '/ 100', bbStatus, bbCol);
+        document.getElementById('hd-bb-desc').textContent = `Max idag: ${h.bodyBattery?.max || '-'}  ·  Min: ${h.bodyBattery?.drained ? bb : '-'}`;
+
+        // Stress
+        const stressCol = stress <= 25 ? 'var(--green)' : stress <= 50 ? 'var(--amber)' : 'var(--red)';
+        const stressStatus = stress <= 25 ? 'Avslappnad' : stress <= 50 ? 'Låg stress' : stress <= 75 ? 'Måttlig' : 'Hög stress';
+        setMetric('hd-stress-val', 'hd-stress-status', stress, '/ 100', stressStatus, stressCol);
+
+        // SpO2
+        if (h.spo2?.avg != null) {
+          const spo2 = h.spo2.avg;
+          const spo2Col = spo2 >= 97 ? 'var(--green)' : spo2 >= 95 ? 'var(--green)' : spo2 >= 90 ? 'var(--amber)' : 'var(--red)';
+          const spo2Status = spo2 >= 97 ? 'Optimal' : spo2 >= 95 ? 'Normal' : spo2 >= 90 ? 'Något lågt – bevaka' : 'Kritiskt lågt!';
+          setMetric('hd-spo2-val', 'hd-spo2-status', spo2 + '%', '%', spo2Status, spo2Col);
+          document.getElementById('hd-spo2-desc').textContent = `Lägst: ${h.spo2.min ? h.spo2.min + '%' : '-'}  ·  normalt: 95–100%`;
+        }
+
+        // Andning
+        if (h.respiration?.avg != null) {
+          const resp = h.respiration.avg;
+          const respCol = resp <= 16 ? 'var(--green)' : resp <= 20 ? 'var(--amber)' : 'var(--red)';
+          const respStatus = resp <= 12 ? 'Atlet – utmärkt' : resp <= 16 ? 'Normal' : resp <= 20 ? 'Något förhöjd' : 'Förhöjd';
+          setMetric('hd-resp-val', 'hd-resp-status', resp, '/min', respStatus, respCol);
+          document.getElementById('hd-resp-desc').textContent = `Under sömn: ${h.respiration.sleepAvg || '-'}/min  ·  normalt: 12–20/min`;
+        }
+
+        const energyDesc = energyScore >= 70
+          ? `Kroppsbatteri ${bb}/100 – kroppen har energi för ett bra pass.`
+          : energyScore >= 45
+          ? `Kroppsbatteri ${bb}/100 – måttlig energinivå; håll träningen lagom.`
+          : `Kroppsbatteri ${bb}/100 – kroppen är trött. Prioritera vila och återhämtning.`;
+        setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
+      }
+
+      renderDailyActivity(h.daily || {});
+
+      const healthStressAvg = h.stress?.avg;
+      const healthStressInfo = stressMeta(healthStressAvg);
+      const healthStressScoreEl = document.getElementById('hg-stress-score');
+      if (healthStressScoreEl) {
+        healthStressScoreEl.textContent = healthStressAvg ?? '-';
+        healthStressScoreEl.style.color = healthStressInfo.color;
+      }
+      const healthStressBadge = document.getElementById('hg-stress-badge');
+      if (healthStressBadge) {
+        healthStressBadge.textContent = healthStressInfo.badge;
+        healthStressBadge.className = healthStressInfo.color === 'var(--red)' ? 'hg-status hs-low' : healthStressInfo.color === 'var(--amber)' ? 'hg-status hs-ok' : 'hg-status hs-great';
+      }
+      const healthStressBar = document.getElementById('hg-stress-bar');
+      if (healthStressBar) healthStressBar.style.width = Math.max(0, Math.min(100, healthStressInfo.pct)) + '%';
+      setMetric('hd-stress-val', 'hd-stress-status', healthStressAvg ?? '-', '/ 100', healthStressInfo.status, healthStressInfo.color);
+      const healthStressDesc = document.getElementById('hg-stress-desc');
+      if (healthStressDesc) {
+        healthStressDesc.textContent = healthStressAvg == null
+          ? 'Ingen stressdata från Garmin ännu.'
+          : healthStressAvg <= 25 ? 'Låg fysiologisk belastning idag. Kroppen ser lugn ut.'
+          : healthStressAvg <= 50 ? 'Stressnivån är låg till normal. Bra läge för planerad träning.'
+          : healthStressAvg <= 75 ? 'Måttlig stress idag. Var uppmärksam på återhämtning och passintensitet.'
+          : 'Hög stress idag. Prioritera återhämtning och undvik extra belastning.';
+      }
+      const healthStressSummary = document.getElementById('hg-stress-summary');
+      if (healthStressSummary) healthStressSummary.textContent = h.stress?.max != null ? `Max ${h.stress.max}` : '';
+      try {
+        const sr = await fetch('/api/health/stress-history?days=30');
+        const sd = await sr.json();
+        const histAvg = sd.avg;
+        const delta = healthStressAvg != null && histAvg != null ? Math.round((healthStressAvg - histAvg) * 10) / 10 : null;
+        const deltaColor = delta == null ? 'var(--muted2)' : delta <= -5 ? 'var(--green)' : delta <= 5 ? 'var(--amber)' : 'var(--red)';
+        const histVal = document.getElementById('hd-stress-hist-val');
+        if (histVal) histVal.textContent = histAvg ?? '-';
+        const histStatus = document.getElementById('hd-stress-hist-status');
+        if (histStatus) histStatus.textContent = histAvg == null ? '' : '/ 100';
+        const deltaVal = document.getElementById('hd-stress-delta-val');
+        if (deltaVal) {
+          deltaVal.textContent = delta == null ? '-' : (delta > 0 ? '+' : '') + delta;
+          deltaVal.style.color = deltaColor;
+        }
+        const deltaStatus = document.getElementById('hd-stress-delta-status');
+        if (deltaStatus) deltaStatus.textContent = delta == null ? '' : delta <= -5 ? 'lägre än vanligt' : delta <= 5 ? 'nära normalt' : 'högre än vanligt';
+        const deltaDesc = document.getElementById('hd-stress-delta-desc');
+        if (deltaDesc && delta != null) deltaDesc.textContent = `Mot 30-dagars snitt ${histAvg}`;
+        drawStressHistory(sd.values || [], healthStressAvg, histAvg);
+      } catch(e) {
+        drawStressHistory([], healthStressAvg, null);
+      }
+
+      const d = new Date();
+      document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric',month:'long',year:'numeric'}) + '  ·  Garmin live-data';
+
+      // Snapshot på hemsidan
+      const snapSets = [
+        { valId:'snap-readiness-val', subId:'snap-readiness-sub', barId:'snap-readiness-bar',
+          val: h.readiness?.score, sub: (()=>{ const m={VERY_HIGH:'Mycket hög',HIGH:'Hög',MODERATE:'Måttlig',LOW:'Låg',VERY_LOW:'Mycket låg'}; return m[h.readiness?.level]||''; })(),
+          col: h.readiness?.score >= 70 ? 'var(--green)' : h.readiness?.score >= 40 ? 'var(--amber)' : 'var(--red)', pct: h.readiness?.score },
+        { valId:'snap-rhr-val', subId:'snap-rhr-sub', barId:'snap-rhr-bar',
+          val: h.restingHR?.value, sub: 'Snitt 7d: ' + (h.restingHR?.sevenDayAvg || '-') + ' bpm',
+          col: h.restingHR?.value <= (h.restingHR?.sevenDayAvg || h.restingHR?.value) + 2 ? 'var(--green)' : h.restingHR?.value <= (h.restingHR?.sevenDayAvg || h.restingHR?.value) + 6 ? 'var(--amber)' : 'var(--red)',
+          pct: Math.max(0, Math.min(100, 100 - ((h.restingHR?.value || 60) - 35) / 45 * 100)) },
+        { valId:'snap-hrv-val', subId:'snap-hrv-sub', barId:'snap-hrv-bar',
+          val: h.hrv?.lastNightAvg, sub: h.hrv?.status && h.hrv.status !== 'NONE' ? `${getHrvStatusLabel(h.hrv.status)} - ${getHrvBaselineText(h.hrv)}` : getHrvBaselineText(h.hrv),
+          col: getHrvColor(h.hrv), pct: Math.min(h.hrv?.component ?? h.hrv?.pct ?? 0, 100) },
+      ];
+      if (h.sleep?.totalSec) {
+        const hours = Math.floor(h.sleep.totalSec / 3600);
+        const minutes = Math.round((h.sleep.totalSec % 3600) / 60);
+        const score = h.sleep.score;
+        snapSets.push({ valId:'snap-sleep-val', subId:'snap-sleep-sub', barId:'snap-sleep-bar',
+          val: `${hours} h ${String(minutes).padStart(2, '0')} min`,
+          sub: (score != null ? `Sömnpoäng ${score}` : 'Ingen sömnpoäng') + (h.sleep.fallback ? ' · föregående natt' : ''),
+          col: score == null ? 'var(--muted2)' : score >= 80 ? 'var(--green)' : score >= 60 ? 'var(--amber)' : 'var(--red)',
+          pct: score ?? Math.min(100, h.sleep.totalSec / 3600 / 8 * 100) });
+      }
+      snapSets.forEach(s => {
+        if (s.val == null) return;
+        const v = document.getElementById(s.valId); if (v) { v.textContent = s.val; v.style.color = s.col; }
+        const b = document.getElementById(s.subId); if (b) b.textContent = s.sub;
+        const r = document.getElementById(s.barId);  if (r) { r.style.width = (s.pct||0) + '%'; r.style.background = s.col; }
+      });
+
+      // Beredskapstalet kommer från servern (h.cns.score) i stället för att
+      // räknas fram en tredje gång här. Ringen ritas av setReadinessRing, samma
+      // funktion som /api/today använder, så talet kan inte hamna på olika
+      // sidor om en gräns beroende på vem som ritade det sist.
+      const readinessScore = h.cns?.score ?? computeCnsScore(h);
+      if (readinessScore != null) setReadinessRing(readinessScore);
+      const sub = document.getElementById('snap-readiness-sub');
+      if (sub && readinessScore != null) {
+        sub.textContent = `${readinessScore} av 100`;
+        sub.style.color = '';
+      }
+
+      // Dagens besked (Idag-sidans hero)
+      if (h.restOrTrain) {
+        const rot = h.restOrTrain;
+        const hero = document.getElementById('rot-hero');
+        const badgeText = document.getElementById('rot-badge-text');
+        const title = document.getElementById('rot-hero-title');
+        const desc = document.getElementById('rot-hero-desc');
+
+        if (hero) {
+          hero.className = 'rot-hero ' + (
+            rot.decision === 'train_hard' ? 'status-ready' :
+            rot.decision === 'train_moderate' ? 'status-moderate' :
+            rot.decision === 'train_easy' ? 'status-caution' : 'status-rest'
+          );
+        }
+        if (badgeText) badgeText.textContent = rot.badge || 'BESKED';
+        if (title) title.textContent = rot.headline || '';
+        if (desc) desc.textContent = rot.explanation || '';
+      }
+
+      safeRenderTrainingCockpit();
+
+      // Update appbar with live data
+      updateAppbar(h);
+
+      // Draw sparklines from real 7-day history (needs >=2 days of data)
+      try {
+        const sp = await (await fetch('/api/health/spark')).json();
+        if (sp.hrv?.length >= 2)    drawSparkline(document.getElementById('spark-hrv'),    sp.hrv,    'var(--accent)');
+      } catch (e) { /* sparklines are optional decoration */ }
+
+    } catch(e) { console.error('Health error:', e); }
+  }
+
+  function setButtons(ids, text, color, disabled) {
+    ids.forEach(id => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.textContent = text;
+      btn.style.color = color || '';
+      btn.disabled = disabled;
+    });
+  }
+
+  async function refreshData() {
+    const refreshIds = ['refresh-btn', 'mobile-refresh-btn'];
+    setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
+    try {
+      await fetch('/api/sync', { method: 'POST' });
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadPlan(), loadStrain(), loadSessionVerdict(), loadToday(), loadOverview(), loadRacePrediction()]);
+      const res = await fetch('/api/refresh', { method: 'POST' });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.todayRecommendation) {
+        const titles = { easy:'Lugnt pass idag', quality:'Kvalitetspass idag', rest:'Vilodag idag' };
+        const badges = { easy:'badge-green', quality:'badge-amber', rest:'badge-red' };
+        const badgeText = { easy:'LUGNT', quality:'KVALITET', rest:'VILA' };
+        const todayTitle = document.getElementById('today-title');
+        const todayBody = document.getElementById('today-body');
+        const badge = document.getElementById('today-badge');
+        if (todayTitle) todayTitle.textContent = titles[data.todayType] || 'Rekommendation';
+        if (todayBody) todayBody.textContent = data.todayRecommendation;
+        if (badge) {
+          badge.className = 'today-badge ' + (badges[data.todayType] || 'badge-amber');
+          badge.textContent = badgeText[data.todayType] || 'IDAG';
+        }
+      }
+      setButtons(refreshIds, 'Uppdaterat', 'var(--green)', true);
+      setTimeout(() => setButtons(refreshIds, 'Uppdatera data', '', false), 3000);
+    } catch(e) {
+      setButtons(refreshIds, e.message || 'Uppdatering misslyckades', 'var(--red)', true);
+      setTimeout(() => setButtons(refreshIds, 'Uppdatera data', '', false), 4000);
+    }
+  }
+
+  // Noteringar - laddas från DB och används i varje AI-anrop
+  let userNotes = [];
+  let userJournal = [];
+
+  function setupJournalDefaults() {
+    const dateInput = document.getElementById('journal-date');
+    const energyInput = document.getElementById('journal-energy');
+    const textInput = document.getElementById('journal-text');
+    if (dateInput && !dateInput.value) dateInput.value = todayLocalDate();
+    if (energyInput) {
+      const syncEnergy = () => {
+        const label = document.getElementById('journal-energy-label');
+        if (label) label.textContent = energyInput.value + '/5';
+      };
+      energyInput.oninput = syncEnergy;
+      syncEnergy();
+    }
+    if (textInput) {
+      textInput.oninput = () => {
+        const count = document.getElementById('journal-char-count');
+        const status = document.getElementById('journal-save-status');
+        if (count) count.textContent = textInput.value.length + ' tecken';
+        if (status) {
+          status.textContent = 'OSPARAT';
+          status.className = 'today-badge badge-amber';
+        }
+      };
+    }
+    if (dateInput && !dateInput.dataset.bound) {
+      dateInput.dataset.bound = '1';
+      dateInput.addEventListener('change', fillJournalEditorForDate);
+    }
+  }
+
+  async function loadJournal() {
+    setupJournalDefaults();
+    try {
+      const res = await fetch('/api/journal?limit=45');
+      const data = await res.json();
+      userJournal = data.entries || [];
+      renderJournalList();
+      fillJournalEditorForDate();
+    } catch(e) {
+      console.error('Journal error:', e);
+      const list = document.getElementById('journal-list');
+      if (list) list.innerHTML = '<div class="journal-empty">Kunde inte ladda dagboken.</div>';
+    }
+  }
+
+  function fillJournalEditorForDate() {
+    const dateInput = document.getElementById('journal-date');
+    const moodInput = document.getElementById('journal-mood');
+    const energyInput = document.getElementById('journal-energy');
+    const textInput = document.getElementById('journal-text');
+    if (!dateInput || !textInput) return;
+    const entry = userJournal.find(j => j.date === dateInput.value);
+    if (moodInput) moodInput.value = entry?.mood || '';
+    if (energyInput) {
+      energyInput.value = entry?.energy || 3;
+      document.getElementById('journal-energy-label').textContent = energyInput.value + '/5';
+    }
+    textInput.value = entry?.text || '';
+    document.getElementById('journal-char-count').textContent = textInput.value.length + ' tecken';
+    const status = document.getElementById('journal-save-status');
+    if (status) {
+      status.textContent = entry ? 'SPARAD' : 'NY';
+      status.className = 'today-badge ' + (entry ? 'badge-green' : 'badge-amber');
+    }
+  }
+
+  function renderJournalList() {
+    const list = document.getElementById('journal-list');
+    const count = document.getElementById('journal-count');
+    if (!list) return;
+    if (count) count.textContent = userJournal.length + (userJournal.length === 1 ? ' dag' : ' dagar');
+    if (!userJournal.length) {
+      list.innerHTML = '<div class="journal-empty">Inga dagboksinlägg än. Börja med dagens incheckning.</div>';
+      return;
+    }
+    list.innerHTML = userJournal.map(j => {
+      const d = new Date(j.date + 'T12:00:00');
+      const dateLabel = d.toLocaleDateString('sv-SE', { weekday:'short', day:'numeric', month:'short' });
+      const meta = [j.mood, j.energy ? `Energi ${j.energy}/5` : ''].filter(Boolean);
+      return `<article class="journal-entry" data-action="edit-journal" data-date="${escapeHtml(j.date)}">
+        <div class="journal-entry-top">
+          <span class="journal-entry-date">${escapeHtml(dateLabel)}</span>
+          ${meta.map(m => `<span class="journal-pill">${escapeHtml(m)}</span>`).join('')}
+          <button class="journal-delete" data-action="delete-journal" data-id="${Number(j.id)}">x</button>
+        </div>
+        <div class="journal-entry-text">${escapeHtml(j.text)}</div>
+      </article>`;
+    }).join('');
+  }
+
+  function editJournalDate(date) {
+    const dateInput = document.getElementById('journal-date');
+    if (!dateInput) return;
+    dateInput.value = date;
+    fillJournalEditorForDate();
+    document.getElementById('journal-text')?.focus();
+  }
+
+  async function saveJournalEntry() {
+    setupJournalDefaults();
+    const dateInput = document.getElementById('journal-date');
+    const moodInput = document.getElementById('journal-mood');
+    const energyInput = document.getElementById('journal-energy');
+    const textInput = document.getElementById('journal-text');
+    const btn = document.getElementById('journal-save-btn');
+    const status = document.getElementById('journal-save-status');
+    const text = textInput.value.trim();
+    if (!text) { textInput.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Sparar…'; }
+    try {
+      await fetch('/api/journal', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          date: dateInput.value || todayLocalDate(),
+          mood: moodInput.value,
+          energy: energyInput.value,
+          text
+        })
+      });
+      if (status) {
+        status.textContent = 'SPARAD';
+        status.className = 'today-badge badge-green';
+      }
+      await loadJournal();
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Spara dagbok'; }
+    }
+  }
+
+  async function deleteJournalEntry(event, id) {
+    event.stopPropagation();
+    await fetch('/api/journal/' + id, { method: 'DELETE' });
+    await loadJournal();
+  }
+
+  loadJournal();
+
+  async function loadNotes() {
+    try {
+      const res = await fetch('/api/notes');
+      const data = await res.json();
+      userNotes = data.notes || [];
+    } catch(e) { console.error('Notes error:', e); }
+  }
+
+  // Ladda notes direkt vid start
+  loadNotes();
+
+  // Garmin-aktiviteter cached globalt för coachens volyms- och loadberäkning
+  let recentActivities = [];
+  async function loadRecentActivities(refresh = true) {
+    try {
+      const res = await fetch(`/api/activities?days=120&refresh=${refresh ? '1' : '0'}&calendar=1`);
+      const data = await res.json();
+      recentActivities = data.activities || [];
+      safeRenderTrainingCockpit();
+      renderTodaySession();
+      buildCalendar();
+    } catch(e) {}
+  }
+  loadRecentActivities();
+
+  // Training load (ACWR) cached globalt
+  let trainingLoadData = null;
+  async function loadTrainingLoad() {
+    try {
+      const res = await fetch('/api/training-load');
+      const data = await res.json();
+      if (!data.error) trainingLoadData = data;
+      safeRenderTrainingCockpit();
+    } catch(e) {}
+  }
+  loadTrainingLoad();
+
+  // Dagens belastning vägd mot vad kroppen normalt tål (se strain_analysis.py).
+  const STRAIN_TONE_CLASS = { good:'good', warn:'bad', watch:'warn', neutral:'' };
+
+  function strainBarClass(strain) {
+    if (strain >= 60) return 'is-high';
+    if (strain >= 30) return 'is-mid';
+    if (strain > 0)   return 'is-low';
+    return '';
+  }
+
+  function renderStrain(data) {
+    const headline = document.getElementById('strain-headline');
+    const score    = document.getElementById('strain-score');
+    const detail   = document.getElementById('strain-detail');
+    if (!headline || !score) return;
+
+    headline.textContent = data.headline || '–';
+    score.textContent    = data.strain ?? '--';
+    if (detail) detail.textContent = data.detail || '';
+
+    const card = document.getElementById('strain-card');
+    if (card) {
+      const colors = { good:'var(--green)', warn:'var(--red)', watch:'var(--amber)', neutral:'var(--muted2)' };
+      card.style.setProperty('--cockpit-color', colors[data.tone] || 'var(--muted2)');
+    }
+
+    const weekAvg = document.getElementById('strain-week-avg');
+    const streak  = document.getElementById('strain-streak');
+    const load    = document.getElementById('strain-load');
+    if (weekAvg) weekAvg.textContent = data.weekAvgStrain ?? '--';
+    if (streak)  streak.textContent  = data.consecutiveHighDays ?? '--';
+    if (load)    load.textContent    = data.load ? Math.round(data.load) : '0';
+
+    // Var referensen kommer ifrån avgör hur mycket siffran är värd att lita på.
+    const note = document.getElementById('strain-reference-note');
+    if (note) {
+      const sources = {
+        garmin:  ref => `Mot din kroniska belastning (${ref})`,
+        history: ref => `Mot ditt 28-dagarssnitt (${ref})`,
+      };
+      const describe = sources[data.referenceSource];
+      note.textContent = describe && data.referenceLoad
+        ? describe(Math.round(data.referenceLoad))
+        : 'För lite historik — siffran är preliminär';
+    }
+
+    const bars = document.getElementById('strain-bars');
+    if (bars) {
+      const series = data.series || [];
+      bars.innerHTML = series.map((point, index) => {
+        const height = Math.max(2, Math.round(point.strain * 0.56));
+        const today = index === series.length - 1 ? ' is-today' : '';
+        return `<div class="strain-bar ${strainBarClass(point.strain)}${today}"
+                     style="height:${height}px"
+                     title="${escapeHtml(point.t)}: belastning ${Math.round(point.load)} → ${point.strain}"></div>`;
+      }).join('');
+    }
+  }
+
+  async function loadStrain() {
+    try {
+      const res = await fetch('/api/strain');
+      const data = await res.json();
+      if (data.error) return;
+      renderStrain(data);
+    } catch(e) {}
+  }
+  loadStrain();
+
+  // Omdömet om det senast genomförda passet.
+  function renderSessionVerdict(verdict) {
+    const title   = document.getElementById('verdict-title');
+    const tag     = document.getElementById('verdict-tag');
+    const detail  = document.getElementById('verdict-detail');
+    const timing  = document.getElementById('verdict-timing');
+    const actions = document.getElementById('verdict-actions');
+    if (!title) return;
+
+    if (!verdict) {
+      title.textContent = 'Inget bedömt pass än';
+      if (tag) { tag.textContent = 'VÄNTAR'; tag.className = 'cockpit-tag'; }
+      if (detail) detail.textContent = 'Ett omdöme skrivs när synken hittar ett nytt pass.';
+      if (timing) timing.style.display = 'none';
+      if (actions) actions.innerHTML = '';
+      return;
+    }
+
+    title.textContent = verdict.name || verdict.headline || 'Pass';
+    if (tag) {
+      const tags = { easy:['', 'LÄTT'], moderate:['good','MÅTTLIGT'], hard:['warn','HÅRT'], very_hard:['bad','MYCKET HÅRT'] };
+      const [tone, label] = tags[verdict.intensity] || ['', 'PASS'];
+      tag.className = 'cockpit-tag' + (tone ? ' ' + tone : '');
+      tag.textContent = label;
+    }
+    if (detail) detail.textContent = `${verdict.date} · ${verdict.detail || ''}`;
+    if (timing) {
+      timing.textContent = verdict.timing || '';
+      timing.style.display = verdict.timing ? '' : 'none';
+    }
+    if (actions) {
+      actions.innerHTML = (verdict.recovery || []).map(action => `
+        <div class="verdict-action">
+          <div>
+            <div class="verdict-action-title">${escapeHtml(action.title)}</div>
+            <div class="verdict-action-why">${escapeHtml(action.why)}</div>
+          </div>
+        </div>`).join('') || '<div class="verdict-empty">Inga åtgärder föreslagna.</div>';
+    }
+  }
+
+  async function loadSessionVerdict() {
+    try {
+      const res = await fetch('/api/session-verdict?limit=1');
+      const data = await res.json();
+      if (data.error) return;
+      renderSessionVerdict(data.latest);
+    } catch(e) {}
+  }
+  loadSessionVerdict();
+
+  // AI-analys av senaste passen (planerat vs faktiskt gjort)
+  async function loadTrainingReview(force) {
+    try {
+      const res = await fetch('/api/training-review' + (force ? '?force=1' : ''));
+      const d = await res.json();
+      if (d.error) return;
+      // AI-texten skriver inte längre över rubriken och brödtexten — de ägs av
+      // beslutsmotorn via /api/today. Coachens ord ligger som motivering bakom
+      // "Varför?", där de fördjupar beskedet i stället för att konkurrera med
+      // det. Två rubriker om samma dag var precis det som gjorde vyn rörig.
+      const coachLines = [];
+      if (d.headline) coachLines.push(d.headline);
+      if (d.body) {
+        // Servern faller tillbaka på en utgången analys när AI-kvoten är slut.
+        // Säg det rakt ut i stället för att låtsas att den är färsk.
+        const age = d._stale ? ` (analys från ${d._stale_age_min} min sedan — AI-kvoten är slut just nu)` : '';
+        coachLines.push(d.body + age);
+      }
+      const coach = document.getElementById('review-coach');
+      if (coach) {
+        coach.textContent = coachLines.join(' ');
+        coach.style.display = coachLines.length ? 'block' : 'none';
+      }
+      // Fälten nedan saknas i analyser som cachades före det utökade formatet,
+      // så varje rad visas bara när den faktiskt har innehåll.
+      const more = document.getElementById('review-more');
+      if (more) {
+        const setLine = (id, label, value) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.textContent = value ? `${label} ${value}` : '';
+          el.style.display = value ? 'block' : 'none';
+        };
+        const assessment = document.getElementById('review-assessment');
+        if (assessment) assessment.textContent = d.assessment || '';
+        setLine('review-adjust', 'Justera:', d.adjust);
+        setLine('review-next', 'Nästa pass:', d.next);
+        more.style.display = (d.assessment || d.adjust || d.next || coachLines.length) ? 'block' : 'none';
+      }
+      // Statusmärket ägs av beslutsmotorn (KÖR/LÄTTA/FLYTTA/VILA). Passets
+      // status skrivs inte längre in där — då stod det "TO DO" bredvid ett
+      // besked som sa "vila i dag".
+    } catch(e) {}
+  }
+  loadTrainingReview();
+
+  // Outdoor weather - fetched through the dashboard proxy (/api/weather/current)
+  async function loadWeatherStatus() {
+    const hl = document.getElementById('weather-headline');
+    const body = document.getElementById('weather-body');
+    const badge = document.getElementById('weather-badge');
+    if (!hl || !body || !badge) return;
+    try {
+      const res = await fetch('/api/weather/current');
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Weather unavailable');
+      const temp = Number(d.temperature_c);
+      const feels = Number(d.apparent_temperature_c);
+      const wind = Number(d.wind_speed_ms);
+      const humidity = Number(d.humidity_pct);
+      const fmt = n => Number.isFinite(n) ? n.toFixed(1) : '-';
+      const updated = d.time ? new Date(d.time).toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' }) : '-';
+      hl.textContent = 'Ute ' + fmt(temp) + '\u00B0C';
+      badge.className = 'today-badge badge-green';
+      badge.textContent = (d.location || 'UTE').toUpperCase();
+      body.textContent =
+        (d.weather_text || 'Aktuellt väder') +
+        '. Känns som ' + fmt(feels) + '\u00B0C' +
+        (Number.isFinite(wind) ? ', vind ' + fmt(wind) + ' m/s' : '') +
+        (Number.isFinite(humidity) ? ', luftfuktighet ' + humidity.toFixed(0) + '%' : '') +
+        '. Uppdaterat ' + updated + ' via ' + (d.source || 'väder-API') + '.';
+    } catch(e) {
+      hl.textContent = 'Väder otillgängligt';
+      body.textContent = 'Kunde inte hämta aktuell utetemperatur just nu.';
+      badge.className = 'today-badge badge-red';
+      badge.textContent = 'OFFLINE';
+    }
+  }
+  loadWeatherStatus();
+  setInterval(whileAuthenticated(loadWeatherStatus), 300000);
+
+  function humidityVerdict(value) {
+    if (!Number.isFinite(value)) return ['badge-amber', 'OKANT', 'Ingen luftfuktighet från sensorerna än.'];
+    if (value < 30) return ['badge-amber', 'TORRT', 'Torr luft. Sikta helst på 40-55% för sovrumskomfort.'];
+    if (value <= 60) return ['badge-green', 'BRA', 'Inom ett bra spann för komfort och återhämtning.'];
+    if (value <= 70) return ['badge-amber', 'FUKTIGT', 'Lite hög luftfuktighet. Ventilation eller avfuktning kan hjälpa.'];
+    return ['badge-red', 'HOGT', 'Hög luftfuktighet. Risk för kvav känsla och sämre komfort.'];
+  }
+
+  function formatSensorAge(seconds) {
+    if (seconds == null) return 'aldrig';
+    if (seconds < 90) return 'nyss';
+    if (seconds < 5400) return Math.round(seconds / 60) + ' min';
+    if (seconds < 172800) return Math.round(seconds / 3600) + ' h';
+    return Math.round(seconds / 86400) + ' d';
+  }
+
+  function renderSensorList(sensors) {
+    const el = document.getElementById('sensor-list');
+    if (!el) return;
+    if (!sensors || !sensors.length) {
+      el.innerHTML = '<div class="sensor-row"><span class="sensor-name">Inga sensorer hittade</span></div>';
+      return;
+    }
+    el.innerHTML = sensors.map(s => {
+      const temp = s.temperature_c != null ? s.temperature_c.toFixed(1) + '°' : '–';
+      const humidity = s.humidity_pct != null ? s.humidity_pct.toFixed(0) + '%' : '–';
+      const age = formatSensorAge(s.age_seconds);
+      const state = s.stale
+        ? `<span class="sensor-state is-stale" title="Senast: ${age}">tyst ${age}</span>`
+        : `<span class="sensor-state is-live" title="Senast: ${age}">${age}</span>`;
+      return `<div class="sensor-row${s.stale ? ' is-stale' : ''}">
+        <span class="sensor-name">${escapeHtml(s.name)}</span>
+        <span class="sensor-metric">${temp}</span>
+        <span class="sensor-metric">${humidity}</span>
+        ${state}
+      </div>`;
+    }).join('');
+  }
+
+  // Rumsklimat - las direkt fran sensorerna via /api/climate. Ingen AC-styrning
+  // inblandad; sidan visar bara vad givarna rapporterar.
+  async function loadClimateStatus() {
+    const hl = document.getElementById('climate-headline');
+    const body = document.getElementById('climate-body');
+    const badge = document.getElementById('climate-badge');
+    const fill = document.getElementById('humidity-fill');
+    if (!hl || !body || !badge) return;
+    try {
+      const res = await fetch('/api/climate');
+      const d = await res.json();
+      if (!res.ok || !d.available) throw new Error(d.error || 'Klimatdata otillgänglig');
+      const sensors = d.sensors || [];
+      renderSensorList(sensors);
+      const avg = d.average || {};
+      const temp = avg.temperature_c;
+      const humidity = avg.humidity_pct;
+      const [badgeClass, badgeText, verdict] = humidityVerdict(humidity);
+
+      if (temp == null && humidity == null) {
+        hl.textContent = 'Inga aktuella värden';
+        badge.className = 'today-badge badge-red';
+        badge.textContent = 'TYST';
+        const silent = sensors.length;
+        body.textContent = silent
+          ? `Ingen av ${silent} sensor${silent === 1 ? '' : 'er'} har hört av sig på sistone.`
+          : 'Inga sensorer har rapporterat än.';
+        if (fill) fill.style.width = '0%';
+        return;
+      }
+
+      hl.textContent = 'Inne ' + (temp != null ? temp.toFixed(1) + '°C' : '–') +
+        (humidity != null ? ' · fukt ' + humidity.toFixed(0) + '%' : '');
+      badge.className = 'today-badge ' + badgeClass;
+      badge.textContent = badgeText;
+      const stale = sensors.filter(s => s.stale).length;
+      const count = avg.sensor_count || 0;
+      const source = count > 1 ? ` Snitt från ${count} sensorer.` : count === 1 ? ' Från 1 sensor.' : '';
+      const warn = stale ? ` ${stale} sensor${stale === 1 ? '' : 'er'} tyst.` : '';
+      body.textContent = verdict + source + warn;
+      if (fill) fill.style.width = Math.max(0, Math.min(100, humidity || 0)).toFixed(0) + '%';
+    } catch(e) {
+      hl.textContent = 'Rumsklimat otillgängligt';
+      body.textContent = 'Kunde inte hämta sensordata just nu.';
+      badge.className = 'today-badge badge-red';
+      badge.textContent = 'NERE';
+      if (fill) fill.style.width = '0%';
+    }
+  }
+  loadClimateStatus();
+  setInterval(whileAuthenticated(loadClimateStatus), 120000);
+
+  async function loadClimateHistory() {
+    const el = document.getElementById('climate-graph');
+    if (!el) return;
+    const avgEl = document.getElementById('humidity-average');
+    const rangeEl = document.getElementById('humidity-range');
+    try {
+      const res = await fetch('/api/climate/history?hours=24');
+      const d = await res.json();
+      const raw = (d.points || []).filter(p => p.temp != null);
+      const humidityRaw = (d.humidity_points || []).filter(p => p.humidity != null);
+
+      // 24h-sammanfattningen for fuktkortet hor ihop med grafens data, sa den
+      // uppdateras har i stallet for i ytterligare ett anrop.
+      if (avgEl && rangeEl) {
+        const vals = humidityRaw.map(p => Number(p.humidity)).filter(Number.isFinite);
+        if (vals.length) {
+          const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+          avgEl.textContent = '24h snitt: ' + mean.toFixed(0) + '%';
+          rangeEl.textContent = 'spann: ' + Math.min(...vals).toFixed(0) + '-' + Math.max(...vals).toFixed(0) + '%';
+        } else {
+          avgEl.textContent = '24h snitt: –';
+          rangeEl.textContent = 'spann: –';
+        }
+      }
+
+      if (!raw.length) { el.textContent = d.error ? 'Temperaturhistorik otillgänglig.' : 'Samlar temperaturdata...'; return; }
+      const outsideRaw = (d.outside_points || []).filter(p => p.temp != null);
+      const temps = raw.map(p => p.temp);
+      const outsideTemps = outsideRaw.map(p => p.temp);
+      const humidityVals = humidityRaw.map(p => Number(p.humidity)).filter(Number.isFinite);
+      const allTemps = temps.concat(outsideTemps);
+      const lo = Math.min(...allTemps), hi = Math.max(...allTemps);
+      const pad = Math.max(0.5, (hi - lo) * 0.15);
+      const yLo = lo - pad, yHi = hi + pad;
+      const W = 600, H = 195, padL = 34, padR = humidityVals.length ? 44 : 12, padT = 10, padB = 30;
+      const innerW = W - padL - padR, innerH = H - padT - padB;
+      const t0 = new Date(raw[0].t).getTime(), t1 = new Date(raw[raw.length-1].t).getTime();
+      const tspan = Math.max(1, t1 - t0);
+      const X = ms => padL + ((ms - t0) / tspan) * innerW;
+      const Y = v => padT + (1 - (v - yLo) / (yHi - yLo)) * innerH;
+      let hLo = 30, hHi = 70;
+      if (humidityVals.length) {
+        hLo = Math.max(0, Math.min(...humidityVals) - 4);
+        hHi = Math.min(100, Math.max(...humidityVals) + 4);
+        if ((hHi - hLo) < 12) {
+          const mid = (hHi + hLo) / 2;
+          hLo = Math.max(0, mid - 6);
+          hHi = Math.min(100, mid + 6);
+        }
+      }
+      const YH = v => padT + (1 - (v - hLo) / Math.max(1, hHi - hLo)) * innerH;
+      const fmt = ms => new Date(ms).toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
+      const P = raw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp), sensors: p.sensors || 0 }; });
+      const OP = outsideRaw.map(p => { const ms = new Date(p.t).getTime(); return { ms, temp: p.temp, x: X(ms), y: Y(p.temp) }; }).filter(p => p.ms >= t0 && p.ms <= t1);
+      const HP = humidityRaw.map(p => { const ms = new Date(p.t).getTime(); const humidity = Number(p.humidity); return { ms, humidity, x: X(ms), y: YH(humidity), sensors: p.sensors || 0 }; }).filter(p => Number.isFinite(p.humidity) && p.ms >= t0 && p.ms <= t1);
+      const outsidePath = OP.map((p,i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+      const humidityPath = HP.map((p,i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+      // Bryt linjen där det finns ett glapp i datan (annars ritas en falsk "trendlinje" över hål)
+      const dts = []; for (let i = 1; i < P.length; i++) dts.push(P[i].ms - P[i-1].ms);
+      const sortedDt = dts.slice().sort((a,b) => a - b);
+      const medDt = sortedDt.length ? sortedDt[Math.floor(sortedDt.length/2)] : 0;
+      const gapMs = Math.max(medDt * 3.5, 20*60*1000); // glapp = >3.5x normal takt, minst 20 min
+      const path = P.map((p,i) => {
+        const gap = i > 0 && (p.ms - P[i-1].ms) > gapMs;
+        return (i === 0 || gap ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
+      }).join(' ');
+      const cur = temps[temps.length-1];
+      const outsideCur = outsideTemps.length ? outsideTemps[outsideTemps.length-1] : null;
+      const humidityCur = HP.length ? HP[HP.length - 1].humidity : null;
+      // tidsaxel med klockslag (5 markeringar)
+      let xaxis = '', N = 4;
+      for (let i = 0; i <= N; i++) {
+        const ms = t0 + tspan * i / N, xx = X(ms).toFixed(1);
+        const anchor = i === 0 ? 'start' : i === N ? 'end' : 'middle';
+        xaxis += `<line x1="${xx}" y1="${padT}" x2="${xx}" y2="${H-padB}" stroke="var(--border2)" stroke-width="0.5" opacity="0.4"/>`;
+        xaxis += `<text x="${xx}" y="${H-12}" text-anchor="${anchor}" font-size="9" fill="var(--muted)">${fmt(ms)}</text>`;
+      }
+      const hAxis = HP.length ? `
+            <text x="${W-padR+8}" y="${YH(hHi).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--amber)">${hHi.toFixed(0)}%</text>
+            <text x="${W-padR+8}" y="${YH(hLo).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--amber)">${hLo.toFixed(0)}%</text>` : '';
+      el.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+          <span style="font-size:22px;font-weight:800;">${cur.toFixed(1)}°C</span>
+          <span style="font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center;">
+            ${humidityCur != null ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--amber);display:inline-block;"></span>fukt ${humidityCur.toFixed(0)}%</span>` : ''}
+            <span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--green);display:inline-block;"></span>inne ${cur.toFixed(1)}°C</span>
+            ${outsideCur != null ? `<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:12px;height:2px;background:var(--blue);display:inline-block;"></span>ute ${outsideCur.toFixed(1)}°C</span>` : ''}
+            <span>spann ${Math.min(...allTemps).toFixed(1)}–${Math.max(...allTemps).toFixed(1)}°C</span>
+          </span>
+        </div>
+        <div style="position:relative;">
+          <svg id="climate-svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block;touch-action:none;cursor:crosshair;">
+            ${xaxis}
+            <text x="${padL-5}" y="${Y(hi).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${hi.toFixed(1)}</text>
+            <text x="${padL-5}" y="${Y(lo).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${lo.toFixed(1)}</text>
+            ${hAxis}
+            ${outsidePath ? `<path d="${outsidePath}" fill="none" stroke="var(--blue)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>` : ''}
+            ${humidityPath ? `<path d="${humidityPath}" fill="none" stroke="var(--amber)" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>` : ''}
+            <path d="${path}" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            <line id="climate-cross" y1="${padT}" y2="${H-padB}" stroke="var(--muted2)" stroke-width="1" opacity="0"/>
+            <circle id="climate-dot" r="3.5" fill="var(--green)" stroke="var(--bg2)" stroke-width="1.5" opacity="0"/>
+            <circle id="humidity-dot" r="3.2" fill="var(--amber)" stroke="var(--bg2)" stroke-width="1.5" opacity="0"/>
+          </svg>
+          <div id="climate-tip" style="position:absolute;pointer-events:none;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:4px 8px;font-size:11px;white-space:nowrap;opacity:0;transform:translate(-50%,-135%);z-index:5;"></div>
+        </div>`;
+      const svg = document.getElementById('climate-svg');
+      const cross = document.getElementById('climate-cross'), dot = document.getElementById('climate-dot'), humDot = document.getElementById('humidity-dot'), tip = document.getElementById('climate-tip');
+      const at = clientX => {
+        const rect = svg.getBoundingClientRect();
+        const vbX = ((clientX - rect.left) / rect.width) * W;
+        let best = P[0], bd = Infinity;
+        for (const p of P) { const dd = Math.abs(p.x - vbX); if (dd < bd) { bd = dd; best = p; } }
+        let outside = null, od = Infinity;
+        for (const p of OP) { const dd = Math.abs(p.x - vbX); if (dd < od) { od = dd; outside = p; } }
+        let humidity = null, hd = Infinity;
+        for (const p of HP) { const dd = Math.abs(p.x - vbX); if (dd < hd) { hd = dd; humidity = p; } }
+        cross.setAttribute('x1', best.x); cross.setAttribute('x2', best.x); cross.setAttribute('opacity', '0.5');
+        dot.setAttribute('cx', best.x); dot.setAttribute('cy', best.y); dot.setAttribute('opacity', '1');
+        if (humDot && humidity && hd < 12) {
+          humDot.setAttribute('cx', humidity.x);
+          humDot.setAttribute('cy', humidity.y);
+          humDot.setAttribute('opacity', '1');
+        } else if (humDot) {
+          humDot.setAttribute('opacity', '0');
+        }
+        tip.style.left = (best.x / W * rect.width) + 'px';
+        tip.style.top = (best.y / H * rect.height) + 'px';
+        tip.style.opacity = '1';
+        const humidityLabel = (humidity && hd < 12) ? `<br><span style="color:var(--amber);">fukt ${humidity.humidity.toFixed(0)}%${humidity.sensors > 1 ? ' · ' + humidity.sensors + ' sensorer' : ''}</span>` : '';
+        const outsideLabel = outside ? `<br><span style="color:var(--blue);">ute ${outside.temp.toFixed(1)}°C</span>` : '';
+        tip.innerHTML = `<strong>inne ${best.temp.toFixed(1)}°C</strong> · ${fmt(best.ms)}${outsideLabel}${humidityLabel}`;
+      };
+      const hide = () => { cross.setAttribute('opacity','0'); dot.setAttribute('opacity','0'); if (humDot) humDot.setAttribute('opacity','0'); tip.style.opacity='0'; };
+      svg.addEventListener('pointermove', e => at(e.clientX));
+      svg.addEventListener('pointerdown', e => at(e.clientX));
+      svg.addEventListener('pointerleave', hide);
+    } catch(e) { el.textContent = 'Temperaturhistorik otillgänglig.'; }
+  }
+  loadClimateHistory();
+  setInterval(whileAuthenticated(loadClimateHistory), 300000);
+
+  function renderInsightCards(items) {
+    if (!items || !items.length) return '<div style="font-size:12px;color:var(--muted3);">Inga mönster hittade ännu.</div>';
+    return items.map(it => {
+      const col = it.color === 'green' ? 'var(--green)' : it.color === 'red' ? 'var(--red)' : 'var(--amber)';
+      return `<div class="insight-row">
+        <span class="insight-dot" style="background:${col}"></span>
+        <div>
+          <div class="insight-row-title">${escapeHtml(it.title || '')}</div>
+          <div class="insight-row-body">${escapeHtml(it.detail || '')}${it.action ? ' <span style="color:var(--accent);font-size:11px;font-weight:700">→ ' + escapeHtml(it.action) + '</span>' : ''}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function drawSparkline(svgEl, data, color) {
+    if (!svgEl) return;
+    if (!data || data.length < 2) {
+      svgEl.innerHTML = '';
+      return;
+    }
+    // Ritas i elementets egen storlek: utsträckt från 300 bred blev punkterna
+    // ovala när återhämtningskortet fick hela sidbredden.
+    const W = Math.max(120, Math.round(svgEl.clientWidth || 300));
+    const H = Math.max(24, Math.round(svgEl.clientHeight || 40));
+    svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svgEl.setAttribute('preserveAspectRatio', 'none');
+    svgEl.style.overflow = 'hidden';
+    svgEl.style.display = 'block';
+
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const span = (max - min) || (min > 0 ? min * 0.2 : 1);
+    const padX = 8;
+    const padY = 6;
+
+    const pts = data.map((v, i) => {
+      const x = padX + (i / (data.length - 1)) * (W - padX * 2);
+      const y = H - padY - ((v - min) / span) * (H - padY * 2);
+      return [x, y];
+    });
+
+    const line = pts.reduce((acc, [x, y], i) => {
+      if (i === 0) return `M${x.toFixed(1)} ${y.toFixed(1)}`;
+      const [px, py] = pts[i-1];
+      const cx = (px + x) / 2;
+      return `${acc} C${cx.toFixed(1)} ${py.toFixed(1)} ${cx.toFixed(1)} ${y.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    }, '');
+
+    const [ex, ey] = pts[pts.length - 1];
+    const gradId = 'sg-' + Math.random().toString(36).slice(2, 8);
+    const area = `${line} L${(W - padX).toFixed(1)} ${H} L${padX} ${H} Z`;
+
+    svgEl.innerHTML = `
+      <defs>
+        <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${color}" stop-opacity="0.32"/>
+          <stop offset="100%" stop-color="${color}" stop-opacity="0.0"/>
+        </linearGradient>
+      </defs>
+      <path d="${area}" fill="url(#${gradId})" stroke="none"/>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      ${pts.map(([x, y]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.2" fill="${color}" opacity="0.75"/>`).join('')}
+      <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="3.8" fill="${color}" stroke="var(--bg2)" stroke-width="1.8"/>
+    `;
+  }
+
+  function updateAppbar(h) {
+    const greet = (() => {
+      const hr = new Date().getHours();
+      return hr < 12 ? 'God morgon' : hr < 17 ? 'God eftermiddag' : 'God kväll';
+    })();
+    const hiEl = document.getElementById('appbar-hi');
+    if (hiEl) hiEl.textContent = greet + ', Hugo';
+    const dateEl = document.getElementById('appbar-date');
+    if (dateEl) {
+      const d = new Date();
+      const days = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
+      dateEl.textContent = days[d.getDay()] + ' · vecka ' + isoWeekNumber(d);
+    }
+    const rEl = document.getElementById('appbar-readiness');
+    if (rEl && h?.readiness?.score != null) {
+      rEl.textContent = h.readiness.score;
+      const col = h.readiness.score >= 70 ? 'var(--accent)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
+      rEl.style.color = col;
+    }
+    const rhrEl = document.getElementById('appbar-rhr');
+    if (rhrEl && h?.restingHR?.value != null) rhrEl.textContent = h.restingHR.value;
+  }
+
+  async function loadInsights(force) {
+    const list  = document.getElementById('insights-list');
+    const hl    = document.getElementById('insights-headline');
+    const badge = document.getElementById('insights-badge');
+    if (!list) return;
+    try {
+      const res = await fetch('/api/insights' + (force ? '?force=1' : ''));
+      const d = await res.json();
+      if (d.error) { list.innerHTML = `<div style="font-size:12px;color:var(--red);">${escapeHtml(d.error)}</div>`; return; }
+      if (d.headline && hl) hl.textContent = d.headline;
+      const map = { good:['badge-green','GOOD'], watch:['badge-amber','WATCH'], caution:['badge-red','CAUTION'] };
+      const m = map[d.status] || ['badge-amber','AI'];
+      if (badge) { badge.className = 'today-badge ' + m[0]; badge.textContent = m[1]; }
+      list.innerHTML = renderInsightCards(d.insights);
+    } catch(e) { list.innerHTML = '<div style="font-size:12px;color:var(--muted3);">Could not load insights.</div>'; }
+  }
+
+  // Samtalet ska hänga ihop under hela besöket, inte börja om vid varje fråga.
+  // sessionStorage lever kvar genom omladdningar och navigering i samma flik
+  // men följer inte med till nästa besök — och en utloggning rensar den, så
+  // nästa användare på samma dator aldrig ser föregående coachsamtal.
+  const CHAT_KEY = 'trainyze:chat';
+  const CHAT_MAX_TURNS = 20;
+  const chatIntroHtml = document.getElementById('messages')?.innerHTML || '';
+  let history = loadChatHistory();
+
+  function loadChatHistory() {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(CHAT_KEY) || '[]');
+      if (!Array.isArray(stored)) return [];
+      return stored
+        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .slice(-CHAT_MAX_TURNS);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveChatHistory() {
+    history = history.slice(-CHAT_MAX_TURNS);
+    // Privat läge och full kvot kan neka skrivningen; samtalet ska ändå fungera
+    // i den här sidvisningen.
+    try { sessionStorage.setItem(CHAT_KEY, JSON.stringify(history)); } catch (e) {}
+  }
+
+  function clearChatHistory() {
+    try { sessionStorage.removeItem(CHAT_KEY); } catch (e) {}
+  }
+
+  // Ett id per fråga, inte per HTTP-anrop: det är själva poängen att ett nytt
+  // försök på samma fråga bär samma id.
+  function newRequestId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
+    return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
+  // Coachens Markdown → HTML: rubriker, fetstil, kursiv och listor. Allt
+  // escapas först, så bara de här taggarna kan uppstå.
+  function formatCoachInline(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*\w])\*(?!\s)(.+?)\*(?!\w)/g, '$1<em>$2</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+  }
+  function formatCoachReply(raw) {
+    const lines = escapeHtml(raw).replace(/\r/g, '').split('\n');
+    const out = [];
+    let list = null;
+    let para = [];
+    const flushPara = () => { if (para.length) { out.push(`<p>${formatCoachInline(para.join('<br>'))}</p>`); para = []; } };
+    const flushList = () => { if (list) { out.push(`<${list.tag}>${list.items.map(i => `<li>${formatCoachInline(i)}</li>`).join('')}</${list.tag}>`); list = null; } };
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const heading = trimmed.match(/^#{1,4}\s+(.*)$/);
+      const bullet = trimmed.match(/^[-*•]\s+(.*)$/);
+      const numbered = trimmed.match(/^\d+[.)]\s+(.*)$/);
+      if (!trimmed) { flushPara(); flushList(); continue; }
+      if (heading) { flushPara(); flushList(); out.push(`<h4>${formatCoachInline(heading[1])}</h4>`); continue; }
+      if (bullet || numbered) {
+        flushPara();
+        const tag = bullet ? 'ul' : 'ol';
+        if (list && list.tag !== tag) flushList();
+        if (!list) list = { tag, items: [] };
+        list.items.push((bullet || numbered)[1]);
+        continue;
+      }
+      if (list && /^\s{2,}/.test(line)) { list.items[list.items.length - 1] += '<br>' + trimmed; continue; }
+      flushList();
+      para.push(trimmed);
+    }
+    flushPara(); flushList();
+    return `<div class="coach-md">${out.join('')}</div>`;
+  }
+
+  function appendChatMessage(role, html) {
+    const box = document.getElementById('messages');
+    if (!box) return null;
+    const div = document.createElement('div');
+    div.className = role === 'user' ? 'msg user' : 'msg ai';
+    div.innerHTML = `<div class="msg-from">${role === 'user' ? 'DU' : 'COACH'}</div>` + html;
+    box.appendChild(div);
+    if (role === 'user') box.closest('.chat-wrap')?.classList.add('has-history');
+    return div;
+  }
+
+  function restoreChatTranscript() {
+    const box = document.getElementById('messages');
+    if (!box || !history.length) return;
+    box.innerHTML = '';
+    history.forEach(m => appendChatMessage(
+      m.role, m.role === 'user' ? escapeHtml(m.content) : formatCoachReply(m.content)));
+    box.scrollTop = box.scrollHeight;
+  }
+  restoreChatTranscript();
+
+  function resetChat() {
+    history = [];
+    clearChatHistory();
+    const box = document.getElementById('messages');
+    if (box) box.innerHTML = chatIntroHtml;
+    box?.closest('.chat-wrap')?.classList.remove('has-history');
+    document.getElementById('chat-input')?.focus();
+  }
+
+  let coachBusy = false;
+  async function send(txt) {
+    if (coachBusy) return;
+    const inp = document.getElementById('chat-input');
+    const msg = txt || inp.value.trim();
+    if (!msg) return;
+    coachBusy = true;
+    inp.value = '';
+    const box = document.getElementById('messages');
+    appendChatMessage('user', escapeHtml(msg));
+    const aDiv = appendChatMessage('assistant', '<span class="typing" aria-label="Coachen skriver"><i></i><i></i><i></i></span>');
+    box.scrollTop = box.scrollHeight;
+    // Historiken skickas som den såg ut före den här frågan — frågan själv
+    // ligger i message-fältet, och en dubblett skulle bara förvirra modellen.
+    const priorTurns = history.slice();
+    // Samma id på båda försöken. Servern lämnar då ut det svar den redan
+    // räknat fram i stället för att köra om frågan — och en planändring
+    // tillämpas aldrig två gånger för att telefonen tappade kopplingen.
+    const requestId = newRequestId();
+    try {
+      // Servern bygger hela coachunderlaget själv (garmin_server._coach_system_prompt).
+      const body = JSON.stringify({ message:msg, history:priorTurns, requestId });
+      const post = () => fetch('/api/assistant', { method:'POST', headers:{'Content-Type':'application/json'}, body });
+      let res;
+      try {
+        res = await post();
+      } catch (netErr) {
+        // Ett coachsvar tar över tio sekunder, och på mobil räcker det att
+        // skärmen släcks för att kopplingen ska brytas. Svaret finns då redan
+        // på servern — ett försök till hämtar hem det i stället för att kasta
+        // bort det och skylla på servern.
+        aDiv.innerHTML = '<div class="msg-from">COACH</div><span style="color:var(--muted)">Tappade kontakten — hämtar svaret igen…</span>';
+        res = await post();
+      }
+      // Ett felsvar behöver inte vara JSON — en proxy emellan kan svara med
+      // en egen HTML-sida. Då ska statuskoden synas i stället för att allt
+      // buntas ihop till "kunde inte nå servern", som pekar åt fel håll.
+      let data = null;
+      try { data = await res.json(); } catch (_) { data = null; }
+      const reply = data && data.reply;
+      const failure = data && !reply
+        ? (data.error || 'Inget svar.')
+        : (res.ok ? null : 'Servern svarade ' + res.status + '.');
+      if (reply) {
+        aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(reply);
+        // Först när svaret finns är utbytet komplett; ett halvt utbyte i
+        // historiken skulle följa med in i nästa fråga som en obesvarad tur.
+        // Ett fel är ingen coachreplik och sparas därför inte — annars svarar
+        // modellen på sitt eget felmeddelande i nästa fråga.
+        history.push({ role:'user', content:msg }, { role:'assistant', content:reply });
+        saveChatHistory();
+        if (data.planAdjusted) {
+          // Svaret står redan på skärmen. En omladdning som misslyckas får
+          // inte falla ut i catch och skriva över det med ett felmeddelande —
+          // planen är ändrad oavsett om vyn hann uppdateras.
+          await Promise.allSettled([loadPlan()]);
+          await Promise.allSettled([loadToday()]);
+          if (document.getElementById('page-strength')?.classList.contains('active')) renderStrengthPlanned();
+        }
+      } else {
+        aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(failure || 'Inget svar.');
+      }
+    } catch(e) {
+      // Frågan är värd mer än felmeddelandet: den läggs tillbaka i rutan så
+      // den inte behöver skrivas om för hand.
+      aDiv.innerHTML = '<div class="msg-from">COACH</div>' + formatCoachReply(
+        'Kontakten bröts innan svaret kom fram. Din fråga ligger kvar i rutan — skicka den igen.');
+      if (inp && !inp.value.trim()) inp.value = msg;
+    } finally {
+      coachBusy = false;
+    }
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function qa(t) { send(t); }
+
+  // --- Styrka ---
+  const SUGGESTIONS = ['Bänkpress','Marklyft','Knäböj','Axelpress','Latsdrag','Rodd','Dips','Chins','Bicepscurl','Tricepspress','Benpress','Vadpress','Planka','Situps','Rumänsk marklyft','Frontböj','Bulgarisk utfall','Bröststödd rodd','Flyes','Tricepspushdown','Hammarcurl','Face pull','Bål','Ryggresning'];
+
+  const fmtDur = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h>0?h+'h '+m+'m':m+' min'; };
+  const fmtDateStr = s => new Date(s).toLocaleDateString('sv-SE',{weekday:'short',day:'numeric',month:'short'});
+
+  // ANALYS — en sammanhållen bild av utveckling, genomförande och mål.
+  let analysisData = null;
+  let analysisWindowDays = 60;
+  let analysisMetricKey = 'vo2max';
+
+  const ANALYSIS_DIRECTIONS = {
+    improving: ['↗', 'Förbättras'], declining: ['↘', 'Behöver vändas'],
+    stable: ['→', 'Stabil'], rising: ['↑', 'Stiger'], falling: ['↓', 'Sjunker'],
+    unknown: ['·', 'Samlar data'],
   };
 
-  let toastTimer;
-  function toast(text) {
-    const el = $('#toast');
-    el.textContent = text;
-    el.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+  function analysisMetricValue(value, fmt) {
+    if (value == null) return '–';
+    if (fmt === 'pace') {
+      const minutes = Math.floor(value / 60);
+      return minutes + ':' + String(Math.round(value % 60)).padStart(2, '0');
+    }
+    if (fmt === 1) return Number(value).toFixed(1);
+    return Math.round(value).toLocaleString('sv-SE');
   }
 
-  // ── API ─────────────────────────────────────────────────────────────────
-  let csrfToken = '';
-  let me = null;
-
-  class ApiError extends Error {
-    constructor(message, status, code) { super(message); this.status = status; this.code = code; }
+  function analysisUnit(metric) {
+    if (metric.latest == null) return '';
+    if (metric.fmt === 'pace') return '/km';
+    return metric.unit || '';
   }
 
-  async function api(path, { method = 'GET', body } = {}) {
-    const headers = { Accept: 'application/json' };
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
-    if (method !== 'GET') headers['X-CSRF-Token'] = csrfToken;
-    let res;
+  function analysisRate(metric) {
+    const value = metric.slopePerWeek;
+    if (value == null || metric.samples < 2) return metric.samples ? 'Behöver mer historik' : 'Ingen Garmin-data';
+    const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+    const amount = metric.fmt === 'pace'
+      ? Math.abs(value).toFixed(1) + ' s/km'
+      : (Math.abs(value) < 1 ? Math.abs(value).toFixed(2) : Math.abs(value).toFixed(1)) + (metric.unit ? ' ' + metric.unit : '');
+    return `${sign}${amount} per vecka`;
+  }
+
+  function analysisMiniLine(series) {
+    if (!series || series.length < 2) return '<svg class="an-mini-line"></svg>';
+    const W = 180, H = 28, pad = 2;
+    const values = series.map(p => Number(p.v));
+    let lo = Math.min(...values), hi = Math.max(...values);
+    if (hi === lo) { hi += 1; lo -= 1; }
+    const points = values.map((v, i) => [pad + i / (values.length - 1) * (W - pad * 2), pad + (1 - (v - lo) / (hi - lo)) * (H - pad * 2)]);
+    const path = points.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    return `<svg class="an-mini-line" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <path d="${path}" fill="none" stroke="var(--muted2)" stroke-width="1.5" opacity=".7" vector-effect="non-scaling-stroke"/>
+    </svg>`;
+  }
+
+  function renderAnalysisChart() {
+    if (!analysisData) return;
+    const metrics = (analysisData.metrics || []).filter(m => m.samples > 0);
+    if (!metrics.some(m => m.key === analysisMetricKey)) analysisMetricKey = metrics[0]?.key || '';
+    const tabs = document.getElementById('an-metric-tabs');
+    tabs.innerHTML = metrics.map(m => `<button class="an-metric-tab ${m.key === analysisMetricKey ? 'active' : ''}"
+      data-action="analysis-metric" data-metric="${escapeHtml(m.key)}">${escapeHtml(m.label)}</button>`).join('');
+
+    const metric = metrics.find(m => m.key === analysisMetricKey);
+    const chart = document.getElementById('an-chart');
+    const note = document.getElementById('an-chart-note');
+    if (!metric || metric.series.length < 2) {
+      chart.innerHTML = '<div class="an-chart-empty">Behöver minst två mätningar för att rita en kurva.</div>';
+      note.textContent = metric ? analysisRate(metric) : 'Ingen historik ännu';
+      return;
+    }
+    const W = 720, H = 190, left = 48, right = 16, top = 18, bottom = 28;
+    const values = metric.series.map(p => Number(p.v));
+    let lo = Math.min(...values), hi = Math.max(...values);
+    const margin = Math.max((hi - lo) * .18, metric.fmt === 'pace' ? 2 : .5);
+    lo -= margin; hi += margin;
+    const t0 = new Date(metric.series[0].t).getTime();
+    const t1 = new Date(metric.series.at(-1).t).getTime();
+    const x = t => left + ((new Date(t).getTime() - t0) / Math.max(1, t1 - t0)) * (W - left - right);
+    const y = v => top + (1 - (v - lo) / Math.max(1, hi - lo)) * (H - top - bottom);
+    const pts = metric.series.map(p => [x(p.t), y(Number(p.v))]);
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    const area = `${line} L${pts.at(-1)[0].toFixed(1)} ${H-bottom} L${pts[0][0].toFixed(1)} ${H-bottom} Z`;
+    const dateFmt = value => new Date(value).toLocaleDateString('sv-SE', {day:'numeric', month:'short'});
+    const unit = analysisUnit(metric);
+    const dm = ANALYSIS_DIRECTIONS[metric.direction] || ANALYSIS_DIRECTIONS.unknown;
+    note.textContent = `${dm[0]} ${dm[1]} · ${analysisRate(metric)}`;
+    chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${escapeHtml(metric.label)} över tid">
+      <defs><linearGradient id="an-chart-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--accent)" stop-opacity=".18"/><stop offset="1" style="stop-color:var(--accent)" stop-opacity="0"/></linearGradient></defs>
+      ${[0,.5,1].map(f => `<line class="an-chart-grid" x1="${left}" x2="${W-right}" y1="${(top+f*(H-top-bottom)).toFixed(1)}" y2="${(top+f*(H-top-bottom)).toFixed(1)}"/>`).join('')}
+      <path class="an-chart-area" d="${area}"/><path class="an-chart-line" d="${line}" vector-effect="non-scaling-stroke"/>
+      <circle class="an-chart-dot" cx="${pts.at(-1)[0].toFixed(1)}" cy="${pts.at(-1)[1].toFixed(1)}" r="4" vector-effect="non-scaling-stroke"/>
+      <text class="an-chart-label" x="${left-7}" y="${top+4}" text-anchor="end">${analysisMetricValue(hi-margin, metric.fmt)}</text>
+      <text class="an-chart-label" x="${left-7}" y="${H-bottom}" text-anchor="end">${analysisMetricValue(lo+margin, metric.fmt)}</text>
+      <text class="an-chart-label" x="${left}" y="${H-7}">${dateFmt(metric.series[0].t)}</text>
+      <text class="an-chart-label" x="${W-right}" y="${H-7}" text-anchor="end">${dateFmt(metric.series.at(-1).t)}</text>
+      <text class="an-chart-label" x="${W-right}" y="${top+4}" text-anchor="end">${analysisMetricValue(metric.latest, metric.fmt)} ${escapeHtml(unit)}</text>
+    </svg>`;
+  }
+
+  function renderAnalysisVolume(volume) {
+    const weeks = volume.weeks || [];
+    const peak = Math.max(1, ...weeks.map(w => w.km));
+    document.getElementById('an-volume-bars').innerHTML = weeks.map((week, index) => `
+      <div class="an-volume-bar-wrap"><div class="an-volume-bar ${index === weeks.length - 1 ? 'current' : ''}"
+        style="height:${Math.max(2, week.km / peak * 125).toFixed(1)}px" title="${week.km} km · ${week.sessions} pass"><span>${week.km || ''}</span></div>
+        <span>${escapeHtml(week.label)}</span></div>`).join('');
+    const delta = volume.delta7Pct;
+    document.getElementById('an-volume-summary').innerHTML = `
+      <div><span>7 dygn</span><strong>${volume.current7Km ?? 0} km</strong></div>
+      <div><span>4 veckor snitt</span><strong>${volume.average4WeeksKm ?? 0} km</strong></div>
+      <div><span>Mot föregående</span><strong>${delta == null ? '–' : (delta > 0 ? '+' : '') + delta + '%'}</strong></div>`;
+  }
+
+  function renderAnalysisGoal(goal) {
+    const el = document.getElementById('an-goal');
+    if (!goal?.title) {
+      el.innerHTML = '<p class="an-empty">Sätt ett träningsmål så visar analysen hur nuvarande kapacitet förhåller sig till det.</p>';
+      return;
+    }
+    const f = goal.feasibility;
+    const verdicts = {within_reach:['Inom räckhåll','good'], stretch:['Utmanande','warn'], out_of_reach:['Gap kvar','warn']};
+    const verdict = verdicts[f?.verdict] || ['Samlar tempodata',''];
+    const capable = f?.currentCapablePace || goal.anchor?.ltPace || '–';
+    const target = f?.goalPace || goal.goalPace?.pace || '–';
+    const progress = f ? Math.max(8, Math.min(100, 100 - Math.max(0, f.gapSec || 0) * 2.5)) : 12;
+    const deadline = goal.deadline ? new Date(goal.deadline + 'T12:00:00').toLocaleDateString('sv-SE',{day:'numeric',month:'short',year:'numeric'}) : null;
+    el.innerHTML = `<div class="an-goal-title">${escapeHtml(goal.title)}</div>
+      <div class="an-goal-meta">${deadline ? `<span class="an-chip">${escapeHtml(deadline)}</span>` : ''}
+        ${goal.daysLeft != null ? `<span class="an-chip">${goal.daysLeft} dagar kvar</span>` : ''}
+        <span class="an-chip ${verdict[1] ? 'an-chip-' + verdict[1] : ''}">${verdict[0]}</span></div>
+      <div class="an-goal-track"><i style="width:${progress}%"></i></div>
+      <p class="an-goal-copy">Målfart <strong>${escapeHtml(target)}</strong> · nuvarande uppskattad kapacitet <strong>${escapeHtml(capable)}</strong>.
+        ${f?.gapSec > 0 ? `Gapet är cirka ${f.gapSec} sekunder per kilometer.` : f ? 'Kapaciteten stödjer målfarten just nu.' : 'Fler tröskelmätningar krävs för en ärlig bedömning.'}</p>`;
+  }
+
+  function renderAnalysisExecution(execution) {
+    const adherence = execution.adherencePct;
+    const quality = execution.qualityPct;
+    document.getElementById('an-execution').innerHTML = `<div class="an-execution-grid">
+      <div class="an-execution-stat"><span>Genomförda</span><strong>${execution.completed ?? 0}</strong></div>
+      <div class="an-execution-stat"><span>Missade</span><strong>${execution.missed ?? 0}</strong></div>
+      <div class="an-execution-stat"><span>Utvärderade</span><strong>${execution.evaluated ?? 0}</strong></div>
+      </div><p class="an-execution-note">${adherence == null ? 'Inga avgjorda planpass i perioden ännu.' : `${adherence}% planföljsamhet.`}
+      ${quality == null ? ' När fler pass har tempo-, puls- eller styrkedata visas även kvaliteten.' : ` ${quality}% av utvärderade pass genomfördes utan tydliga avvikelser.`}</p>`;
+  }
+
+  // Trendpoängen är meningslös utan sin uträkning — posterna kommer från
+  // training_analysis.overview() och summerar alltid till rawScore.
+  function closeTrendBreakdown() {
+    document.getElementById('trend-modal')?.remove();
+  }
+
+  function openTrendBreakdown() {
+    if (document.getElementById('trend-modal')) return;
+    const overview = (analysisData || {}).overview || {};
+    const entries = overview.breakdown || [];
+    if (!entries.length) return;
+
+    const rows = entries.map(entry => {
+      const delta = entry.delta;
+      const sign = delta == null ? '–'
+        : (delta > 0 ? '+' + delta : (delta === 0 ? '±0' : String(delta)));
+      return `<div class="tb-row tb-${escapeHtml(entry.tone || 'neutral')}">
+          <span class="tb-delta">${escapeHtml(sign)}</span>
+          <span class="tb-text">
+            <strong>${escapeHtml(entry.label)}</strong>
+            <span>${escapeHtml(entry.detail)}</span>
+          </span>
+        </div>`;
+    }).join('');
+
+    const scale = overview.scale || {};
+    const clamped = overview.rawScore != null && overview.rawScore !== overview.score;
+
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="trend-modal" class="tb-backdrop">
+        <div class="tb-panel" role="dialog" aria-modal="true" aria-label="Så räknas trendpoängen">
+          <div class="tb-head">
+            <div>
+              <div class="tb-kicker">Trendpoäng</div>
+              <h2>${escapeHtml(String(overview.score ?? '–'))}<span class="tb-outof"> / ${escapeHtml(String(scale.max ?? 100))}</span></h2>
+              <div class="tb-verdict">${escapeHtml(overview.title || '')}</div>
+            </div>
+            <button type="button" class="tb-close" data-action="close-trend-breakdown" aria-label="Stäng">✕</button>
+          </div>
+          <div class="tb-rows">${rows}</div>
+          <div class="tb-foot">
+            <div><strong>Summa</strong> ${escapeHtml(String(overview.base ?? 60))} i utgångsläge${clamped
+              ? ` → ${escapeHtml(String(overview.rawScore))}, begränsat till ${escapeHtml(String(overview.score))}`
+              : ` → ${escapeHtml(String(overview.score ?? '–'))}`}.
+              Skalan går mellan ${escapeHtml(String(scale.min ?? 20))} och ${escapeHtml(String(scale.max ?? 95))}.</div>
+            ${overview.confidenceNote ? `<div class="tb-confidence">${escapeHtml(overview.confidenceNote)}</div>` : ''}
+          </div>
+        </div>
+      </div>`);
+  }
+
+  function renderAnalysis(data) {
+    analysisData = data;
+    const overview = data.overview || {};
+    const volume = data.volume || {};
+    const execution = data.execution || {};
+    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    const colors = {building:'var(--accent)',steady:'var(--blue)',attention:'var(--amber)',collecting:'var(--muted2)'};
+    const ring = document.getElementById('an-score-ring');
+    ring.style.strokeDashoffset = 358.14 * (1 - (overview.score || 0) / 100);
+    ring.style.stroke = colors[overview.status] || 'var(--accent)';
+    setText('an-score', overview.score ?? '–');
+    setText('an-verdict', overview.title || 'Samlar en tydligare trendbild');
+    setText('an-confidence', `UNDERLAG ${overview.confidencePct ?? 0}% · ${overview.signals ?? 0} TRENDMARKÖRER`);
+    setText('an-volume', `${volume.current7Km ?? 0} km`);
+    const delta = volume.delta7Pct;
+    setText('an-volume-sub', `${volume.current7Sessions ?? 0} pass${delta == null ? '' : ` · ${delta > 0 ? '+' : ''}${delta}% mot föregående 7 dygn`}`);
+    setText('an-adherence', execution.adherencePct == null ? '–' : execution.adherencePct + '%');
+    setText('an-adherence-sub', `${execution.completed ?? 0} genomförda · ${execution.missed ?? 0} missade`);
+    setText('an-quality', execution.qualityPct == null ? '–' : execution.qualityPct + '%');
+    setText('an-quality-sub', execution.evaluated ? `${execution.onTarget} av ${execution.evaluated} utvärderade pass` : 'Behöver pass med utförandedata');
+    const threshold = (data.metrics || []).find(m => m.key === 'lt_pace');
+    setText('an-threshold', threshold?.latest != null ? analysisMetricValue(threshold.latest, 'pace') + '/km' : '–');
+    setText('an-threshold-sub', threshold ? analysisRate(threshold) : 'Ingen tröskeldata');
+
+    const priorities = overview.priorities || [];
+    document.getElementById('an-focus').innerHTML = '<div class="an-focus-label">Fokus nu</div>' + priorities.map(p =>
+      `<div class="an-priority an-priority-${escapeHtml(p.tone || 'neutral')}"><strong>${escapeHtml(p.title)}</strong><span>${escapeHtml(p.detail)}</span></div>`).join('');
+
+    document.getElementById('an-metrics').innerHTML = (data.metrics || []).map(metric => {
+      const dm = ANALYSIS_DIRECTIONS[metric.direction] || ANALYSIS_DIRECTIONS.unknown;
+      return `<div class="an-metric" data-action="analysis-metric" data-metric="${escapeHtml(metric.key)}" role="button" tabindex="0">
+        <div class="an-metric-top"><span class="an-metric-name">${escapeHtml(metric.label)}</span>
+          <span class="an-direction an-direction-${escapeHtml(metric.direction)}">${dm[0]} ${dm[1]}</span></div>
+        <div class="an-metric-value">${analysisMetricValue(metric.latest, metric.fmt)} <small>${escapeHtml(analysisUnit(metric))}</small></div>
+        <div class="an-metric-rate">${escapeHtml(analysisRate(metric))}</div>${analysisMiniLine(metric.series)}</div>`;
+    }).join('');
+
+    renderAnalysisChart();
+    renderAnalysisVolume(volume);
+    renderAnalysisGoal(data.goal);
+    renderAnalysisExecution(execution);
+  }
+
+  function selectAnalysisMetric(key) {
+    analysisMetricKey = key || analysisMetricKey;
+    renderAnalysisChart();
+    document.querySelector('.an-trend-card')?.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  function setAnalysisWindow(days) {
+    if (![30, 60, 90].includes(days) || days === analysisWindowDays) return;
+    analysisWindowDays = days;
+    document.querySelectorAll('.an-window-btn').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.days) === days));
+    loadAnalysis();
+  }
+
+  async function loadAnalysis() {
+    const loading = document.getElementById('analysis-loading');
+    const content = document.getElementById('analysis-content');
+    loading.style.display = 'block';
+    loading.textContent = 'Bygger din trendbild…';
+    content.style.display = 'none';
     try {
-      res = await fetch(path, {
-        method, headers, credentials: 'same-origin',
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch (_) {
-      throw new ApiError('Ingen kontakt med servern. Kolla uppkopplingen.', 0, 'network');
+      const response = await fetch(`/api/analysis?days=${analysisWindowDays}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Analysen kunde inte hämtas.');
+      renderAnalysis(data);
+      loading.style.display = 'none';
+      content.style.display = 'block';
+    } catch (error) {
+      loading.textContent = 'Kunde inte ladda analysen: ' + error.message;
+      loading.style.color = 'var(--red)';
     }
-    let data = null;
-    try { data = await res.json(); } catch (_) { data = null; }
-    if (res.status === 401 && !path.startsWith('/api/login')) {
-      showLogin('Sessionen har gått ut. Logga in igen.');
-      throw new ApiError('Inte inloggad.', 401, 'unauthorized');
-    }
-    if (!res.ok) {
-      const message = (data && (data.message || data.error)) || `Servern svarade ${res.status}.`;
-      throw new ApiError(message, res.status, data && data.code);
-    }
-    return data || {};
   }
 
-  // Samma svar återanvänds mellan flikarna i två minuter, så att det går
-  // snabbt att hoppa fram och tillbaka utan att belasta servern.
-  const cache = new Map();
-  async function cached(path, maxAgeMs = 120000) {
-    const hit = cache.get(path);
-    if (hit && Date.now() - hit.at < maxAgeMs) return hit.data;
-    const data = await api(path);
-    cache.set(path, { at: Date.now(), data });
+  // ─── ÖVERSIKT: långsiktiga trender på förstasidan ───
+  // Siffrorna räknas i body_trends.py; här presenteras de bara. Första
+  // laddningen sker i slutet av blocket, när tillståndet nedan finns.
+  let overviewWindowDays = 90;
+  let overviewData = null;
+  let overviewCharts = {};
+
+  const OVERVIEW_DIRECTIONS = {
+    improving: ['↗', 'Förbättras'], declining: ['↘', 'Går åt fel håll'],
+    stable: ['→', 'Stabil'], unknown: ['·', 'Samlar data'],
+  };
+
+  function overviewNumber(value, decimals = 0) {
+    return Number(value).toLocaleString('sv-SE', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+  }
+
+  function overviewHours(hours) {
+    if (hours == null) return '–';
+    const total = Math.round(hours * 60);
+    return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, '0')} min`;
+  }
+
+  function overviewValue(trend, value) {
+    if (value == null) return '–';
+    if (trend.fmt === 'pace') return analysisMetricValue(value, 'pace');
+    if (trend.key === 'sleep_hours') return overviewHours(value);
+    return overviewNumber(value, trend.fmt === 1 ? 1 : 0);
+  }
+
+  function overviewUnit(trend) {
+    return trend.key === 'sleep_hours' ? '' : (trend.unit || '');
+  }
+
+  function overviewDelta(trend) {
+    const d = trend.delta;
+    if (d == null) return '';
+    const sign = d > 0 ? '+' : d < 0 ? '−' : '±';
+    const abs = Math.abs(d);
+    if (trend.fmt === 'pace') return `${sign}${Math.round(abs)} s/km`;
+    if (trend.key === 'sleep_hours') return `${sign}${Math.round(abs * 60)} min`;
+    const decimals = trend.fmt === 1 || abs < 10 && trend.key !== 'endurance' ? 1 : 0;
+    return `${sign}${overviewNumber(abs, decimals)}${trend.unit && trend.unit !== '/km' ? ' ' + trend.unit : ''}`;
+  }
+
+  function overviewShortDate(iso) {
+    return new Date(iso + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
+  }
+
+  function overviewCard(trend) {
+    const dm = OVERVIEW_DIRECTIONS[trend.direction] || OVERVIEW_DIRECTIONS.unknown;
+    const daily = trend.kind === 'daily';
+    const caption = daily
+      ? (trend.now != null ? 'snitt senaste 7 dygnen' : `senast ${overviewShortDate(trend.latestDate)}`)
+      : `senast mätt ${overviewShortDate(trend.latestDate)}`;
+    const big = daily && trend.now != null ? trend.now : trend.latest;
+    let change = 'För kort historik för att se en riktning.';
+    if (trend.delta != null) {
+      const from = overviewValue(trend, trend.then);
+      change = `<strong>${escapeHtml(overviewDelta(trend))}</strong> sedan ${escapeHtml(overviewShortDate(trend.thenDate))}`
+        + ` <span>(från ${escapeHtml(from)})</span>`;
+    }
+    return `<article class="ov-card ov-dir-${escapeHtml(trend.direction)}" data-key="${escapeHtml(trend.key)}">
+      <div class="ov-card-top">
+        <span class="ov-card-label">${escapeHtml(trend.label)}</span>
+        <span class="ov-badge"><b aria-hidden="true">${dm[0]}</b>${dm[1]}</span>
+      </div>
+      <div class="ov-card-value">${escapeHtml(overviewValue(trend, big))}${overviewUnit(trend) ? ` <small>${escapeHtml(overviewUnit(trend))}</small>` : ''}</div>
+      <div class="ov-card-caption">${escapeHtml(caption)}</div>
+      <div class="ov-chart" data-key="${escapeHtml(trend.key)}" aria-hidden="true"></div>
+      <div class="ov-card-change">${change}</div>
+    </article>`;
+  }
+
+  // Ritas i kortets faktiska bredd i stället för en utsträckt viewBox, så att
+  // punkterna förblir runda och linjen lika tjock oavsett skärm.
+  function drawOverviewChart(el, trend) {
+    const W = Math.max(160, Math.round(el.clientWidth || 280)), H = 84;
+    const pad = {l: 2, r: 4, t: 8, b: 6};
+    const raw = trend.series || [];
+    const line = trend.kind === 'daily' ? (trend.smooth || []) : raw;
+    if (raw.length < 2) {
+      el.innerHTML = '<div class="ov-chart-empty">Behöver fler mätningar</div>';
+      overviewCharts[trend.key] = null;
+      return;
+    }
+    const start = new Date((overviewData?.today || raw[0].t) + 'T12:00:00').getTime() - overviewWindowDays * 864e5;
+    const t0 = Math.min(start, new Date(raw[0].t + 'T12:00:00').getTime());
+    const t1 = new Date((overviewData?.today || raw.at(-1).t) + 'T12:00:00').getTime();
+    const values = raw.map(p => p.v);
+    let lo = Math.min(...values), hi = Math.max(...values);
+    const margin = Math.max((hi - lo) * 0.12, trend.noise || 0.5);
+    lo -= margin; hi += margin;
+    // Tröskelfart: lägre är bättre, så skalan vänds — uppåt i diagrammet är alltid bättre.
+    const invert = trend.good === 'down' && trend.fmt === 'pace';
+    const x = t => pad.l + ((new Date(t + 'T12:00:00').getTime() - t0) / Math.max(1, t1 - t0)) * (W - pad.l - pad.r);
+    const y = v => {
+      const f = (v - lo) / Math.max(1e-9, hi - lo);
+      return pad.t + (invert ? f : 1 - f) * (H - pad.t - pad.b);
+    };
+    const path = line.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`).join(' ');
+    const dots = trend.kind === 'daily'
+      ? raw.map(p => `<circle class="ov-dot" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="1.8"/>`).join('')
+      : '';
+    const last = line.at(-1) || raw.at(-1);
+    const thenLine = trend.then != null
+      ? `<line class="ov-ref" x1="${pad.l}" x2="${W - pad.r}" y1="${y(trend.then).toFixed(1)}" y2="${y(trend.then).toFixed(1)}"/>`
+      : '';
+    el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+      ${thenLine}${dots}
+      ${path ? `<path class="ov-line" d="${path}"/>` : ''}
+      <circle class="ov-end" cx="${x(last.t).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="4"/>
+      <g class="ov-hover" style="display:none"><line class="ov-cross" y1="${pad.t - 4}" y2="${H}"/><circle class="ov-hover-dot" r="4"/></g>
+    </svg><div class="ov-tip" role="status"></div>`;
+    overviewCharts[trend.key] = {trend, raw, x, y, W};
+  }
+
+  function overviewHover(event) {
+    const el = event.target.closest?.('.ov-chart');
+    if (!el) return;
+    const chart = overviewCharts[el.dataset.key];
+    if (!chart) return;
+    const rect = el.getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    let best = chart.raw[0];
+    for (const p of chart.raw) if (Math.abs(chart.x(p.t) - px) < Math.abs(chart.x(best.t) - px)) best = p;
+    const smooth = (chart.trend.smooth || []).find(p => p.t === best.t);
+    const g = el.querySelector('.ov-hover');
+    const cx = chart.x(best.t), cy = chart.y(best.v);
+    g.style.display = '';
+    g.querySelector('.ov-cross').setAttribute('x1', cx);
+    g.querySelector('.ov-cross').setAttribute('x2', cx);
+    g.querySelector('.ov-hover-dot').setAttribute('cx', cx);
+    g.querySelector('.ov-hover-dot').setAttribute('cy', cy);
+    const tip = el.querySelector('.ov-tip');
+    const unit = overviewUnit(chart.trend);
+    tip.innerHTML = `<span>${escapeHtml(overviewShortDate(best.t))}</span><strong>${escapeHtml(overviewValue(chart.trend, best.v))}${unit ? ' ' + escapeHtml(unit) : ''}</strong>`
+      + (smooth && chart.trend.kind === 'daily' ? `<em>7 d snitt ${escapeHtml(overviewValue(chart.trend, smooth.v))}</em>` : '');
+    tip.style.display = 'flex';
+    const tipW = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(chart.W - tipW, cx - tipW / 2)) + 'px';
+  }
+
+  function overviewHoverEnd(event) {
+    const el = event.target.closest?.('.ov-chart');
+    if (!el) return;
+    const g = el.querySelector('.ov-hover');
+    if (g) g.style.display = 'none';
+    const tip = el.querySelector('.ov-tip');
+    if (tip) tip.style.display = 'none';
+  }
+
+  function renderOverviewSummary(data, trends) {
+    const label = key => trends.find(t => t.key === key)?.label || key;
+    const groups = [
+      ['improving', 'Förbättras', data.summary.improving],
+      ['declining', 'Går åt fel håll', data.summary.declining],
+      ['stable', 'Stabilt', data.summary.stable],
+    ].filter(([, , keys]) => keys.length);
+    const period = overviewWindowDays === 180 ? 'Senaste halvåret' : `Senaste ${overviewWindowDays} dagarna`;
+    const el = document.getElementById('ov-summary');
+    if (!groups.length) {
+      el.innerHTML = `<p class="ov-summary-text">${period}: för lite historik för att se några riktningar ännu.</p>`;
+      return;
+    }
+    el.innerHTML = `<p class="ov-summary-text"><strong>${period}</strong></p>`
+      + groups.map(([tone, title, keys]) => `<div class="ov-summary-row ov-dir-${tone}">
+          <span class="ov-badge"><b aria-hidden="true">${OVERVIEW_DIRECTIONS[tone][0]}</b>${title}</span>
+          <span class="ov-summary-items">${keys.map(k => escapeHtml(label(k))).join(' · ')}</span></div>`).join('');
+  }
+
+  function renderOverviewWeeks(data) {
+    const weeks = (data.sleepWeeks || []).filter(w => w.avgHours != null);
+    const el = document.getElementById('ov-weeks');
+    const goal = data.sleepGoalHours || 7.5;
+    if (!weeks.length) {
+      el.innerHTML = '<p class="an-empty">Ingen sömndata i perioden ännu.</p>';
+      return;
+    }
+    const top = Math.max(goal + 1.5, ...weeks.map(w => w.avgHours));
+    const goalPct = goal / top * 100;
+    const labelEvery = weeks.length > 16 ? 3 : weeks.length > 9 ? 2 : 1;
+    const bars = weeks.map((w, i) => {
+      const pct = Math.max(2, w.avgHours / top * 100);
+      const title = `v.${w.week}: ${overviewHours(w.avgHours)} per natt${w.avgScore != null ? ` · sömnpoäng ${w.avgScore}` : ''} · ${w.nightsOnGoal} av ${w.nights} nätter på mål${w.current ? ' · pågående vecka' : ''}`;
+      const showLabel = (weeks.length - 1 - i) % labelEvery === 0;
+      return `<div class="ov-week${w.current ? ' current' : ''}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
+        <div class="ov-week-track"><i style="height:${pct.toFixed(1)}%"></i></div>
+        <span>${showLabel ? 'v.' + w.week : ''}</span></div>`;
+    }).join('');
+    const finished = weeks.filter(w => !w.current);
+    const pool = finished.length ? finished : weeks;
+    const best = pool.reduce((a, b) => (b.avgHours > a.avgHours ? b : a));
+    const worst = pool.reduce((a, b) => (b.avgHours < a.avgHours ? b : a));
+    const nights = weeks.reduce((n, w) => n + w.nights, 0);
+    const onGoal = weeks.reduce((n, w) => n + w.nightsOnGoal, 0);
+    const avg = weeks.reduce((n, w) => n + w.avgHours * w.nights, 0) / Math.max(1, nights);
+    document.getElementById('ov-sleep-note').textContent = `Snitt per natt · streckad linje = målet ${overviewNumber(goal, 1)} h · randig = pågående vecka`;
+    el.innerHTML = `<div class="ov-weeks-plot"><div class="ov-goal-area"><div class="ov-goal-line" style="bottom:${goalPct.toFixed(1)}%"></div></div>${bars}</div>
+      <div class="an-volume-summary ov-weeks-summary">
+        <div><span>Snitt per natt</span><strong>${overviewHours(avg)}</strong></div>
+        <div><span>Nätter på mål</span><strong>${onGoal} av ${nights}</strong></div>
+        <div><span>Bästa · sämsta vecka</span><strong>v.${best.week} · v.${worst.week}</strong></div>
+      </div>`;
+  }
+
+  function renderOverviewRelation(rel) {
+    const el = document.getElementById('ov-relation');
+    if (!rel || !rel.enough) {
+      const have = rel ? `${rel.shortNights} korta och ${rel.normalNights} normala nätter hittills` : 'ingen data ännu';
+      el.innerHTML = `<p class="an-empty">Jämförelsen behöver minst fem nätter under ${overviewNumber(rel?.thresholdHours || 7)} h och fem över (${escapeHtml(have)}).</p>`;
+      return;
+    }
+    const limit = overviewNumber(rel.thresholdHours);
+    const row = (label, short, normal, unit, decimals) => {
+      const max = Math.max(short, normal) || 1;
+      return `<div class="ov-rel-row"><div class="ov-rel-name">${label}</div>
+        <div class="ov-rel-bar"><span>Under ${limit} h</span><i style="width:${(short / max * 100).toFixed(1)}%"></i><strong>${overviewNumber(short, decimals)} ${unit}</strong></div>
+        <div class="ov-rel-bar normal"><span>${limit} h eller mer</span><i style="width:${(normal / max * 100).toFixed(1)}%"></i><strong>${overviewNumber(normal, decimals)} ${unit}</strong></div></div>`;
+    };
+    const hrvClear = rel.hrvDiff != null && Math.abs(rel.hrvDiff) >= 2;
+    const rhrClear = rel.rhrDiff != null && Math.abs(rel.rhrDiff) >= 1;
+    const parts = [];
+    if (hrvClear) parts.push(`HRV ${overviewNumber(Math.abs(rel.hrvDiff), 1)} ms ${rel.hrvDiff < 0 ? 'lägre' : 'högre'}`);
+    if (rhrClear) parts.push(`vilopulsen ${overviewNumber(Math.abs(rel.rhrDiff), 1)} slag ${rel.rhrDiff > 0 ? 'högre' : 'lägre'}`);
+    const verdict = parts.length
+      ? `Efter nätter under ${limit} h är din ${parts.join(' och ')} än efter längre nätter.`
+      : `Ingen tydlig skillnad: korta nätter syns knappt i din HRV eller vilopuls just nu.`;
+    el.innerHTML = `<p class="ov-rel-verdict">${escapeHtml(verdict)}</p>
+      ${rel.hrvShort != null ? row('HRV', rel.hrvShort, rel.hrvNormal, 'ms', 1) : ''}
+      ${rel.rhrShort != null ? row('Vilopuls', rel.rhrShort, rel.rhrNormal, 'slag/min', 1) : ''}
+      <p class="ov-rel-note">${rel.shortNights} korta och ${rel.normalNights} längre nätter. Ett samband i din data, inte ett bevis.</p>`;
+  }
+
+  function renderOverview(data) {
+    overviewData = data;
+    overviewCharts = {};
+    const trends = (data.trends || []).filter(t => t.samples > 0);
+    document.getElementById('ov-period-note').textContent = 'Senaste 7 dygnen jämfört med periodens början';
+    renderOverviewSummary(data, trends);
+    const grid = document.getElementById('ov-grid');
+    grid.innerHTML = trends.length
+      ? trends.map(overviewCard).join('')
+      : '<p class="an-empty">Ingen historik ännu. Trenderna fylls på när Garmin har synkat några dygn.</p>';
+    grid.querySelectorAll('.ov-chart').forEach(el => {
+      const trend = trends.find(t => t.key === el.dataset.key);
+      if (trend) drawOverviewChart(el, trend);
+    });
+    renderOverviewWeeks(data);
+    renderOverviewRelation(data.sleepVsRecovery);
+  }
+
+  function setOverviewWindow(days) {
+    if (![30, 90, 180].includes(days) || days === overviewWindowDays) return;
+    overviewWindowDays = days;
+    document.querySelectorAll('.ov-window-btn').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.days) === days));
+    loadOverview();
+    renderRaceChart();
+  }
+
+  async function loadOverview() {
+    const summary = document.getElementById('ov-summary');
+    if (!summary) return;
+    try {
+      const response = await fetch(`/api/overview?days=${overviewWindowDays}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || data.error || 'Trenderna kunde inte hämtas.');
+      renderOverview(data);
+    } catch (error) {
+      summary.innerHTML = `<p class="ov-summary-text ov-error">Kunde inte ladda trenderna: ${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  {
+    const grid = document.getElementById('ov-grid');
+    grid?.addEventListener('pointermove', overviewHover);
+    grid?.addEventListener('pointerleave', overviewHoverEnd, true);
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (!overviewData || !document.getElementById('page-overview')?.classList.contains('active')) return;
+        document.querySelectorAll('#ov-grid .ov-chart').forEach(el => {
+          const trend = (overviewData.trends || []).find(t => t.key === el.dataset.key);
+          if (trend) drawOverviewChart(el, trend);
+        });
+      }, 150);
+    });
+  }
+  loadOverview();
+  loadNiggles();
+
+  // --- Race predictor och passanalyser ---------------------------------------
+  // Prognosen räknas på servern ur senast synkade data; här ritas den bara.
+  let racePrediction = null;
+  let raceDistance = null;
+  let racePredictionRetry = null;
+  let racePredictionPolls = 0;
+  const RP_DIRECTION = {
+    improving: ['↗', 'Förbättras'], declining: ['↘', 'Går åt fel håll'],
+    stable: ['→', 'Stabilt'], unclear: ['·', 'För lite data'],
+  };
+
+  function rpTime(seconds) {
+    const s = Math.round(Math.abs(seconds));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+  }
+  function rpPace(secPerKm) {
+    if (!secPerKm) return '–';
+    const s = Math.round(secPerKm);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+  function rpSigned(seconds) {
+    if (!seconds) return '±0 s';
+    return `${seconds < 0 ? '−' : '+'}${Math.abs(seconds) >= 60 ? rpTime(seconds) : Math.abs(Math.round(seconds)) + ' s'}`;
+  }
+  function rpParseTime(text) {
+    const parts = String(text || '').trim().split(':').map(Number);
+    if (!parts.length || parts.some(n => !Number.isFinite(n) || n < 0)) return null;
+    return parts.reduce((total, n) => total * 60 + n, 0) || null;
+  }
+
+  // En enkel linje i kortets riktiga storlek. Lägre tid är bättre, så axeln
+  // vänds: en kurva som går uppåt betyder snabbare.
+  // Ett uppehåll på mer än tio dagar ritas som ett avbrott i linjen, inte som
+  // en rak sträcka genom dagar då modellen saknade underlag.
+  function rpPath(points, x, y, gapDays = 10) {
+    return points.map((p, i) => {
+      const gap = i && (new Date(p.t) - new Date(points[i - 1].t)) > gapDays * 864e5;
+      return `${i && !gap ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`;
+    }).join('');
+  }
+
+  function rpDrawLine(el, points, {target = null, invert = true, color = 'var(--accent)', compare = [], from = null, to = null, gapDays = 10} = {}) {
+    if (!el) return;
+    const clean = points.filter(p => Number.isFinite(p.v));
+    const other = compare.filter(p => Number.isFinite(p.v));
+    if (clean.length < 2) {
+      el.innerHTML = '<div class="ov-chart-empty">Behöver fler mätningar</div>';
+      el._points = null;
+      return;
+    }
+    const W = Math.max(200, Math.round(el.clientWidth || 300)), H = Math.round(el.clientHeight || 90);
+    const pad = {l: 4, r: 6, t: 10, b: 10};
+    const all = clean.concat(other);
+    // Axeln spänner över hela den valda perioden, så ett glapp i början syns
+    // som ett glapp och inte som att kurvan börjar perioden.
+    const stamps = all.map(p => new Date(p.t + 'T12:00:00').getTime());
+    const t0 = from ? new Date(from + 'T12:00:00').getTime() : Math.min(...stamps);
+    const t1 = Math.max(t0 + 864e5, to ? new Date(to + 'T12:00:00').getTime() : 0, ...stamps);
+    const values = all.map(p => p.v).concat(target != null ? [target] : []);
+    let lo = Math.min(...values), hi = Math.max(...values);
+    const span = Math.max(hi - lo, Math.abs(hi) * 0.01, 1);
+    lo -= span * 0.12; hi += span * 0.12;
+    const x = t => pad.l + (new Date(t + 'T12:00:00').getTime() - t0) / (t1 - t0) * (W - pad.l - pad.r);
+    const y = v => {
+      const f = (v - lo) / (hi - lo);
+      return pad.t + (invert ? f : 1 - f) * (H - pad.t - pad.b);
+    };
+    const path = rpPath(clean, x, y, gapDays);
+    const comparePath = other.length > 1
+      ? `<path d="${rpPath(other, x, y)}" class="rp-compare-line" fill="none"/>` : '';
+    const dots = clean.length <= 40
+      ? clean.map(p => `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.6" fill="${color}"/>`).join('')
+      : '';
+    const last = clean.at(-1);
+    const goal = target != null
+      ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y(target).toFixed(1)}" y2="${y(target).toFixed(1)}" class="rp-goal-line"/>`
+      : '';
+    el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${goal}${comparePath}
+      <path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}<circle cx="${x(last.t).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="4" fill="${color}"/>
+      <line class="rp-hover-line" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/></svg>`;
+    el._points = clean.map(p => ({...p, x: x(p.t)}));
+  }
+
+  function rpNearest(el, event) {
+    if (!el?._points) return null;
+    const box = el.getBoundingClientRect();
+    const px = event.clientX - box.left;
+    let best = el._points[0];
+    for (const p of el._points) if (Math.abs(p.x - px) < Math.abs(best.x - px)) best = p;
+    const line = el.querySelector('.rp-hover-line');
+    if (line) { line.setAttribute('x1', best.x); line.setAttribute('x2', best.x); line.setAttribute('visibility', 'visible'); }
+    return best;
+  }
+  function rpHoverEnd(el) {
+    el?.querySelector('.rp-hover-line')?.setAttribute('visibility', 'hidden');
+  }
+
+  // Grafen följer Översiktens periodval (30 d / 90 d / 6 mån).
+  function rpWindowStart() {
+    const today = racePrediction?.today;
+    if (!today) return null;
+    const d = new Date(today + 'T12:00:00');
+    d.setDate(d.getDate() - overviewWindowDays);
+    return d.toLocaleDateString('sv-SE');
+  }
+  function rpWindowHistory() {
+    const start = rpWindowStart();
+    return (racePrediction?.history || []).filter(p => !start || p.t >= start);
+  }
+
+  function rpHasGarmin() {
+    return (racePrediction?.history || []).some(p => p.garmin);
+  }
+  // Varifrån tröskelpulsen kommer — en uppskattning ska synas som en uppskattning.
+  function rpLthrSource(m) {
+    if (m.lthrSource === 'manual') return 'din egen siffra';
+    if (m.lthrSource === 'lab') return 'från ditt labbtest (Plan → Labbtest)';
+    if (m.lthrSource === 'estimated') return `uppskattad: 90 % av maxpulsen ${m.maxHr}, ändra under "Ändra mål"`;
+    return 'uppmätt av klockan';
+  }
+
+  function rpDefaultReadout() {
+    const data = racePrediction;
+    const label = data?.predictions?.find(p => p.key === raceDistance)?.label || '';
+    const own = rpWindowHistory().filter(p => Number.isFinite(p[raceDistance]));
+    const period = overviewWindowDays === 180 ? 'senaste halvåret' : `senaste ${overviewWindowDays} dagarna`;
+    if (own.length < 2 || own[0].t === own.at(-1).t) return `${label}: för kort historik ${period} för en riktning.`;
+    const change = own.at(-1)[raceDistance] - own[0][raceDistance];
+    const since = new Date(own[0].t + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
+    const partial = own[0].t > rpWindowStart() ? ` (sedan ${since}, då egen prognos finns)` : '';
+    return `${label}: ${rpSigned(change)} ${period}${partial}${change < 0 ? ' · snabbare' : change > 0 ? ' · långsammare' : ''}${rpHasGarmin() ? ' · streckad linje = Garmin' : ''}`;
+  }
+
+  function renderRaceChart() {
+    const data = racePrediction;
+    if (!data?.available) return;
+    const target = data.target?.distance === raceDistance ? data.target.seconds : null;
+    const history = rpWindowHistory();
+    rpDrawLine(document.getElementById('rp-chart'),
+      history.map(p => ({t: p.t, v: p[raceDistance]})), {target, from: rpWindowStart(), to: data.today,
+        compare: history.map(p => ({t: p.t, v: p.garmin?.[raceDistance]}))});
+    document.getElementById('rp-readout').textContent = rpDefaultReadout();
+    document.querySelectorAll('.rp-dist').forEach(btn => {
+      const on = btn.dataset.distance === raceDistance;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  function renderRacePrediction(data) {
+    racePrediction = data;
+    const status = document.getElementById('rp-status');
+    const body = document.getElementById('rp-body');
+    if (!data.available) {
+      status.hidden = false;
+      status.textContent = data.reason || 'Ingen prognos ännu.';
+      body.hidden = true;
+      return;
+    }
+    status.hidden = true;
+    body.hidden = false;
+    raceDistance = raceDistance || data.target?.distance || 'half';
+    const main = data.predictions.find(p => p.key === (data.target?.distance || 'half')) || data.predictions[2];
+    document.getElementById('rp-title').textContent = `${main.label} just nu`;
+    document.getElementById('rp-time').textContent = main.time;
+    const range = main.key === 'half' && data.range?.half
+      ? ` · spann ${rpTime(data.range.half[0])}–${rpTime(data.range.half[1])}` : '';
+    document.getElementById('rp-sub').textContent = `${main.pace}${range}`;
+
+    const t = data.target;
+    const targetEl = document.getElementById('rp-target');
+    if (t) {
+      const tone = t.reached ? 'good' : (t.recentPerWeekSec != null && t.neededPerWeekSec != null
+        && t.recentPerWeekSec >= t.neededPerWeekSec ? 'good' : 'warn');
+      const pace = t.recentPerWeekSec != null && t.neededPerWeekSec != null
+        ? `<div class="rp-target-row"><span>Takt senaste 4 v</span><strong>${t.recentPerWeekSec > 0 ? '−' : '+'}${Math.abs(t.recentPerWeekSec)} s/vecka</strong></div>
+           <div class="rp-target-row"><span>Behövs till loppet</span><strong>−${t.neededPerWeekSec} s/vecka</strong></div>` : '';
+      targetEl.innerHTML = `<div class="rp-target-box" data-tone="${tone}">
+        <div class="rp-target-row"><span>Mål ${escapeHtml(t.label.toLowerCase())}</span><strong>${escapeHtml(t.time)} <small>${escapeHtml(t.pace)}</small></strong></div>
+        <div class="rp-target-row"><span>${t.reached ? 'Före målet med' : 'Kvar till målet'}</span><strong>${rpTime(Math.abs(t.gapSec))} <small>${Math.abs(t.paceGapSec)} s/km</small></strong></div>
+        ${t.deadline ? `<div class="rp-target-row"><span>Till ${escapeHtml(t.deadline)}</span><strong>${t.weeksLeft} veckor</strong></div>` : ''}
+        ${pace}</div>`;
+      document.getElementById('rp-target-distance').value = t.distance;
+      document.getElementById('rp-target-time').value = t.time;
+      document.getElementById('rp-target-date').value = t.deadline || '';
+    } else {
+      targetEl.innerHTML = '<p class="rp-target-empty">Sätt ett mål under "Ändra mål" så ser du hur långt kvar det är.</p>';
+    }
+
+    document.getElementById('rp-distances').innerHTML = data.predictions.map(p => {
+      const change = data.change28?.[p.key];
+      return `<button type="button" class="rp-dist" data-distance="${p.key}" aria-pressed="false">
+        <span>${escapeHtml(p.label)}</span><strong>${escapeHtml(p.time)}</strong>
+        <small>${change != null ? escapeHtml(rpSigned(change)) + ' på 4 v' : escapeHtml(p.pace)}</small></button>`;
+    }).join('');
+
+    const m = data.model || {};
+    const lthrInput = document.getElementById('rp-target-lthr');
+    if (lthrInput) {
+      lthrInput.value = (m.lthrSource === 'manual' || m.lthrSource === 'lab') ? m.lthr : '';
+      lthrInput.placeholder = m.lthr ? String(m.lthr) : 't.ex. 178';
+    }
+    const boxes = [`<div class="rp-source"><span>Byggd på</span><strong>${m.laps} varv + ${m.reps || 0} drag</strong>
+        <small>varv ≥ 6 min och intervalldrag 2–6 min (slutpuls) senaste 6 veckorna, ${m.nearLaps} nära tröskelpulsen</small></div>`,
+      `<div class="rp-source"><span>Läst vid puls</span><strong>${Math.round(m.targetHr)} slag</strong>
+        <small>97 % av tröskelpulsen ${m.lthr} (${escapeHtml(rpLthrSource(m))}) · varje slag ≈ ${overviewNumber(m.secPerBeat, 1)} s/km</small></div>`];
+    (data.comparisons || []).forEach(c => boxes.push(`<div class="rp-source rp-source-compare"><span>Jämförelse: ${escapeHtml(c.label)}</span>
+        <strong>${rpTime(c.half)}</strong><small>Ingår inte i prognosen</small></div>`));
+    (data.checks || []).forEach(c => boxes.push(`<div class="rp-source rp-source-note"><span>Kontroll: ${escapeHtml(c.name.split(' - ').pop().split('(')[0].trim())}</span>
+        <strong>${escapeHtml(c.gapTime || c.time)}</strong><small>${escapeHtml(c.date)} · ${c.gapTime ? 'terrängjusterat, ' : ''}${
+          c.predicted ? `modellen sa ${escapeHtml(c.predicted)} dagen innan` : 'för lite data dagen innan'}. Justerar inget.</small></div>`));
+    document.getElementById('rp-sources').innerHTML = boxes.join('');
+    document.getElementById('rp-method').textContent = data.method;
+    const computed = data.computedAt ? data.computedAt.slice(0, 16).replace('T', ' ') : '';
+    document.getElementById('rp-updated').textContent = data.refreshing
+      ? 'Nytt pass synkat · räknar om prognosen…'
+      : `Räknad ${computed} · räknas om när ett nytt pass synkas`;
+    // Omräkningen pågår redan på servern; hämta resultatet när den är klar.
+    clearTimeout(racePredictionRetry);
+    if (data.refreshing && racePredictionPolls < 10) {
+      racePredictionPolls += 1;
+      racePredictionRetry = setTimeout(loadRacePrediction, 5000);
+    } else if (!data.refreshing) {
+      racePredictionPolls = 0;
+    }
+    renderRaceChart();
+  }
+
+  async function loadRacePrediction() {
+    const status = document.getElementById('rp-status');
+    if (!status) return;
+    try {
+      const response = await fetch('/api/race-predictor');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Prognosen kunde inte hämtas.');
+      renderRacePrediction(data);
+    } catch (error) {
+      status.hidden = false;
+      status.textContent = `Kunde inte räkna prognosen: ${error.message}`;
+    }
+  }
+
+  {
+    const chart = document.getElementById('rp-chart');
+    chart?.addEventListener('pointermove', event => {
+      const p = rpNearest(chart, event);
+      if (!p) return;
+      const when = new Date(p.t + 'T12:00:00').toLocaleDateString('sv-SE', {day: 'numeric', month: 'short'});
+      const g = (racePrediction?.history || []).find(h => h.t === p.t)?.garmin?.[raceDistance];
+      document.getElementById('rp-readout').textContent = `${when}: ${rpTime(p.v)}${g ? ` · Garmin ${rpTime(g)}` : ''}`;
+    });
+    chart?.addEventListener('pointerleave', () => {
+      rpHoverEnd(chart);
+      document.getElementById('rp-readout').textContent = rpDefaultReadout();
+    });
+    document.getElementById('rp-distances')?.addEventListener('click', event => {
+      const btn = event.target.closest('.rp-dist');
+      if (!btn) return;
+      raceDistance = btn.dataset.distance;
+      renderRaceChart();
+    });
+    document.getElementById('rp-target-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const msg = document.getElementById('rp-target-msg');
+      const seconds = rpParseTime(document.getElementById('rp-target-time').value);
+      if (!seconds) { msg.textContent = 'Skriv tiden som t.ex. 1:22:00.'; return; }
+      msg.textContent = 'Sparar…';
+      try {
+        const response = await fetch('/api/race-target', {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({distance: document.getElementById('rp-target-distance').value, seconds,
+            deadline: document.getElementById('rp-target-date').value || null,
+            lthr: document.getElementById('rp-target-lthr').value || ''}),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.message || 'Målet kunde inte sparas.');
+        raceDistance = data.target?.distance || raceDistance;
+        renderRacePrediction(data);
+        msg.textContent = 'Sparat.';
+      } catch (error) {
+        msg.textContent = error.message;
+      }
+    });
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(renderRaceChart, 150);
+    });
+  }
+  loadRacePrediction();
+
+  // ─── STRENGTH: sub-tabs (today's live workout vs history) ───
+  // --- Styrka: logga set för set i telefonen, se progress över tid ----------
+  // Loggkortet ritas från lokal state och uppdateras kort för kort, så att en
+  // omladdning av progressen aldrig tar fokus eller ett halvskrivet värde.
+  let strengthWindowDays = 90;
+  let strengthData = null;
+  let stSession = { sessionId: null, rows: [] };
+  let stOrder = [];      // övningar i dagens pass, i den ordning de lades till
+  let stDrafts = {};     // nyckel → {weight, reps, target}
+  let stRestStart = null;
+  let stRestTimer = null;
+  let stProgressTimer = null;
+
+  const stKey = name => stCanonical(name).toLowerCase();
+  // Samma övning under två namn ("Bench press" / "Bänkpress") ska bli ett kort
+  // och en kurva. Servern skickar katalogens alias (strength_progression.py).
+  function stNormalizeName(name) {
+    return String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+  function stCanonical(name) {
+    const clean = String(name || '').trim().replace(/\s+/g, ' ');
+    return strengthData?.aliases?.[stNormalizeName(clean)] || clean;
+  }
+  const ST_RIR_OPTIONS = [0, 1, 2, 3, 4];
+  const stDraftStorage = () => `trainyze:strength:${strengthData?.today || new Date().toLocaleDateString('sv-SE')}`;
+
+  function fmtKg(value) {
+    if (value === null || value === undefined || value === '') return '–';
+    return Number(value).toLocaleString('sv-SE', { maximumFractionDigits: 2 }) + ' kg';
+  }
+  function fmtVolume(value) {
+    const n = Number(value || 0);
+    if (n >= 1000) return (n / 1000).toLocaleString('sv-SE', { maximumFractionDigits: 1 }) + ' ton';
+    return n.toLocaleString('sv-SE', { maximumFractionDigits: 0 }) + ' kg';
+  }
+  function stShortDate(iso) {
+    return iso ? new Date(iso + 'T12:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }) : '';
+  }
+  function stSetText(row) {
+    const rir = row.rir == null || row.rir === '' ? '' : ` · ${row.rir} kvar`;
+    return `${row.weight ? fmtKg(row.weight) : 'Kroppsvikt'} × ${row.reps || '–'}${rir}`;
+  }
+
+  function stSaveDrafts() {
+    try { localStorage.setItem(stDraftStorage(), JSON.stringify({ order: stOrder, drafts: stDrafts })); } catch (_) {}
+  }
+  function stLoadDrafts() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(stDraftStorage()) || 'null');
+      if (saved && Array.isArray(saved.order)) return saved;
+    } catch (_) {}
+    return { order: [], drafts: {} };
+  }
+
+  function stTodayLift() {
+    const info = getISOWeekInfo(new Date());
+    return (PLAN_SESSIONS || []).find(p => p.type === 'lift' && p.week === info.week && p.dow === info.dow) || null;
+  }
+  function stRowsFor(key) {
+    return stSession.rows.filter(r => stKey(r.exercise) === key);
+  }
+  function stName(key) {
+    return stRowsFor(key)[0]?.exercise || stDrafts[key]?.name || strengthData?.last?.[key]?.exercise || key;
+  }
+
+  // Förifyllt värde: senaste setet i dag, annars dagens rekommendation,
+  // annars förra gången.
+  function stDefaultDraft(key, target = null) {
+    const rows = stRowsFor(key);
+    const lastToday = rows.at(-1);
+    const previous = strengthData?.last?.[key];
+    const weight = lastToday ? lastToday.weight : target?.weight ?? previous?.weight ?? null;
+    const reps = parseInt(lastToday?.reps ?? target?.reps ?? previous?.reps ?? 10, 10) || 10;
+    return { weight: weight ?? '', reps, target };
+  }
+
+  function stAddExercise(name, target = null) {
+    const clean = stCanonical(name).slice(0, 80);
+    const key = stKey(clean);
+    if (!key) return null;
+    if (!stOrder.includes(key)) stOrder.push(key);
+    stDrafts[key] = { ...stDefaultDraft(key, target), ...(stDrafts[key] || {}), name: clean, target: target || stDrafts[key]?.target || null };
+    stSaveDrafts();
+    renderStrengthLog();
+    return key;
+  }
+
+  function stTargetText(target) {
+    if (!target) return '';
+    const reps = target.reps == null ? '' : `${target.reps}${target.unit === 'seconds' ? ' s' : ''}`;
+    return `Mål ${target.sets || ''}×${reps}${target.weight ? ' @ ' + fmtKg(target.weight) : ''}`;
+  }
+
+  function stExerciseHtml(key) {
+    const draft = stDrafts[key] || stDefaultDraft(key);
+    const rows = stRowsFor(key);
+    const sets = rows.flatMap(row => Array.from({ length: Number(row.sets || 1) }, () => row));
+    const previous = strengthData?.last?.[key];
+    const id = 'st-' + stOrder.indexOf(key);
+    const name = stName(key);
+    const setsHtml = sets.length
+      ? `<ol class="st-sets">${sets.map((row, i) => `<li><span class="st-set-no">${i + 1}</span><span class="st-set-val">${escapeHtml(stSetText(row))}</span>
+          <button type="button" class="st-set-del" data-action="st-remove-set" data-row="${Number(row.id)}" aria-label="Ta bort set ${i + 1} i ${escapeHtml(name)}">×</button></li>`).join('')}</ol>`
+      : '';
+    return `<article class="st-ex" data-key="${escapeHtml(key)}" aria-labelledby="${id}-name">
+      <header class="st-ex-head">
+        <h4 id="${id}-name">${escapeHtml(name)}</h4>
+        ${draft.target ? `<span class="st-ex-target">${escapeHtml(stTargetText(draft.target))}</span>` : ''}
+        ${sets.length ? '' : `<button type="button" class="st-ex-remove" data-action="st-remove-exercise" aria-label="Ta bort ${escapeHtml(name)} från passet">×</button>`}
+      </header>
+      ${previous ? `<p class="st-ex-last">Förra gången ${escapeHtml(stShortDate(previous.date))}: ${escapeHtml(previous.label)}</p>` : '<p class="st-ex-last">Ny övning – välj en vikt du klarar med 2 reps kvar.</p>'}
+      ${setsHtml}
+      <div class="st-entry">
+        <div class="st-stepper">
+          <label for="${id}-weight">kg</label>
+          <button type="button" data-action="st-step" data-field="weight" data-delta="-2.5" aria-label="Minska vikten 2,5 kg">−</button>
+          <input id="${id}-weight" data-field="weight" type="text" inputmode="decimal" value="${escapeHtml(draft.weight === '' || draft.weight == null ? '' : String(draft.weight).replace('.', ','))}" placeholder="0">
+          <button type="button" data-action="st-step" data-field="weight" data-delta="2.5" aria-label="Öka vikten 2,5 kg">+</button>
+        </div>
+        <div class="st-stepper">
+          <label for="${id}-reps">reps</label>
+          <button type="button" data-action="st-step" data-field="reps" data-delta="-1" aria-label="En rep färre">−</button>
+          <input id="${id}-reps" data-field="reps" type="text" inputmode="numeric" value="${escapeHtml(String(draft.reps ?? ''))}">
+          <button type="button" data-action="st-step" data-field="reps" data-delta="1" aria-label="En rep till">+</button>
+        </div>
+        <button type="button" class="st-log-btn" data-action="st-log-set">✓ Logga set ${sets.length + 1}</button>
+      </div>
+      <div class="st-rir" role="group" aria-label="Reps kvar i tanken (valfritt)">
+        <span class="st-rir-label">Reps kvar</span>
+        ${ST_RIR_OPTIONS.map(v => `<button type="button" class="st-rir-btn${String(draft.rir ?? '') === String(v) ? ' active' : ''}" data-action="st-rir" data-rir="${v}" aria-pressed="${String(draft.rir ?? '') === String(v)}">${v === 4 ? '4+' : v}</button>`).join('')}
+      </div>
+    </article>`;
+  }
+
+  function renderStrengthPlanned() {
+    const el = document.getElementById('st-planned');
+    if (!el) return;
+    const lift = stTodayLift();
+    const recs = (lift?.strength_recommendations || []).filter(r => r.exercise && !stOrder.includes(stKey(r.exercise)));
+    if (!lift) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.innerHTML = `<div class="st-planned-head"><strong>${escapeHtml(lift.title || 'Gympass')}</strong>
+        ${recs.length > 1 ? '<button type="button" class="st-chip st-chip-all" data-action="st-start-planned" data-index="all">Lägg till alla</button>' : ''}</div>
+      ${recs.length ? `<div class="st-planned-list">${recs.map(r => `<button type="button" class="st-chip" data-action="st-start-planned" data-index="${(lift.strength_recommendations || []).indexOf(r)}">
+        <span>${escapeHtml(r.exercise)}</span><small>${escapeHtml(stTargetText(r).replace('Mål ', ''))}</small></button>`).join('')}</div>`
+        : `<p class="st-log-sub">${lift.detail ? escapeHtml(lift.detail) : 'Alla planerade övningar är tillagda.'}</p>`}`;
+  }
+
+  function renderStrengthQuick() {
+    const el = document.getElementById('st-quick');
+    if (!el) return;
+    const planned = (stTodayLift()?.strength_recommendations || []).map(r => stKey(r.exercise));
+    const names = (strengthData?.exerciseNames || [])
+      .filter(n => !stOrder.includes(stKey(n)) && !planned.includes(stKey(n))).slice(0, 8);
+    el.innerHTML = names.map(n => `<button type="button" class="st-chip" data-action="st-add-quick" data-name="${escapeHtml(n)}">+ ${escapeHtml(n)}</button>`).join('');
+    const list = document.getElementById('st-exercise-names');
+    const all = [...new Set([...(strengthData?.exerciseNames || []), ...SUGGESTIONS])];
+    if (list) list.innerHTML = all.map(n => `<option value="${escapeHtml(n)}">`).join('');
+  }
+
+  function stUpdateSub() {
+    const activity = strengthData?.todaySession?.activity;
+    const totalSets = stSession.rows.reduce((n, r) => n + Number(r.sets || 1), 0);
+    document.getElementById('st-log-sub').textContent = [
+      totalSets ? `${totalSets} set loggade` : 'Inga set loggade än',
+      activity ? `kopplat till Garmin-passet "${activity.name}"` : 'kopplas till Garmin-passet när klockan synkar',
+    ].join(' · ');
+  }
+
+  function renderStrengthLog() {
+    const today = strengthData?.today;
+    const day = today ? new Date(today + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
+    document.getElementById('st-log-title').textContent = `Dagens pass · ${day}`;
+    stUpdateSub();
+    const list = document.getElementById('st-exercises');
+    list.innerHTML = stOrder.length ? stOrder.map(stExerciseHtml).join('')
+      : '<p class="st-empty">Lägg till en övning nedan eller välj från planen, så loggar du ett set i taget.</p>';
+    renderStrengthPlanned();
+    renderStrengthQuick();
+  }
+
+  // Bara ett kort ritas om när ett set loggas — knappen behåller fokus och
+  // de andra korten rörs inte.
+  function stRerenderCard(key, focusLog = false) {
+    const card = document.querySelector(`#st-exercises .st-ex[data-key="${CSS.escape(key)}"]`);
+    if (!card) return renderStrengthLog();
+    card.outerHTML = stExerciseHtml(key);
+    stUpdateSub();
+    if (focusLog) document.querySelector(`#st-exercises .st-ex[data-key="${CSS.escape(key)}"] .st-log-btn`)?.focus();
+  }
+
+  function stCardKey(trigger) { return trigger.closest('.st-ex')?.dataset.key; }
+  function stParseWeight(text) {
+    const value = String(text ?? '').trim().replace(',', '.');
+    if (!value) return null;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 && n <= 1000 ? Math.round(n * 100) / 100 : NaN;
+  }
+  function stMessage(text, tone = '') {
+    const el = document.getElementById('st-msg');
+    if (!el) return;
+    el.textContent = text;
+    el.dataset.tone = tone;
+  }
+
+  function stStep(trigger) {
+    const key = stCardKey(trigger);
+    const field = trigger.dataset.field;
+    const input = trigger.closest('.st-stepper').querySelector('input');
+    const delta = Number(trigger.dataset.delta);
+    if (field === 'weight') {
+      const current = stParseWeight(input.value);
+      const next = Math.max(0, (Number.isFinite(current) ? current || 0 : 0) + delta);
+      input.value = next ? String(next).replace('.', ',') : '';
+    } else {
+      input.value = String(Math.max(1, Math.min(200, (parseInt(input.value, 10) || 0) + delta)));
+    }
+    stRememberInput(key, input);
+  }
+  function stRememberInput(key, input) {
+    if (!key || !stDrafts[key]) return;
+    stDrafts[key][input.dataset.field] = input.value;
+    stSaveDrafts();
+  }
+
+  // Valfritt: hur många reps som fanns kvar. Ett tryck till på samma tal tar bort valet.
+  function stSetRir(trigger) {
+    const key = stCardKey(trigger);
+    if (!key || !stDrafts[key]) return;
+    const value = Number(trigger.dataset.rir);
+    stDrafts[key].rir = stDrafts[key].rir === value ? null : value;
+    stSaveDrafts();
+    trigger.closest('.st-rir').querySelectorAll('.st-rir-btn').forEach(btn => {
+      const on = Number(btn.dataset.rir) === stDrafts[key].rir;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+  }
+
+  async function stLogSet(trigger) {
+    const key = stCardKey(trigger);
+    const card = trigger.closest('.st-ex');
+    const weight = stParseWeight(card.querySelector('input[data-field="weight"]').value);
+    const reps = parseInt(card.querySelector('input[data-field="reps"]').value, 10);
+    if (Number.isNaN(weight)) { stMessage('Vikten måste vara ett tal mellan 0 och 1000 kg.', 'bad'); return; }
+    if (!(reps >= 1 && reps <= 200)) { stMessage('Ange antal reps (1–200).', 'bad'); return; }
+    trigger.disabled = true;
+    trigger.textContent = 'Sparar…';
+    try {
+      const response = await fetch(`/api/strength/${encodeURIComponent(stSession.sessionId)}/sets`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exercise: stName(key), weight, reps, rir: stDrafts[key]?.rir ?? null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Setet kunde inte sparas.');
+      const index = stSession.rows.findIndex(r => r.id === data.row.id);
+      if (index >= 0) stSession.rows[index] = data.row; else stSession.rows.push(data.row);
+      stDrafts[key] = { ...stDrafts[key], weight: weight ?? '', reps };
+      stSaveDrafts();
+      stMessage(`Sparat: ${stName(key)} ${stSetText({ weight, reps, rir: stDrafts[key]?.rir })}.`, 'good');
+      stStartRest();
+      stRerenderCard(key, true);
+      stScheduleProgress();
+    } catch (error) {
+      // Värdena står kvar, så det räcker att trycka igen när täckningen är tillbaka.
+      stMessage(`${error.message} Tryck igen när du har täckning.`, 'bad');
+      trigger.disabled = false;
+      trigger.textContent = 'Försök igen';
+    }
+  }
+
+  async function stRemoveSet(trigger) {
+    const id = Number(trigger.dataset.row);
+    const row = stSession.rows.find(r => r.id === id);
+    if (!row) return;
+    const key = stKey(row.exercise);
+    trigger.disabled = true;
+    try {
+      const response = Number(row.sets || 1) > 1
+        ? await fetch(`/api/strength/exercises/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sets: Number(row.sets) - 1 }) })
+        : await fetch(`/api/strength/exercises/${id}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Setet kunde inte tas bort.');
+      if (data.row) Object.assign(row, data.row);
+      else stSession.rows = stSession.rows.filter(r => r.id !== id);
+      stMessage(`Tog bort ett set ${stName(key)}.`);
+      stRerenderCard(key);
+      stScheduleProgress();
+    } catch (error) {
+      trigger.disabled = false;
+      stMessage(error.message, 'bad');
+    }
+  }
+
+  function stStartRest() {
+    stRestStart = Date.now();
+    const box = document.getElementById('st-rest');
+    const out = document.getElementById('st-rest-time');
+    box.hidden = false;
+    clearInterval(stRestTimer);
+    const tick = () => {
+      const s = Math.floor((Date.now() - stRestStart) / 1000);
+      if (s > 15 * 60) { clearInterval(stRestTimer); box.hidden = true; return; }
+      out.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    };
+    tick();
+    stRestTimer = setInterval(tick, 1000);
+  }
+
+  // --- Progress ---
+  function renderStrengthSummary(data) {
+    const s = data.summary || {};
+    const period = data.days === 180 ? 'senaste halvåret' : `senaste ${data.days} dagarna`;
+    document.getElementById('st-period-note').textContent = period[0].toUpperCase() + period.slice(1);
+    const el = document.getElementById('st-summary');
+    if (!s.sessions && !s.lastDate) {
+      el.innerHTML = '<p class="ov-summary-text">Inga styrkepass loggade än. Logga ditt första set ovan, så börjar progressen räknas.</p>';
+      return;
+    }
+    const diff = (now, before, fmt = v => v) => before ? ` <span class="st-diff">(förra perioden ${fmt(before)})</span>` : '';
+    const records = (data.records || []).slice(0, 3).map(r =>
+      `<li><strong>${escapeHtml(r.exercise)}</strong> ${escapeHtml(r.label)} · ${escapeHtml(stShortDate(r.date))}</li>`).join('');
+    el.innerHTML = `<div class="st-kpis">
+        <div class="st-kpi"><span>Pass</span><strong>${s.sessions}</strong><small>${s.perWeek} per vecka${diff(s.sessions, s.previousSessions)}</small></div>
+        <div class="st-kpi"><span>Set</span><strong>${s.sets}</strong><small>${diff(s.sets, s.previousSets).trim() || '&nbsp;'}</small></div>
+        <div class="st-kpi"><span>Volym</span><strong>${escapeHtml(fmtVolume(s.volume))}</strong><small>set × reps × kg${diff(s.volume, s.previousVolume, fmtVolume)}</small></div>
+        <div class="st-kpi"><span>Nya rekord</span><strong>${s.records}</strong><small>${s.lastDate ? 'senaste pass ' + escapeHtml(stShortDate(s.lastDate)) : ''}</small></div>
+      </div>
+      ${records ? `<ul class="st-records" aria-label="Senaste rekorden">${records}</ul>` : ''}`;
+  }
+
+  function renderStrengthWeeks(data) {
+    const weeks = data.weeks || [];
+    const max = Math.max(1, ...weeks.map(w => w.volume));
+    // En etikett per ~64 px, så att datumen inte krockar på en telefon.
+    const width = document.getElementById('st-weeks').clientWidth || 600;
+    const every = Math.max(1, Math.ceil(weeks.length / Math.max(3, Math.floor(width / 64))));
+    document.getElementById('st-weeks-badge').textContent = `${data.summary?.perWeek ?? 0} pass/vecka`;
+    document.getElementById('st-weeks').innerHTML = weeks.map((w, i) => {
+      const label = `Vecka från ${stShortDate(w.weekStart)}: ${fmtVolume(w.volume)}, ${w.sessions} pass, ${w.sets} set`;
+      return `<div class="st-week" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" role="img">
+        <div class="st-week-bar${w.volume ? '' : ' empty'}" style="height:${w.volume ? Math.max(6, Math.round(w.volume / max * 100)) : 2}%"></div>
+        <span class="st-week-label">${i % every === 0 ? escapeHtml(stShortDate(w.weekStart)) : ''}</span></div>`;
+    }).join('');
+  }
+
+  function stDrawExerciseCharts() {
+    document.querySelectorAll('#st-grid .st-chart').forEach(el => {
+      const ex = (strengthData?.exercises || []).find(e => e.key === el.dataset.key);
+      if (!ex) return;
+      const points = ex.series.map(p => ({ t: p.t, v: ex.weighted ? p.e1rm : parseInt(p.topReps, 10) }));
+      rpDrawLine(el, points, { invert: false, gapDays: Infinity });
+    });
+  }
+
+  function renderStrengthGrid(data) {
+    const grid = document.getElementById('st-grid');
+    const list = (data.exercises || []).slice(0, 9);
+    if (!list.length) { grid.innerHTML = ''; return; }
+    grid.innerHTML = list.map(ex => {
+      const tone = ex.change > 0 ? 'ov-dir-improving' : ex.change < 0 ? 'ov-dir-declining' : '';
+      const badge = ex.change == null ? '' : `<span class="ov-badge"><b>${ex.change > 0 ? '↗' : ex.change < 0 ? '↘' : '→'}</b>${ex.change > 0 ? '+' : ''}${escapeHtml(fmtKg(ex.change))}</span>`;
+      const value = ex.weighted
+        ? `${escapeHtml(fmtKg(ex.current).replace(' kg', ''))} <small>kg uppskattat max</small>`
+        : `${escapeHtml(ex.last.topReps || '–')} <small>reps</small>`;
+      return `<article class="ov-card st-card ${tone}">
+        <div class="ov-card-top"><h3 class="ov-card-label">${escapeHtml(ex.exercise)}</h3>${badge}</div>
+        <div class="ov-card-value">${value}</div>
+        <div class="ov-card-caption">Senast ${escapeHtml(stShortDate(ex.last.t))}: ${escapeHtml(ex.last.label)}</div>
+        <div class="ov-chart st-chart" data-key="${escapeHtml(ex.key)}" aria-hidden="true"></div>
+        <div class="ov-card-change">${ex.sessions} pass i perioden${ex.best ? ` · bästa ${escapeHtml(fmtKg(ex.best))}` : ''}</div>
+      </article>`;
+    }).join('');
+    stDrawExerciseCharts();
+  }
+
+  function renderStrengthHistory(data) {
+    const el = document.getElementById('st-history');
+    const sessions = (data.sessions || []).filter(s => s.date !== data.today);
+    if (!sessions.length) { el.innerHTML = '<p class="st-empty">Inga tidigare pass i perioden.</p>'; return; }
+    el.innerHTML = sessions.map(s => {
+      const exercises = [...new Set(s.rows.map(r => r.exercise))];
+      return `<details class="st-past">
+        <summary><span class="st-past-date">${escapeHtml(new Date(s.date + 'T12:00:00').toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' }))}</span>
+          <span class="st-past-title">${escapeHtml(s.title || exercises.slice(0, 3).join(', ') + (exercises.length > 3 ? ' …' : ''))}</span>
+          <span class="st-past-meta">${s.sets} set · ${escapeHtml(fmtVolume(s.volume))}</span></summary>
+        <ul class="st-past-rows">${s.rows.map(r => `<li><span>${escapeHtml(r.exercise)}</span>
+          <strong>${r.sets}×${escapeHtml(r.reps || '–')}${r.weight ? ' @ ' + escapeHtml(fmtKg(r.weight)) : ''}</strong>
+          <button type="button" class="st-set-del" data-action="st-delete-row" data-row="${Number(r.id)}" aria-label="Ta bort ${escapeHtml(r.exercise)} ${r.sets}×${escapeHtml(r.reps || '')}">×</button></li>`).join('')}</ul>
+      </details>`;
+    }).join('');
+  }
+
+  function renderStrengthProgress(data) {
+    renderStrengthSummary(data);
+    renderStrengthWeeks(data);
+    renderStrengthGrid(data);
+    renderStrengthHistory(data);
+    renderStrengthQuick();
+  }
+
+  async function fetchStrength() {
+    const response = await fetch(`/api/strength/overview?days=${strengthWindowDays}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Styrkedatan kunde inte hämtas.');
     return data;
   }
 
-  // ── Inloggning ──────────────────────────────────────────────────────────
-  function showLogin(message = '') {
-    $('#boot').hidden = true;
-    $('#app').hidden = true;
-    $('#login').hidden = false;
-    $('#login-error').textContent = message;
-  }
-
-  function showApp() {
-    $('#boot').hidden = true;
-    $('#login').hidden = true;
-    $('#app').hidden = false;
-    route();
-  }
-
-  $('#login-form').addEventListener('submit', async event => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = form.querySelector('button');
-    button.disabled = true;
-    $('#login-error').textContent = '';
+  async function loadStrengthPage() {
+    loadStrengthProgram();
     try {
-      const data = await api('/api/login', {
-        method: 'POST',
-        body: { username: form.username.value.trim(), password: form.password.value },
-      });
-      csrfToken = data.csrfToken || '';
-      me = data;
-      form.password.value = '';
-      cache.clear();
-      showApp();
+      strengthData = await fetchStrength();
     } catch (error) {
-      $('#login-error').textContent = error.message;
-    } finally {
-      button.disabled = false;
-    }
-  });
-
-  async function boot() {
-    try {
-      const data = await api('/api/session');
-      if (data.authenticated) {
-        csrfToken = data.csrfToken || '';
-        me = data;
-        showApp();
-      } else {
-        showLogin();
-      }
-    } catch (error) {
-      showLogin(error.status === 401 ? '' : error.message);
-    }
-  }
-
-  // ── Router ──────────────────────────────────────────────────────────────
-  const VIEWS = {
-    idag: { title: 'Idag', render: renderToday },
-    plan: { title: 'Plan', render: renderPlan },
-    coach: { title: 'Coach', render: renderCoach },
-    halsa: { title: 'Hälsa', render: renderHealth },
-    mer: { title: 'Mer', render: renderMore },
-  };
-  let currentView = '';
-
-  function route() {
-    const name = location.hash.replace('#', '') || 'idag';
-    const view = VIEWS[name] ? name : 'idag';
-    currentView = view;
-    document.querySelectorAll('.tabbar a').forEach(a => {
-      if (a.dataset.tab === view) a.setAttribute('aria-current', 'page');
-      else a.removeAttribute('aria-current');
-    });
-    $('#view-title').textContent = VIEWS[view].title;
-    const dateText = new Date().toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' });
-    $('#view-eyebrow').textContent = dateText.charAt(0).toUpperCase() + dateText.slice(1);
-    $('#refresh-btn').hidden = view === 'mer';
-    window.scrollTo(0, 0);
-    const main = $('#view');
-    main.classList.toggle('has-composer', view === 'coach');
-    main.replaceChildren();
-    VIEWS[view].render(main);
-  }
-
-  window.addEventListener('hashchange', () => { if (!$('#app').hidden) route(); });
-  window.addEventListener('scroll', () => {
-    document.querySelector('.topbar').classList.toggle('scrolled', window.scrollY > 4);
-  }, { passive: true });
-
-  $('#refresh-btn').addEventListener('click', async () => {
-    const btn = $('#refresh-btn');
-    btn.classList.add('spinning');
-    cache.clear();
-    route();
-    setTimeout(() => btn.classList.remove('spinning'), 700);
-  });
-
-  // Kommer man tillbaka till appen efter en stund ska siffrorna vara färska.
-  let hiddenAt = 0;
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { hiddenAt = Date.now(); return; }
-    if (hiddenAt && Date.now() - hiddenAt > 5 * 60000 && !$('#app').hidden && currentView !== 'coach') {
-      cache.clear();
-      route();
-    }
-  });
-
-  function skeleton(main, heights) {
-    main.innerHTML = heights.map(h => `<div class="skeleton" style="height:${h}px"></div>`).join('');
-  }
-
-  function errorCard(main, error, retry) {
-    main.innerHTML = `<div class="card error-card"><h2>Något gick fel</h2><p>${esc(error.message)}</p>
-      <button class="btn-secondary" type="button">Försök igen</button></div>`;
-    main.querySelector('button').addEventListener('click', retry);
-  }
-
-  // ── Ikoner för passtyper ────────────────────────────────────────────────
-  const TYPE_ICON = {
-    run: '<svg viewBox="0 0 24 24"><circle cx="14" cy="4.5" r="2"/><path d="M8 21l3-6 3 2v5M6 12l3-4 4 1 3 3 3 1M11 15l-1-4"/></svg>',
-    easy: '<svg viewBox="0 0 24 24"><path d="M3 17c3 0 3-4 6-4s3 4 6 4 3-4 6-4"/></svg>',
-    lift: '<svg viewBox="0 0 24 24"><path d="M6 7v10M18 7v10M3 9v6M21 9v6M6 12h12"/></svg>',
-    race: '<svg viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
-    rest: '<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>',
-  };
-  const TYPE_LABEL = { run: 'Löpning', easy: 'Lugnt', lift: 'Styrka', race: 'Lopp', rest: 'Vila' };
-  const STATUS_LABEL = { planned: 'planerat', completed: 'klart', missed: 'missat', skipped: 'hoppat', rescheduled: 'flyttat' };
-
-  // ── Idag ────────────────────────────────────────────────────────────────
-  const DECISION_BADGE = { keep: 'KÖR', reduce: 'LÄTTA', reschedule: 'FLYTTA', rest: 'VILA', no_session: 'VILODAG' };
-  const CONFIDENCE_TEXT = { high: 'starkt underlag', medium: 'tunt underlag', low: 'svagt underlag' };
-  const TONE_CLASS = { good: 'tone-good', warn: 'tone-warn', bad: 'tone-bad' };
-
-  async function renderToday(main) {
-    skeleton(main, [190, 150, 110, 110]);
-    let today, health;
-    try {
-      [today, health] = await Promise.all([
-        cached('/api/today'),
-        cached('/api/health').catch(() => null),
-      ]);
-    } catch (error) {
-      if (error.status !== 401) errorCard(main, error, () => { cache.clear(); renderToday(main); });
+      document.getElementById('st-log-sub').textContent = error.message;
+      document.getElementById('st-summary').innerHTML = `<p class="ov-summary-text ov-error">${escapeHtml(error.message)}</p>`;
       return;
     }
-    if (currentView !== 'idag') return;
-    const tone = TONE_CLASS[today.tone] || 'tone-neutral';
-    const readiness = num(today.readiness);
-    const circumference = 2 * Math.PI * 46;
-    const offset = circumference * (1 - Math.max(0, Math.min(100, readiness ?? 0)) / 100);
-    const readinessTone = readiness == null ? '' : readiness >= 70 ? 'tone-good' : readiness >= 45 ? 'tone-warn' : 'tone-bad';
-    const readinessText = readiness == null ? 'Väntar på nattens data'
-      : readiness >= 70 ? 'Redo för kvalitet' : readiness >= 45 ? 'Normalt pass går bra' : 'Prioritera återhämtning';
-
-    const s = today.session;
-    const type = (s && s.type) || 'rest';
-    const cb = today.coachBriefing || {};
-    const briefingRows = [['Syfte', cb.purpose], ['Utförande', cb.execution], ['Ansträngning', cb.rpe], ['Tips', cb.tips], ['Energi', cb.fueling]]
-      .filter(([, v]) => v);
-
-    const sleep = health && health.sleep;
-    const hrv = health && health.hrv;
-    const rhr = health && health.restingHR;
-    const bb = health && health.bodyBattery;
-
-    main.innerHTML = `
-      <article class="card decision ${tone}">
-        <div class="decision-top">
-          <span class="badge toned">${esc(DECISION_BADGE[today.action] || '–')}</span>
-          <span class="confidence">${esc(CONFIDENCE_TEXT[today.confidence] || '')}</span>
-        </div>
-        <h3>${esc(today.headline || today.summary || 'Väntar på underlag')}</h3>
-        ${today.detail ? `<p>${esc(today.detail)}</p>` : ''}
-        ${(today.reasons || []).length ? `<div class="chips">${today.reasons.slice(0, 4).map(r => `<span class="chip">${esc(r)}</span>`).join('')}</div>` : ''}
-        ${(today.warnings || []).length ? `<div class="warning">${esc(today.warnings.join(' '))}</div>` : ''}
-      </article>
-
-      <article class="card ${readinessTone}">
-        <div class="readiness">
-          <div class="ring">
-            <svg viewBox="0 0 112 112" aria-hidden="true">
-              <circle class="track" cx="56" cy="56" r="46"/>
-              <circle class="prog" cx="56" cy="56" r="46" stroke-dasharray="${circumference.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"/>
-            </svg>
-            <div class="ring-val"><strong>${readiness == null ? '–' : Math.round(readiness)}</strong><span>CNS</span></div>
-          </div>
-          <div class="readiness-text">
-            <h3>${esc(readinessText)}</h3>
-            <p>Beredskap räknad ur HRV, sömn, Garmins beredskap och stress.</p>
-          </div>
-        </div>
-      </article>
-
-      <div class="stats">
-        ${stat('Sömn', sleep && sleep.totalSec ? fmtDuration(sleep.totalSec) : '–', sleep && num(sleep.score) != null ? `poäng ${sleep.score}${sleep.fallback ? ' · förra natten' : ''}` : '')}
-        ${stat('HRV', hrv && num(hrv.lastNightAvg) != null ? `${hrv.lastNightAvg}<small>ms</small>` : '–', hrv && hrv.weeklyAvg ? `snitt ${hrv.weeklyAvg} ms` : '', true)}
-        ${stat('Vilopuls', rhr && num(rhr.value) != null ? `${rhr.value}<small>bpm</small>` : '–', rhr && rhr.sevenDayAvg ? `7 d snitt ${rhr.sevenDayAvg}` : '', true)}
-        ${stat('Body Battery', bb && num(bb.current) != null ? `${bb.current}` : '–', bb && num(bb.max) != null ? `max ${bb.max} i dag` : '', true)}
-      </div>
-
-      <h2 class="section-title">Dagens pass</h2>
-      <article class="card">
-        ${s ? `
-          <div class="session type-${esc(type)}">
-            <div class="session-icon">${TYPE_ICON[type] || TYPE_ICON.run}</div>
-            <div>
-              <h3>${esc(s.title || TYPE_LABEL[type] || 'Pass')}</h3>
-              ${s.detail ? `<p>${esc(s.detail)}</p>` : ''}
-              <div class="session-meta">${esc([TYPE_LABEL[type], fmtKm(num(s.km))].filter(Boolean).join(' · '))}</div>
-            </div>
-          </div>
-          ${briefingRows.length ? `<details class="briefing"><summary>Coachens genomgång</summary><dl>
-            ${briefingRows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></details>` : ''}
-        ` : `<div class="session type-rest"><div class="session-icon">${TYPE_ICON.rest}</div><div><h3>Inget pass i dag</h3><p>Vila och återhämtning.</p></div></div>`}
-      </article>
-
-      <h2 class="section-title">Senaste passen</h2>
-      <div id="recent"><div class="skeleton" style="height:120px"></div></div>
-    `;
-    renderRecent($('#recent', main));
-  }
-
-  function stat(label, value, sub, raw = false) {
-    return `<div class="stat"><div class="stat-label">${esc(label)}</div>
-      <div class="stat-value">${raw ? value : esc(value)}</div>
-      ${sub ? `<div class="stat-sub">${esc(sub)}</div>` : ''}</div>`;
-  }
-
-  async function renderRecent(box) {
-    try {
-      const data = await cached('/api/activities?days=14');
-      const items = (data.activities || []).slice(0, 4);
-      if (!items.length) { box.innerHTML = '<div class="card empty">Inga pass de senaste två veckorna.</div>'; return; }
-      box.innerHTML = `<div class="plan-list">${items.map(a => {
-        const typeKey = (a.activityType && a.activityType.typeKey) || a.type || '';
-        const t = /strength|lift/.test(typeKey) ? 'lift' : /run/.test(typeKey) ? 'run' : 'easy';
-        const when = new Date(String(a.startTimeLocal || a.date || '').replace(' ', 'T'));
-        const km = num(a.distance) ? a.distance / 1000 : null;
-        const meta = [fmtKm(km ? Math.round(km * 10) / 10 : null), fmtDuration(num(a.duration)), num(a.averageHR) ? `${Math.round(a.averageHR)} bpm` : '']
-          .filter(v => v && v !== '–').join(' · ');
-        return `<div class="plan-row type-${t}"><summary>
-          <div class="plan-day"><strong>${Number.isNaN(when.getTime()) ? '' : when.getDate()}</strong><span>${Number.isNaN(when.getTime()) ? '' : DAY_SHORT[(when.getDay() + 6) % 7]}</span></div>
-          <div class="plan-title">${esc(a.activityName || a.name || 'Pass')}<small>${esc(meta)}</small></div>
-          <span class="plan-dot"></span></summary></div>`;
-      }).join('')}</div>`;
-    } catch (error) {
-      if (error.status !== 401) box.innerHTML = `<div class="card empty">${esc(error.message)}</div>`;
-    }
-  }
-
-  // ── Plan ────────────────────────────────────────────────────────────────
-  async function renderPlan(main) {
-    skeleton(main, [60, 260, 60, 260]);
-    let data;
-    try {
-      data = await cached('/api/plan');
-    } catch (error) {
-      if (error.status !== 401) errorCard(main, error, () => { cache.clear(); renderPlan(main); });
-      return;
-    }
-    if (currentView !== 'plan') return;
-    const now = new Date();
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
-    const end = new Date(monday); end.setDate(end.getDate() + 21);
-    const today = todayIso();
-
-    const weeks = new Map();
-    for (const s of data.sessions || []) {
-      const d = sessionDate(s.week, s.dow);
-      if (d < monday || d >= end) continue;
-      const key = s.week;
-      if (!weeks.has(key)) weeks.set(key, []);
-      weeks.get(key).push({ ...s, _date: d });
-    }
-    if (!weeks.size) {
-      main.innerHTML = '<div class="card empty">Ingen plan de kommande tre veckorna. Be coachen lägga upp en.</div>';
-      return;
-    }
-    main.innerHTML = [...weeks.entries()].sort((a, b) => a[0] - b[0]).map(([week, sessions]) => {
-      sessions.sort((a, b) => a._date - b._date);
-      const km = sessions.reduce((sum, s) => sum + (num(s.km) || 0), 0);
-      const first = sessionDate(week, 0);
-      const label = first <= now && now < new Date(first.getTime() + 7 * 86400000) ? 'Den här veckan' : `Vecka ${isoWeekNumber(first)}`;
-      return `<section class="week">
-        <div class="week-head"><h2>${esc(label)}</h2><span>${km ? esc(fmtKm(Math.round(km * 10) / 10)) : ''}</span></div>
-        <div class="plan-list">${sessions.map(s => {
-          const type = TYPE_LABEL[s.type] ? s.type : 'run';
-          const iso = isoDate(s._date);
-          const status = s.status && s.status !== 'planned'
-            ? `<span class="status status-${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span>` : '<span class="plan-dot"></span>';
-          const detail = [s.detail, s.strength_recommendation_text].filter(Boolean).join('\n');
-          return `<details class="plan-row type-${type}${iso === today ? ' is-today' : ''}">
-            <summary>
-              <div class="plan-day"><strong>${s._date.getDate()}</strong><span>${DAY_SHORT[s.dow] || ''}</span></div>
-              <div class="plan-title">${esc(s.title || TYPE_LABEL[type])}<small>${esc([TYPE_LABEL[type], fmtKm(num(s.km))].filter(Boolean).join(' · '))}</small></div>
-              ${status}
-            </summary>
-            <div class="plan-detail">${esc(detail || 'Ingen beskrivning.')}${s.ai_note ? `<div class="note">${esc(s.ai_note)}</div>` : ''}</div>
-          </details>`;
-        }).join('')}</div></section>`;
-    }).join('');
-  }
-
-  // ── Coach ───────────────────────────────────────────────────────────────
-  const CHAT_KEY = 'trainyze:app-chat';
-  const SUGGESTIONS = ['Hur ligger jag till mot målet?', 'Vad ska jag tänka på i dagens pass?', 'Hur har jag sovit i veckan?', 'Är jag överbelastad?'];
-
-  function loadChat() {
-    try { return JSON.parse(sessionStorage.getItem(CHAT_KEY) || '[]'); } catch (_) { return []; }
-  }
-  function saveChat(history) {
-    try { sessionStorage.setItem(CHAT_KEY, JSON.stringify(history.slice(-20))); } catch (_) { /* privat läge */ }
-  }
-
-  // Enkel och säker formatering av coachens svar: allt escapas först, sedan
-  // blir **fet**, punktlistor och stycken till HTML.
-  function formatReply(text) {
-    const blocks = esc(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').split(/\n{2,}/);
-    return blocks.map(block => {
-      const lines = block.split('\n');
-      if (lines.every(l => /^\s*[-•*]\s+/.test(l))) {
-        return `<ul>${lines.map(l => `<li>${l.replace(/^\s*[-•*]\s+/, '')}</li>`).join('')}</ul>`;
-      }
-      return `<p>${lines.join('<br>')}</p>`;
-    }).join('');
-  }
-
-  function renderCoach(main) {
-    const history = loadChat();
-    main.innerHTML = `
-      <div class="chat" id="chat">
-        <div class="msg msg-coach"><p>Hej${me && me.username ? ' ' + esc(me.username) : ''}! Fråga om din träning, sömn eller plan – eller be mig flytta ett pass.</p></div>
-      </div>
-      <div class="suggestions" id="suggestions">${SUGGESTIONS.map(s => `<button type="button">${esc(s)}</button>`).join('')}</div>
-      <form class="composer" id="composer">
-        <textarea id="chat-input" rows="1" placeholder="Skriv till coachen…" enterkeyhint="send"></textarea>
-        <button type="submit" aria-label="Skicka"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
-      </form>`;
-    const chat = $('#chat', main);
-    for (const turn of history) addMsg(chat, turn.role === 'user' ? 'user' : 'coach', turn.content);
-    $('#suggestions', main).hidden = history.length > 0;
-
-    const input = $('#chat-input', main);
-    const form = $('#composer', main);
-    input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; });
-    input.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+    stSession = { sessionId: strengthData.todaySession.sessionId, rows: strengthData.todaySession.rows || [] };
+    const saved = stLoadDrafts();
+    const logged = [...new Set(stSession.rows.map(r => stKey(r.exercise)))];
+    stOrder = [...new Set([...saved.order, ...logged])];
+    stDrafts = {};
+    stOrder.forEach(key => {
+      const kept = saved.drafts?.[key] || {};
+      stDrafts[key] = { ...stDefaultDraft(key, kept.target || null), ...kept };
     });
-    $('#suggestions', main).addEventListener('click', e => {
-      if (e.target.matches('button')) { input.value = e.target.textContent; form.requestSubmit(); }
-    });
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      const message = input.value.trim();
-      if (!message) return;
-      const send = form.querySelector('button');
-      send.disabled = true;
-      input.value = '';
-      input.style.height = '';
-      $('#suggestions', main).hidden = true;
-      addMsg(chat, 'user', message);
-      const typing = addMsg(chat, 'coach', null);
-      typing.innerHTML = '<span class="typing" aria-label="Coachen skriver"><i></i><i></i><i></i></span>';
-      scrollChat();
-      const prior = loadChat();
-      const requestId = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+    renderStrengthLog();
+    renderStrengthProgress(strengthData);
+  }
+
+  // Progressen hämtas om en stund efter sista loggade setet, inte vid varje tryck.
+  function stScheduleProgress() {
+    clearTimeout(stProgressTimer);
+    stProgressTimer = setTimeout(async () => {
       try {
-        // Samma requestId vid ett nytt försök: servern lämnar då ut svaret
-        // den redan räknat fram i stället för att köra frågan två gånger.
-        let data;
-        try {
-          data = await api('/api/assistant', { method: 'POST', body: { message, history: prior, requestId } });
-        } catch (error) {
-          if (error.code !== 'network') throw error;
-          data = await api('/api/assistant', { method: 'POST', body: { message, history: prior, requestId } });
+        const fresh = await fetchStrength();
+        strengthData = { ...fresh, todaySession: strengthData?.todaySession };
+        renderStrengthProgress(strengthData);
+      } catch (_) { /* nästa sidvisning försöker igen */ }
+    }, 1500);
+  }
+
+  async function setStrengthWindow(days) {
+    if (![30, 90, 180].includes(days) || days === strengthWindowDays) return;
+    strengthWindowDays = days;
+    document.querySelectorAll('.st-window-btn').forEach(btn => btn.classList.toggle('active', Number(btn.dataset.days) === days));
+    try {
+      const fresh = await fetchStrength();
+      strengthData = { ...fresh, todaySession: strengthData?.todaySession || fresh.todaySession };
+      renderStrengthProgress(strengthData);
+    } catch (error) {
+      document.getElementById('st-summary').innerHTML = `<p class="ov-summary-text ov-error">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  function strengthAction(action, trigger) {
+    if (action === 'strength-window') setStrengthWindow(Number(trigger.dataset.days));
+    else if (action === 'st-step') stStep(trigger);
+    else if (action === 'st-rir') stSetRir(trigger);
+    else if (action === 'st-start-program') stStartProgram(trigger.dataset.index);
+    else if (action === 'st-log-set') stLogSet(trigger);
+    else if (action === 'st-remove-set') stRemoveSet(trigger);
+    else if (action === 'st-add-quick') stAddExercise(trigger.dataset.name);
+    else if (action === 'st-remove-exercise') {
+      const key = stCardKey(trigger);
+      stOrder = stOrder.filter(k => k !== key);
+      delete stDrafts[key];
+      stSaveDrafts();
+      renderStrengthLog();
+    } else if (action === 'st-start-planned') {
+      const recs = stTodayLift()?.strength_recommendations || [];
+      const chosen = trigger.dataset.index === 'all' ? recs : [recs[Number(trigger.dataset.index)]];
+      chosen.filter(Boolean).forEach(r => stAddExercise(r.exercise, { sets: r.sets, reps: r.reps, unit: r.unit, weight: r.weight }));
+    } else if (action === 'st-delete-row') {
+      if (!confirm('Ta bort raden från passet?')) return;
+      fetch(`/api/strength/exercises/${Number(trigger.dataset.row)}`, { method: 'DELETE' })
+        .then(r => { if (!r.ok) throw new Error(); stScheduleProgress(); trigger.closest('li')?.remove(); })
+        .catch(() => alert('Raden kunde inte tas bort.'));
+    }
+  }
+
+  {
+    const page = document.getElementById('page-strength');
+    document.getElementById('st-add-form')?.addEventListener('submit', event => {
+      event.preventDefault();
+      const input = document.getElementById('st-add-name');
+      const key = stAddExercise(input.value);
+      if (!key) { input.focus(); return; }
+      input.value = '';
+      document.querySelector(`#st-exercises .st-ex[data-key="${CSS.escape(key)}"] input[data-field="weight"]`)?.focus();
+    });
+    // Skrivna värden sparas lokalt direkt, så en omladdning mitt i passet inte tappar dem.
+    page?.addEventListener('input', event => {
+      const input = event.target.closest('.st-ex input[data-field]');
+      if (input) stRememberInput(stCardKey(input), input);
+    });
+    page?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      const input = event.target.closest('.st-ex input[data-field]');
+      if (!input) return;
+      event.preventDefault();
+      input.closest('.st-ex').querySelector('.st-log-btn')?.click();
+    });
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { if (page?.classList.contains('active')) stDrawExerciseCharts(); }, 150);
+    });
+  }
+
+  document.getElementById('chat-input')?.addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
+
+  // ─── TOOLTIPS ───────────────────────────────────────────────
+  const TIPS = {
+    readiness: {
+      title: 'Träningsberedskap',
+      desc: 'Garmins samlade uppskattning av hur redo kroppen är för hård träning, baserat på HRV, sömn, stress och aktivitetshistorik.',
+      ranges: [
+        { label: '75 - 100', val: 'Toppform – kvalitetspass ok', col: 'var(--green)' },
+        { label: '50 - 74',  val: 'Redo – normal träning',  col: 'var(--amber)' },
+        { label: '25 - 49',  val: 'Återhämtar',         col: 'var(--amber)' },
+        { label: '0 - 24',   val: 'Låg – vila/Z2 max',      col: 'var(--red)'   },
+      ]
+    },
+    hrv: {
+      title: 'HRV – Hjärtfrekvensvariabilitet',
+      desc: 'Variationen mellan hjärtslag under sömnen. Hög HRV betyder att kroppen är i parasympatiskt läge och återhämtar sig väl. Mycket individuellt – jämför alltid mot ditt eget snitt.',
+      ranges: [
+        { label: '> 100% av snitt', val: 'Utmärkt återhämtning', col: 'var(--green)' },
+        { label: '80 - 100%',       val: 'Bra',                  col: 'var(--green)' },
+        { label: '50 - 79%',        val: 'Acceptabel',           col: 'var(--amber)' },
+        { label: '< 50%',           val: 'Låg – vila rekommenderas', col: 'var(--red)' },
+      ]
+    },
+    rhr: {
+      title: 'Vilopuls (bpm)',
+      desc: 'Lägsta hjärtfrekvens under vila/sömn. Lägre betyder oftast bättre form. Sjunker ofta med aerob träning. En plötslig ökning kan signalera sjukdom eller överträning.',
+      ranges: [
+        { label: '< 45 bpm',  val: 'Elitidrottare',    col: 'var(--green)' },
+        { label: '45 - 55',   val: 'Vältränad',        col: 'var(--green)' },
+        { label: '56 - 70',   val: 'Genomsnitt',       col: 'var(--amber)' },
+        { label: '> 70 bpm',  val: 'Förhöjd',          col: 'var(--red)'   },
+      ]
+    },
+    vo2max: {
+      title: 'VO2max (ml/kg/min)',
+      desc: 'Maximalt syreupptag – det viktigaste måttet på kondition. Garmin uppskattar det via löpdata. Ökar gradvis med aerob träning.',
+      ranges: [
+        { label: '> 60',   val: 'Elitlöpare',        col: 'var(--green)' },
+        { label: '55 - 60', val: 'Utmärkt (män 20–35)', col: 'var(--green)' },
+        { label: '46 - 54', val: 'Bra – över snitt', col: 'var(--amber)' },
+        { label: '< 46',   val: 'Snitt/under',  col: 'var(--red)'   },
+      ]
+    },
+    'sleep-score': {
+      title: 'Sömnpoäng',
+      desc: 'Garmins samlade uppskattning av sömnkvalitet baserat på längd, sömncykler, HRV och andning under natten.',
+      ranges: [
+        { label: '90 - 100', val: 'Utmärkt',  col: 'var(--green)' },
+        { label: '80 - 89',  val: 'Bra',      col: 'var(--green)' },
+        { label: '60 - 79',  val: 'Acceptabel', col: 'var(--amber)' },
+        { label: '< 60',     val: 'Dålig – prioritera sömn', col: 'var(--red)' },
+      ]
+    },
+    deep: {
+      title: 'Djupsömn (slow-wave)',
+      desc: 'Den mest fysiskt återuppbyggande sömnfasen – kroppen reparerar muskler och vävnad. Särskilt viktig för idrottare. Minskar naturligt med åldern.',
+      ranges: [
+        { label: '20 - 25%', val: 'Utmärkt (ca 1,5–2h)', col: 'var(--green)' },
+        { label: '13 - 19%', val: 'Normal',              col: 'var(--green)' },
+        { label: '8 - 12%',  val: 'Något lågt',             col: 'var(--amber)' },
+        { label: '< 8%',     val: 'För lite',             col: 'var(--red)'   },
+      ]
+    },
+    rem: {
+      title: 'REM-sömn',
+      desc: 'Rapid Eye Movement-sömn – hjärnan befäster minnen och bearbetar intryck. Viktig för mental återhämtning, motorisk inlärning och motivation.',
+      ranges: [
+        { label: '20 - 25%', val: 'Utmärkt (ca 1,5–2h)',  col: 'var(--green)'  },
+        { label: '15 - 19%', val: 'Normal',               col: 'var(--green)'  },
+        { label: '10 - 14%', val: 'Något lågt',              col: 'var(--amber)'  },
+        { label: '< 10%',    val: 'För lite',              col: 'var(--red)'    },
+      ]
+    },
+    'hrv-sleep': {
+      title: 'HRV under sömn (ms)',
+      desc: 'Genomsnittlig HRV mätt under hela natten. Stabilare än dagtidsmätningar. Stiger oftast under djupsömn och REM. Absoluta värden varierar mycket mellan personer.',
+      ranges: [
+        { label: 'Vältränad', val: 'Vanligtvis 55–100+ ms',    col: 'var(--green)' },
+        { label: 'Genomsnitt', val: 'Vanligtvis 25–55 ms',      col: 'var(--amber)' },
+        { label: 'Trend',      val: 'Jämför med ditt snitt', col: 'var(--blue)'  },
+        { label: 'Obs',       val: 'Plötsligt fall = vila', col: 'var(--red)' },
+      ]
+    },
+    bb: {
+      title: 'Kroppsbatteri',
+      desc: 'Garmins uppskattning av energireserv baserat på HRV, stress och sömn. Laddas under sömn och vila, töms av aktivitet och stress. Bra vägledning för om du klarar ett hårt pass.',
+      ranges: [
+        { label: '75 - 100', val: 'Hög energi – kör hårt',   col: 'var(--green)' },
+        { label: '50 - 74',  val: 'Måttlig – normal träning', col: 'var(--green)' },
+        { label: '25 - 49',  val: 'Låg – ta det lugnt',     col: 'var(--amber)' },
+        { label: '0 - 24',   val: 'Tom – prioritera vila',   col: 'var(--red)'   },
+      ]
+    },
+    stress: {
+      title: 'Stressnivå',
+      desc: 'Garmin uppskattar stress från HRV-variation under dagen. Hög stress aktiverar det sympatiska nervsystemet och bromsar återhämtningen. Inkluderar fysisk och mental stress.',
+      ranges: [
+        { label: '0 - 25',  val: 'Vila / avslappnad',     col: 'var(--green)' },
+        { label: '26 - 50', val: 'Låg stress',            col: 'var(--green)' },
+        { label: '51 - 75', val: 'Måttlig stress',        col: 'var(--amber)' },
+        { label: '76 - 100', val: 'Hög stress – bromsar återhämtning', col: 'var(--red)' },
+      ]
+    },
+    spo2: {
+      title: 'SpO2 – Syremättnad (%)',
+      desc: 'Andel hemoglobin i blodet som bär syre. Mäts med pulsoximeter. Normalt stabilt hos friska – sjunker på hög höjd eller vid andningsproblem.',
+      ranges: [
+        { label: '97 - 100%', val: 'Optimal',           col: 'var(--green)' },
+        { label: '95 - 96%',  val: 'Normal',            col: 'var(--green)' },
+        { label: '90 - 94%',  val: 'Något lågt – bevaka', col: 'var(--amber)' },
+        { label: '< 90%',     val: 'Kritiskt lågt',      col: 'var(--red)'   },
+      ]
+    },
+    resp: {
+      title: 'Andningsfrekvens (andetag/min)',
+      desc: 'Andetag per minut i vila. Lägre frekvens är vanligt hos vältränade. Förhöjd andning under sömn kan signalera sjukdom eller dålig sömnkvalitet.',
+      ranges: [
+        { label: '8 - 12/min',  val: 'Vältränad idrottare', col: 'var(--green)' },
+        { label: '12 - 16/min', val: 'Normal vuxen',       col: 'var(--green)' },
+        { label: '17 - 20/min', val: 'Något förhöjd',        col: 'var(--amber)' },
+        { label: '> 20/min',    val: 'Förhöjd – undersök',  col: 'var(--red)'   },
+      ]
+    },
+  };
+
+  // Skapa tooltip-elementet
+  const tipBox = document.createElement('div');
+  tipBox.className = 'tip-box';
+  document.body.appendChild(tipBox);
+
+  let tipTimeout;
+
+  function showTip(key, rect) {
+    const data = TIPS[key];
+    if (!data) return;
+    clearTimeout(tipTimeout);
+
+    const rangesHtml = data.ranges.map(r =>
+      `<div class="tip-range">
+        <span class="tip-range-label">${r.label}</span>
+        <span class="tip-range-val" style="color:${r.col}">${r.val}</span>
+      </div>`
+    ).join('');
+
+    tipBox.innerHTML = `
+      <div class="tip-title">${data.title}</div>
+      <div class="tip-desc">${data.desc}</div>
+      <div class="tip-ranges">${rangesHtml}</div>`;
+
+    // Positionera - försök visa under kortet, annars ovan
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const W  = 260;
+    const H  = tipBox.offsetHeight || 180;
+
+    let left = rect.left;
+    let top  = rect.bottom + 8;
+
+    if (left + W > vw - 12) left = vw - W - 12;
+    if (left < 12) left = 12;
+    if (top + H > vh - 12) top = rect.top - H - 8;
+
+    tipBox.style.left = left + 'px';
+    tipBox.style.top  = top  + 'px';
+    tipBox.classList.add('visible');
+  }
+
+  function hideTip() {
+    tipTimeout = setTimeout(() => tipBox.classList.remove('visible'), 80);
+  }
+
+  document.querySelectorAll('.has-tip').forEach(card => {
+    card.style.cursor = 'default';
+    card.addEventListener('mouseenter', e => {
+      showTip(card.dataset.tip, card.getBoundingClientRect());
+    });
+    card.addEventListener('mouseleave', hideTip);
+  });
+
+  // Kalender-pills: visa detalj-text via tipBox
+  function showFreeTip(text, rect) {
+    clearTimeout(tipTimeout);
+    tipBox.innerHTML = `<div class="tip-desc" style="margin:0">${escapeHtml(text)}</div>`;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const W  = 240;
+    const H  = tipBox.offsetHeight || 70;
+    let left = rect.left;
+    let top  = rect.bottom + 8;
+    if (left + W > vw - 12) left = vw - W - 12;
+    if (left < 12) left = 12;
+    if (top + H > vh - 12) top = rect.top - H - 8;
+    tipBox.style.left = left + 'px';
+    tipBox.style.top  = top  + 'px';
+    tipBox.classList.add('visible');
+  }
+
+  document.addEventListener('mouseover', e => {
+    const pill = e.target.closest('[data-freetip]');
+    if (pill) showFreeTip(pill.dataset.freetip, pill.getBoundingClientRect());
+  });
+  document.addEventListener('mouseout', e => {
+    if (e.target.closest('[data-freetip]')) hideTip();
+  });
+
+  // ─── KALENDER ───────────────────────────────────────────────
+  // PLAN_SESSIONS laddas dynamiskt från DB via /api/plan
+  // Fallback till hårdkodad array om API-anropet misslyckas
+  let PLAN_SESSIONS = [];
+
+
+  function translatePlanText(value) {
+    // Backend levererar redan svenska – ingen översättning behövs.
+    return value || '';
+  }
+
+  function normalizePlanSession(session) {
+    return {
+      ...session,
+      title: translatePlanText(session.title),
+      detail: translatePlanText(session.detail),
+      ai_note: translatePlanText(session.ai_note),
+      strength_recommendations: Array.isArray(session.strength_recommendations) ? session.strength_recommendations : [],
+      strength_recommendation_text: session.strength_recommendation_text || '',
+    };
+  }
+
+  function compactCalendarText(value, maxLen = 120) {
+    let text = (value || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    const firstUseful = text.split(/\s+[–—-]\s+/).find(part => part.trim().length >= 8);
+    text = firstUseful || text;
+    const sentence = text.match(/^(.+?[.!?])\s/);
+    if (sentence && sentence[1].length <= maxLen) text = sentence[1];
+    if (text.length <= maxLen) return text;
+    return text.slice(0, maxLen - 1).trimEnd().replace(/[,\-–—;:]+$/, '') + '…';
+  }
+
+  // Båda planvyerna öppnar samma sparade pass, även när flera ligger på en dag.
+  function planSessionOpenAttrs(index) {
+    return ` data-action="open-plan-session" data-plan-index="${index}" aria-haspopup="dialog" title="Visa passets upplägg"`;
+  }
+
+  function planSessionBlocks(session) {
+    if (!['run', 'easy', 'race', 'bike', 'interval', 'threshold', 'long'].includes(session.type)) return [];
+    // Planen är fritext. Behåll originalorden och skilj bara tydliga delar åt;
+    // parenteser hör ihop (t.ex. 7 × (300 m snabbt + 300 m lugnt)).
+    const text = String(session.detail || '').trim();
+    const parts = [];
+    let start = 0, depth = 0, sentence = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '(') depth++;
+      if (text[i] === ')') depth = Math.max(0, depth - 1);
+      if (depth) continue;
+      const boundary = text.slice(i).match(/^(?:[.!?;]\s+|\n+|,\s+(?=\d+\s*[×x]|\d+(?:[.,]\d+)?\s*(?:km|min|m)\s+(?:uppv|nedjogg|i\s))|\s+\+\s+(?=\d+\s*[×x]|\d+(?:[.,]\d+)?\s*(?:km|min|m)\s+(?:uppv|nedjogg|i\s)))/i);
+      if (!boundary) continue;
+      parts.push({text: text.slice(start, i).trim(), sentence});
+      if (/^[.!?\n]/.test(boundary[0])) sentence++;
+      i += boundary[0].length - 1;
+      start = i + 1;
+    }
+    parts.push({text: text.slice(start).trim(), sentence});
+    const conditional = /→|\bom\b|\bannars\b|\bi stället\b|\bistället\b|\balternativ|\bvid behov\b/i;
+    const conditionalSentences = new Set(parts.filter(part => conditional.test(part.text)).map(part => part.sentence));
+    return parts.flatMap(({text: part, sentence}) => {
+      if (!part) return [];
+      // Villkor och råd får inte bli obligatoriska steg. De finns kvar i
+      // hela beskrivningen, liksom totalsiffror som inte är egna block.
+      if (conditionalSentences.has(sentence) || /^(?:cirka|ca|totalt|summa|håll|låt|ingen|inget|utan|hoppa över)\b/i.test(part)) return [];
+      const paces = [...part.matchAll(/\b\d{1,2}:[0-5]\d(?:\s*[–—-]\s*\d{1,2}:[0-5]\d)?\s*(?:min\s*)?\/\s*km\b/gi)].map(m => m[0]);
+      let kind, label;
+      if (/\buppv(?:ärmning)?\b/i.test(part)) { kind = 'warmup'; label = 'Uppvärmning'; }
+      else if (/\b(?:nedjogg|nedvarvning)\b/i.test(part)) { kind = 'cooldown'; label = 'Nedjogg'; }
+      else if (/\b\d+\s*[×x]\s*(?:\d+(?:[.,]\d+)?\s*(?:km|min|m|s|sek)\b|\d+\s*\/\s*\d+|\()/i.test(part)) { kind = 'interval'; label = 'Intervaller'; }
+      else if (/\b(?:vila|joggvila|gångvila)\b/i.test(part) && /\d/.test(part)) { kind = 'recovery'; label = 'Vila'; }
+      else if (/\bstegringar\b/i.test(part) && !/\bkm\b/i.test(part)) { kind = 'interval'; label = 'Stegringar'; }
+      else if (paces.length) { kind = 'pace'; label = 'Tempoblock'; }
+      else if (/\b\d+(?:[.,]\d+)?\s*km\b/i.test(part) && /\blugnt?\b|\bprattempo\b/i.test(part)) { kind = 'easy'; label = 'Lugn löpning'; }
+      else return [];
+      return [{kind, label, text: part, paces: [...new Set(paces)]}];
+    });
+  }
+
+  function renderPlanSessionBlocks(session) {
+    const blocks = planSessionBlocks(session);
+    if (!blocks.length) return '';
+    return `<section class="plan-session-section plan-blocks"><h3>Passets block</h3>
+      <ol class="plan-block-list">${blocks.map(block => `<li class="plan-block plan-block-${block.kind}">
+        <div class="plan-block-head"><span class="plan-block-label">${escapeHtml(block.label)}</span>
+          ${block.paces.map(pace => `<strong class="plan-block-target">${escapeHtml(pace)}</strong>`).join('')}</div>
+        <p>${escapeHtml(block.text)}</p></li>`).join('')}</ol></section>`;
+  }
+
+  function openPlanSessionDetails(index) {
+    const session = Number.isInteger(index) && PLAN_SESSIONS[index];
+    if (!session || document.getElementById('plan-session-dialog')) return;
+    const opener = document.activeElement;
+    const dialog = document.createElement('dialog');
+    dialog.id = 'plan-session-dialog';
+    dialog.className = 'plan-session-dialog';
+    dialog.setAttribute('aria-labelledby', 'plan-session-title');
+    const date = getSessionDate(session, new Date().getFullYear());
+    const kind = {run: 'Kvalitet', easy: 'Lugnt', lift: 'Styrka', race: 'Lopp', rest: 'Vila', bike: 'Cykling'}[session.type] || 'Pass';
+    const status = {completed: 'Klart', skipped: 'Överhoppat', missed: 'Missat', rescheduled: 'Flyttat'}[session.status] || 'Planerat';
+    const section = (title, text) => `<section class="plan-session-section"><h3>${title}</h3><p>${escapeHtml(text)}</p></section>`;
+    dialog.innerHTML = `
+      <header class="plan-session-header">
+        <div><div class="plan-session-kicker">${escapeHtml(kind)} · ${escapeHtml(status)}</div>
+          <h2 id="plan-session-title">${escapeHtml(session.title || 'Planerat pass')}</h2></div>
+        <button type="button" class="plan-session-close" data-action="close-plan-session" aria-label="Stäng passdetaljer" autofocus>×</button>
+      </header>
+      <div class="plan-session-meta"><span>${escapeHtml(date.toLocaleDateString('sv-SE', {weekday: 'long', day: 'numeric', month: 'long'}))}</span>
+        ${session.km ? `<span>${escapeHtml(String(session.km).replace('.', ','))} km</span>` : ''}</div>
+      ${renderPlanSessionBlocks(session)}
+      ${section('Hela passbeskrivningen', session.detail || 'Inget detaljerat upplägg är sparat för det här passet.')}
+      ${session.type === 'lift' && session.strength_recommendation_text ? section('Övningar och belastning', session.strength_recommendation_text) : ''}
+      ${session.ai_note ? section('Coachens anteckning', session.ai_note) : ''}`;
+    dialog.addEventListener('close', () => {
+      dialog.remove();
+      document.body.classList.remove('plan-session-open');
+      if (opener?.isConnected) opener.focus({preventScroll: true});
+    }, {once: true});
+    // Klick utanför rutan stänger; klick i texten lämnar den öppen.
+    dialog.addEventListener('click', event => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
+    });
+    clearTimeout(tipTimeout);
+    tipBox.classList.remove('visible');
+    document.body.appendChild(dialog);
+    document.body.classList.add('plan-session-open');
+    dialog.showModal();
+  }
+
+  function activityDateKey(activity) {
+    return (activity.startTimeLocal || activity.beginTimestamp || activity.date || '').slice(0, 10);
+  }
+
+  function calendarActivityType(activity) {
+    const key = String(activity.activityType?.typeKey || activity.type || '').toLowerCase();
+    if (/cycling|biking|bike|ride/.test(key)) return 'bike';
+    if (/strength|fitness|weight/.test(key)) return 'lift';
+    if (/race/.test(key)) return 'race';
+    if (/track|running|treadmill|trail/.test(key)) return 'run';
+    if (/walk|hiking|hike/.test(key)) return 'walk';
+    if (/swim/.test(key)) return 'swim';
+    return 'other';
+  }
+
+  function isQualifyingActivityForSession(activity, plannedSession) {
+    if (!activity || !plannedSession) return false;
+    const actType = calendarActivityType(activity);
+    const pType = String(plannedSession.type || '').toLowerCase();
+
+    if (['run', 'easy', 'race', 'interval', 'threshold', 'long'].includes(pType)) {
+      return actType === 'run' || actType === 'race';
+    }
+    if (['bike', 'cycling'].includes(pType)) {
+      return actType === 'bike';
+    }
+    if (['lift', 'strength'].includes(pType)) {
+      return actType === 'lift';
+    }
+    return false;
+  }
+
+  function calendarActivityLabel(activity) {
+    const name = activity.activityName || activity.name || activity.activityType?.typeKey
+      || (activity.source === 'strava' ? 'Strava-aktivitet' : 'Garmin-aktivitet');
+    const km = activity.distance ? ' · ' + (activity.distance / 1000).toFixed(1) + ' km' : '';
+    return name + km;
+  }
+
+  function activitySourceLabel(activity) {
+    return activity?.source === 'strava' ? 'Strava' : 'Garmin';
+  }
+
+  function activityOpenAttrs(activity) {
+    const id = Number(activity?.activityId || activity?.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return '';
+    const source = activity?.source === 'strava' ? 'strava' : 'garmin';
+    return ` data-action="open-activity" data-activity-id="${id}" data-activity-source="${source}" role="button" tabindex="0" title="Öppna passdetaljer"`;
+  }
+
+  function activitiesByDate() {
+    const map = {};
+    (recentActivities || []).forEach(activity => {
+      const key = activityDateKey(activity);
+      if (!key) return;
+      (map[key] ||= []).push(activity);
+    });
+    return map;
+  }
+
+  // Utvärderingen av ett genomfört pass (se session_analysis.py). Allt utom
+  // styrketräning kommer från Garmin-anropet; styrkan utvärderas mot
+  // loggboken i databasen.
+  function executionDetailLines(execution) {
+    if (!execution) return [];
+    const lines = [];
+    if (execution.splits?.length) {
+      lines.push(execution.splits.map(s => s.pace || s.label).join('  ·  '));
+    }
+    if (execution.hr_drift_pct != null) {
+      lines.push(`Pulsdrift +${execution.hr_drift_pct}%`);
+    }
+    if (execution.pace_vs_target) {
+      lines.push(execution.pace_vs_target);
+    }
+    if (execution.strength_verdict) {
+      lines.push(execution.strength_verdict);
+    }
+    return lines;
+  }
+
+  function executionIsPositive(execution) {
+    if (!execution) return true;
+    return execution.verdict === 'good' || execution.score == null || execution.score >= 70;
+  }
+
+  function executionBadgeHtml(execution) {
+    if (!execution?.headline) return '';
+    const cls = executionIsPositive(execution) ? 'cal-verdict-good' : 'cal-verdict-warn';
+    const tip = [execution.headline, ...executionDetailLines(execution)].join(' - ');
+    return `<span class="cal-verdict ${cls}" data-freetip="${escapeHtml(tip)}">`
+      + `${escapeHtml(execution.headline)}</span>`;
+  }
+
+  function calendarActualPills(dayActivities, plannedSession) {
+    if (!dayActivities.length) return '';
+    const runs = dayActivities.filter(a => calendarActivityType(a) === 'run');
+    const bikes = dayActivities.filter(a => calendarActivityType(a) === 'bike');
+    const lifts = dayActivities.filter(a => calendarActivityType(a) === 'lift');
+    const totalRunKm = runs.reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
+    const totalBikeKm = bikes.reduce((sum, a) => sum + ((a.distance || 0) / 1000), 0);
+    const totalSec = dayActivities.reduce((sum, a) => sum + (a.duration || a.elapsedDuration || 0), 0);
+    const minutes = totalSec ? Math.round(totalSec / 60) : null;
+
+    const verdict = executionBadgeHtml(plannedSession?.execution);
+
+    // Om ett löppass var planerat
+    if (['run', 'easy', 'race', 'interval', 'threshold', 'long'].includes(plannedSession?.type)) {
+      if (runs.length) {
+        if (runs.length > 1) {
+          const pills = runs.map(run => {
+            const label = calendarActivityLabel(run);
+            const seconds = run.duration || run.elapsedDuration || 0;
+            const tip = [activitySourceLabel(run), label, seconds ? Math.round(seconds / 60) + ' min' : ''].filter(Boolean).join(' - ');
+            return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(run)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+          }).join('');
+          return pills + verdict;
         }
-        if (!data.reply) throw new Error(data.error || 'Inget svar.');
-        typing.innerHTML = formatReply(data.reply);
-        saveChat([...prior, { role: 'user', content: message }, { role: 'assistant', content: data.reply }]);
-        if (data.planChanged || data.changes) cache.delete('/api/plan');
-      } catch (error) {
-        typing.remove();
-        if (error.status !== 401) addMsg(chat, 'error', error.message);
-      } finally {
-        send.disabled = false;
-        scrollChat();
+        const interval = runs.find(a => a.calendarSummary?.kind === 'interval');
+        const label = interval?.calendarSummary?.label
+          ? `${interval.calendarSummary.label}${totalRunKm ? ' · ' + totalRunKm.toFixed(1) + ' km' : ''}`
+          : calendarActivityLabel(runs[0]);
+        const names = runs.map(calendarActivityLabel).join(' - ');
+        const tip = [activitySourceLabel(runs[0]), names, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+        return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(runs[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
+      }
+      // Löppass var planerat men annan aktivitet gjordes (t.ex. promenad/simning) -> markera inte som avklarat löppass
+      return dayActivities.map(activity => {
+        const actualType = calendarActivityType(activity);
+        const cls = actualType === 'bike' ? 'csp-bike' : actualType === 'lift' ? 'csp-lift' : 'csp-rest';
+        const label = calendarActivityLabel(activity);
+        const seconds = activity.duration || activity.elapsedDuration || 0;
+        const mins = seconds ? Math.round(seconds / 60) : null;
+        const tip = [activitySourceLabel(activity), label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
+        return `<span class="cal-session-pill ${cls} csp-actual"${activityOpenAttrs(activity)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+      }).join('');
+    }
+
+    // Om cykelpass var planerat
+    if (['bike', 'cycling'].includes(plannedSession?.type) && bikes.length) {
+      const label = plannedSession.title || 'Cykelpass';
+      const tip = [activitySourceLabel(bikes[0]), label, totalBikeKm ? totalBikeKm.toFixed(1) + ' km' : '', minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+      return `<span class="cal-session-pill csp-bike csp-done csp-actual"${activityOpenAttrs(bikes[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
+    }
+
+    // Om styrkepass var planerat
+    if (plannedSession?.type === 'lift' && lifts.length) {
+      const label = plannedSession.title || 'Styrkepass';
+      const tip = [activitySourceLabel(lifts[0]), label, minutes != null ? minutes + ' min' : ''].filter(Boolean).join(' - ');
+      return `<span class="cal-session-pill csp-lift csp-done csp-actual"${activityOpenAttrs(lifts[0])} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>${verdict}`;
+    }
+
+    if (runs.length) {
+      const label = calendarActivityLabel(runs[0]);
+      return `<span class="cal-session-pill csp-run csp-done csp-actual"${activityOpenAttrs(runs[0])}>${escapeHtml(label)}</span>${verdict}`;
+    }
+
+    if (bikes.length) {
+      const label = calendarActivityLabel(bikes[0]);
+      return `<span class="cal-session-pill csp-bike csp-done csp-actual"${activityOpenAttrs(bikes[0])}>${escapeHtml(label)}</span>${verdict}`;
+    }
+
+    return dayActivities.map(activity => {
+      const actualType = calendarActivityType(activity);
+      const cls = actualType === 'lift' ? 'csp-lift' : actualType === 'race' ? 'csp-race' : 'csp-rest';
+      const label = calendarActivityLabel(activity);
+      const seconds = activity.duration || activity.elapsedDuration || 0;
+      const mins = seconds ? Math.round(seconds / 60) : null;
+      const tip = [activitySourceLabel(activity), label, mins != null ? mins + ' min' : ''].filter(Boolean).join(' - ');
+      return `<span class="cal-session-pill ${cls} csp-actual"${activityOpenAttrs(activity)} data-freetip="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+    }).join('');
+  }
+
+  // Planerat pass för ett visst datum. Ett genomfört pass bär utvärderingen
+  // i .execution, så både startsidan och kalendern går via den här.
+  function findPlanSessionForDate(dateKey, planYear = new Date().getFullYear()) {
+    let found = null;
+    for (const session of PLAN_SESSIONS) {
+      const monday = getMondayOfISOWeek(session.week, planYear);
+      const sessionDate = new Date(monday);
+      sessionDate.setDate(monday.getDate() + session.dow);
+      if (localDateKey(sessionDate) !== dateKey) continue;
+      if (!found || (session.status === 'planned' && found.status !== 'planned')) found = session;
+    }
+    return found;
+  }
+
+  function renderTodaySession() {
+    const card  = document.getElementById('today-session-card');
+    const panel = document.getElementById('today-panel');
+    const dot   = document.getElementById('today-session-dot');
+    const title = document.getElementById('today-session-title');
+    const detail= document.getElementById('today-session-detail');
+    const km    = document.getElementById('today-session-km');
+    const type  = document.getElementById('today-session-type');
+    const verdict = document.getElementById('today-session-verdict');
+    if (!card || !panel || !dot || !title || !detail || !km || !type) return;
+
+    // Omdömesraden är valfri i DOM:en; varje gren nedan sätter den explicit,
+    // så den töms här för att inte läcka mellan planerat och genomfört pass.
+    const setVerdict = (text, color) => {
+      if (!verdict) return;
+      verdict.textContent = text || '';
+      verdict.style.color = color || '';
+      verdict.style.display = text ? 'block' : 'none';
+    };
+    setVerdict('');
+
+    // Rendering can switch between a completed activity and a planned session;
+    // always clear the previous interaction before deciding what today contains.
+    card.classList.remove('is-clickable');
+    panel.classList.remove('is-clickable');
+    for (const element of [card]) {
+      for (const attribute of ['data-action', 'data-activity-id', 'data-activity-source',
+                               'role', 'tabindex', 'title']) {
+        element.removeAttribute(attribute);
+      }
+    }
+    for (const attribute of ['role', 'tabindex', 'title']) panel.removeAttribute(attribute);
+
+    const typeColors = { run:'var(--green)', easy:'var(--muted2)', bike:'var(--blue)', lift:'var(--orange)', race:'var(--red)', rest:'var(--muted)' };
+    const typeLabels = { run:'LÖPNING', easy:'LUGN LÖPNING', bike:'CYKEL', lift:'STYRKA', race:'LOPP', rest:'VILA' };
+
+    // ── 1. Check today's qualifying activities for the planned session ───
+    const todayKey = localDateKey(new Date());
+    const todayPlanned = findPlanSessionForDate(todayKey);
+
+    const todayActs = recentActivities.filter(a => {
+      const d = (a.startTimeLocal || a.beginTimestamp || '').slice(0, 10);
+      return d === todayKey;
+    });
+
+    // Endast aktiviteter som matchar passets disciplin (löpning för löppass,
+    // cykel för cykelpass, styrka för styrkepass) räknas som att dagens pass är genomfört.
+    const qualifyingActs = todayPlanned
+      ? todayActs.filter(a => isQualifyingActivityForSession(a, todayPlanned))
+      : todayActs.filter(a => ['run', 'bike', 'lift'].includes(calendarActivityType(a)));
+
+    if (qualifyingActs.length > 0) {
+      const totalKm  = qualifyingActs.reduce((s, a) => s + ((a.distance || 0) / 1000), 0);
+      const totalSec = qualifyingActs.reduce((s, a) => s + (a.duration || a.elapsedDuration || 0), 0);
+      const totalMin = Math.round(totalSec / 60);
+
+      const longest = qualifyingActs.reduce((a, b) => (a.distance||0) >= (b.distance||0) ? a : b);
+      const activityId = Number(longest.activityId || longest.id);
+      const actType = calendarActivityType(longest);
+      const col = typeColors[actType] || 'var(--green)';
+
+      if (Number.isSafeInteger(activityId) && activityId > 0) {
+        card.classList.add('is-clickable');
+        panel.classList.add('is-clickable');
+        panel.setAttribute('role', 'button');
+        panel.setAttribute('tabindex', '0');
+        panel.title = todayActs.length > 1
+          ? 'Öppna den längsta av dagens aktiviteter' : 'Öppna passdetaljer';
+      }
+
+      // Build detail: individual activity names on one line
+      const actNames = todayActs.map(a => {
+        const n = a.activityName || a.name || (a.activityType?.typeKey || 'activity');
+        const km2 = a.distance ? ' ' + (a.distance / 1000).toFixed(1) + ' km' : '';
+        return n + km2;
+      });
+      const detailStr = actNames.join('  ·  ');
+
+      // Time string
+      const h = Math.floor(totalMin / 60), m = totalMin % 60;
+      const timeStr = h > 0 ? `${h}h ${m}m` : `${m} min`;
+
+      dot.style.background   = col;
+      card.style.borderColor = col.replace('var(--','rgba(').replace(')',',0.25)');
+      title.textContent      = todayActs.length > 1
+        ? `${todayActs.length} aktiviteter  —  ${timeStr} totalt`
+        : (todayActs[0].activityName || todayActs[0].name || 'Aktivitet idag');
+      title.style.color      = col;
+      km.textContent         = totalKm > 0 ? totalKm.toFixed(1) + ' km' : timeStr;
+      km.style.color         = col;
+
+      // Säg hur passet gick, inte bara att det blev av. Rubriken ovanför
+      // namnger redan passet, så raden används till siffrorna i stället.
+      const execution = findPlanSessionForDate(todayKey)?.execution;
+      const verdictLines = executionDetailLines(execution);
+      detail.textContent = verdictLines.length ? verdictLines.join('  ·  ') : detailStr;
+      detail.title = verdictLines.length
+        ? [detailStr, ...verdictLines].join('\n')
+        : detailStr;
+      type.textContent = 'KLART';
+      type.style.color = '';
+      if (execution?.headline) {
+        setVerdict(execution.headline.toUpperCase(),
+                   executionIsPositive(execution) ? 'var(--green)' : 'var(--amber)');
+      }
+      return;
+    }
+
+    // ── 2. Fall back to today's planned session ───────────────────────────
+    const s = findPlanSessionForDate(todayKey);
+
+    if (!s) {
+      title.textContent    = 'Vilodag';
+      detail.textContent   = 'Inget pass schemalagt idag';
+      km.textContent       = '';
+      type.textContent     = 'REST';
+      dot.style.background = 'var(--muted)';
+      card.style.borderColor = '';
+      title.style.color    = '';
+      return;
+    }
+
+    const col = typeColors[s.type] || 'var(--green)';
+    dot.style.background   = col;
+    card.style.borderColor = col.replace('var(--','rgba(').replace(')',',0.25)');
+    title.textContent      = s.title;
+    title.style.color      = col;
+    detail.textContent     = (s.type === 'lift' && s.strength_recommendation_text) || s.detail || '';
+    km.textContent         = s.km > 0 ? s.km + ' km' : '';
+    km.style.color         = col;
+    // Högerkolumnen rymmer bara en kort etikett — status läggs på omdömesraden
+    // så att den inte tvingar ut kolumnbredden på smala skärmar.
+    type.textContent       = typeLabels[s.type] || String(s.type || 'PLAN').toUpperCase();
+    if (s.status && s.status !== 'planned') setVerdict(s.status.toUpperCase(), 'var(--muted2)');
+  }
+
+  function openTodayActivity() {
+    const todayKey = localDateKey(new Date());
+    const activities = recentActivities.filter(activity =>
+      String(activity.startTimeLocal || activity.beginTimestamp || '').slice(0, 10) === todayKey);
+    if (!activities.length) return;
+    const activity = activities.reduce((left, right) =>
+      (left.distance || 0) >= (right.distance || 0) ? left : right);
+    const activityId = Number(activity.activityId || activity.id);
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) return;
+    openActivityDetails(activityId, activity.source === 'strava' ? 'strava' : 'garmin');
+  }
+
+  async function loadPlan() {
+    try {
+      const r = await fetch('/api/plan');
+      const d = await r.json();
+      if (r.ok && Array.isArray(d.sessions)) {
+        PLAN_SESSIONS = d.sessions.map(normalizePlanSession);
+        buildCalendar();
+        renderTodaySession();
+        safeRenderTrainingCockpit();
+      }
+    } catch(e) {
+      console.warn('Plan fetch failed', e);
+    }
+  }
+  loadPlan();
+
+  // ─── PLANERA VECKA SJÄLV ────────────────────────────────────
+  // Passmallar: fyra löptyper delar på backendens fem passtyper, så mallen
+  // väljer bara typ och förslag på rubrik — rubriken går att skriva om fritt.
+  const WEEK_PLAN_PRESETS = [
+    { key: '',         label: '— Ingen träning —' },
+    { key: 'interval', label: 'Intervaller',  type: 'run',  title: 'Intervaller',  hint: 't.ex. 6×1000 m i 4:00/km, 2 min vila' },
+    { key: 'tempo',    label: 'Tempopass',    type: 'run',  title: 'Tempopass',    hint: 't.ex. 3 km uppv. + 5 km tempo + 2 km nedv.' },
+    { key: 'easy',     label: 'Lugnt Z2',     type: 'easy', title: 'Lugnt Z2',     hint: 't.ex. lugn puls, kunna prata' },
+    { key: 'long',     label: 'Långpass',     type: 'easy', title: 'Långpass',     hint: 't.ex. jämnt och lugnt, sista 2 km lite snabbare' },
+    { key: 'lift',     label: 'Styrka',       type: 'lift', title: 'Styrka',       hint: 't.ex. Knäböj 5×5 · Marklyft 3×5' },
+    { key: 'race',     label: 'Lopp / test',  type: 'race', title: 'Lopp',         hint: 't.ex. 10 km-test' },
+    { key: 'rest',     label: 'Vila',         type: 'rest', title: 'Vila',         hint: 'Planerad vila' },
+  ];
+  const WEEK_PLAN_DAYS = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lördag', 'Söndag'];
+  const WEEK_PLAN_STATUS = { planned: 'planerat', completed: 'genomfört', missed: 'missat', skipped: 'överhoppat', rescheduled: 'flyttat' };
+  const WEEK_PLAN_AHEAD = 6;
+  let weekPlannerWeek = null;
+
+  function weekPlanPreset(key) {
+    return WEEK_PLAN_PRESETS.find(p => p.key === key) || WEEK_PLAN_PRESETS[0];
+  }
+
+  function presetForSession(session) {
+    const title = String(session.title || '').toLowerCase();
+    if (session.type === 'run') return /tempo|tröskel/.test(title) ? 'tempo' : 'interval';
+    if (session.type === 'easy') return /lång/.test(title) ? 'long' : 'easy';
+    return ['lift', 'race', 'rest'].includes(session.type) ? session.type : '';
+  }
+
+  // Samma ordning som kalendern: ett aktivt pass vinner över historik.
+  function weekPlanSessionsByDow(week) {
+    const byDow = {};
+    PLAN_SESSIONS.filter(s => s.week === week).forEach(s => {
+      const current = byDow[s.dow];
+      if (!current || (s.status === 'planned' && current.status !== 'planned')) byDow[s.dow] = s;
+    });
+    return byDow;
+  }
+
+  function renderWeekPlannerWeeks() {
+    const box = document.getElementById('week-planner-weeks');
+    if (!box) return;
+    const now = new Date();
+    const firstWeek = getISOWeek(now);
+    const buttons = [];
+    for (let w = firstWeek; w <= firstWeek + WEEK_PLAN_AHEAD - 1; w++) {
+      const count = PLAN_SESSIONS.filter(s => s.week === w && s.status === 'planned' && s.type !== 'rest').length;
+      const sub = count ? `${count} pass` : 'tom';
+      const active = w === weekPlannerWeek ? ' active' : '';
+      buttons.push(`<button type="button" class="week-planner-btn${active}" data-action="plan-week" data-week="${w}"`
+        + ` aria-pressed="${w === weekPlannerWeek}">Planera v.${planWeekLabel(w)}<span>${w === firstWeek ? 'denna vecka · ' : ''}${sub}</span></button>`);
+    }
+    box.innerHTML = buttons.join('');
+  }
+
+  function weekPlanRowHtml(week, dow, monday, todayKey, session) {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + dow);
+    const dateKey = localDateKey(date);
+    const label = `${WEEK_PLAN_DAYS[dow]} ${date.getDate()}/${date.getMonth() + 1}`;
+    const locked = dateKey < todayKey || (session && session.status !== 'planned' && session.status !== 'rescheduled');
+    if (locked) {
+      const text = session
+        ? `${session.title} · ${WEEK_PLAN_STATUS[session.status] || session.status || 'planerat'}`
+        : 'Passerad dag';
+      return `<div class="wp-row wp-locked" data-dow="${dow}"><div class="wp-day">${escapeHtml(label)}</div>`
+        + `<div class="wp-locked-text">${escapeHtml(text)}</div></div>`;
+    }
+    const presetKey = session ? presetForSession(session) : '';
+    const preset = weekPlanPreset(presetKey);
+    const options = WEEK_PLAN_PRESETS.map(p =>
+      `<option value="${p.key}"${p.key === presetKey ? ' selected' : ''}>${escapeHtml(p.label)}</option>`).join('');
+    const hidden = presetKey ? '' : ' hidden';
+    return `<div class="wp-row" data-dow="${dow}" data-editable="1">`
+      + `<label class="wp-day" for="wp-type-${dow}">${escapeHtml(label)}</label>`
+      + `<select id="wp-type-${dow}" class="wp-type" data-prev="${presetKey}" aria-label="Pass ${escapeHtml(label)}">${options}</select>`
+      + `<div class="wp-fields"${hidden}>`
+      + `<input type="text" class="wp-title" maxlength="80" aria-label="Rubrik" placeholder="Rubrik" value="${escapeHtml(session?.title || preset.title || '')}">`
+      + `<input type="number" class="wp-km" min="0" max="100" step="0.5" inputmode="decimal" aria-label="Kilometer" placeholder="km" value="${session && session.km ? escapeHtml(session.km) : ''}">`
+      + `<input type="text" class="wp-detail" maxlength="300" aria-label="Upplägg" placeholder="${escapeHtml(preset.hint || 'Upplägg')}" value="${escapeHtml(session?.detail || '')}">`
+      + `</div></div>`;
+  }
+
+  function openWeekPlanner(week) {
+    const editor = document.getElementById('week-planner-editor');
+    if (!editor || !Number.isInteger(week)) return;
+    if (weekPlannerWeek === week && !editor.hidden) { closeWeekPlanner(); return; }
+    weekPlannerWeek = week;
+    setWeekPlannerStatus('');
+    const monday = getMondayOfISOWeek(week, new Date().getFullYear());
+    const todayKey = localDateKey(new Date());
+    const byDow = weekPlanSessionsByDow(week);
+    const rows = [];
+    for (let dow = 0; dow < 7; dow++) rows.push(weekPlanRowHtml(week, dow, monday, todayKey, byDow[dow]));
+    editor.innerHTML = `<div class="wp-head">Vecka ${planWeekLabel(week)}</div>`
+      + `<div class="wp-ai">`
+      + `<label class="wp-ai-label" for="wp-ai-text">Beskriv veckan med egna ord — coachen bygger passen mot ditt mål och din belastning</label>`
+      + `<textarea id="wp-ai-text" class="wp-ai-text" rows="2" maxlength="600" placeholder="t.ex. måndag lugnt, tisdag intervaller, onsdag ledig, torsdag styrka, lördag långpass"></textarea>`
+      + `<div class="wp-ai-actions"><button type="button" class="refresh-btn wp-ai-btn" data-action="draft-week-plan">Låt coachen bygga veckan</button></div>`
+      + `<div class="wp-ai-notes" id="wp-ai-notes" hidden></div>`
+      + `</div>`
+      + `<div class="wp-manual-label">Eller lägg in passen själv:</div>`
+      + `<div class="wp-rows">${rows.join('')}</div>`
+      + `<div class="wp-actions">`
+      + `<button type="button" class="refresh-btn wp-cancel" data-action="close-week-planner">Avbryt</button>`
+      + `<button type="button" class="refresh-btn wp-save" data-action="save-week-plan">Spara vecka ${planWeekLabel(week)}</button>`
+      + `</div>`;
+    editor.hidden = false;
+    renderWeekPlannerWeeks();
+    editor.querySelector('#wp-ai-text')?.focus({ preventScroll: true });
+  }
+
+  function closeWeekPlanner() {
+    const editor = document.getElementById('week-planner-editor');
+    if (editor) { editor.hidden = true; editor.innerHTML = ''; }
+    weekPlannerWeek = null;
+    renderWeekPlannerWeeks();
+  }
+
+  function setWeekPlannerStatus(text, color) {
+    const status = document.getElementById('week-planner-status');
+    if (!status) return;
+    status.textContent = text || '';
+    status.style.color = color || '';
+  }
+
+  // Byter man mall följer rubriken med, så länge man inte skrivit en egen.
+  function onWeekPlanTypeChange(select) {
+    const row = select.closest('.wp-row');
+    if (!row) return;
+    const preset = weekPlanPreset(select.value);
+    const fields = row.querySelector('.wp-fields');
+    const title = row.querySelector('.wp-title');
+    const detail = row.querySelector('.wp-detail');
+    if (fields) fields.hidden = !preset.key;
+    const previous = weekPlanPreset(select.dataset.prev ?? '');
+    if (title && (!title.value.trim() || WEEK_PLAN_PRESETS.some(p => p.title === title.value.trim()))) {
+      title.value = preset.title || '';
+    }
+    if (detail) detail.placeholder = preset.hint || 'Upplägg';
+    if (preset.key === 'rest' || preset.key === 'lift') {
+      const km = row.querySelector('.wp-km');
+      if (km && previous.type !== preset.type) km.value = '';
+    }
+    select.dataset.prev = select.value;
+  }
+
+  // Coachens förslag skrivs in i dagraderna men sparas inte: atleten ser
+  // passen, ändrar det som inte passar och trycker själv på spara.
+  function applyWeekDraft(sessions) {
+    const byDow = Object.fromEntries(sessions.map(s => [s.dow, s]));
+    document.querySelectorAll('#week-planner-editor .wp-row[data-editable]').forEach(row => {
+      const s = byDow[Number(row.dataset.dow)];
+      const select = row.querySelector('.wp-type');
+      if (!select) return;
+      select.value = s ? presetForSession(s) : '';
+      select.dataset.prev = select.value;
+      const preset = weekPlanPreset(select.value);
+      const fields = row.querySelector('.wp-fields');
+      if (fields) fields.hidden = !preset.key;
+      row.querySelector('.wp-title').value = s?.title || preset.title || '';
+      row.querySelector('.wp-km').value = s && s.km ? s.km : '';
+      const detail = row.querySelector('.wp-detail');
+      detail.value = s?.detail || '';
+      detail.placeholder = preset.hint || 'Upplägg';
+      row.classList.toggle('wp-drafted', Boolean(s));
+    });
+  }
+
+  async function draftWeekPlan() {
+    const week = weekPlannerWeek;
+    const input = document.getElementById('wp-ai-text');
+    const btn = document.querySelector('#week-planner-editor .wp-ai-btn');
+    const notes = document.getElementById('wp-ai-notes');
+    const text = (input?.value || '').trim();
+    if (!Number.isInteger(week) || !input) return;
+    if (!text) { setWeekPlannerStatus('Skriv först hur du vill att veckan ska se ut.', 'var(--amber)'); input.focus(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Coachen planerar…'; }
+    setWeekPlannerStatus('');
+    try {
+      const r = await fetch(`/api/plan/week/${week}/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Servern svarade ${r.status}`);
+      if (weekPlannerWeek !== week) return;  // användaren bytte vecka under tiden
+      applyWeekDraft(d.sessions || []);
+      if (notes) { notes.textContent = d.notes || ''; notes.hidden = !d.notes; }
+      setWeekPlannerStatus('Förslaget är ifyllt nedan. Justera om du vill och tryck på spara — inget är sparat än.', 'var(--accent)');
+    } catch (e) {
+      setWeekPlannerStatus('Coachen kunde inte göra ett förslag: ' + e.message, 'var(--red)');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Låt coachen bygga veckan'; }
+    }
+  }
+
+  function collectWeekPlan() {
+    const sessions = [];
+    document.querySelectorAll('#week-planner-editor .wp-row[data-editable]').forEach(row => {
+      const preset = weekPlanPreset(row.querySelector('.wp-type')?.value || '');
+      if (!preset.key) return;
+      const km = parseFloat(String(row.querySelector('.wp-km')?.value || '').replace(',', '.'));
+      sessions.push({
+        dow: Number(row.dataset.dow),
+        type: preset.type,
+        title: (row.querySelector('.wp-title')?.value || '').trim() || preset.title,
+        km: Number.isFinite(km) && km > 0 ? km : 0,
+        detail: (row.querySelector('.wp-detail')?.value || '').trim(),
+      });
+    });
+    return sessions;
+  }
+
+  async function saveWeekPlan() {
+    const week = weekPlannerWeek;
+    if (!Number.isInteger(week)) return;
+    const btn = document.querySelector('#week-planner-editor .wp-save');
+    const sessions = collectWeekPlan();
+    if (btn) { btn.disabled = true; btn.textContent = 'Sparar…'; }
+    setWeekPlannerStatus('');
+    try {
+      const r = await fetch(`/api/plan/week/${week}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessions }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `Servern svarade ${r.status}`);
+      closeWeekPlanner();
+      await loadPlan();
+      loadSeasonPlan();
+      const training = sessions.filter(s => s.type !== 'rest').length;
+      const km = sessions.reduce((sum, s) => sum + (s.km || 0), 0);
+      setWeekPlannerStatus(`Vecka ${planWeekLabel(week)} sparad: ${training} pass${km ? ` · ${Math.round(km * 10) / 10} km` : ''}.`, 'var(--green)');
+    } catch (e) {
+      setWeekPlannerStatus('Kunde inte spara: ' + e.message, 'var(--red)');
+      if (btn) { btn.disabled = false; btn.textContent = `Spara vecka ${planWeekLabel(week)}`; }
+    }
+  }
+
+  document.getElementById('week-planner-editor')?.addEventListener('change', event => {
+    if (event.target.matches('.wp-type')) onWeekPlanTypeChange(event.target);
+  });
+
+
+  let calendarView = 'current';
+
+  // Lokal datumnyckel "YYYY-MM-DD" - toISOString() räknar om till UTC, vilket
+  // gör att lokal midnatt i svensk tidszon hamnar på föregående dygn.
+  function localDateKey(d) {
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + m + '-' + day;
+  }
+
+  function buildCalendar() {
+    renderWeekPlannerWeeks();
+    const container = document.getElementById('cal-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const dayNames = ['Mån','Tis','Ons','Tor','Fre','Lör','Sön'];
+    const monthNames = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+
+    // Veckospann härleds från användarens egen plan; utan plan visas veckorna
+    // runt dagens datum (Garmin-aktiviteter och kalenderhändelser syns ändå).
+    const planWeeks = PLAN_SESSIONS.map(s => s.week);
+    const isoNow = getISOWeek(today);
+    const START_WEEK = planWeeks.length ? Math.min(...planWeeks) : Math.max(1, isoNow - 2);
+    const END_WEEK   = planWeeks.length ? Math.max(...planWeeks) : isoNow + 4;
+    const YEAR       = today.getFullYear();
+    const currentWeek = Math.min(Math.max(isoNow, START_WEEK), END_WEEK);
+    const currentTab = document.getElementById('cal-tab-current');
+    const pastTab = document.getElementById('cal-tab-past');
+
+    if (currentTab && pastTab) {
+      const showingPast = calendarView === 'past';
+      currentTab.classList.toggle('active', !showingPast);
+      currentTab.setAttribute('aria-selected', String(!showingPast));
+      pastTab.classList.toggle('active', showingPast);
+      pastTab.setAttribute('aria-selected', String(showingPast));
+    }
+
+    const visibleWeeks = [];
+    for (let w = START_WEEK; w <= END_WEEK; w++) {
+      const isPastWeek = w < currentWeek;
+      if ((calendarView === 'past' && isPastWeek) || (calendarView !== 'past' && !isPastWeek)) {
+        visibleWeeks.push(w);
+      }
+    }
+    if (calendarView === 'past') visibleWeeks.reverse();
+
+    if (!visibleWeeks.length) {
+      const empty = document.createElement('div');
+      empty.className = 'cal-empty';
+      empty.textContent = calendarView === 'past'
+        ? 'Inga tidigare veckor i planen än.'
+        : 'Inga kommande veckor kvar i planen.';
+      container.appendChild(empty);
+      return;
+    }
+
+    const actualByDate = activitiesByDate();
+
+    // Index sessions by week+dow — keep only the best one per slot.
+    // Priority: completed > planned/adjusted > skipped/missed
+    const statusPriority = s => {
+      if (s.status === 'completed') return 0;
+      if (s.status === 'planned')   return 1;
+      if (s.status === 'rescheduled') return 1;
+      if (s.status === 'missed')    return 2;
+      if (s.status === 'skipped')   return 2;
+      return 1;
+    };
+    const sessionMap = {};
+    PLAN_SESSIONS.forEach(s => {
+      const key = s.week + '-' + s.dow;
+      const existing = sessionMap[key];
+      if (!existing || statusPriority(s) < statusPriority(existing)) {
+        sessionMap[key] = s;
+      }
+    });
+
+    visibleWeeks.forEach((w, idx) => {
+      const monday = getMondayOfISOWeek(w, YEAR);
+
+      // Indexera Google Calendar-events per datum för denna vecka
+      // Flerdagarsevent expanderas så varje dag i spannet får en entry
+      const gcalMap = {}; // 'YYYY-MM-DD' -> [events]
+      gcalEvents.forEach(ev => {
+        const startKey = gcalDateKey(ev.start);
+        const endRaw   = gcalDateKey(ev.end);
+        // För heldagsevent är end exklusivt (Google-format), dra tillbaka ett dygn
+        let endKey = endRaw;
+        if (ev.allDay && endRaw > startKey) {
+          const d = new Date(endRaw);
+          d.setDate(d.getDate() - 1);
+          endKey = d.toISOString().substring(0, 10);
+        }
+        // Lägg eventet på varje dag från start t.o.m. end
+        const cur = new Date(startKey);
+        const last = new Date(endKey);
+        while (cur <= last) {
+          const key = cur.toISOString().substring(0, 10);
+          if (!gcalMap[key]) gcalMap[key] = [];
+          gcalMap[key].push(ev);
+          cur.setDate(cur.getDate() + 1);
+        }
+      });
+
+      // Räkna pass och km (ett pass per dag efter dedup)
+      let runCount = 0, liftCount = 0, raceCount = 0, totalKm = 0, workCount = 0;
+      for (let d = 0; d < 7; d++) {
+        const s = sessionMap[w + '-' + d];
+        if (s) {
+          if (s.type === 'run' || s.type === 'easy') runCount++;
+          if (s.type === 'lift')  liftCount++;
+          if (s.type === 'race')  raceCount++;
+          totalKm += s.km || 0;
+        }
+        const dayDate = new Date(monday);
+        dayDate.setDate(monday.getDate() + d);
+        const dayKey = localDateKey(dayDate);
+        workCount += (gcalMap[dayKey] || []).length;
+      }
+
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const rangeStr =
+        monday.getDate() + ' ' + monthNames[monday.getMonth()] +
+        ' - ' +
+        sunday.getDate() + ' ' + monthNames[sunday.getMonth()];
+
+      // Veckokort
+      const weekEl = document.createElement('div');
+      weekEl.className = 'cal-week';
+
+      // Header
+      const headerEl = document.createElement('div');
+      headerEl.className = 'cal-week-header';
+      let badgesHtml = '';
+      if (runCount)  badgesHtml += `<span class="cal-week-badge cwb-run"> ${runCount} run</span>`;
+      if (liftCount) badgesHtml += `<span class="cal-week-badge cwb-lift"> ${liftCount} strength</span>`;
+      if (raceCount) badgesHtml += `<span class="cal-week-badge cwb-race"> race</span>`;
+      if (workCount) badgesHtml += `<span class="cal-week-badge cwb-work"> ${workCount} work</span>`;
+      if (totalKm > 0) badgesHtml += `<span class="cal-week-badge cwb-km">~${totalKm} km</span>`;
+      headerEl.innerHTML = `
+        <span class="cal-week-num">V.${planWeekLabel(w)}</span>
+        <span class="cal-week-range">${rangeStr}</span>
+        <div class="cal-week-badges">${badgesHtml}</div>`;
+      weekEl.appendChild(headerEl);
+
+      // Dagar
+      const daysEl = document.createElement('div');
+      daysEl.className = 'cal-days';
+
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + d);
+        date.setHours(0,0,0,0);
+
+        const isToday = date.getTime() === today.getTime();
+        const isPast  = date < today;
+
+        const dayEl = document.createElement('div');
+        dayEl.className = 'cal-day' + (isToday ? ' today' : '') + (isPast ? ' past' : '');
+
+        // Google Calendar-events för denna dag (visas först)
+        const dateKey = localDateKey(date);
+        const dayGcal = gcalMap[dateKey] || [];
+        const dayActivities = actualByDate[dateKey] || [];
+
+        let pillsHtml = '';
+        dayGcal.forEach(ev => {
+          const timeStr = ev.allDay ? 'Heldag' : fmtEventTime(ev.start) + '-' + fmtEventTime(ev.end);
+          const tip = `${ev.title}  -  ${timeStr}${ev.location ? '  -  ' + ev.location : ''}`;
+          pillsHtml += `<span class="cal-session-pill csp-work" data-freetip="${escapeHtml(tip)}"> ${escapeHtml(ev.title)}</span>`;
+        });
+
+        const s = sessionMap[w + '-' + d];
+        const hasQualifyingActivity = s && dayActivities.some(a => isQualifyingActivityForSession(a, s));
+        pillsHtml += calendarActualPills(dayActivities, s);
+        if (s && !hasQualifyingActivity) {
+          const cls = s.type === 'run' ? 'csp-run' : s.type === 'easy' ? 'csp-easy' : s.type === 'bike' ? 'csp-bike' : s.type === 'lift' ? 'csp-lift' : s.type === 'race' ? 'csp-race' : 'csp-rest';
+          const compactDetail = compactCalendarText(s.detail);
+          const strengthDetail = s.type === 'lift'
+            ? compactCalendarText(s.strength_recommendation_text, 180)
+            : '';
+          const isModified = s.ai_note && s.status === 'planned' && s.modified_at;
+          const statusNote = s.status === 'missed'      ? ' - Missed'
+                           : s.status === 'skipped'     ? ' - Skipped'
+                           : s.status === 'completed'   ? ' - Done'
+                           : s.status === 'rescheduled' ? ' - Rescheduled'
+                           : isModified                 ? ' - Adjusted'
+                           : '';
+          const tipText = [s.title, strengthDetail || compactDetail, statusNote.trim()].filter(Boolean).join(' - ');
+          const opacity = s.status === 'missed' || s.status === 'skipped' ? 'opacity:0.45;text-decoration:line-through;' : '';
+          const modCls  = isModified ? ' csp-modified' : '';
+          const doneCls = s.status === 'completed' ? ' csp-done' : '';
+          pillsHtml += `<button type="button" class="cal-session-pill ${cls}${modCls}${doneCls}"${planSessionOpenAttrs(PLAN_SESSIONS.indexOf(s))} style="${opacity}" data-freetip="${escapeHtml(tipText)}">${escapeHtml(s.title)}${escapeHtml(statusNote)}</button>`;
+        }
+
+        dayEl.innerHTML = `
+          <div class="cal-day-header">
+            <span class="cal-day-name">${dayNames[d]}</span>
+            <span class="cal-day-num">${date.getDate()}</span>
+          </div>
+          <div class="cal-session-list">${pillsHtml}</div>`;
+        daysEl.appendChild(dayEl);
+      }
+
+      weekEl.appendChild(daysEl);
+      container.appendChild(weekEl);
+    });
+  }
+
+  // ─── PASSDETALJ ──────────────────────────────────────────────
+  let activityDetailRequest = 0;
+  let activityModalPreviousFocus = null;
+  let activityMapState = null;
+  let activeActivityAi = null;
+  const ACTIVITY_MAP_TILE_SIZE = 256;
+  const ACTIVITY_MAP_MIN_ZOOM = 3;
+  const ACTIVITY_MAP_MAX_ZOOM = 18;
+
+  function formatActivityDuration(seconds) {
+    if (seconds == null) return '–';
+    const total = Math.max(0, Math.round(Number(seconds)));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      : `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function formatActivityPace(seconds) {
+    if (seconds == null || !Number.isFinite(Number(seconds))) return '–';
+    const total = Math.max(0, Math.round(Number(seconds)));
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  }
+
+  function formatActivityDate(value) {
+    if (!value) return '';
+    const parsed = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 16);
+    return parsed.toLocaleString('sv-SE', {
+      weekday:'long', day:'numeric', month:'long', year:'numeric',
+      hour:'2-digit', minute:'2-digit'
+    });
+  }
+
+  function formatActivityType(value) {
+    const key = String(value || '').toLowerCase();
+    if (/track/.test(key)) return 'Banlöpning';
+    if (/trail/.test(key)) return 'Traillöpning';
+    if (/treadmill/.test(key)) return 'Löpband';
+    if (/run/.test(key)) return 'Löpning';
+    if (/strength|weight|fitness/.test(key)) return 'Styrka';
+    if (/cycling|bike/.test(key)) return 'Cykling';
+    return key ? key.replaceAll('_', ' ') : 'Garmin-aktivitet';
+  }
+
+  function activityMetric(label, value, unit = '') {
+    return `<div class="ad-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}${unit ? ` <small>${escapeHtml(unit)}</small>` : ''}</strong></div>`;
+  }
+
+  function normalizedActivityRoute(route) {
+    if (!Array.isArray(route)) return [];
+    return route.map(point => ({lat:Number(point?.lat), lon:Number(point?.lon)}))
+      .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lon)
+        && point.lat >= -85.05112878 && point.lat <= 85.05112878
+        && point.lon >= -180 && point.lon <= 180);
+  }
+
+  function activityMapWorldPoint(point, zoom) {
+    const sinLatitude = Math.sin(point.lat * Math.PI / 180);
+    const worldSize = ACTIVITY_MAP_TILE_SIZE * (2 ** zoom);
+    return {
+      x: ((point.lon + 180) / 360) * worldSize,
+      y: (.5 - Math.log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * Math.PI)) * worldSize,
+    };
+  }
+
+  function activityRouteMap(route) {
+    if (normalizedActivityRoute(route).length < 2) {
+      return '<div class="ad-map-empty">Ingen GPS-rutt registrerades för passet.</div>';
+    }
+    return `<svg class="ad-map-canvas" role="img" aria-label="Interaktiv GPS-rutt för passet">
+        <g class="ad-map-tiles"></g>
+        <rect class="ad-map-shade"/>
+        <path class="ad-route-line-under" vector-effect="non-scaling-stroke"/>
+        <path class="ad-route-line" vector-effect="non-scaling-stroke"/>
+        <circle class="ad-route-pin ad-route-start" r="6" fill="var(--green)" vector-effect="non-scaling-stroke"/>
+        <circle class="ad-route-pin ad-route-end" r="6" fill="var(--red)" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="ad-map-controls" aria-label="Kartkontroller">
+        <button type="button" data-action="activity-map-zoom-in" aria-label="Zooma in" title="Zooma in">+</button>
+        <button type="button" data-action="activity-map-zoom-out" aria-label="Zooma ut" title="Zooma ut">−</button>
+        <button type="button" data-action="activity-map-reset" aria-label="Visa hela rutten" title="Visa hela rutten">⌖</button>
+      </div>
+      <button class="ad-map-expand" type="button" data-action="activity-map-expand" aria-label="Öppna stor karta"><span>Öppna karta</span><b>↗</b></button>
+      <span class="ad-map-hint">Dra kartan · scrolla eller nyp för zoom</span>
+      <span class="ad-map-attribution"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap</a> · GARMIN GPS</span>`;
+  }
+
+  function renderActivityMap() {
+    const state = activityMapState;
+    if (!state?.element?.isConnected) return;
+    const svg = state.element.querySelector('.ad-map-canvas');
+    if (!svg) return;
+    const width = Math.max(1, state.element.clientWidth);
+    const height = Math.max(1, state.element.clientHeight);
+    const worldSize = ACTIVITY_MAP_TILE_SIZE * (2 ** state.zoom);
+    state.centerX = ((state.centerX % worldSize) + worldSize) % worldSize;
+    state.centerY = Math.max(Math.min(height / 2, worldSize / 2),
+      Math.min(worldSize - height / 2, state.centerY));
+    const originX = state.centerX - width / 2;
+    const originY = state.centerY - height / 2;
+    const tileCount = 2 ** state.zoom;
+    const tileLayer = svg.querySelector('.ad-map-tiles');
+    const visibleTiles = new Set();
+    const existingTiles = new Map([...tileLayer.querySelectorAll('.ad-map-tile')]
+      .map(tile => [tile.dataset.tileKey, tile]));
+    const firstTileX = Math.floor(originX / ACTIVITY_MAP_TILE_SIZE);
+    const lastTileX = Math.floor((originX + width) / ACTIVITY_MAP_TILE_SIZE);
+    const firstTileY = Math.max(0, Math.floor(originY / ACTIVITY_MAP_TILE_SIZE));
+    const lastTileY = Math.min(tileCount - 1, Math.floor((originY + height) / ACTIVITY_MAP_TILE_SIZE));
+    for (let tileY = firstTileY; tileY <= lastTileY; tileY += 1) {
+      for (let tileX = firstTileX; tileX <= lastTileX; tileX += 1) {
+        const wrappedTileX = ((tileX % tileCount) + tileCount) % tileCount;
+        const tileKey = `${state.zoom}/${tileX}/${tileY}`;
+        visibleTiles.add(tileKey);
+        let tile = existingTiles.get(tileKey);
+        if (!tile) {
+          tile = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+          tile.classList.add('ad-map-tile');
+          tile.dataset.tileKey = tileKey;
+          tile.setAttribute('href', `https://tile.openstreetmap.org/${state.zoom}/${wrappedTileX}/${tileY}.png`);
+          tile.setAttribute('width', String(ACTIVITY_MAP_TILE_SIZE));
+          tile.setAttribute('height', String(ACTIVITY_MAP_TILE_SIZE));
+          tileLayer.appendChild(tile);
+        }
+        tile.setAttribute('x', (tileX * ACTIVITY_MAP_TILE_SIZE - originX).toFixed(1));
+        tile.setAttribute('y', (tileY * ACTIVITY_MAP_TILE_SIZE - originY).toFixed(1));
+      }
+    }
+    existingTiles.forEach((tile, key) => { if (!visibleTiles.has(key)) tile.remove(); });
+    const routePoints = state.route.map(point => activityMapWorldPoint(point, state.zoom)).map(point => {
+      let x = point.x;
+      if (x - state.centerX > worldSize / 2) x -= worldSize;
+      if (state.centerX - x > worldSize / 2) x += worldSize;
+      return [x - originX, point.y - originY];
+    });
+    const path = routePoints.map((point, index) => `${index ? 'L' : 'M'}${point[0].toFixed(1)} ${point[1].toFixed(1)}`).join(' ');
+    const start = routePoints[0], end = routePoints.at(-1);
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    const shade = svg.querySelector('.ad-map-shade');
+    shade.setAttribute('width', String(width));
+    shade.setAttribute('height', String(height));
+    svg.querySelector('.ad-route-line-under').setAttribute('d', path);
+    svg.querySelector('.ad-route-line').setAttribute('d', path);
+    const startPin = svg.querySelector('.ad-route-start');
+    const endPin = svg.querySelector('.ad-route-end');
+    startPin.setAttribute('cx', start[0].toFixed(1));
+    startPin.setAttribute('cy', start[1].toFixed(1));
+    endPin.setAttribute('cx', end[0].toFixed(1));
+    endPin.setAttribute('cy', end[1].toFixed(1));
+  }
+
+  function scheduleActivityMapRender() {
+    const state = activityMapState;
+    if (!state || state.renderFrame) return;
+    state.renderFrame = requestAnimationFrame(() => {
+      if (activityMapState === state) {
+        state.renderFrame = 0;
+        renderActivityMap();
       }
     });
   }
 
-  function addMsg(chat, kind, text) {
-    const el = document.createElement('div');
-    el.className = `msg msg-${kind}`;
-    if (text != null) el.innerHTML = kind === 'coach' ? formatReply(text) : `<p>${esc(text)}</p>`;
-    chat.appendChild(el);
-    return el;
+  function fitActivityMapToRoute() {
+    const state = activityMapState;
+    if (!state) return;
+    const width = Math.max(280, state.element.clientWidth);
+    const height = Math.max(240, state.element.clientHeight);
+    const padding = state.element.classList.contains('is-expanded') ? 70 : 34;
+    let projected = [];
+    for (let zoom = ACTIVITY_MAP_MAX_ZOOM; zoom >= ACTIVITY_MAP_MIN_ZOOM; zoom -= 1) {
+      const candidate = state.route.map(point => activityMapWorldPoint(point, zoom));
+      const xs = candidate.map(point => point.x), ys = candidate.map(point => point.y);
+      if (Math.max(...xs) - Math.min(...xs) <= width - padding * 2
+          && Math.max(...ys) - Math.min(...ys) <= height - padding * 2) {
+        state.zoom = zoom;
+        projected = candidate;
+        break;
+      }
+    }
+    if (!projected.length) {
+      state.zoom = ACTIVITY_MAP_MIN_ZOOM;
+      projected = state.route.map(point => activityMapWorldPoint(point, state.zoom));
+    }
+    const xs = projected.map(point => point.x), ys = projected.map(point => point.y);
+    state.centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    state.centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    scheduleActivityMapRender();
   }
-  const scrollChat = () => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
-  // ── Hälsa ───────────────────────────────────────────────────────────────
-  function sparkline(values) {
-    const v = (values || []).filter(x => num(x) != null);
-    if (v.length < 2) return '';
-    const min = Math.min(...v), max = Math.max(...v), span = max - min || 1;
-    const pts = v.map((x, i) => `${(i / (v.length - 1)) * 100},${26 - ((x - min) / span) * 22}`).join(' ');
-    return `<svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" vector-effect="non-scaling-stroke"/></svg>`;
+  function zoomActivityMap(change, clientX, clientY) {
+    const state = activityMapState;
+    if (!state) return;
+    const nextZoom = Math.max(ACTIVITY_MAP_MIN_ZOOM,
+      Math.min(ACTIVITY_MAP_MAX_ZOOM, state.zoom + change));
+    if (nextZoom === state.zoom) return;
+    const rect = state.element.getBoundingClientRect();
+    const anchorX = Number.isFinite(clientX) ? clientX - rect.left : rect.width / 2;
+    const anchorY = Number.isFinite(clientY) ? clientY - rect.top : rect.height / 2;
+    const scale = 2 ** (nextZoom - state.zoom);
+    state.centerX = (state.centerX + anchorX - rect.width / 2) * scale - anchorX + rect.width / 2;
+    state.centerY = (state.centerY + anchorY - rect.height / 2) * scale - anchorY + rect.height / 2;
+    state.zoom = nextZoom;
+    scheduleActivityMapRender();
   }
 
-  async function renderHealth(main) {
-    skeleton(main, [200, 110, 110, 110]);
-    let health, spark;
+  function initializeActivityMap(route) {
+    const element = document.querySelector('#activity-detail-content .ad-route');
+    const cleanRoute = normalizedActivityRoute(route);
+    if (!element || cleanRoute.length < 2) return;
+    const state = {element, route:cleanRoute, zoom:ACTIVITY_MAP_MIN_ZOOM, centerX:0, centerY:0,
+      pointers:new Map(), dragStart:null, pinchDistance:0, renderFrame:0, resizeObserver:null};
+    activityMapState = state;
+    element.addEventListener('wheel', event => {
+      event.preventDefault();
+      zoomActivityMap(event.deltaY < 0 ? 1 : -1, event.clientX, event.clientY);
+    }, {passive:false});
+    element.addEventListener('dblclick', event => {
+      if (event.target.closest('button,a')) return;
+      event.preventDefault();
+      zoomActivityMap(1, event.clientX, event.clientY);
+    });
+    element.addEventListener('pointerdown', event => {
+      if (event.target.closest('button,a')) return;
+      element.setPointerCapture(event.pointerId);
+      state.pointers.set(event.pointerId, {x:event.clientX, y:event.clientY});
+      if (state.pointers.size === 1) {
+        state.dragStart = {id:event.pointerId, x:event.clientX, y:event.clientY,
+          centerX:state.centerX, centerY:state.centerY};
+        element.classList.add('is-dragging');
+      } else if (state.pointers.size === 2) {
+        const [first, second] = [...state.pointers.values()];
+        state.pinchDistance = Math.hypot(second.x - first.x, second.y - first.y);
+        state.dragStart = null;
+      }
+    });
+    element.addEventListener('pointermove', event => {
+      if (!state.pointers.has(event.pointerId)) return;
+      state.pointers.set(event.pointerId, {x:event.clientX, y:event.clientY});
+      if (state.pointers.size === 1 && state.dragStart?.id === event.pointerId) {
+        state.centerX = state.dragStart.centerX - (event.clientX - state.dragStart.x);
+        state.centerY = state.dragStart.centerY - (event.clientY - state.dragStart.y);
+        scheduleActivityMapRender();
+      } else if (state.pointers.size === 2) {
+        const [first, second] = [...state.pointers.values()];
+        const distance = Math.hypot(second.x - first.x, second.y - first.y);
+        const midpointX = (first.x + second.x) / 2;
+        const midpointY = (first.y + second.y) / 2;
+        if (distance > state.pinchDistance * 1.2) {
+          zoomActivityMap(1, midpointX, midpointY);
+          state.pinchDistance = distance;
+        } else if (distance < state.pinchDistance * .8) {
+          zoomActivityMap(-1, midpointX, midpointY);
+          state.pinchDistance = distance;
+        }
+      }
+    });
+    const endPointer = event => {
+      state.pointers.delete(event.pointerId);
+      if (state.pointers.size === 1) {
+        const [id, point] = [...state.pointers.entries()][0];
+        state.dragStart = {id, x:point.x, y:point.y, centerX:state.centerX, centerY:state.centerY};
+      } else if (!state.pointers.size) {
+        state.dragStart = null;
+        element.classList.remove('is-dragging');
+      }
+    };
+    element.addEventListener('pointerup', endPointer);
+    element.addEventListener('pointercancel', endPointer);
+    state.resizeObserver = new ResizeObserver(scheduleActivityMapRender);
+    state.resizeObserver.observe(element);
+    fitActivityMapToRoute();
+  }
+
+  function toggleActivityMapExpanded(forceClose = false) {
+    const state = activityMapState;
+    if (!state) return false;
+    const expanded = forceClose ? false : !state.element.classList.contains('is-expanded');
+    state.element.classList.toggle('is-expanded', expanded);
+    document.body.classList.toggle('activity-map-open', expanded);
+    const button = state.element.querySelector('.ad-map-expand');
+    if (button) {
+      button.setAttribute('aria-label', expanded ? 'Stäng stor karta' : 'Öppna stor karta');
+      button.querySelector('span').textContent = expanded ? 'Stäng karta' : 'Öppna karta';
+      button.querySelector('b').textContent = expanded ? '×' : '↗';
+    }
+    requestAnimationFrame(scheduleActivityMapRender);
+    return expanded;
+  }
+
+  function destroyActivityMap() {
+    if (activityMapState?.resizeObserver) activityMapState.resizeObserver.disconnect();
+    if (activityMapState?.renderFrame) cancelAnimationFrame(activityMapState.renderFrame);
+    activityMapState = null;
+    document.body.classList.remove('activity-map-open');
+  }
+
+  function activityChartSvg(series, key, color, formatter, invert = false) {
+    let data = (series || []).filter(point => point.elapsed != null && point[key] != null
+      && Number.isFinite(Number(point[key])));
+    if (key === 'pace') data = data.filter(point => point.pace >= 120 && point.pace <= 1200);
+    if (data.length < 2) return '<div class="ad-chart-empty">Ingen mätserie registrerad.</div>';
+    if (data.length > 500) {
+      const step = Math.ceil(data.length / 500);
+      const last = data.at(-1);
+      data = data.filter((_, index) => index % step === 0);
+      if (data.at(-1) !== last) data.push(last);
+    }
+    const W = 560, H = 190, left = 42, right = 12, top = 15, bottom = 25;
+    const sorted = data.map(point => Number(point[key])).sort((a, b) => a - b);
+    let lo = sorted[Math.floor((sorted.length - 1) * .03)];
+    let hi = sorted[Math.ceil((sorted.length - 1) * .97)];
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const margin = Math.max((hi - lo) * .08, .5);
+    lo -= margin; hi += margin;
+    const t0 = data[0].elapsed, t1 = data.at(-1).elapsed;
+    const x = elapsed => left + ((elapsed - t0) / Math.max(1, t1 - t0)) * (W - left - right);
+    const y = value => {
+      const ratio = Math.max(0, Math.min(1, (value - lo) / (hi - lo)));
+      return top + (invert ? ratio : 1 - ratio) * (H - top - bottom);
+    };
+    const points = data.map(point => [x(point.elapsed), y(Number(point[key]))]);
+    const line = points.map((point, index) => `${index ? 'L' : 'M'}${point[0].toFixed(1)} ${point[1].toFixed(1)}`).join(' ');
+    const area = `${line} L${points.at(-1)[0].toFixed(1)} ${H-bottom} L${points[0][0].toFixed(1)} ${H-bottom} Z`;
+    const gradient = `ad-grad-${key}`;
+    const topValue = invert ? lo : hi, bottomValue = invert ? hi : lo;
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="${gradient}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:${color}"/><stop offset="1" style="stop-color:${color}" stop-opacity="0"/></linearGradient></defs>
+      ${[0,.5,1].map(f => `<line class="ad-chart-gridline" x1="${left}" x2="${W-right}" y1="${top+f*(H-top-bottom)}" y2="${top+f*(H-top-bottom)}"/>`).join('')}
+      <path class="ad-chart-area" d="${area}" fill="url(#${gradient})"/>
+      <path class="ad-chart-line" d="${line}" style="stroke:${color}"/>
+      <text class="ad-chart-label" x="${left-6}" y="${top+4}" text-anchor="end">${escapeHtml(formatter(topValue))}</text>
+      <text class="ad-chart-label" x="${left-6}" y="${H-bottom}" text-anchor="end">${escapeHtml(formatter(bottomValue))}</text>
+      <text class="ad-chart-label" x="${left}" y="${H-6}">0:00</text>
+      <text class="ad-chart-label" x="${W-right}" y="${H-6}" text-anchor="end">${escapeHtml(formatActivityDuration(t1-t0))}</text>
+    </svg>`;
+  }
+
+  function activityChartCard(title, subtitle, series, key, color, formatter, invert = false) {
+    return `<section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">${escapeHtml(title)}</span><span class="ad-card-sub">${escapeHtml(subtitle)}</span></div></div>
+      <div class="ad-chart">${activityChartSvg(series, key, color, formatter, invert)}</div></section>`;
+  }
+
+  function activityZones(title, unit, zones, colors) {
+    const total = (zones || []).reduce((sum, zone) => sum + Number(zone.seconds || 0), 0);
+    const rows = (zones || []).map((zone, index) => {
+      const pct = total ? zone.seconds / total * 100 : 0;
+      const boundary = zone.low != null ? ` · från ${Math.round(zone.low)} ${unit}` : '';
+      return `<div class="ad-zone-row"><span class="ad-zone-name">Z${zone.zone}${escapeHtml(boundary)}</span>
+        <div class="ad-zone-track"><div class="ad-zone-fill" style="width:${pct.toFixed(1)}%;background:${colors[index] || colors.at(-1)}"></div></div>
+        <span class="ad-zone-time">${formatActivityDuration(zone.seconds)}</span></div>`;
+    }).join('');
+    return `<section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">${escapeHtml(title)}</span><span class="ad-card-sub">Tid i zon · ${formatActivityDuration(total)}</span></div></div>
+      <div class="ad-zone-list">${rows || '<div class="ad-chart-empty" style="height:90px">Inga zoner registrerade.</div>'}</div></section>`;
+  }
+
+  function activityLaps(laps) {
+    if (!laps?.length) return '<div class="ad-chart-empty" style="height:110px">Inga varv registrerades.</div>';
+    const rows = laps.map(lap => `<tr>
+      <td>${escapeHtml(String(lap.index))}${lap.type ? ` <small>${escapeHtml(lap.type)}</small>` : ''}</td>
+      <td>${lap.distance != null ? (lap.distance / 1000).toFixed(2) : '–'} km</td>
+      <td>${formatActivityDuration(lap.duration)}</td><td>${formatActivityPace(lap.pace)} /km</td>
+      <td>${lap.averageHR ?? '–'}</td><td>${lap.averagePower ?? '–'}</td>
+      <td>${lap.elevationGain != null ? '+' + Math.round(lap.elevationGain) : '–'}</td>
+    </tr>`).join('');
+    return `<div class="ad-table-wrap"><table class="ad-laps"><thead><tr><th>Varv</th><th>Distans</th><th>Tid</th><th>Tempo</th><th>Puls</th><th>Watt</th><th>Höjd</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function activitySecondaryMetrics(activity) {
+    const o = activity.overview || {};
+    const items = [
+      ['Maxpuls', o.maxHR, ' bpm'], ['Maxeffekt', o.maxPower, ' W'],
+      ['Kadens', o.averageCadence, ' spm'], ['Maxkadens', o.maxCadence, ' spm'],
+      ['Kalorier', o.calories, ' kcal'], ['Träningsbelastning', o.trainingLoad, ''],
+      ['VO₂ max', o.vo2max, ''], ['Steglängd', o.strideLength, ' cm'],
+      ['Markkontakttid', o.groundContactTime, ' ms'], ['Vertikal rörelse', o.verticalOscillation, ' cm'],
+      ['Vertikal kvot', o.verticalRatio, ' %'], ['Andning', o.averageRespiration, ' /min'],
+      ['Body Battery', o.bodyBatteryImpact, ''], ['Steg', o.steps, ''],
+      ['Vätskeförlust', o.waterEstimated, ' ml'],
+    ];
+    if (activity.weather) {
+      const weather = [
+        activity.weather.description,
+        activity.weather.temperature != null ? `${activity.weather.temperature} °C` : '',
+        activity.weather.windSpeed != null ? `${activity.weather.windSpeed} m/s ${activity.weather.windDirection || ''}` : '',
+      ].filter(Boolean).join(' · ');
+      if (weather) items.push(['Väder', weather, '']);
+    }
+    if (activity.gear?.length) {
+      items.push(['Utrustning', activity.gear.map(item => item.name || item.model).filter(Boolean).join(', '), '']);
+    }
+    return items.filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .map(([label, value, unit]) => `<div class="ad-secondary-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}${escapeHtml(unit)}</strong></div>`).join('');
+  }
+
+  function isStrengthActivity(activity) {
+    return /strength|fitness|weight|gym/i.test(String(activity?.type || ''));
+  }
+
+  function activityAiOverviewPlaceholder() {
+    return `<section class="ad-ai-overview is-loading" id="activity-ai-overview" aria-live="polite">
+      <div class="ad-ai-mark" aria-hidden="true">✦</div>
+      <div class="ad-ai-body">
+        <div class="ad-ai-label">AI-översikt</div>
+        <div class="ad-ai-loading"><span></span><div><strong>Analyserar passet</strong><small>Tempo, puls, zoner, varv och planerat mål vägs samman…</small></div></div>
+      </div>
+    </section>`;
+  }
+
+  // ─── LÖPBANDETS FART ───
+  // Klockan gissar tempot på band (handled/fotsensor), så ett pass i jämna
+  // 15 km/h kan se ut som 3:46–3:50/km. Bandets fart ersätter klockans per
+  // varv och passet bedöms om (treadmill.py).
+  function parseBeltSpeed(value) {
+    const text = String(value ?? '').trim().replace(/\s*(km\/?h|kmh|km\/t)$/i, '');
+    if (!text) return null;
+    const pace = text.match(/^(\d{1,2}):(\d{2})$/);
+    const kmh = pace ? 3600 / (Number(pace[1]) * 60 + Number(pace[2])) : Number(text.replace(',', '.'));
+    return Number.isFinite(kmh) && kmh >= 3 && kmh <= 30 ? kmh : NaN;
+  }
+
+  function beltPaceText(value) {
+    const kmh = parseBeltSpeed(value);
+    if (kmh === null) return 'klockans';
+    return Number.isNaN(kmh) ? 'ogiltig' : `${formatActivityPace(3600 / kmh)} /km`;
+  }
+
+  function activityTreadmillCard(activity) {
+    if (!activity.treadmill || activity.source === 'strava' || !activity.laps?.length) return '';
+    const saved = activity.laps.some(lap => lap.beltKmh);
+    const rows = activity.laps.map((lap, position) => {
+      const value = lap.beltKmh != null ? String(lap.beltKmh).replace('.', ',') : '';
+      const standing = (lap.distance ?? 0) < 50;
+      return `<tr${standing ? ' class="is-rest"' : ''}><td>${escapeHtml(String(lap.index))}${standing ? ' <small>vila</small>' : ''}</td><td>${formatActivityDuration(lap.duration)}</td>
+        <td>${lap.averageHR ?? '–'}</td>
+        <td>${standing ? '–' : `<input class="ad-belt-input" data-lap="${position}" type="text" inputmode="decimal" autocomplete="off" value="${escapeHtml(value)}" placeholder="km/h" aria-label="Bandets fart varv ${escapeHtml(String(lap.index))}">`}</td>
+        <td class="ad-belt-pace">${standing ? 'ståvila' : escapeHtml(beltPaceText(value))}</td></tr>`;
+    }).join('');
+    return `<section class="ad-feedback ad-belt${saved ? '' : ' is-missing'}" id="activity-belt">
+      <div class="ad-feedback-head"><div><span>LÖPBAND</span><h3>${saved ? 'Bandets fart' : 'Ange bandets fart'}</h3></div>
+        <small>${saved ? 'Passet bedöms på bandets fart, inte klockans.' : 'Klockan gissar tempot på band. Tills farten är angiven bedöms passet bara på puls.'}</small></div>
+      <div class="ad-belt-fill"><label><span>Samma fart på alla tomma varv</span><input id="activity-belt-all" type="text" inputmode="decimal" autocomplete="off" placeholder="t.ex. 15 eller 4:00"></label>
+        <button type="button" class="ad-belt-fill-btn" data-action="fill-belt-speeds">Fyll i</button></div>
+      <div class="ad-table-wrap"><table class="ad-laps ad-belt-table"><thead><tr><th>Varv</th><th>Tid</th><th>Puls</th><th>km/h</th><th>Tempo</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="ad-feedback-save"><small id="activity-belt-status">Lämna tomt för varv där klockans värde duger, t.ex. joggvila.</small><button type="button" data-action="save-belt-speeds">Spara fart</button></div>
+    </section>`;
+  }
+
+  function fillBeltSpeeds() {
+    const value = document.getElementById('activity-belt-all')?.value.trim();
+    if (!value) return;
+    document.querySelectorAll('#activity-belt .ad-belt-input').forEach(input => {
+      if (!input.value.trim()) { input.value = value; updateBeltPace(input); }
+    });
+  }
+
+  function updateBeltPace(input) {
+    const cell = input.closest('tr')?.querySelector('.ad-belt-pace');
+    if (cell) cell.textContent = beltPaceText(input.value);
+  }
+
+  async function saveBeltSpeeds() {
+    if (!activeActivityAi || activeActivityAi.source !== 'garmin') return;
+    const card = document.getElementById('activity-belt');
+    const button = card?.querySelector('[data-action="save-belt-speeds"]');
+    const status = document.getElementById('activity-belt-status');
+    const laps = {};
+    for (const input of card?.querySelectorAll('.ad-belt-input') || []) {
+      const value = input.value.trim();
+      if (!value) continue;
+      if (Number.isNaN(parseBeltSpeed(value))) {
+        if (status) status.textContent = `Varv ${Number(input.dataset.lap) + 1}: skriv km/h (15,1) eller tempo (4:00).`;
+        input.focus();
+        return;
+      }
+      laps[input.dataset.lap] = value;
+    }
+    const activityId = activeActivityAi.id;
+    if (button) { button.disabled = true; button.textContent = 'Sparar…'; }
     try {
-      [health, spark] = await Promise.all([cached('/api/health'), cached('/api/health/spark').catch(() => ({}))]);
+      const response = await fetch(`/api/activities/${activityId}/treadmill`, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({laps}),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Kunde inte spara.');
+      await openActivityDetails(activityId, 'garmin');
+      const headline = result.executions?.[0]?.headline;
+      const after = document.getElementById('activity-belt-status');
+      if (after) after.textContent = Object.keys(laps).length
+        ? `Sparat – passet är omräknat${headline ? `: ${headline}` : ''}.` : 'Bandets fart borttagen.';
+      loadPlan();
+      loadAdaptivePlan();
     } catch (error) {
-      if (error.status !== 401) errorCard(main, error, () => { cache.clear(); renderHealth(main); });
+      if (status) status.textContent = error.message;
+      if (button) { button.disabled = false; button.textContent = 'Spara fart'; }
+    }
+  }
+
+  function activityFeedbackCard() {
+    const feelings = [['1','😣','Tungt'],['2','😕','Segt'],['3','😐','Okej'],['4','🙂','Bra'],['5','🔥','Toppen']];
+    return `<section class="ad-feedback" id="activity-feedback">
+      <div class="ad-feedback-head"><div><span>DIN PASSKÄNSLA</span><h3>Hur kändes passet?</h3></div><small>Hjälper framtida träningsbeslut</small></div>
+      <div class="ad-feeling-buttons" role="group" aria-label="Känsla efter passet">
+        ${feelings.map(([value,emoji,label]) => `<button type="button" data-action="set-activity-feeling" data-value="${value}" title="${label}"><b>${emoji}</b><span>${label}</span></button>`).join('')}
+      </div>
+      <div class="ad-feedback-fields">
+        <label><span>Ansträngning</span><select id="activity-feedback-effort"><option value="">Valfritt</option>${Array.from({length:10},(_,i)=>`<option value="${i+1}">${i+1}/10</option>`).join('')}</select></label>
+        <label><span>Mat före</span><select id="activity-feedback-meal"><option value="">Inte angivet</option><option value="none">Ingen</option><option value="light">Något litet</option><option value="normal">Normal måltid</option><option value="heavy">Stor måltid</option></select></label>
+        <label><span>Vätska</span><select id="activity-feedback-hydration"><option value="">Inte angivet</option><option value="low">För lite</option><option value="okay">Okej</option><option value="good">Bra</option></select></label>
+      </div>
+      <label class="ad-feedback-notes"><span>Övriga anteckningar</span><textarea id="activity-feedback-notes" rows="2" maxlength="1500" placeholder="Ont någonstans, magen, energi eller annat…"></textarea></label>
+      <div class="ad-feedback-save"><small id="activity-feedback-status">Tar bara några sekunder.</small><button type="button" data-action="save-activity-feedback">Spara</button></div>
+    </section>`;
+  }
+
+  function setActivityFeeling(value) {
+    const card = document.getElementById('activity-feedback');
+    if (!card) return;
+    card.dataset.feeling = String(value);
+    card.querySelectorAll('[data-action="set-activity-feeling"]').forEach(button => {
+      button.classList.toggle('is-selected', Number(button.dataset.value) === Number(value));
+    });
+  }
+
+  function renderActivityFeedback(feedback) {
+    setActivityFeeling(feedback?.feeling || '');
+    const values = {
+      'activity-feedback-effort': feedback?.effort,
+      'activity-feedback-meal': feedback?.meal_before,
+      'activity-feedback-hydration': feedback?.hydration,
+      'activity-feedback-notes': feedback?.notes,
+    };
+    Object.entries(values).forEach(([id, value]) => {
+      const field = document.getElementById(id); if (field) field.value = value ?? '';
+    });
+    if (feedback && Object.values(feedback).some(value => value !== null && value !== '')) {
+      const status = document.getElementById('activity-feedback-status');
+      if (status) status.textContent = 'Sparat för det här passet.';
+    }
+  }
+
+  async function loadActivityFeedback(activityId, source, requestNumber) {
+    try {
+      const response = await fetch(`/api/activities/${activityId}/feedback?source=${encodeURIComponent(source)}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Kunde inte ladda passkänslan.');
+      if (requestNumber === activityDetailRequest) renderActivityFeedback(payload.feedback || {});
+    } catch (error) {
+      const status = document.getElementById('activity-feedback-status');
+      if (status && requestNumber === activityDetailRequest) status.textContent = error.message;
+    }
+  }
+
+  async function saveActivityFeedback() {
+    if (!activeActivityAi) return;
+    const card = document.getElementById('activity-feedback');
+    const button = card?.querySelector('[data-action="save-activity-feedback"]');
+    const status = document.getElementById('activity-feedback-status');
+    const numeric = id => document.getElementById(id)?.value ? Number(document.getElementById(id).value) : null;
+    const payload = {
+      feeling: card?.dataset.feeling ? Number(card.dataset.feeling) : null,
+      effort: numeric('activity-feedback-effort'),
+      meal_before: document.getElementById('activity-feedback-meal')?.value || null,
+      hydration: document.getElementById('activity-feedback-hydration')?.value || null,
+      notes: document.getElementById('activity-feedback-notes')?.value.trim() || '',
+    };
+    if (button) { button.disabled = true; button.textContent = 'Sparar…'; }
+    try {
+      const response = await fetch(`/api/activities/${activeActivityAi.id}/feedback?source=${encodeURIComponent(activeActivityAi.source)}`, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Kunde inte spara.');
+      renderActivityFeedback(result.feedback);
+      if (status) status.textContent = 'Sparat – används i framtida beslut.';
+      loadAdaptivePlan();
+    } catch (error) {
+      if (status) status.textContent = error.message;
+    } finally {
+      if (button) { button.disabled = false; button.textContent = 'Spara'; }
+    }
+  }
+
+  function renderActivityAiOverview(overview) {
+    const highlights = Array.isArray(overview?.highlights)
+      ? overview.highlights.filter(Boolean).slice(0, 4) : [];
+    return `<div class="ad-ai-label">AI-översikt <span>✦ Coachens analys</span></div>
+      <h3>${escapeHtml(overview?.headline || 'Passet är analyserat')}</h3>
+      <p class="ad-ai-summary">${escapeHtml(overview?.summary || '')}</p>
+      ${highlights.length ? `<ul class="ad-ai-highlights">${highlights.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : ''}
+      ${overview?.nextStep ? `<div class="ad-ai-next"><span>Nästa liknande pass</span><strong>${escapeHtml(overview.nextStep)}</strong></div>` : ''}`;
+  }
+
+  function renderActivityAiError(message) {
+    return `<div class="ad-ai-label">AI-översikt</div><h3>Analysen kunde inte skapas</h3>
+      <p class="ad-ai-summary">${escapeHtml(message || 'Försök igen om en liten stund.')}</p>
+      <button type="button" class="ad-ai-retry" data-action="retry-activity-ai">Försök igen</button>`;
+  }
+
+  // Vakten nedan på requestNumber stoppar bara renderingen, inte anropet, så
+  // två snabba öppningar av samma pass sköt iväg två LLM-anrop som båda drog
+  // kvot. Håll reda på vad som redan är i luften.
+  const activityAiInFlight = new Set();
+
+  async function loadActivityAiOverview(activityId, source, requestNumber) {
+    const target = document.getElementById('activity-ai-overview');
+    if (!target) return;
+    const inFlightKey = `${source}:${activityId}`;
+    if (activityAiInFlight.has(inFlightKey)) return;
+    activityAiInFlight.add(inFlightKey);
+    target.className = 'ad-ai-overview is-loading';
+    target.innerHTML = `<div class="ad-ai-mark" aria-hidden="true">✦</div><div class="ad-ai-body">
+      <div class="ad-ai-label">AI-översikt</div><div class="ad-ai-loading"><span></span><div><strong>Analyserar passet</strong><small>Första analysen av ett äldre pass kan ta några sekunder…</small></div></div></div>`;
+    try {
+      const response = await fetch(`/api/activities/${activityId}/ai-overview?source=${encodeURIComponent(source)}`, {method:'POST'});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'AI-tjänsten kunde inte nås.');
+      if (requestNumber !== activityDetailRequest || !target.isConnected) return;
+      const tone = ['good', 'mixed', 'warning', 'neutral'].includes(payload.overview?.tone)
+        ? payload.overview.tone : 'neutral';
+      target.className = `ad-ai-overview tone-${tone}`;
+      target.innerHTML = `<div class="ad-ai-mark" aria-hidden="true">✦</div><div class="ad-ai-body">${renderActivityAiOverview(payload.overview)}</div>`;
+    } catch (error) {
+      if (requestNumber !== activityDetailRequest || !target.isConnected) return;
+      target.className = 'ad-ai-overview has-error';
+      target.innerHTML = `<div class="ad-ai-mark" aria-hidden="true">!</div><div class="ad-ai-body">${renderActivityAiError(error.message)}</div>`;
+    } finally {
+      activityAiInFlight.delete(inFlightKey);
+    }
+  }
+
+  function retryActivityAiOverview() {
+    if (!activeActivityAi) return;
+    loadActivityAiOverview(activeActivityAi.id, activeActivityAi.source, activityDetailRequest);
+  }
+
+  function activityStrengthWorkout(activity) {
+    const logged = Array.isArray(activity.strengthExercises) ? activity.strengthExercises : [];
+    const garminSets = Array.isArray(activity.exerciseSets) ? activity.exerciseSets : [];
+    const activeSets = garminSets.filter(set => set.type === 'active');
+    const restSets = garminSets.filter(set => set.type === 'rest');
+    let rows = '';
+    if (logged.length) {
+      rows = logged.map(item => `<tr>
+        <td><strong>${escapeHtml(item.exercise)}</strong>${item.note ? `<small>${escapeHtml(item.note)}</small>` : ''}</td>
+        <td>${item.sets ?? '–'}</td><td>${escapeHtml(item.reps || '–')}</td>
+        <td>${item.weight != null ? `${escapeHtml(String(item.weight))} kg` : '–'}</td>
+      </tr>`).join('');
+    } else if (activeSets.length) {
+      rows = activeSets.map((set, index) => {
+        const next = garminSets[garminSets.indexOf(set) + 1];
+        const rawName = set.exercise || '';
+        const name = rawName ? rawName.replaceAll('_', ' ').toLowerCase() : `Arbetsset ${index + 1}`;
+        return `<tr><td><strong>${escapeHtml(name)}</strong></td>
+          <td>1</td><td>${set.reps ?? '–'}</td><td>${set.weight != null ? `${set.weight} kg` : '–'}</td>
+          <td>${formatActivityDuration(set.duration)}</td>
+          <td>${next?.type === 'rest' ? formatActivityDuration(next.duration) : '–'}</td></tr>`;
+      }).join('');
+    }
+    const table = logged.length
+      ? `<table class="ad-strength-table"><thead><tr><th>Övning</th><th>Set</th><th>Reps</th><th>Vikt</th></tr></thead><tbody>${rows}</tbody></table>`
+      : activeSets.length
+        ? `<table class="ad-strength-table"><thead><tr><th>Övning</th><th>Set</th><th>Reps</th><th>Vikt</th><th>Arbete</th><th>Vila</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<div class="ad-strength-empty">Inga övningar har loggats för det här passet.</div>';
+    const sourceNote = logged.length
+      ? `${logged.length} loggade övningar${activeSets.length ? ` · Garmin registrerade ${activeSets.length} arbetsset och ${restSets.length} viloperioder` : ''}`
+      : activeSets.length && activeSets.every(set => !set.exercise && set.reps == null && set.weight == null)
+        ? 'Klockan registrerade setens tider, men inga övningsnamn, reps eller vikter.'
+        : 'Setdata från Garmin';
+    return `<section class="ad-card ad-strength-card"><div class="ad-card-head"><div><span class="ad-card-title">Övningar & set</span><span class="ad-card-sub">${escapeHtml(sourceNote)}</span></div></div>
+      <div class="ad-strength-table-wrap">${table}</div></section>`;
+  }
+
+  function renderStrengthActivityDetail(activity, heading) {
+    const o = activity.overview || {};
+    const logged = activity.strengthExercises || [];
+    const activeSets = (activity.exerciseSets || []).filter(set => set.type === 'active');
+    const exerciseCount = new Set(logged.map(item => item.exercise).filter(Boolean)).size;
+    const loggedSetCount = logged.reduce((sum, item) => sum + Number(item.sets || 0), 0);
+    const totalVolume = logged.reduce((sum, item) => {
+      const reps = Number.parseFloat(String(item.reps || '').replace(',', '.'));
+      return sum + (Number(item.sets || 0) * (Number.isFinite(reps) ? reps : 0) * Number(item.weight || 0));
+    }, 0);
+    const primary = [
+      activityMetric('Tid', formatActivityDuration(o.duration || o.movingDuration)),
+      activityMetric('Övningar', exerciseCount || '–'),
+      activityMetric('Arbetsset', loggedSetCount || activeSets.length || '–'),
+      activityMetric('Volym', totalVolume ? Math.round(totalVolume).toLocaleString('sv-SE') : '–', totalVolume ? 'kg' : ''),
+      activityMetric('Snittpuls', o.averageHR ?? '–', 'bpm'),
+      activityMetric('Kalorier', o.calories ?? '–', 'kcal'),
+    ].join('');
+    const summaryRows = [
+      ['Förfluten tid', formatActivityDuration(o.elapsedDuration || o.duration)],
+      ['Aktiv tid', formatActivityDuration(o.movingDuration)],
+      ['Maxpuls', o.maxHR != null ? `${o.maxHR} bpm` : '–'],
+      ['Belastning', o.trainingLoad ?? '–'],
+      ['Body Battery', o.bodyBatteryImpact ?? '–'],
+      ['Enhet', activity.device || '–'],
+    ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
+    const zoneColors = ['var(--zone-1)','var(--zone-2)','var(--zone-3)','var(--zone-4)','var(--zone-5)'];
+    return `${heading}${activityAiOverviewPlaceholder()}${activityFeedbackCard()}<div class="ad-metrics">${primary}</div>
+      <div class="ad-grid ad-strength-grid">${activityStrengthWorkout(activity)}
+        <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
+      <div class="ad-chart-grid ad-strength-charts">
+        ${activityChartCard('Puls', 'Slag per minut under styrkepasset', activity.series, 'heartRate', 'var(--red)', value => String(Math.round(value)))}
+        ${activityZones('Pulszoner', 'bpm', activity.heartRateZones, zoneColors)}
+      </div>`;
+  }
+
+  function renderActivityDetail(activity) {
+    const o = activity.overview || {};
+    const type = formatActivityType(activity.type);
+    const sourceName = activity.source === 'strava' ? 'Strava' : 'Garmin';
+    const meta = [formatActivityDate(activity.date), activity.location, activity.device, sourceName].filter(Boolean).join(' · ');
+    const sourceUrl = activity.source === 'strava'
+      && /^https:\/\/www\.strava\.com\/activities\/\d+$/.test(activity.sourceUrl || '')
+      ? activity.sourceUrl : '';
+    const primary = [
+      activityMetric('Distans', o.distance != null ? (o.distance / 1000).toFixed(2) : '–', 'km'),
+      activityMetric('Tid', formatActivityDuration(o.movingDuration)),
+      activityMetric('Snittempo', formatActivityPace(o.pace), '/km'),
+      activityMetric('Snittpuls', o.averageHR ?? '–', 'bpm'),
+      activityMetric('Höjdmeter', o.elevationGain != null ? Math.round(o.elevationGain) : '–', 'm'),
+      activityMetric('Snitteffekt', o.averagePower ?? '–', 'W'),
+    ].join('');
+    const effect = [
+      o.aerobicEffect != null ? `<div class="ad-effect"><span>Aerob effekt</span><strong>${o.aerobicEffect}</strong></div>` : '',
+      o.anaerobicEffect != null ? `<div class="ad-effect"><span>Anaerob effekt</span><strong>${o.anaerobicEffect}</strong></div>` : '',
+    ].join('');
+    const summaryRows = [
+      ['Förfluten tid', formatActivityDuration(o.elapsedDuration)],
+      ['Rörelsetid', formatActivityDuration(o.movingDuration)],
+      ['Maxpuls', o.maxHR != null ? `${o.maxHR} bpm` : '–'],
+      ['Kalorier', o.calories != null ? `${o.calories} kcal` : '–'],
+      ['Höjd ner', o.elevationLoss != null ? `${Math.round(o.elevationLoss)} m` : '–'],
+      ['Belastning', o.trainingLoad ?? '–'],
+      ['Kadens', o.averageCadence != null ? `${o.averageCadence} spm` : '–'],
+      ['VO₂ max', o.vo2max ?? '–'],
+    ].map(([label, value]) => `<div class="ad-summary-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join('');
+    const zoneColors = ['var(--zone-1)','var(--zone-2)','var(--zone-3)','var(--zone-4)','var(--zone-5)'];
+    const secondary = activitySecondaryMetrics(activity);
+    const heading = `<div class="ad-head"><div><div class="ad-kicker">${escapeHtml(type)}</div>
+        <h2 id="activity-detail-title">${escapeHtml(activity.name || 'Aktivitet')}</h2><div class="ad-meta">${escapeHtml(meta)}${sourceUrl ? ` · <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Visa på Strava</a>` : ''}</div></div>
+        ${effect ? `<div class="ad-effort">${effect}</div>` : ''}</div>`;
+    if (isStrengthActivity(activity)) return renderStrengthActivityDetail(activity, heading);
+    return `${heading}${activityTreadmillCard(activity)}${activityAiOverviewPlaceholder()}${activityFeedbackCard()}
+      <div class="ad-metrics">${primary}</div>
+      <div class="ad-grid"><section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Rutt</span><span class="ad-card-sub">GPS-spår från ${sourceName}</span></div></div>
+          <div class="ad-route">${activityRouteMap(activity.route)}</div></section>
+        <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Passöversikt</span><span class="ad-card-sub">Sammanfattning</span></div></div><div class="ad-summary-list">${summaryRows}</div></section></div>
+      <div class="ad-chart-grid">
+        ${activityChartCard('Tempo', 'Minuter per kilometer', activity.series, 'pace', 'var(--accent)', value => formatActivityPace(value), true)}
+        ${activityChartCard('Puls', 'Slag per minut', activity.series, 'heartRate', 'var(--red)', value => String(Math.round(value)))}
+        ${activityChartCard('Höjdprofil', 'Meter över havet', activity.series, 'elevation', 'var(--stage-rem)', value => String(Math.round(value)))}
+        ${activityChartCard('Löpeffekt', 'Watt', activity.series, 'power', 'var(--amber)', value => String(Math.round(value)))}
+      </div>
+      <div class="ad-zones">
+        ${activityZones('Pulszoner', 'bpm', activity.heartRateZones, zoneColors)}
+        ${activityZones('Effektzoner', 'W', activity.powerZones, zoneColors)}
+      </div>
+      ${secondary ? `<div class="ad-secondary">${secondary}</div>` : ''}
+      <section class="ad-card"><div class="ad-card-head"><div><span class="ad-card-title">Varv</span><span class="ad-card-sub">Tempo, puls, effekt och höjd per varv</span></div></div>${activityLaps(activity.laps)}</section>`;
+  }
+
+  async function openActivityDetails(activityId, source = 'garmin') {
+    if (!Number.isSafeInteger(activityId) || activityId <= 0) return;
+    const overlay = document.getElementById('activity-overlay');
+    const content = document.getElementById('activity-detail-content');
+    if (!overlay || !content) return;
+    activityModalPreviousFocus = document.activeElement;
+    const requestNumber = ++activityDetailRequest;
+    overlay.classList.add('is-open');
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('activity-modal-open');
+    const normalizedSource = source === 'strava' ? 'strava' : 'garmin';
+    content.innerHTML = '<div class="activity-loading"><span></span>Laddar passdetaljer…</div>';
+    overlay.querySelector('.activity-dialog').scrollTop = 0;
+    setTimeout(() => overlay.querySelector('.activity-close')?.focus(), 0);
+    try {
+      const endpoint = normalizedSource === 'strava'
+        ? `/api/strava/activities/${activityId}` : `/api/activities/${activityId}`;
+      const response = await fetch(endpoint);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Passet kunde inte laddas.');
+      if (requestNumber !== activityDetailRequest) return;
+      const activity = payload.activity || {};
+      activity.source = normalizedSource;
+      content.innerHTML = renderActivityDetail(activity);
+      content.querySelectorAll('.ad-belt-input').forEach(input =>
+        input.addEventListener('input', () => updateBeltPace(input)));
+      initializeActivityMap(activity.route);
+      activeActivityAi = {id:activityId, source:normalizedSource};
+      loadActivityFeedback(activityId, normalizedSource, requestNumber);
+      loadActivityAiOverview(activityId, normalizedSource, requestNumber);
+      overlay.querySelector('.activity-dialog').scrollTop = 0;
+    } catch (error) {
+      if (requestNumber !== activityDetailRequest) return;
+      content.innerHTML = `<div class="ad-error"><strong>Kunde inte öppna passet</strong><p>${escapeHtml(error.message)}</p></div>`;
+    }
+  }
+
+  function closeActivityDetails() {
+    const overlay = document.getElementById('activity-overlay');
+    if (!overlay?.classList.contains('is-open')) return;
+    activityDetailRequest += 1;
+    activeActivityAi = null;
+    destroyActivityMap();
+    overlay.classList.remove('is-open');
+    overlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('activity-modal-open');
+    if (activityModalPreviousFocus?.focus) activityModalPreviousFocus.focus();
+    activityModalPreviousFocus = null;
+  }
+
+  // ─── MÅLTEMPON ──────────────────────────────────────────────
+  // Förslagen ändrar aldrig planen av sig själva — de väntar här tills
+  // de godkänts. Se pace_progression.py för hur banden räknas fram.
+  const PACE_DAY_NAMES = ['mån', 'tis', 'ons', 'tors', 'fre', 'lör', 'sön'];
+  const PACE_KIND_LABELS = {
+    interval: 'Intervall', threshold: 'Tröskel', race: 'Loppfart',
+    long: 'Långpass', easy: 'Lugnt', run: 'Löpning',
+  };
+
+  // ─── VECKORAPPORT ───
+  async function loadWeeklyReport() {
+    const panel = document.getElementById('weekly-panel');
+    if (!panel) return;
+    try {
+      const res = await fetch('/api/weekly-report');
+      if (!res.ok) { panel.hidden = true; return; }
+      const r = await res.json();
+      panel.hidden = false;
+      document.getElementById('weekly-title').textContent = `Veckorapport v.${r.isoWeek}: ${r.headline}`;
+      document.getElementById('weekly-sub').textContent = `${seasonShortDate(r.from)}–${seasonShortDate(r.to)}${r.phase ? ' · ' + r.phase : ''}`;
+      const tone = r.verdict === 'on_target' ? 'good' : r.verdict ? 'warn' : '';
+      document.getElementById('weekly-body').innerHTML =
+        `<ul class="weekly-lines weekly-${tone}">${r.lines.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+        + (r.advice?.length ? `<div class="weekly-advice">${r.advice.map(a => `<p>${escapeHtml(a)}</p>`).join('')}</div>` : '');
+    } catch (_) {
+      panel.hidden = true;
+    }
+  }
+
+  // ─── STYRKEPROGRAM ───
+  let strengthProgram = null;
+  async function loadStrengthProgram() {
+    const box = document.getElementById('st-program');
+    if (!box) return;
+    try {
+      const res = await fetch('/api/strength/program');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Programmet kunde inte laddas.');
+      strengthProgram = data;
+      renderStrengthProgram();
+    } catch (error) {
+      box.innerHTML = `<p class="st-log-sub">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  function renderStrengthProgram() {
+    const box = document.getElementById('st-program');
+    const p = strengthProgram;
+    if (!box || !p) return;
+    const note = document.getElementById('st-program-note');
+    if (note) note.textContent = `v.${p.isoWeek}${p.phase ? ' · ' + p.phase : ''}`;
+    const niggle = p.niggleAreas?.length
+      ? `<p class="st-program-niggle">Anpassat efter känning: ${escapeHtml(p.niggleAreas.join(', '))}.</p>` : '';
+    if (!p.sessions?.length) {
+      box.innerHTML = `<p class="st-program-note">${escapeHtml(p.note)}</p>${niggle}`;
       return;
     }
-    if (currentView !== 'halsa') return;
-    const s = health.sleep || {};
-    const hrv = health.hrv || {};
-    const rhr = health.restingHR || {};
-    const stress = health.stress || {};
-    const bb = health.bodyBattery || {};
-    const spo2 = health.spo2 || {};
-    const resp = health.respiration || {};
-    const ready = health.readiness || {};
-    const phases = [['ph-deep', 'Djup', s.deepPct], ['ph-rem', 'REM', s.remPct], ['ph-light', 'Lätt', s.lightPct], ['ph-awake', 'Vaken', s.awakePct]];
-
-    main.innerHTML = `
-      <article class="card">
-        <h2>Sömn${s.fallback ? ' · förra natten' : ''}</h2>
-        <div class="big-number">${s.totalSec ? esc(fmtDuration(s.totalSec)) : '–'}${num(s.score) != null ? `<small>poäng ${s.score}</small>` : ''}</div>
-        ${s.totalSec ? `<div class="phases">${phases.map(([c, , p]) => `<span class="${c}" style="width:${num(p) || 0}%"></span>`).join('')}</div>
-        <div class="legend">${phases.map(([c, label, p]) => `<span><i class="${c}"></i>${label} ${num(p) ?? 0}%</span>`).join('')}</div>` : '<p class="muted">Ingen sömn registrerad i natt.</p>'}
-      </article>
-
-      <div class="stats">
-        <div class="stat"><div class="stat-label">HRV</div>
-          <div class="stat-value">${num(hrv.lastNightAvg) ?? '–'}<small>ms</small></div>
-          <div class="stat-sub">${esc(hrv.balancedLow != null ? `baslinje ${hrv.balancedLow}–${hrv.balancedUpper}` : hrv.status || '')}</div>${sparkline(spark.hrv)}</div>
-        <div class="stat"><div class="stat-label">Vilopuls</div>
-          <div class="stat-value">${num(rhr.value) ?? '–'}<small>bpm</small></div>
-          <div class="stat-sub">${rhr.sevenDayAvg ? `7 d snitt ${esc(rhr.sevenDayAvg)}` : ''}</div>${sparkline(spark.rhr)}</div>
-        <div class="stat"><div class="stat-label">Sömnpoäng</div>
-          <div class="stat-value">${num(s.score) ?? '–'}</div>
-          <div class="stat-sub">senaste 7 nätterna</div>${sparkline(spark.sleep)}</div>
-        <div class="stat"><div class="stat-label">Belastning</div>
-          <div class="stat-value">${spark.strain && spark.strain.length ? esc(spark.strain[spark.strain.length - 1]) : '–'}</div>
-          <div class="stat-sub">strain i dag (0–100)</div>${sparkline(spark.strain)}</div>
-        <div class="stat"><div class="stat-label">Stress</div>
-          <div class="stat-value">${num(stress.avg) ?? '–'}</div>
-          <div class="stat-sub">${num(stress.max) != null ? `max ${stress.max}` : ''}</div></div>
-        <div class="stat"><div class="stat-label">Body Battery</div>
-          <div class="stat-value">${num(bb.current) ?? '–'}</div>
-          <div class="stat-sub">${num(bb.charged) != null ? `+${bb.charged} / −${num(bb.drained) ?? 0}` : ''}</div></div>
-        <div class="stat"><div class="stat-label">Beredskap</div>
-          <div class="stat-value">${num(ready.score) ?? '–'}</div>
-          <div class="stat-sub">${esc(ready.level ? String(ready.level).toLowerCase() : 'Garmin')}</div></div>
-        <div class="stat"><div class="stat-label">SpO₂ · andning</div>
-          <div class="stat-value">${num(spo2.avg) != null ? `${spo2.avg}<small>%</small>` : '–'}</div>
-          <div class="stat-sub">${num(resp.sleepAvg) != null ? `${resp.sleepAvg} andetag/min i sömn` : ''}</div></div>
-      </div>`;
+    box.innerHTML = `<p class="st-program-note">${escapeHtml(p.note)}</p>${niggle}
+      <div class="st-program-grid">${p.sessions.map((s, i) => `
+        <article class="st-program-card">
+          <header><h4>${escapeHtml(s.title)}</h4><span>${escapeHtml(s.focus)}</span></header>
+          <ol>${s.exercises.map(e => `<li><b>${escapeHtml(e.prescription || e.exercise)}</b>${e.reason ? `<small>${escapeHtml(e.reason)}</small>` : ''}</li>`).join('')}</ol>
+          ${s.removed?.length ? `<p class="st-program-removed">Struket just nu: ${escapeHtml(s.removed.join(', '))}</p>` : ''}
+          <button type="button" class="st-chip st-chip-all" data-action="st-start-program" data-index="${i}">Kör ${escapeHtml(s.key === 'M' ? 'passet' : 'pass ' + s.key)} idag</button>
+        </article>`).join('')}</div>`;
   }
 
-  // ── Mer ─────────────────────────────────────────────────────────────────
-  function isStandalone() {
-    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  function stStartProgram(index) {
+    const session = strengthProgram?.sessions?.[Number(index)];
+    if (!session) return;
+    session.exercises.forEach(e => { if (!stOrder.includes(stKey(e.exercise))) stAddExercise(e.exercise, e); });
+    stMessage(`${session.title} är tillagt i dagens pass.`, 'good');
+    document.getElementById('st-log')?.scrollIntoView({behavior: 'smooth', block: 'start'});
   }
 
-  function renderMore(main) {
-    const theme = storedTheme();
-    main.innerHTML = `
-      <div class="list">
-        <div><span>Inloggad som</span><strong>${esc((me && me.username) || '')}</strong></div>
-        <div><span>Garmin</span><span class="muted">${me && me.garminConnected ? 'Kopplad' : 'Inte kopplad'}</span></div>
-      </div>
-      <div class="list">
-        <div><span>Utseende</span>
-          <div class="segmented" id="theme">
-            ${[['system', 'Auto'], ['light', 'Ljust'], ['dark', 'Mörkt']].map(([k, l]) =>
-              `<button type="button" data-theme="${k}" aria-pressed="${theme === k}">${l}</button>`).join('')}
-          </div>
+  // ─── KÄNNINGAR ───
+  let niggleData = null;
+  let niggleSeverity = null;
+  async function loadNiggles() {
+    const list = document.getElementById('niggle-list');
+    if (!list) return;
+    try {
+      const res = await fetch('/api/niggles');
+      if (!res.ok) throw new Error();
+      renderNiggles(await res.json());
+    } catch (_) {
+      list.innerHTML = '<p class="ng-empty">Känningarna kunde inte laddas.</p>';
+    }
+  }
+
+  function niggleScaleHtml(area, side) {
+    return Array.from({length: 11}, (_, v) =>
+      `<button type="button" class="ng-dot ng-sev-${v >= 7 ? 'high' : v >= 4 ? 'mid' : v ? 'low' : 'zero'}" data-action="niggle-checkin" data-area="${escapeHtml(area)}" data-side="${escapeHtml(side)}" data-severity="${v}" aria-label="${v} av 10">${v}</button>`).join('');
+  }
+
+  function renderNiggles(data) {
+    niggleData = data;
+    const list = document.getElementById('niggle-list');
+    const select = document.getElementById('niggle-area');
+    if (select && !select.options.length) {
+      select.innerHTML = data.areas.map(a => `<option value="${escapeHtml(a.key)}">${escapeHtml(a.label)}</option>`).join('');
+    }
+    const scale = document.getElementById('niggle-scale');
+    if (scale && !scale.children.length) {
+      scale.innerHTML = Array.from({length: 11}, (_, v) =>
+        `<button type="button" class="ng-dot ng-sev-${v >= 7 ? 'high' : v >= 4 ? 'mid' : v ? 'low' : 'zero'}" data-action="niggle-pick" data-severity="${v}" aria-pressed="false">${v}</button>`).join('');
+    }
+    if (!data.active.length) {
+      list.innerHTML = '<p class="ng-empty">Inga aktiva känningar. Logga direkt när något börjar kännas, så anpassar coachen, styrkeprogrammet och veckorapporten sig.</p>';
+      return;
+    }
+    const trend = {worse: '↑ värre', better: '↓ bättre', same: '→ oförändrat'};
+    list.innerHTML = data.active.map(n => `
+      <div class="ng-item ng-sev-${n.severity >= 7 ? 'high' : n.severity >= 4 ? 'mid' : 'low'}">
+        <div class="ng-item-head"><strong>${escapeHtml(n.label)}</strong>
+          <span class="ng-badge">${n.severity}/10${n.trend ? ' · ' + trend[n.trend] : ''}</span></div>
+        <p class="ng-meta">Sedan ${escapeHtml(n.since)} · senast ${n.daysSince === 0 ? 'i dag' : n.daysSince === 1 ? 'i går' : n.daysSince + ' dagar sedan'}${n.note ? ' · ' + escapeHtml(n.note) : ''}</p>
+        <p class="ng-advice">${escapeHtml(n.advice)}</p>
+        <div class="ng-checkin"><span>${n.needsCheckIn ? 'Hur känns det nu?' : 'Uppdatera:'}</span><div class="ng-scale-btns">${niggleScaleHtml(n.area, n.side)}</div></div>
+      </div>`).join('');
+  }
+
+  async function postNiggle(body) {
+    const res = await fetch('/api/niggles', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Kunde inte spara.');
+    renderNiggles(data);
+    strengthProgram = null;
+  }
+
+  async function niggleCheckIn(trigger) {
+    trigger.disabled = true;
+    try {
+      await postNiggle({area: trigger.dataset.area, side: trigger.dataset.side, severity: Number(trigger.dataset.severity)});
+    } catch (error) {
+      trigger.disabled = false;
+      alert(error.message);
+    }
+  }
+
+  function nigglePick(trigger) {
+    niggleSeverity = Number(trigger.dataset.severity);
+    document.querySelectorAll('#niggle-scale .ng-dot').forEach(b => {
+      const on = Number(b.dataset.severity) === niggleSeverity;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+
+  function niggleToggleForm(trigger) {
+    const form = document.getElementById('niggle-form');
+    form.hidden = !form.hidden;
+    trigger.setAttribute('aria-expanded', String(!form.hidden));
+  }
+
+  document.getElementById('niggle-form')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.target;
+    const msg = document.getElementById('niggle-msg');
+    if (niggleSeverity == null) { msg.textContent = 'Välj hur ont det gör, 0–10.'; return; }
+    const f = Object.fromEntries(new FormData(form).entries());
+    msg.textContent = 'Sparar…';
+    try {
+      await postNiggle({area: f.area, side: f.side, severity: niggleSeverity, note: f.note});
+      form.reset(); niggleSeverity = null;
+      form.hidden = true;
+      document.querySelector('[data-action="niggle-toggle-form"]')?.setAttribute('aria-expanded', 'false');
+      msg.textContent = '';
+    } catch (error) {
+      msg.textContent = error.message;
+    }
+  });
+
+  // ─── SÄSONGSPLAN ───
+  // Ramen för varje vecka fram till målloppet (season_plan.py). Detaljpassen
+  // planeras fortfarande en vecka i taget; tidslinjen visar målet de ska fylla.
+  const SEASON_STATUS = {
+    on_target: 'i fas', over: 'över målet', under: 'under målet', under_planned: 'planen är kortare än målet',
+  };
+  let seasonData = null;
+
+  async function loadSeasonPlan() {
+    const panel = document.getElementById('season-panel');
+    if (!panel) return;
+    try {
+      const res = await fetch('/api/season-plan');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || 'fel');
+      renderSeasonPlan(data);
+    } catch (_) {
+      document.getElementById('season-sub').textContent = 'Säsongsplanen kunde inte laddas.';
+    }
+  }
+
+  function seasonShortDate(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    return `${d.getDate()}/${d.getMonth() + 1}`;
+  }
+
+  function seasonWeekHtml(w, plannable) {
+    const end = new Date(w.monday + 'T00:00:00');
+    end.setDate(end.getDate() + 6);
+    const done = w.past || w.current ? w.actualKm : null;
+    const pct = v => Math.max(0, Math.min(100, Math.round((v || 0) / Math.max(w.targetKm, 1) * 100)));
+    const tags = [w.recovery ? '<span class="season-tag">avlastning</span>' : '',
+      w.holiday ? '<span class="season-tag">jul</span>' : ''].join('');
+    const status = w.status ? `<span class="season-status season-status-${w.status}">${SEASON_STATUS[w.status] || ''}</span>` : '';
+    const numbers = w.past
+      ? `${Math.round(w.actualKm)} av ${w.targetKm} km`
+      : w.current
+        ? `${Math.round(w.actualKm)} km gjort · ${Math.round(w.plannedKm)} planerat · mål ${w.targetKm}`
+        : `${w.targetKm} km${w.plannedKm ? ` · ${Math.round(w.plannedKm)} planerat` : ''}`;
+    const sessions = (w.keySessions || []).map(s =>
+      `<li><b>${escapeHtml(s.title)}</b><span>${escapeHtml(s.detail)}</span></li>`).join('');
+    const planBtn = plannable
+      ? `<button type="button" class="refresh-btn season-plan-btn" data-action="plan-week" data-week="${w.week}">${w.plannedKm ? 'Ändra veckan' : 'Planera veckan'}</button>`
+      : '';
+    return `<li class="season-week season-${w.phase}${w.current ? ' is-current' : ''}${w.past ? ' is-past' : ''}">
+      <details${w.current ? ' open' : ''}>
+        <summary>
+          <span class="season-week-no">v.${w.isoWeek}</span>
+          <span class="season-week-main">
+            <span class="season-week-phase">${escapeHtml(w.phaseLabel)}${tags}</span>
+            <span class="season-week-dates">${seasonShortDate(w.monday)}–${end.getDate()}/${end.getMonth() + 1} · ${w.phase === 'race' ? 'lopp' : 'långpass'} ${w.longRunKm} km</span>
+          </span>
+          <span class="season-week-km">${numbers}${status}</span>
+          <span class="season-bar" aria-hidden="true">
+            <span class="season-bar-plan" style="width:${pct(w.plannedKm)}%"></span>
+            ${done != null ? `<span class="season-bar-done" style="width:${pct(done)}%"></span>` : ''}
+          </span>
+        </summary>
+        <div class="season-week-body">
+          <p class="season-aim">${escapeHtml(w.aim)}</p>
+          <ul class="season-sessions">${sessions}</ul>
+          <p class="season-strength"><b>Styrka:</b> ${escapeHtml(w.strength?.text || '')}</p>
+          ${planBtn}
         </div>
+      </details>
+    </li>`;
+  }
+
+  function renderSeasonPlan(data) {
+    seasonData = data;
+    const sub = document.getElementById('season-sub');
+    const list = document.getElementById('season-weeks');
+    const phases = document.getElementById('season-phases');
+    const adjust = document.getElementById('season-adjust');
+    const title = document.getElementById('season-title');
+    if (!data.available) {
+      title.textContent = 'Säsongsplan';
+      sub.textContent = data.reason || 'Ingen säsongsplan ännu.';
+      list.innerHTML = ''; phases.innerHTML = ''; adjust.hidden = true;
+      return;
+    }
+    const race = data.race;
+    title.textContent = `Säsongsplan mot ${race.label}`;
+    const goal = race.goalSeconds ? ` · mål ${formatRaceSeconds(race.goalSeconds)}` : '';
+    sub.textContent = `${race.date}${goal} · ${race.weeksLeft} veckor kvar · topp ${data.peakKm} km/vecka`;
+
+    // Faserna som ett band över hela säsongen.
+    const groups = [];
+    data.weeks.forEach(w => {
+      const last = groups[groups.length - 1];
+      if (last && last.phase === w.phase) last.n += 1;
+      else groups.push({phase: w.phase, label: w.phaseLabel, n: 1, from: w.isoWeek, to: w.isoWeek});
+      groups[groups.length - 1].to = w.isoWeek;
+    });
+    phases.innerHTML = groups.map(g =>
+      `<span class="season-phase season-${g.phase}" style="flex:${g.n}" title="${escapeHtml(g.label)} v.${g.from}–${g.to}">`
+      + `<b>${escapeHtml(g.label)}</b><small>v.${g.from}${g.from !== g.to ? '–' + g.to : ''}</small></span>`).join('');
+
+    const nowWeek = getISOWeek(new Date());
+    const lastPlannable = nowWeek + WEEK_PLAN_AHEAD - 1;
+    // Två veckor bakåt räcker som facit; resten ligger under "Tidigare veckor".
+    const shown = data.weeks.filter(w => w.week >= nowWeek - 2);
+    list.innerHTML = shown.map(w => seasonWeekHtml(w, !w.past && w.week <= lastPlannable)).join('');
+
+    adjust.hidden = false;
+    document.getElementById('season-adjust-about').textContent =
+      `Utgångsläget är ${Math.round(data.baseKm)} km/vecka (snittet för de fyra veckorna före säsongsstarten) `
+      + `och längsta pass ${Math.round(data.baseLongKm)} km. Toppvolymen räknas fram till ${data.peakKm} km. `
+      + 'Bygg om säsongen efter en skada eller sjukdom, så utgår den från hur du tränat de senaste fyra veckorna.';
+    const input = document.getElementById('season-peak-input');
+    if (input && document.activeElement !== input) input.value = data.peakOverride ? String(data.peakOverride) : '';
+  }
+
+  async function rebuildSeason(event) {
+    event.preventDefault();
+    const msg = document.getElementById('season-adjust-msg');
+    const raw = (document.getElementById('season-peak-input')?.value || '').trim();
+    msg.textContent = 'Bygger om…';
+    try {
+      const res = await fetch('/api/season-plan/rebuild', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({peakKm: raw || null}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.textContent = data.message || 'Kunde inte bygga om.'; return; }
+      renderSeasonPlan(data);
+      msg.textContent = 'Klart.';
+    } catch (_) {
+      msg.textContent = 'Servern kunde inte nås.';
+    }
+  }
+  document.getElementById('season-adjust-form')?.addEventListener('submit', rebuildSeason);
+
+  // ─── LABBTEST ───
+  function labZonesHtml(zones) {
+    if (!zones) return '';
+    return `<div class="lab-zones">${zones.map(z =>
+      `<span class="lab-zone"><b>${z.key}</b> ${escapeHtml(z.label)} <em>${z.low == null ? '< ' + (z.high + 1) : z.low + '–' + z.high}</em></span>`).join('')}</div>`;
+  }
+
+  function renderLabTests(data) {
+    const box = document.getElementById('lab-latest');
+    if (!box) return;
+    const t = data.latest;
+    if (!t) {
+      box.innerHTML = '<p class="lab-empty">Inget test inmatat än. Efter ett laktat- eller VO2max-test ersätter tröskelpulsen klockans värde i prognosen, och tröskelfarten blir en VDOT-källa.</p>';
+      return;
+    }
+    const cell = (label, value, extra) => value
+      ? `<div class="lab-cell"><span>${label}</span><strong>${escapeHtml(String(value))}</strong>${extra ? `<small>${escapeHtml(extra)}</small>` : ''}</div>` : '';
+    const g = data.garmin || {};
+    const lt2Compare = g.hr && t.lt2Hr ? `klockan: ${g.hr}` : '';
+    const vo2Compare = g.vo2max && t.vo2max ? `klockan: ${Math.round(g.vo2max * 10) / 10}` : '';
+    const vdotCompare = t.vdotFromPace ? `VDOT ${t.vdotFromPace} ur tröskelfarten` : '';
+    box.innerHTML = `<div class="lab-head">Senaste test ${escapeHtml(t.date)}
+        <button type="button" class="lab-delete" data-action="lab-delete" data-date="${escapeHtml(t.date)}" aria-label="Ta bort testet ${escapeHtml(t.date)}">Ta bort</button></div>
+      <div class="lab-grid">
+        ${cell('LT1', [t.lt1Hr ? t.lt1Hr + ' slag' : '', t.lt1Pace || ''].filter(Boolean).join(' · '))}
+        ${cell('LT2 (tröskel)', [t.lt2Hr ? t.lt2Hr + ' slag' : '', t.lt2Pace || ''].filter(Boolean).join(' · '), [lt2Compare, vdotCompare].filter(Boolean).join(' · '))}
+        ${cell('VO2max', t.vo2max, vo2Compare)}
+        ${cell('Maxpuls', t.maxHr)}
       </div>
-      ${isStandalone() ? '' : `<p class="hint">Installera appen: tryck på <strong>Dela</strong> i Safari och välj <strong>Lägg till på hemskärmen</strong>. Då öppnas Trainyze i helskärm och kan skicka notiser.</p>`}
-      <div class="list">
-        <a href="/" rel="noopener">Öppna webbversionen <span class="muted">›</span></a>
-        <button type="button" class="danger" id="logout">Logga ut</button>
+      ${labZonesHtml(t.zones)}
+      ${t.note ? `<p class="lab-note-text">${escapeHtml(t.note)}</p>` : ''}
+      <p class="lab-effect">${data.thresholdHrSource === 'lab'
+        ? `Prognosen läses nu vid din labbmätta tröskelpuls ${data.thresholdHr}.`
+        : 'Testet saknar tröskelpuls, så prognosen använder fortfarande klockans.'}
+        Träningstempona utgår från VDOT ${data.vdot ?? '–'} (${escapeHtml(data.vdotSource || '')}).</p>`;
+  }
+
+  async function loadLabTests() {
+    try {
+      const res = await fetch('/api/lab-tests');
+      if (res.ok) renderLabTests(await res.json());
+    } catch (_) { /* panelen behåller sin text */ }
+  }
+
+  // "4:05" = fart per km, "15,1" eller "15.1 km/h" = löpbandshastighet.
+  function labPaceField(raw, paceKey, speedKey, out) {
+    const text = String(raw || '').trim();
+    if (!text) return;
+    if (/km\/?h/i.test(text) || (!text.includes(':') && parseFloat(text.replace(',', '.')) > 10)) {
+      out[speedKey] = text.replace(/km\/?h/i, '').trim();
+    } else {
+      out[paceKey] = text;
+    }
+  }
+
+  async function saveLabTest(event) {
+    event.preventDefault();
+    const form = event.target;
+    const msg = document.getElementById('lab-msg');
+    const f = Object.fromEntries(new FormData(form).entries());
+    const body = {date: f.date, lt1Hr: f.lt1Hr, lt2Hr: f.lt2Hr, vo2max: f.vo2max, maxHr: f.maxHr, note: f.note};
+    labPaceField(f.lt1Pace, 'lt1Pace', 'lt1Speed', body);
+    labPaceField(f.lt2Pace, 'lt2Pace', 'lt2Speed', body);
+    msg.textContent = 'Sparar och räknar om prognosen…';
+    try {
+      const res = await fetch('/api/lab-tests', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.textContent = data.message || 'Kunde inte spara.'; return; }
+      renderLabTests(data);
+      form.reset();
+      document.getElementById('lab-form-wrap').open = false;
+      msg.textContent = '';
+      racePrediction = null;
+      loadPaceProposals();
+      loadSeasonPlan();
+    } catch (_) {
+      msg.textContent = 'Servern kunde inte nås.';
+    }
+  }
+  document.getElementById('lab-form')?.addEventListener('submit', saveLabTest);
+
+  async function deleteLabTest(day) {
+    if (!confirm(`Ta bort labbtestet ${day}?`)) return;
+    try {
+      const res = await fetch('/api/lab-tests/' + encodeURIComponent(day), {method: 'DELETE'});
+      if (res.ok) { renderLabTests(await res.json()); loadPaceProposals(); loadSeasonPlan(); }
+    } catch (_) { /* nästa laddning visar läget */ }
+  }
+
+  async function loadPaceProposals() {
+    const panel = document.getElementById('pace-panel');
+    if (!panel) return;
+    try {
+      const res = await fetch('/api/plan/pace-proposals');
+      if (!res.ok) { panel.style.display = 'none'; return; }
+      renderPacePanel(await res.json());
+    } catch (_) {
+      panel.style.display = 'none';
+    }
+  }
+
+  function formatSplitSeconds(sec) {
+    if (!sec || isNaN(sec) || sec <= 0) return '–';
+    const total = Math.round(sec);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function formatRaceSeconds(sec) {
+    if (!sec || isNaN(sec) || sec <= 0) return '–';
+    const total = Math.round(sec);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) {
+      return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function updatePaceCalculatorFromSeconds(totalSec, source) {
+    if (!totalSec || isNaN(totalSec) || totalSec <= 0) return;
+    const minInput = document.getElementById('pace-calc-min');
+    const secInput = document.getElementById('pace-calc-sec');
+    const speedInput = document.getElementById('pace-calc-speed');
+
+    if (source !== 'tempo' && minInput && secInput) {
+      minInput.value = Math.floor(totalSec / 60);
+      secInput.value = String(Math.round(totalSec % 60)).padStart(2, '0');
+    }
+    if (source !== 'speed' && speedInput) {
+      const speed = 3600 / totalSec;
+      speedInput.value = speed.toFixed(1);
+    }
+
+    const s200 = document.getElementById('split-200');
+    const s400 = document.getElementById('split-400');
+    const s800 = document.getElementById('split-800');
+    const s1000 = document.getElementById('split-1000');
+    const s1500 = document.getElementById('split-1500');
+    const s2000 = document.getElementById('split-2000');
+
+    if (s200) s200.textContent = formatSplitSeconds(totalSec * 0.2);
+    if (s400) s400.textContent = formatSplitSeconds(totalSec * 0.4);
+    if (s800) s800.textContent = formatSplitSeconds(totalSec * 0.8);
+    if (s1000) s1000.textContent = formatSplitSeconds(totalSec * 1.0);
+    if (s1500) s1500.textContent = formatSplitSeconds(totalSec * 1.5);
+    if (s2000) s2000.textContent = formatSplitSeconds(totalSec * 2.0);
+
+    const r5k = document.getElementById('race-5k');
+    const r10k = document.getElementById('race-10k');
+    const rHalf = document.getElementById('race-half');
+    const rFull = document.getElementById('race-full');
+
+    if (r5k) r5k.textContent = formatRaceSeconds(totalSec * 5);
+    if (r10k) r10k.textContent = formatRaceSeconds(totalSec * 10);
+    if (rHalf) rHalf.textContent = formatRaceSeconds(totalSec * 21.0975);
+    if (rFull) rFull.textContent = formatRaceSeconds(totalSec * 42.195);
+  }
+
+  let paceCalculatorInitialized = false;
+  function initPaceCalculator() {
+    if (paceCalculatorInitialized) return;
+    const minInput = document.getElementById('pace-calc-min');
+    const secInput = document.getElementById('pace-calc-sec');
+    const speedInput = document.getElementById('pace-calc-speed');
+    if (!minInput || !secInput || !speedInput) return;
+
+    paceCalculatorInitialized = true;
+
+    function onTempoChange() {
+      const min = parseInt(minInput.value, 10) || 0;
+      const sec = parseInt(secInput.value, 10) || 0;
+      const total = min * 60 + sec;
+      if (total > 0) updatePaceCalculatorFromSeconds(total, 'tempo');
+    }
+
+    function onSpeedChange() {
+      const speed = parseFloat(speedInput.value) || 0;
+      if (speed > 0) {
+        const total = 3600 / speed;
+        updatePaceCalculatorFromSeconds(total, 'speed');
+      }
+    }
+
+    minInput.addEventListener('input', onTempoChange);
+    secInput.addEventListener('input', onTempoChange);
+    speedInput.addEventListener('input', onSpeedChange);
+
+    onTempoChange();
+  }
+
+  function loadPaceIntoCalculator(paceText) {
+    if (!paceText) return;
+    const match = String(paceText).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return;
+    const min = parseInt(match[1], 10);
+    const sec = parseInt(match[2], 10);
+    const total = min * 60 + sec;
+
+    const wrap = document.getElementById('pace-calc-wrap');
+    if (wrap) wrap.open = true;
+
+    initPaceCalculator();
+
+    const minInput = document.getElementById('pace-calc-min');
+    const secInput = document.getElementById('pace-calc-sec');
+    if (minInput) minInput.value = min;
+    if (secInput) secInput.value = String(sec).padStart(2, '0');
+
+    updatePaceCalculatorFromSeconds(total, 'direct');
+  }
+
+  // Daniels zoner i den ordning de används: lugnt → snabbast.
+  const VDOT_ZONES = [
+    ['E', 'E · Lugnt/långpass'], ['M', 'M · Maraton'], ['HM', 'Halvmaraton'],
+    ['T', 'T · Tröskel'], ['I', 'I · Intervall'], ['R', 'R · Repetition'],
+  ];
+  const vdotNumber = value => String(value).replace('.', ',');
+
+  function renderVdotInfo(vdot) {
+    const box = document.getElementById('pace-vdot');
+    if (!box) return;
+    box.style.display = '';
+    const source = vdot.available
+      ? (vdot.source === 'manual'
+          ? 'Du har angett VDOT själv. Töm fältet för att räkna fram det automatiskt igen.'
+          : `Just nu räknas det fram från ${vdot.sourceLabel}.`)
+      : (vdot.reason || '');
+    const others = (vdot.alternatives || [])
+      .map(a => `${a.label}: ${vdotNumber(a.vdot)}`).join(' · ');
+    document.getElementById('pace-vdot-about').textContent =
+      'VDOT är Jack Daniels mått på löpform, räknat ur en loppfart. Alla löptempon i planen '
+      + 'hämtas från det: lugnt (E), maratonfart (M), tröskel (T), intervall (I) och repetition (R). '
+      + 'När formen ändras flyttar alla tempon med. ' + source
+      + (others ? ` Som jämförelse: ${others}.` : '');
+    const input = document.getElementById('pace-vdot-input');
+    if (input && document.activeElement !== input) {
+      input.value = vdot.source === 'manual' ? vdotNumber(vdot.vdot) : '';
+    }
+    const form = document.getElementById('pace-vdot-form');
+    if (form && !form.dataset.bound) {
+      form.dataset.bound = '1';
+      form.addEventListener('submit', saveVdot);
+    }
+  }
+
+  async function saveVdot(event) {
+    event.preventDefault();
+    const input = document.getElementById('pace-vdot-input');
+    const msg = document.getElementById('pace-vdot-msg');
+    const raw = (input?.value || '').trim();
+    msg.textContent = 'Sparar…';
+    try {
+      const res = await fetch('/api/vdot', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({vdot: raw || null}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { msg.textContent = data.message || 'Kunde inte spara.'; return; }
+      msg.textContent = raw ? 'Sparat.' : 'Räknas automatiskt igen.';
+      await loadPaceProposals();
+    } catch (_) {
+      msg.textContent = 'Servern kunde inte nås.';
+    }
+  }
+
+  function renderPacePanel(data) {
+    const panel = document.getElementById('pace-panel');
+    const anchor = data.anchor || {};
+    const vdot = data.vdot || {};
+    if (!anchor.ltPaceSec && !vdot.available) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+
+    initPaceCalculator();
+
+    const bandsEl = document.getElementById('pace-bands');
+    const bandChip = (label, text, pace) => `<span class="pace-band" data-action="calc-load-pace" data-pace="${escapeHtml(pace || text)}" role="button" tabindex="0" title="Klicka för att beräkna splittar &amp; löpband">`
+      + `<b>${escapeHtml(label)}</b> ${escapeHtml(text)}</span>`;
+    if (vdot.available) {
+      document.getElementById('pace-anchor-sub').textContent =
+        `VDOT ${vdotNumber(vdot.vdot)} · ${vdot.source === 'manual' ? 'eget värde' : vdot.sourceLabel}`
+        + (anchor.ltPace ? ` · Garmins tröskel ${anchor.ltPace}` : '');
+      bandsEl.innerHTML = VDOT_ZONES
+        .filter(([key]) => vdot.paces?.[key])
+        .map(([key, label]) => {
+          const zone = vdot.paces[key];
+          const text = key === 'E' ? zone.text : zone.pace;
+          const extra = zone.per400Sec ? ` · ${zone.per400Sec} s/400 m` : '';
+          return bandChip(label, text + extra, key === 'E' ? zone.text : zone.pace);
+        }).join('');
+    } else {
+      document.getElementById('pace-anchor-sub').textContent =
+        `Tröskel ${anchor.ltPace} · källa: ${anchor.source} · konfidens: ${anchor.confidence}`;
+      bandsEl.innerHTML = Object.entries(data.bands || {})
+        .map(([kind, band]) => bandChip(PACE_KIND_LABELS[kind] || kind, band.text)).join('');
+    }
+    renderVdotInfo(vdot);
+
+    const goalEl = document.getElementById('pace-goal');
+    const goal = data.goalFeasibility;
+    const vdotGoal = vdot.available ? vdot.goal : null;
+    if (vdotGoal) {
+      const gap = Math.round((vdotGoal.vdot - vdot.vdot) * 10) / 10;
+      goalEl.style.display = '';
+      goalEl.className = gap > 1.5 ? 'pace-goal pace-goal-warn' : 'pace-goal';
+      goalEl.innerHTML = `Målet <b>${escapeHtml(vdotGoal.label)}</b> motsvarar VDOT <b>${vdotNumber(vdotGoal.vdot)}</b>`
+        + (gap > 0 ? ` — ${vdotNumber(gap)} över din nuvarande form. Där är tröskeln`
+            + ` ${escapeHtml(vdotGoal.paces?.T?.pace || '–')} och intervallerna ${escapeHtml(vdotGoal.paces?.I?.pace || '–')}.`
+          : ' — din nuvarande form räcker redan.');
+    } else if (goal && goal.verdict === 'out_of_reach') {
+      goalEl.style.display = '';
+      goalEl.className = 'pace-goal pace-goal-warn';
+      goalEl.innerHTML = `Ditt mål kräver <b>${escapeHtml(goal.goalPace)}</b>, men din uppmätta`
+        + ` tröskel räcker i dag till <b>${escapeHtml(goal.currentCapablePace)}</b> på loppdistansen`
+        + ` — ${goal.gapSec} s/km ifrån.`;
+    } else if (goal) {
+      goalEl.style.display = '';
+      goalEl.className = 'pace-goal';
+      goalEl.innerHTML = `Målet <b>${escapeHtml(goal.goalPace)}</b> ligger inom räckhåll`
+        + ` (nuvarande kapacitet ${escapeHtml(goal.currentCapablePace)}).`;
+    } else {
+      goalEl.style.display = 'none';
+    }
+
+    const list = document.getElementById('pace-proposals');
+    const proposals = data.proposals || [];
+    if (!proposals.length) {
+      list.innerHTML = '<div class="pace-empty">Inga väntande förslag. '
+        + 'Räkna om när du vill se om planens tempon stämmer med din form.</div>';
+      return;
+    }
+
+    list.innerHTML = proposals.map(p => {
+      const day = `V${planWeekLabel(p.week)} ${PACE_DAY_NAMES[p.dow] || ''}`;
+      const clamped = p.validation !== 'accepted'
+        ? `<span class="pace-clamped" data-freetip="${escapeHtml(p.reason || '')}">justerat av motorn</span>` : '';
+      return `<div class="pace-row">
+        <div class="pace-row-main">
+          <div class="pace-row-title">${escapeHtml(day)} · ${escapeHtml(p.title || '')}
+            <span class="pace-kind">${escapeHtml(PACE_KIND_LABELS[p.kind] || p.kind || '')}</span>${clamped}</div>
+          <div class="pace-row-change">
+            <span class="pace-old">${escapeHtml(p.oldPace || 'inget mål')}</span>
+            <span class="pace-arrow">→</span>
+            <span class="pace-new">${escapeHtml(p.newPace || '')}</span>
+          </div>
+          ${p.rationale ? `<div class="pace-row-why">${escapeHtml(p.rationale)}</div>` : ''}
+        </div>
+        <div class="pace-row-actions">
+          <button class="pace-btn pace-btn-ok" type="button" data-action="pace-decide" data-decision="approve" data-id="${p.id}">Godkänn</button>
+          <button class="pace-btn" type="button" data-action="pace-decide" data-decision="reject" data-id="${p.id}">Avfärda</button>
+        </div>
       </div>`;
-    $('#theme', main).addEventListener('click', e => {
-      const btn = e.target.closest('button');
-      if (!btn) return;
-      applyTheme(btn.dataset.theme);
-      main.querySelectorAll('#theme button').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
-    });
-    $('#logout', main).addEventListener('click', async () => {
-      try { await api('/api/logout', { method: 'POST' }); } catch (_) { /* utloggad ändå lokalt */ }
-      try { sessionStorage.removeItem(CHAT_KEY); } catch (_) { /* privat läge */ }
-      cache.clear();
-      csrfToken = '';
-      me = null;
-      showLogin();
-    });
+    }).join('') + `<div class="pace-bulk">
+      <button class="pace-btn pace-btn-ok" type="button" data-action="pace-decide" data-decision="approve">Godkänn alla (${proposals.length})</button>
+      <button class="pace-btn" type="button" data-action="pace-decide" data-decision="reject">Avfärda alla</button>
+    </div>`;
   }
 
-  // ── Notiser kräver en service worker; den delas med webbsidan (scope "/"). ─
-  if ('serviceWorker' in navigator && !params.has('sim')) {
-    navigator.serviceWorker.register('/sw.js').catch(() => { /* notiser blir bara otillgängliga */ });
+  async function generatePaceProposals() {
+    const button = document.getElementById('pace-generate-btn');
+    const list = document.getElementById('pace-proposals');
+    if (button) { button.disabled = true; button.textContent = 'Räknar…'; }
+    try {
+      const res = await fetch('/api/plan/pace-proposals/generate', {method: 'POST'});
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        list.innerHTML = `<div class="pace-empty">${escapeHtml(data.message || 'Kunde inte räkna om just nu.')}</div>`;
+      } else if (!data.proposals) {
+        list.innerHTML = '<div class="pace-empty">Planens tempon stämmer redan med din form.</div>';
+      } else {
+        await loadPaceProposals();
+      }
+    } catch (_) {
+      list.innerHTML = '<div class="pace-empty">Servern kunde inte nås.</div>';
+    } finally {
+      if (button) { button.disabled = false; button.textContent = 'Räkna om måltempon'; }
+    }
   }
 
-  window.addEventListener('trainyze:toast', e => toast(e.detail));
-  boot();
-})();
+  async function decidePaceProposals(decision, id) {
+    const body = {decision};
+    if (id) body.ids = [Number(id)];
+    try {
+      const res = await fetch('/api/plan/pace-proposals/decide', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return;
+      await loadPaceProposals();
+      if (decision === 'approve') await loadPlan();  // kalendern visar den nya texten
+    } catch (_) {
+      // Nästa laddning rättar vyn.
+    }
+  }
+
+  function setCalendarView(view) {
+    calendarView = view === 'past' ? 'past' : 'current';
+    buildCalendar();
+  }
+
+  // ─── GOOGLE CALENDAR ────────────────────────────────────────
+  let gcalEvents = [];   // { title, start, end, allDay }
+
+  function gcalDateKey(isoStr) {
+    // Returnerar "YYYY-MM-DD" oavsett om det är dateTime eller date
+    return isoStr ? isoStr.substring(0, 10) : '';
+  }
+
+  function fmtEventTime(isoStr) {
+    if (!isoStr || isoStr.length === 10) return 'Heldag';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString('sv-SE', { hour:'2-digit', minute:'2-digit' });
+    } catch { return ''; }
+  }
+
+  async function checkGcalStatus() {
+    try {
+      const r = await fetch('/api/calendar/status');
+      const d = await r.json();
+      calendarConnected = !!d.hasToken;
+      renderSettingsPage();
+      if (d.hasToken) await syncGcal();
+    } catch(e) {}
+  }
+
+  async function syncGcal() {
+    const syncIds = ['gcal-sync-btn', 'mobile-gcal-sync-btn', 'settings-calendar-primary'];
+    setButtons(syncIds, 'Synkar…', 'var(--blue)', true);
+    try {
+      const r = await fetch('/api/calendar');
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || 'Fel');
+      calendarConnected = true;
+      gcalEvents = d.events || [];
+      setButtons(syncIds, 'Synkad', 'var(--green)', true);
+      setTimeout(() => setButtons(syncIds, 'Synka kalender', '', false), 2500);
+      buildCalendar();
+      renderTodaySession();
+      renderSettingsPage();
+    } catch(e) {
+      setButtons(syncIds, 'Försök igen', 'var(--red)', false);
+    }
+  }
+
+
+  // ─── WEBBNOTISER ─────────────────────────────────────────────────────────
+  // På iPhone tillåter Safari inte push från en vanlig flik. Sajten måste
+  // först läggas till på hemskärmen, och då körs den i standalone-läge. Det
+  // gör att UI:t behöver kunna säga tre olika saker: "din enhet kan inte",
+  // "lägg till på hemskärmen först", och "tryck här för att slå på".
+  let pushSubscription = null;
+
+  function pushSupported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window &&
+           'Notification' in window;
+  }
+
+  function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches ||
+           window.navigator.standalone === true;
+  }
+
+  function isIos() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    // VAPID-nyckeln levereras base64url-kodad men subscribe() vill ha bytes.
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = window.atob(base64);
+    return Uint8Array.from([...raw].map(char => char.charCodeAt(0)));
+  }
+
+  async function registerPushWorker() {
+    if (!pushSupported()) return null;
+    try {
+      return await navigator.serviceWorker.register('/sw.js');
+    } catch (error) {
+      console.warn('Service worker kunde inte registreras:', error);
+      return null;
+    }
+  }
+
+  async function refreshPushUi() {
+    const state = document.getElementById('settings-push-state');
+    const copy = document.getElementById('settings-push-copy');
+    const primary = document.getElementById('settings-push-primary');
+    const test = document.getElementById('settings-push-test');
+    if (!state || !copy || !primary) return;
+
+    const setState = (text, cls) => { state.textContent = text; state.className = 'integration-state ' + (cls || ''); };
+    const show = (el, visible) => { if (el) el.style.display = visible ? '' : 'none'; };
+
+    if (!pushSupported()) {
+      setState('Stöds ej', 'is-off');
+      copy.textContent = 'Den här webbläsaren saknar stöd för notiser.';
+      show(primary, false); show(test, false);
+      return;
+    }
+    if (isIos() && !isStandalone()) {
+      setState('Kräver hemskärm', 'is-off');
+      copy.textContent = 'På iPhone måste Trainyze läggas till på hemskärmen innan notiser '
+        + 'kan slås på. Tryck på Dela i Safari och välj "Lägg till på hemskärmen", '
+        + 'öppna appen därifrån och kom tillbaka hit.';
+      show(primary, false); show(test, false);
+      return;
+    }
+
+    let serverReady = false;
+    try {
+      const response = await fetch('/api/push/status');
+      serverReady = (await response.json()).available;
+    } catch (error) { /* visas som avstängt nedan */ }
+    if (!serverReady) {
+      setState('Ej konfigurerad', 'is-off');
+      copy.textContent = 'Servern saknar VAPID-nycklar, så notiser kan inte skickas än.';
+      show(primary, false); show(test, false);
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.getRegistration();
+    pushSubscription = registration ? await registration.pushManager.getSubscription() : null;
+
+    if (pushSubscription && Notification.permission === 'granted') {
+      setState('På', 'is-on');
+      copy.textContent = 'Den här enheten tar emot notiser från Trainyze.';
+      primary.textContent = 'Stäng av';
+      primary.dataset.action = 'disable-push';
+      show(primary, true); show(test, true);
+    } else if (Notification.permission === 'denied') {
+      setState('Blockerad', 'is-off');
+      copy.textContent = 'Notiser är blockerade för Trainyze. Slå på dem igen i enhetens '
+        + 'inställningar för att kunna aktivera här.';
+      show(primary, false); show(test, false);
+    } else {
+      setState('Av', 'is-off');
+      copy.textContent = 'Få en notis när något viktigt händer i din träning.';
+      primary.textContent = 'Slå på notiser';
+      primary.dataset.action = 'enable-push';
+      show(primary, true); show(test, false);
+    }
+  }
+
+  async function enablePush() {
+    const primary = document.getElementById('settings-push-primary');
+    if (primary) { primary.disabled = true; primary.textContent = 'Aktiverar…'; }
+    try {
+      // Tillåtelsen måste begäras från ett knapptryck — därav att det här
+      // ligger i en klick-hanterare och inte vid sidladdning.
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+
+      const registration = await registerPushWorker();
+      if (!registration) throw new Error('Service worker saknas.');
+      await navigator.serviceWorker.ready;
+
+      const keyResponse = await fetch('/api/push/key');
+      const { key } = await keyResponse.json();
+      if (!key) throw new Error('Servern saknar VAPID-nyckel.');
+
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+      const stored = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription.toJSON()),
+      });
+      if (!stored.ok) throw new Error('Servern kunde inte spara prenumerationen.');
+    } catch (error) {
+      console.warn('Kunde inte aktivera notiser:', error);
+      alert('Notiser kunde inte aktiveras: ' + error.message);
+    } finally {
+      if (primary) primary.disabled = false;
+      refreshPushUi();
+    }
+  }
+
+  async function disablePush() {
+    const primary = document.getElementById('settings-push-primary');
+    if (primary) { primary.disabled = true; primary.textContent = 'Stänger av…'; }
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const subscription = registration ? await registration.pushManager.getSubscription() : null;
+      if (subscription) {
+        // Säg till servern först: lyckas avregistreringen i webbläsaren men
+        // inte på servern skulle vi fortsätta skicka till en död enhet.
+        await fetch('/api/push/unsubscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        await subscription.unsubscribe();
+      }
+    } catch (error) {
+      console.warn('Kunde inte stänga av notiser:', error);
+    } finally {
+      if (primary) primary.disabled = false;
+      refreshPushUi();
+    }
+  }
+
+  async function sendTestPush() {
+    const test = document.getElementById('settings-push-test');
+    if (test) { test.disabled = true; test.textContent = 'Skickar…'; }
+    try {
+      const response = await fetch('/api/push/test', { method: 'POST' });
+      const payload = await response.json().catch(() => ({}));
+      if (test) test.textContent = response.ok ? 'Skickad ✓' : 'Misslyckades';
+      if (!response.ok) alert(payload.error || 'Testnotisen kunde inte skickas.');
+    } catch (error) {
+      if (test) test.textContent = 'Misslyckades';
+    } finally {
+      setTimeout(() => {
+        if (test) { test.disabled = false; test.textContent = 'Skicka testnotis'; }
+      }, 2500);
+    }
+  }
+
+  // Registrera i bakgrunden vid start så att en redan godkänd prenumeration
+  // överlever en omladdning. Frågar aldrig om lov här — det kräver ett klick.
+  if (pushSupported() && Notification.permission === 'granted') registerPushWorker();
+
+  // Bygg kalendern direkt + när Plan-fliken öppnas
+  buildCalendar();
+  renderTodaySession();
+  safeRenderTrainingCockpit();
+  if (document.getElementById('page-upcoming').classList.contains('active')) {
+    checkGcalStatus();
+  }

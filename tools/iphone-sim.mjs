@@ -97,6 +97,7 @@ async function emulateIphone() {
     send('Network.setUserAgentOverride', { userAgent: IPHONE_UA, platform: 'iPhone' });
     send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
     send('Emulation.setEmitTouchEventsForMouse', { enabled: true, configuration: 'mobile' });
+    send('Emulation.setScrollbarsHidden', { hidden: true });  // iOS har inga synliga rullningslister
     send('Page.enable');
     await send('Page.reload', { ignoreCache: true });  // så att appen laddas med iPhone-identiteten
     await fitWindow(send);

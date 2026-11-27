@@ -1,27 +1,31 @@
 // iPhone 15 Pro-simulator för Trainyzes mobilapp.
 //
-// Visar /app/ i en iframe med iPhone 15 Pros mått (393 × 852) och säkra
-// marginaler (59 pt upptill, 34 pt nedtill). Laddar om appen automatiskt när
-// en fil i public/ eller tools/iphone/ ändras.
+// Visar /app/ i en iframe med iPhone 15 Pros mått (393 × 852) och beter sig
+// som iOS gör med en webbapp på hemskärmen:
+//   - Utan viewport-fit=cover + statusfältsstil black-translucent börjar
+//     innehållet UNDER statusfältet (59 pt), och statusfältet får appens
+//     theme-color. Det är så trainyze.com-koden ser ut på en riktig iPhone.
+//   - Med cover + black-translucent ligger appen bakom statusfältet och får
+//     själv ta hänsyn till säkra marginaler.
+// Laddar om appen automatiskt när en fil i public/ eller tools/iphone/ ändras.
 'use strict';
 
 (() => {
-  const SAFE_TOP = 59;
-  const SAFE_BOTTOM = 34;
+  const STATUS_BAR = 59;
   const frame = document.getElementById('app');
+  const screen = document.querySelector('.screen');
   const root = document.documentElement;
   const store = {
     get(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch (_) { return fallback; } },
     set(key, value) { try { localStorage.setItem(key, value); } catch (_) { /* ignoreras */ } },
   };
 
-  // Behåll var man var (#plan, #coach …) mellan omladdningar.
-  const startHash = store.get('sim:hash', '#idag');
-  frame.src = `/app/?sim=1&top=${SAFE_TOP}&bottom=${SAFE_BOTTOM}${startHash}`;
+  // Behåll var man var mellan omladdningar (om appen använder hash-adresser).
+  frame.src = '/app/' + store.get('sim:hash', '');
 
   function reloadApp() {
     try {
-      store.set('sim:hash', frame.contentWindow.location.hash || '#idag');
+      store.set('sim:hash', frame.contentWindow.location.hash || '');
       frame.contentWindow.location.reload();
     } catch (_) {
       frame.src = frame.src;
@@ -34,7 +38,20 @@
         store.set('sim:hash', frame.contentWindow.location.hash);
       });
     } catch (_) { /* annan origin */ }
+    layoutLikeIos();
   });
+
+  // ── Placering som iOS ───────────────────────────────────────────────────
+  function layoutLikeIos() {
+    try {
+      const doc = frame.contentDocument;
+      const viewport = doc.querySelector('meta[name="viewport"]')?.content || '';
+      const barStyle = doc.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')?.content || 'default';
+      const cover = /viewport-fit\s*=\s*cover/.test(viewport) && barStyle === 'black-translucent';
+      screen.classList.toggle('inset', !cover);
+      root.style.setProperty('--status-bar', STATUS_BAR + 'px');
+    } catch (_) { /* ignoreras */ }
+  }
 
   // ── Klocka och statusfältets färg ───────────────────────────────────────
   const clock = document.getElementById('clock');
@@ -45,44 +62,68 @@
   tick();
   setInterval(tick, 10000);
 
-  // Statusfältet ska vara ljust på mörk app och mörkt på ljus app, precis som
-  // iOS gör med "black-translucent".
-  function syncInk() {
+  const luminance = color => {
+    const m = String(color).match(/\d+(\.\d+)?/g);
+    if (!m) return null;
+    const [r, g, b] = m.map(Number);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+
+  // Statusfältets bakgrund = appens theme-color (den som matchar aktuellt läge),
+  // annars sidans bakgrund. Texten blir mörk på ljust och ljus på mörkt.
+  function syncStatusBar() {
     try {
+      const win = frame.contentWindow;
       const doc = frame.contentDocument;
       if (!doc || !doc.body) return;
-      const bg = getComputedStyle(doc.body).backgroundColor.match(/\d+(\.\d+)?/g);
-      if (!bg) return;
-      const [r, g, b] = bg.map(Number);
-      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      root.style.setProperty('--status-ink', lum > 140 ? '#000' : '#fff');
+      let color = '';
+      for (const meta of doc.querySelectorAll('meta[name="theme-color"]')) {
+        if (!meta.media || win.matchMedia(meta.media).matches) { color = meta.content; break; }
+      }
+      // Ett uttryckligt data-theme på sidan väger tyngre än systemläget.
+      const forced = doc.documentElement.getAttribute('data-theme');
+      if (forced) color = getComputedStyle(doc.body).backgroundColor;
+      if (!color) color = getComputedStyle(doc.body).backgroundColor;
+      root.style.setProperty('--status-bg', color);
+      const probe = document.createElement('span');
+      probe.style.color = color;
+      document.body.appendChild(probe);
+      const lum = luminance(getComputedStyle(probe).color);
+      probe.remove();
+      if (lum != null) root.style.setProperty('--status-ink', lum > 140 ? '#000' : '#fff');
     } catch (_) { /* ignoreras */ }
   }
-  setInterval(syncInk, 400);
+  setInterval(syncStatusBar, 400);
 
   // ── Verktygsfältet ─────────────────────────────────────────────────────
   document.getElementById('btn-reload').addEventListener('click', reloadApp);
   document.getElementById('btn-home').addEventListener('click', () => {
-    try { frame.contentWindow.location.hash = '#idag'; } catch (_) { /* ignoreras */ }
+    store.set('sim:hash', '');
+    frame.src = '/app/';
   });
   window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r') { e.preventDefault(); reloadApp(); }
   });
 
+  // Tema: använder appens egen inställning (localStorage 'trainyze:theme'),
+  // precis som temaväljaren i appen gör, och laddar om.
   const THEMES = [['system', 'Auto'], ['light', 'Ljust'], ['dark', 'Mörkt']];
   const themeBtn = document.getElementById('btn-theme');
-  let themeIndex = Math.max(0, THEMES.findIndex(([k]) => k === store.get('sim:theme', 'system')));
-  themeBtn.textContent = THEMES[themeIndex][1];
-  function sendTheme() {
-    try { frame.contentWindow.postMessage({ type: 'trainyze:theme', value: THEMES[themeIndex][0] }, location.origin); } catch (_) { /* ignoreras */ }
+  function currentTheme() {
+    try { return frame.contentWindow.localStorage.getItem('trainyze:theme') || 'system'; } catch (_) { return 'system'; }
   }
-  themeBtn.addEventListener('click', () => {
-    themeIndex = (themeIndex + 1) % THEMES.length;
-    themeBtn.textContent = THEMES[themeIndex][1];
-    store.set('sim:theme', THEMES[themeIndex][0]);
-    sendTheme();
+  frame.addEventListener('load', () => {
+    const k = currentTheme();
+    themeBtn.textContent = (THEMES.find(([key]) => key === k) || THEMES[0])[1];
   });
-  frame.addEventListener('load', sendTheme);
+  themeBtn.addEventListener('click', () => {
+    const i = (Math.max(0, THEMES.findIndex(([k]) => k === currentTheme())) + 1) % THEMES.length;
+    try {
+      const ls = frame.contentWindow.localStorage;
+      if (THEMES[i][0] === 'system') ls.removeItem('trainyze:theme'); else ls.setItem('trainyze:theme', THEMES[i][0]);
+    } catch (_) { /* ignoreras */ }
+    reloadApp();
+  });
 
   // Storlek: "Anpassa" krymper telefonen så att den får plats i fönstret.
   const SCALES = [['fit', 'Anpassa'], ['1', '100 %'], ['0.75', '75 %']];

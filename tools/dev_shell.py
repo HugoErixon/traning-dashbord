@@ -18,8 +18,9 @@ släpper bara igenom inloggning och utloggning – allt annat som skulle ändra
 något (plan, anteckningar, coachfrågor som kan flytta pass) stoppas med ett
 tydligt besked. Lägg till --skriv när du verkligen vill testa sådant.
 
-Servern skickar inga frame-skydd, så sidorna går att visa i simulatorn och i
-MobileView. Endast för utveckling – aldrig i produktion.
+Servern skickar samma Content-Security-Policy som produktionen, utom att
+inbäddning från samma origin tillåts (simulatorn visar appen i en iframe).
+Endast för utveckling – aldrig i produktion.
 """
 import argparse
 import http.client
@@ -39,6 +40,13 @@ IPHONE = Path(__file__).resolve().parent / 'iphone'
 PROD_HOST = 'trainyze.com'
 WRITE_ALLOWED_READONLY = {'/api/login', '/api/logout'}
 mimetypes.add_type('application/manifest+json', '.webmanifest')
+CSP = (
+    "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'self'; "
+    "script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://tile.openstreetmap.org; "
+    "connect-src 'self'; "
+    "form-action 'self'"
+)
 
 ARGS = None
 
@@ -173,6 +181,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', ctype)
         self.send_header('Cache-Control', 'no-store')
+        # Samma CSP som produktionen (garmin_server.secure_response), så att det
+        # som blockeras på trainyze.com också blockeras här. Enda skillnaden:
+        # inbäddning från samma origin tillåts, annars kan simulatorn inte visa appen.
+        self.send_header('Content-Security-Policy', CSP)
+        self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Content-Length', str(len(body)))
         for key, value in (extra or []):
             self.send_header(key, value)
