@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "iPhone-simulator (påhittad data)",
+            "type": "shell",
+            "command": "node tools/iphone-sim.mjs",
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "panel": "dedicated" }
+        },
+        {
+            "label": "iPhone-simulator (riktig data, skrivskyddat)",
+            "type": "shell",
+            "command": "node tools/iphone-sim.mjs --prod",
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "panel": "dedicated" }
+        },
+        {
+            "label": "Dev-server (påhittad data)",
+            "type": "shell",
+            "command": "python3 tools/dev_shell.py",
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "panel": "dedicated" }
+        },
+        {
+            "label": "Dev-server (riktig data, skrivskyddat)",
+            "type": "shell",
+            "command": "python3 tools/dev_shell.py --prod",
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "panel": "dedicated" }
+        },
+        {
+            "label": "Dev-server för riktig iPhone (LAN/Tailscale)",
+            "type": "shell",
+            "command": "python3 tools/dev_shell.py --lan",
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "panel": "dedicated" }
+        }
+    ]
+}

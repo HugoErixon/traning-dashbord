@@ -10954,7 +10954,8 @@ def _asset_version():
     kan inte glömmas bort.
     """
     digest = hashlib.sha256()
-    for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js'):
+    for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js',
+                 'app/app.js', 'app/app.css'):
         try:
             digest.update((PUBLIC_DIR / name).read_bytes())
         except OSError:
@@ -10977,6 +10978,19 @@ def index():
     if not user:
         return _render_page('landing.html')
     return _render_page('index.html')
+
+
+# Mobilappen (PWA) är en egen frontend under /app/ mot samma API. Den visar
+# själv inloggning, så sidan serveras alltid; skyddet ligger i API:t.
+@app.get('/app')
+def mobile_app_redirect():
+    return app.redirect('/app/', code=301)
+
+
+@app.get('/app/')
+def mobile_app():
+    return _render_page('app/index.html')
+
 
 @app.get('/ai')
 def ai_control_page():
