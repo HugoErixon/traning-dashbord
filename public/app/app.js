@@ -1487,13 +1487,14 @@ document.addEventListener('keydown', event => {
 });
 
   // Navigation
-  // Vilken toppflik en sida hör under. Styrka, Sömn och Dagbok har inga egna
-  // toppflikar längre, men de är fortfarande egna sidor — kartan är det som
-  // gör att rätt flik lyser upp när man landar på en undervy.
+  // Vilken av de fyra flikarna en sida hör under. Sidorna finns kvar som egna
+  // vyer och nås via underflikarna; kartan gör att rätt flik lyser upp.
+  //   Start: Idag, Översikt · Träning: Plan, Styrka, Utveckling
+  //   Kropp: Dygnet, Sömn, Dagbok · Profil: Profil, Klimat
   const NAV_SECTION = {
-    upcoming: 'upcoming', strength: 'strength',
+    home: 'home', overview: 'home',
+    upcoming: 'upcoming', strength: 'upcoming', analysis: 'upcoming',
     health: 'health', sleep: 'health', journal: 'health',
-    analysis: 'analysis', home: 'home', overview: 'overview',
     settings: 'settings', climate: 'settings',
   };
 

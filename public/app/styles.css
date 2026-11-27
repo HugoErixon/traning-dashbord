@@ -3999,7 +3999,7 @@
       .nav-primary .nav-item[data-page="journal"],
       .nav-secondary #nav-climate,
       .nav-secondary::before { display:none; }
-      .nav-item { flex:1 1 20%; min-width:0; padding-left:3px; padding-right:3px; }
+      .nav-item { flex:1 1 25%; min-width:0; padding-left:3px; padding-right:3px; font-size:10.5px; }
       .nav-settings { background:transparent; }
       .nav-icon { width: auto; opacity: 1; }
       .topbar-greet, .topbar-stats { display:none; }
@@ -5332,8 +5332,8 @@
       .st-stepper { grid-template-columns:44px minmax(0,1fr) 44px; }
       .st-kpis { grid-template-columns:repeat(2, minmax(0,1fr)); }
       .st-past-meta { display:none; }
-      /* Styrka får platsen i bottenmenyn; inställningarna nås via kontoknappen uppe till höger. */
-      .nav-secondary .nav-settings { display:none; }
+      /* Profil är en egen flik i bottenmenyn, så kontoknappen uppe till höger behövs inte. */
+      .topbar-account { display:none; }
     }
     @media (max-width: 380px) {
       .st-stepper { grid-template-columns:40px minmax(0,1fr) 40px; }

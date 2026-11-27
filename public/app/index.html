@@ -70,45 +70,29 @@
 
   </header>
 
-  <!-- Fyra vyer, i den ordning tråden går: vad gör jag i dag, vad ska veckan
-       innehålla, vart är jag på väg, hur mår kroppen. Styrka är en egen flik
-       eftersom den används på telefonen mitt i passet; Sömn och Dagbok är
-       underflikar där de hör hemma. -->
+  <!-- Mobilappen har fyra flikar. Varje flik samlar befintliga sidor som
+       underflikar (se NAV_SECTION i app.js):
+         Start    – Idag · Översikt
+         Träning  – Plan · Styrka · Utveckling
+         Kropp    – Dygnet · Sömn · Dagbok
+         Profil   – profil, anslutningar och inställningar (även dag/natt-läge) -->
   <nav class="topnav" aria-label="Huvudnavigering">
     <div class="nav-primary">
-        <button type="button" class="nav-item active" data-action="goto" data-page="overview">
-          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg></span>
-          <span>Översikt</span>
-        </button>
-        <button type="button" class="nav-item" data-action="goto" data-page="home">
-          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
-          <span>Idag</span>
+        <button type="button" class="nav-item active" data-action="goto" data-page="home">
+          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5h4v5"/></svg></span>
+          <span>Start</span>
         </button>
         <button type="button" class="nav-item" data-action="goto" data-page="upcoming">
-          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><rect x="4" y="12" width="3.5" height="7" rx="1"/><rect x="10.25" y="8" width="3.5" height="11" rx="1"/><rect x="16.5" y="4" width="3.5" height="15" rx="1"/></svg></span>
-          <span>Plan</span>
-        </button>
-        <button type="button" class="nav-item" data-action="goto" data-page="strength">
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5v11M17.5 6.5v11M3.5 9v6M20.5 9v6M6.5 12h11"/></svg></span>
-          <span>Styrka</span>
-        </button>
-        <button type="button" class="nav-item" data-action="goto" data-page="analysis">
-          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 16 9 10 13 14 21 5"/><polyline points="21 10 21 5 16 5"/></svg></span>
-          <span>Utveckling</span>
+          <span>Träning</span>
         </button>
         <button type="button" class="nav-item" data-action="goto" data-page="health">
           <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 5 12L17 12h4"/></svg></span>
           <span>Kropp</span>
         </button>
-    </div>
-    <div class="nav-secondary">
-        <button type="button" class="nav-item nav-settings" data-action="goto" data-page="settings">
-          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.34 1.88l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.7 1.7 0 0015 19.4a1.7 1.7 0 00-1 .6 1.7 1.7 0 00-.4 1.1V21a2 2 0 01-4 0v-.09A1.7 1.7 0 008.6 19.4a1.7 1.7 0 00-1.88.34l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-.6-1 1.7 1.7 0 00-1.1-.4H3a2 2 0 010-4h.09A1.7 1.7 0 004.6 8.6a1.7 1.7 0 00-.34-1.88l-.06-.06a2 2 0 012.83-2.83l.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-.6 1.7 1.7 0 00.4-1.1V3a2 2 0 014 0v.09A1.7 1.7 0 0015.4 4.6a1.7 1.7 0 001.88-.34l.06-.06a2 2 0 012.83 2.83l-.06.06A1.7 1.7 0 0019.4 9c.12.38.33.72.6 1 .3.27.68.41 1.1.4h.09a2 2 0 010 4h-.09c-.42-.01-.8.13-1.1.4-.27.28-.48.62-.6 1z"/></svg></span>
-          <span>Inställningar</span>
-        </button>
-        <button type="button" class="nav-item nav-theme" data-action="toggle-theme" id="theme-toggle" title="Växla mellan dag- och nattläge" aria-label="Växla mellan dag- och nattläge">
-          <span class="nav-icon" id="theme-toggle-icon"></span>
-          <span id="theme-toggle-label">Läge</span>
+        <button type="button" class="nav-item" data-action="goto" data-page="settings">
+          <span class="nav-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
+          <span>Profil</span>
         </button>
     </div>
   </nav>
@@ -116,9 +100,9 @@
   <main class="main">
     <div class="content">
 
-    <!-- ÖVERSIKT — förstasidan. Hur kroppen och formen utvecklas över tid;
-         dagens pass och planen ligger under Idag och Plan. -->
-    <div class="page active" id="page-overview">
+    <!-- ÖVERSIKT — underflik under Start. Hur kroppen och formen utvecklas
+         över tid; dagens besked ligger under Idag. -->
+    <div class="page" id="page-overview">
       <div class="page-header an-page-head">
         <div><h2>Översikt</h2><p>Hur formen, sömnen och återhämtningen utvecklas över tid</p></div>
         <div class="an-window" role="group" aria-label="Period">
@@ -127,6 +111,7 @@
           <button type="button" class="an-window-btn ov-window-btn" data-action="overview-window" data-days="180">6 mån</button>
         </div>
       </div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="home">Idag</button><button type="button" class="subnav-item active" data-action="goto" data-page="overview">Översikt</button></div>
 
       <div class="section-header">
         <span class="section-header-label">Race predictor</span>
@@ -318,7 +303,8 @@
     </div>
 
     <!-- HEM -->
-    <div class="page" id="page-home">
+    <div class="page active" id="page-home">
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="home">Idag</button><button type="button" class="subnav-item" data-action="goto" data-page="overview">Översikt</button></div>
 
       <!-- REST OR TRAIN HERO STATUS BANNER -->
       <section class="rot-hero" id="rot-hero">
@@ -889,6 +875,7 @@
     <!-- PLAN -->
     <div class="page" id="page-upcoming">
       <div class="page-header"><h2>Plan</h2><p id="calendar-goal-sub">Veckans dos, kommande pass och måltempon</p></div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="upcoming">Plan</button><button type="button" class="subnav-item" data-action="goto" data-page="strength">Styrka</button><button type="button" class="subnav-item" data-action="goto" data-page="analysis">Utveckling</button></div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;align-items:center;">
         <div style="display:flex;align-items:center;gap:7px;">
           <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--green);opacity:0.7;"></span>
@@ -1072,6 +1059,7 @@
           <button class="an-window-btn" data-action="analysis-window" data-days="90">90 d</button>
         </div>
       </div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="upcoming">Plan</button><button type="button" class="subnav-item" data-action="goto" data-page="strength">Styrka</button><button type="button" class="subnav-item active" data-action="goto" data-page="analysis">Utveckling</button></div>
 
       <div id="analysis-loading" class="an-loading">Bygger din trendbild…</div>
       <div id="analysis-content" style="display:none;">
@@ -1166,6 +1154,7 @@
           <button type="button" class="an-window-btn st-window-btn" data-action="strength-window" data-days="180">6 mån</button>
         </div>
       </div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="upcoming">Plan</button><button type="button" class="subnav-item active" data-action="goto" data-page="strength">Styrka</button><button type="button" class="subnav-item" data-action="goto" data-page="analysis">Utveckling</button></div>
 
       <div class="section-header">
         <span class="section-header-label">Veckans program</span>
@@ -1285,8 +1274,8 @@
       <div class="settings-hero">
         <div>
           <span class="settings-kicker">DITT TRAINYZE</span>
-          <h2>Inställningar</h2>
-          <p>Datakällor, kalender och konto samlat på ett ställe.</p>
+          <h2>Profil</h2>
+          <p>Du, dina datakällor och inställningar samlat på ett ställe.</p>
         </div>
         <div class="settings-profile">
           <span class="settings-avatar" id="settings-avatar">H</span>
@@ -1350,9 +1339,7 @@
         <div class="settings-section-head"><div><span>VERKTYG</span><h3>Genvägar</h3></div><p>Funktioner och underhåll</p></div>
         <div class="settings-link-grid">
           <button type="button" data-action="refresh-data"><span>↻</span><div><strong>Uppdatera all data</strong><small>Hämta senaste värden och pass</small></div><b>→</b></button>
-          <button type="button" data-action="goto" data-page="strength"><span>⌁</span><div><strong>Styrketräning</strong><small>Logga pass och se historik</small></div><b>→</b></button>
-          <button type="button" data-action="goto" data-page="sleep"><span>☾</span><div><strong>Sömn</strong><small>Översikt och återhämtning</small></div><b>→</b></button>
-          <button type="button" data-action="goto" data-page="journal"><span>✎</span><div><strong>Dagbok</strong><small>Incheckningar och anteckningar</small></div><b>→</b></button>
+          <button type="button" data-action="toggle-theme" id="theme-toggle" aria-label="Växla mellan dag- och nattläge"><span id="theme-toggle-icon"></span><div><strong id="theme-toggle-label">Läge</strong><small>Växla mellan dag- och nattläge</small></div><b>→</b></button>
           <button type="button" id="settings-climate-link" data-action="goto" data-page="climate"><span>⌁</span><div><strong>Klimat</strong><small>Hemstyrning och luftkvalitet</small></div><b>→</b></button>
           <button type="button" id="settings-users-link" data-action="open-users" style="display:none;"><span>◎</span><div><strong>Hantera användare</strong><small>Konton och behörigheter</small></div><b>→</b></button>
           <button type="button" id="settings-ai-link" data-action="open-ai-control" style="display:none;"><span>◉</span><div><strong>AI Control</strong><small>Felsök och förbättra via G3</small></div><b>→</b></button>
