@@ -53,6 +53,7 @@ from strength_progression import (
     recommendation_summary,
 )
 import session_analysis
+import treadmill
 import pace_progression
 import vdot as vdot_model
 import body_trends
@@ -3594,6 +3595,15 @@ def _stored_strength_exercises(activity_id, user_id):
     } for row in rows]
 
 
+def _with_belt_speeds(detail, raw, activity_id, user_id=None):
+    """Löpbandspass: bandets fart ersätter klockans i varven och översikten."""
+    if not treadmill.is_treadmill(raw):
+        return detail
+    detail = treadmill.apply_to_detail(detail, _treadmill_speeds(activity_id, user_id or uid()))
+    detail['treadmill'] = True
+    return detail
+
+
 @app.get('/api/activities/<int:activity_id>')
 def activity_details(activity_id):
     """Return route, charts, zones and laps for one owned Garmin activity."""
@@ -3613,7 +3623,8 @@ def activity_details(activity_id):
             cached_activity = dict(cached[0])
             if strength_activity:
                 cached_activity['strengthExercises'] = strength_exercises
-            return jsonify({'activity': cached_activity, 'source': 'cache'})
+            return jsonify({'activity': _with_belt_speeds(cached_activity, raw, activity_id),
+                            'source': 'cache'})
 
         if not _garmin_connected(uname()):
             return _api_error('garmin_not_connected',
@@ -3637,7 +3648,8 @@ def activity_details(activity_id):
             strength_exercises=strength_exercises,
         )
         set_cache(cache_key, normalized, uid())
-        return jsonify({'activity': normalized, 'source': 'garmin'})
+        return jsonify({'activity': _with_belt_speeds(normalized, raw, activity_id),
+                        'source': 'garmin'})
     except Exception as exc:
         return _server_error(exc, 'activity.detail_failed',
                              message='Passdetaljerna kunde inte hämtas.')
@@ -3680,6 +3692,70 @@ def activity_feedback_save(activity_id):
                              message='Passkänslan kunde inte sparas.')
 
 
+@app.get('/api/activities/<int:activity_id>/treadmill')
+def activity_treadmill_get(activity_id):
+    raw = _stored_activity_for_user(activity_id, uid())
+    if raw is None:
+        return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
+    speeds = _treadmill_speeds(activity_id, uid())
+    return jsonify({'activityId': activity_id, 'treadmill': treadmill.is_treadmill(raw),
+                    'laps': {str(k): v for k, v in speeds.items()}})
+
+
+@app.put('/api/activities/<int:activity_id>/treadmill')
+def activity_treadmill_save(activity_id):
+    """Spara bandets fart per varv och räkna om passets utförandeanalys."""
+    raw = _stored_activity_for_user(activity_id, uid())
+    if raw is None:
+        return _api_error('activity_not_found', 'Aktiviteten hittades inte.', 404)
+    if not treadmill.is_treadmill(raw):
+        return _api_error('not_treadmill', 'Bandets fart kan bara anges för löpbandspass.', 400)
+    try:
+        speeds = treadmill.clean_speeds(request.get_json(silent=True) or {})
+    except ValueError as exc:
+        return _api_error('invalid_speed', str(exc), 400)
+    key = treadmill.CACHE_KEY.format(activity_id)
+    try:
+        if speeds:
+            set_cache(key, {'laps': speeds, 'savedAt': time.time()}, uid())
+        else:
+            clear_cache(key, user_id=uid())
+        clear_cache(f'activity-ai:v1:garmin:{activity_id}', user_id=uid())
+        updated = _refresh_executions_for_activity(raw, activity_id, uid(), uname())
+        activity_day = str(raw.get('startTimeLocal') or '')[:10]
+        if activity_day == datetime.now(LOCAL_TZ).date().isoformat():
+            # Dagens analys bygger på passets tempo och ska inte leva kvar med klockans.
+            clear_cache('training_review', user_id=uid())
+        return jsonify({'ok': True, 'activityId': activity_id,
+                        'laps': speeds, 'executions': updated})
+    except Exception as exc:
+        return _server_error(exc, 'treadmill.save_failed',
+                             message='Bandets fart kunde inte sparas.')
+
+
+def _refresh_executions_for_activity(raw, activity_id, user_id, username):
+    """Räkna om utförandet för planpass som bedömts mot den här aktiviteten."""
+    updated = []
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT * FROM plan_sessions WHERE user_id=%s
+                AND execution->>'activityId' = %s''', (user_id, str(activity_id)))
+            sessions = cur.fetchall()
+        with conn.cursor() as cur:
+            for session in sessions:
+                execution = _build_session_execution(
+                    session, [raw], None, user_id, username=username,
+                    lactate_hr=_latest_lactate_hr(user_id))
+                if not execution:
+                    continue
+                cur.execute('''UPDATE plan_sessions SET execution = %s
+                    WHERE id = %s AND user_id = %s''',
+                            (psycopg2.extras.Json(execution), session['id'], user_id))
+                updated.append({'id': session['id'], 'headline': execution.get('headline')})
+        conn.commit()
+    return updated
+
+
 def _activity_ai_detail(activity_id, source, user_id, username):
     """Load an owned activity from the detail cache used by the open modal."""
     if source == 'strava':
@@ -3709,6 +3785,7 @@ def _activity_ai_detail(activity_id, source, user_id, username):
             if _is_strength_activity(raw) else []
         detail = normalize_activity_detail(
             raw=raw, strength_exercises=strength_exercises)
+    detail = _with_belt_speeds(detail, raw, activity_id, user_id)
     detail['source'] = 'garmin'
     return detail
 
@@ -3765,6 +3842,21 @@ def _activity_ai_prompt(activity, planned, feedback=None):
         'plannedSession': planned,
         'athleteFeedback': feedback or None,
     }
+    if activity.get('treadmill'):
+        # Klockans fart på band är en handledsgissning; bandets fart är sanningen.
+        evidence['treadmill'] = (
+            'Treadmill run. Laps with beltKmh use the belt speed the athlete entered, so their '
+            'pace is exact and constant within the lap. ' + (
+                'The overview distance/pace is recomputed from those laps.' if activity.get('beltSpeeds')
+                else 'No belt speeds entered yet: watch pace, distance and lap-to-lap pace changes '
+                     'are wrist estimates. Do NOT judge pace, pace consistency or fade; judge heart '
+                     'rate only and tell the athlete to enter the belt speeds on the activity.'))
+        # Tempokurvan är alltid klockans, även när varven har bandets fart.
+        trend = evidence['activity']['seriesTrend']
+        if trend:
+            evidence['activity']['seriesTrend'] = {
+                k: ({kk: vv for kk, vv in v.items() if kk != 'pace'} if isinstance(v, dict) else v)
+                for k, v in trend.items()}
     return f'''Analyze one completed workout retrospectively. Be an evidence-driven running and
 strength coach. Use only the supplied measurements. Compare against the planned session when one
 exists; otherwise assess pacing consistency, heart-rate response, power, elevation, laps, and the
@@ -5886,7 +5978,10 @@ def _build_review_prompt():
         parts = [typ or 'activity']
         if dist: parts.append(f"{dist/1000:.1f} km")
         if dur:  parts.append(f"{int(dur/60)} min")
-        if dist and dur and dist > 0:
+        if 'treadmill' in (typ or '').lower():
+            # Klockans tempo på band är en gissning; bandets fart står i EXECUTION VS PLAN.
+            parts.append('treadmill: watch pace not reliable, use the belt speeds if given')
+        elif dist and dur and dist > 0:
             pace = (dur / 60) / (dist / 1000)
             pace_note = ' (avg incl. rest)' if is_interval else ''
             parts.append(f"pace {int(pace)}:{int((pace % 1) * 60):02d}/km{pace_note}")
@@ -5929,7 +6024,7 @@ def _build_review_prompt():
         target_session = next((p for p in planned if p['type'] in ('run', 'easy', 'race')), planned[0])
         try:
             kind = session_analysis.classify_session(target_session, activity)
-            laps = _run_activity_laps(activity, uname()) if kind in ('interval', 'long', 'threshold') else []
+            activity, laps = _run_analysis_inputs(activity, kind, uname(), uid())
             analysis = session_analysis.analyze_run(
                 activity, laps, target_session, lactate_hr=_latest_lactate_hr(uid()))
             described = session_analysis.describe_run(analysis, name=name or 'today')
@@ -6823,7 +6918,8 @@ def _recent_activities_block(user_id, days=14):
         km = (a.get('distance') or 0) / 1000
         bits = [str(a.get('date') or '')[:10], a.get('type') or '?']
         if km >= 0.5:
-            bits.append(f'{km:.1f} km')
+            bits.append(f'{km:.1f} km' + (' (klockans uppskattning på band)'
+                                          if treadmill.is_treadmill(a) else ''))
         if minutes:
             bits.append(f'{minutes} min')
         if raw.get('averageHR'):
@@ -9012,6 +9108,31 @@ def _run_activity_laps(activity, username):
         return []
 
 
+def _treadmill_speeds(activity_id, user_id):
+    """Bandets fart per varv som användaren angett: {varvposition: km/h}."""
+    if not activity_id or not user_id:
+        return {}
+    row = get_cache(treadmill.CACHE_KEY.format(activity_id), user_id)
+    return treadmill.lap_speeds(row[0]) if row else {}
+
+
+def _run_analysis_inputs(activity, kind, username, user_id):
+    """Varv och aktivitet för analyze_run; på löpband med bandets fart i stället för klockans."""
+    speeds = _treadmill_speeds(activity.get('activityId') or activity.get('id'), user_id) \
+        if treadmill.is_treadmill(activity) else {}
+    # Varvdata kostar ett extra API-anrop, så den hämtas bara när den faktiskt
+    # tillför något (intervaller, pulsdrift på långpass) eller bär bandets fart.
+    if kind not in ('interval', 'long', 'threshold') and not speeds:
+        return activity, []
+    laps = _run_activity_laps(activity, username)
+    if speeds:
+        laps = treadmill.apply_to_laps(laps, speeds)
+        distance = treadmill.corrected_distance_m(laps)
+        if distance:
+            activity = dict(activity, distance=distance)
+    return activity, laps
+
+
 def _build_session_execution(planned, acts, day, user_id, username=None,
                              strength_history=None, lactate_hr=None):
     """Analysera HUR ett genomfört pass kördes, inte bara ATT det gjordes.
@@ -9031,9 +9152,7 @@ def _build_session_execution(planned, acts, day, user_id, username=None,
         # Dagens huvudpass = det längsta; uppvärmningsjoggar ska inte vinna.
         activity = max(runs, key=lambda a: a.get('distance') or 0)
         kind = session_analysis.classify_session(planned, activity)
-        # Varvdata kostar ett extra API-anrop, så den hämtas bara när den
-        # faktiskt tillför något (intervaller) eller för pulsdrift på långpass.
-        laps = _run_activity_laps(activity, username) if kind in ('interval', 'long', 'threshold') else []
+        activity, laps = _run_analysis_inputs(activity, kind, username, user_id)
         analysis = session_analysis.analyze_run(activity, laps, planned, lactate_hr=lactate_hr)
         analysis['activityId'] = activity.get('activityId') or activity.get('id')
         analysis['activityName'] = activity.get('activityName')

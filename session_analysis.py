@@ -12,6 +12,8 @@ they already loaded, which keeps the whole module unit-testable.
 
 import re
 
+import treadmill
+
 # ── Pace/target parsing ───────────────────────────────────────────────────────
 
 # Plan text uses both hyphen and en dash for ranges, and always marks pace
@@ -322,10 +324,24 @@ def analyze_run(activity, laps=None, planned=None, lactate_hr=None):
         'hrDrift': None,
         'plannedKm': planned.get('km'),
         'distanceVerdict': None,
+        'paceSource': 'watch',
         'flags': [],
     }
 
-    if distance_m > 0 and duration_sec > 0:
+    # On a treadmill the watch only guesses the pace. With belt speeds entered
+    # (treadmill.apply_to_laps) the laps carry the truth; without them no pace
+    # is reported or judged, so a session at a steady 15 km/h cannot come back
+    # as "faster than planned with a 0.9 % fade".
+    on_treadmill = treadmill.is_treadmill(activity)
+    belt = any(lap.get('beltKmh') for lap in laps)
+    if belt:
+        result['paceSource'] = 'belt'
+    elif on_treadmill:
+        result['paceSource'] = 'treadmill_unknown'
+        result['flags'].append('treadmill_speed_missing')
+    pace_known = not on_treadmill or belt
+
+    if pace_known and distance_m > 0 and duration_sec > 0:
         result['avgPaceSec'] = duration_sec / (distance_m / 1000)
         result['avgPace'] = format_pace(result['avgPaceSec'])
 
@@ -341,14 +357,19 @@ def analyze_run(activity, laps=None, planned=None, lactate_hr=None):
     # dragged down by the recovery jogs and says nothing about execution.
     work_laps = split_work_laps(laps) if result['kind'] in REP_KINDS else []
     for number, lap in enumerate(work_laps, 1):
-        pace_sec = speed_to_pace_seconds(lap['speed'])
-        result['reps'].append({
+        rep_known = pace_known and (not on_treadmill or lap.get('beltKmh'))
+        pace_sec = speed_to_pace_seconds(lap['speed']) if rep_known else None
+        rep = {
             'n': number,
-            'distanceM': round(lap['distanceM']),
+            'distanceM': round(lap['distanceM']) if rep_known else None,
+            'durationSec': round(lap['durationSec']) if lap.get('durationSec') else None,
             'paceSec': round(pace_sec) if pace_sec else None,
             'pace': format_pace(pace_sec),
             'hr': lap['hr'],
-        })
+        }
+        if lap.get('beltKmh'):
+            rep['kmh'] = lap['beltKmh']
+        result['reps'].append(rep)
 
     rep_paces = [rep['paceSec'] for rep in result['reps'] if rep['paceSec']]
 
@@ -505,6 +526,7 @@ def analyze_strength(logged, recommendations):
 
 # Short Swedish verdicts shown directly in the app.
 _HEADLINES = {
+    'treadmill_speed_missing': 'Ange bandets fart',
     'easy_run_too_fast': 'Lätt pass för snabbt',
     'easy_run_hr_too_high': 'För hög puls för lätt pass',
     'reps_below_target_pace': 'Intervallerna långsammare än mål',
@@ -561,13 +583,27 @@ def describe_run(analysis, name=None):
             line += f" → {analysis['paceVerdict']} ({analysis['paceDeltaPct']:+.1f}%)"
         parts.append(line)
 
+    source = analysis.get('paceSource')
+    if source == 'treadmill_unknown':
+        parts.append("  treadmill run: the watch's pace and distance are wrist estimates and NOT "
+                     "reliable, and the athlete has not entered the belt speeds yet. Do not judge "
+                     "pace, rep consistency or fade; judge heart rate only, and ask for the belt "
+                     "speeds (entered on the activity in Trainyze) if pace matters.")
+    elif source == 'belt':
+        parts.append("  treadmill run: paces below come from the belt speeds the athlete entered, "
+                     "not the watch, so they are exact and constant within each lap.")
+
     if analysis.get('reps'):
-        rep_lines = ', '.join(
-            f"#{rep['n']} {rep['distanceM']}m @ {rep['pace'] or '?'}"
-            + (f" HR {rep['hr']}" if rep['hr'] else '')
-            for rep in analysis['reps']
-        )
-        parts.append(f"  work reps (rest excluded, verified from Garmin laps): {rep_lines}")
+        def rep_text(rep):
+            size = f"{rep['distanceM']}m" if rep.get('distanceM') else (
+                f"{round(rep['durationSec'] / 60, 1):g} min" if rep.get('durationSec') else 'rep')
+            pace = rep['pace'] or 'pace unknown'
+            if rep.get('kmh'):
+                pace += f" ({rep['kmh']:g} km/h belt)"
+            return f"#{rep['n']} {size} @ {pace}" + (f" HR {rep['hr']}" if rep['hr'] else '')
+        rep_lines = ', '.join(rep_text(rep) for rep in analysis['reps'])
+        origin = 'belt speeds' if source == 'belt' else 'Garmin laps'
+        parts.append(f"  work reps (rest excluded, verified from {origin}): {rep_lines}")
         target = analysis.get('repTarget') or {}
         if target.get('paceSec'):
             # Planen anger repen antingen i meter eller i tid — båda förekommer.
