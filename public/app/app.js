@@ -1513,16 +1513,16 @@ document.addEventListener('keydown', event => {
     });
     document.querySelector('.topbar-account')?.classList.toggle('is-active', id === 'settings');
     window.scrollTo(0, 0);
-    if (id === 'health')   loadHealth();
+    if (id === 'health')   { loadHealth(); loadNiggles(); }
     if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') { loadAnalysis(); loadInsights(); }
     if (id === 'strength') loadStrengthPage();
     if (id === 'journal')  loadJournal();
-    if (id === 'upcoming') { checkGcalStatus(); loadPaceProposals(); loadWeeklyReport(); loadSeasonPlan(); loadLabTests(); }
+    if (id === 'upcoming') { checkGcalStatus(); loadWeeklyReport(); loadSeasonPlan(); }
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
-    if (id === 'settings') { loadSettingsPage(); refreshPushUi(); }
+    if (id === 'settings') { loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); }
     if (id === 'home') loadToday();
-    if (id === 'overview') { loadHealth(); loadOverview(); loadRacePrediction(); loadNiggles(); }
+    if (id === 'overview') { loadHealth(); loadOverview(); loadRacePrediction(); }
   }
 
   renderThemeToggle();
@@ -2079,7 +2079,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (hiEl) {
       const hr = new Date().getHours();
       const greet = hr < 12 ? 'God morgon' : hr < 17 ? 'God eftermiddag' : 'God kväll';
-      hiEl.textContent = greet + ', Hugo';
+      hiEl.textContent = currentUsername ? `${greet}, ${currentUsername}` : greet;
     }
     const dateEl = document.getElementById('appbar-date');
     if (dateEl) {
@@ -3510,7 +3510,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       return hr < 12 ? 'God morgon' : hr < 17 ? 'God eftermiddag' : 'God kväll';
     })();
     const hiEl = document.getElementById('appbar-hi');
-    if (hiEl) hiEl.textContent = greet + ', Hugo';
+    if (hiEl) hiEl.textContent = currentUsername ? `${greet}, ${currentUsername}` : greet;
     const dateEl = document.getElementById('appbar-date');
     if (dateEl) {
       const d = new Date();

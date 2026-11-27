@@ -43,7 +43,7 @@
     </div>
 
     <div class="topbar-greet">
-      <span class="topbar-hi" id="appbar-hi">God morgon, Hugo</span>
+      <span class="topbar-hi" id="appbar-hi">Hej</span>
       <span class="topbar-date" id="appbar-date">Måndag · vecka 25</span>
     </div>
 
@@ -75,7 +75,11 @@
          Start    – Idag · Översikt
          Träning  – Plan · Styrka · Utveckling
          Kropp    – Dygnet · Sömn · Dagbok
-         Profil   – profil, anslutningar och inställningar (även dag/natt-läge) -->
+         Profil   – du och ditt mål, din fysiologi (labbtest, tempon, zoner),
+                    anslutningar och inställningar (även dag/natt-läge)
+       Känningar ligger under Kropp. Allt ska passa alla användare: inget
+       hårdkodat för en enskild person, admin-saker (Klimat, användare, AI
+       Control) syns bara för administratören. -->
   <nav class="topnav" aria-label="Huvudnavigering">
     <div class="nav-primary">
         <button type="button" class="nav-item active" data-action="goto" data-page="home">
@@ -167,7 +171,7 @@
           <div class="msg ai"><div class="msg-from">COACH</div><span>Hej! Fråga vad som helst om din träning, sömn eller prognos — eller be mig flytta och lägga in pass.</span></div>
         </div>
         <div class="qprompts">
-          <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till mot mitt halvmaratonmål och vad flyttar prognosen mest de kommande veckorna?">Hur ligger jag till mot målet?</button>
+          <button class="qp" data-action="quick-prompt" data-prompt="Hur ligger jag till mot mitt mål och vad flyttar prognosen mest de kommande veckorna?">Hur ligger jag till mot målet?</button>
           <button class="qp" data-action="quick-prompt" data-prompt="Hur har mina lugna pass och min aeroba effektivitet utvecklats senaste månaderna?">Hur utvecklas mina lugna pass?</button>
           <button class="qp" data-action="quick-prompt" data-prompt="Hur har mina tröskel- och intervallpass gått på sistone? Vad bör jag ändra?">Hur går tröskelpassen?</button>
           <button class="qp" data-action="quick-prompt" data-prompt="Hur påverkar min sömn och återhämtning träningen just nu, och vad bör jag tänka på denna vecka?">Sömn och återhämtning</button>
@@ -242,21 +246,6 @@
 
       </div>
 
-      <!-- KÄNNINGAR — det klockan inte ser. Styr coachen, styrkeprogrammet och veckorapporten. -->
-      <section class="ng-card" id="niggle-card" aria-labelledby="niggle-title">
-        <div class="ng-head">
-          <h3 class="ng-title" id="niggle-title">Känningar</h3>
-          <button type="button" class="ng-add-toggle" data-action="niggle-toggle-form" aria-expanded="false" aria-controls="niggle-form">+ Logga känning</button>
-        </div>
-        <div id="niggle-list"><p class="ng-empty">Laddar…</p></div>
-        <form class="ng-form" id="niggle-form" hidden>
-          <label>Var<select name="area" id="niggle-area" required></select></label>
-          <label>Sida<select name="side"><option value="">–</option><option value="left">Vänster</option><option value="right">Höger</option><option value="both">Båda</option></select></label>
-          <fieldset class="ng-scale"><legend>Hur ont, 0–10</legend><div class="ng-scale-btns" id="niggle-scale"></div></fieldset>
-          <label class="ng-note">Anteckning<input name="note" type="text" maxlength="200" placeholder="t.ex. känns i början av passet, släpper efter 2 km"></label>
-          <div class="ng-actions"><button type="submit" class="pace-btn pace-btn-ok">Spara</button><span class="pace-vdot-msg" id="niggle-msg" role="status"></span></div>
-        </form>
-      </section>
 
       <div class="section-header">
         <span class="section-header-label">Veckans pass</span>
@@ -752,6 +741,22 @@
         </div>
 
       </div>
+
+      <!-- KÄNNINGAR — det klockan inte ser. Styr coachen, styrkeprogrammet och veckorapporten. -->
+      <section class="ng-card" id="niggle-card" aria-labelledby="niggle-title">
+        <div class="ng-head">
+          <h3 class="ng-title" id="niggle-title">Känningar</h3>
+          <button type="button" class="ng-add-toggle" data-action="niggle-toggle-form" aria-expanded="false" aria-controls="niggle-form">+ Logga känning</button>
+        </div>
+        <div id="niggle-list"><p class="ng-empty">Laddar…</p></div>
+        <form class="ng-form" id="niggle-form" hidden>
+          <label>Var<select name="area" id="niggle-area" required></select></label>
+          <label>Sida<select name="side"><option value="">–</option><option value="left">Vänster</option><option value="right">Höger</option><option value="both">Båda</option></select></label>
+          <fieldset class="ng-scale"><legend>Hur ont, 0–10</legend><div class="ng-scale-btns" id="niggle-scale"></div></fieldset>
+          <label class="ng-note">Anteckning<input name="note" type="text" maxlength="200" placeholder="t.ex. känns i början av passet, släpper efter 2 km"></label>
+          <div class="ng-actions"><button type="submit" class="pace-btn pace-btn-ok">Spara</button><span class="pace-vdot-msg" id="niggle-msg" role="status"></span></div>
+        </form>
+      </section>
     </div>
 
     <!-- SLEEP -->
@@ -874,7 +879,7 @@
 
     <!-- PLAN -->
     <div class="page" id="page-upcoming">
-      <div class="page-header"><h2>Plan</h2><p id="calendar-goal-sub">Veckans dos, kommande pass och måltempon</p></div>
+      <div class="page-header"><h2>Plan</h2><p id="calendar-goal-sub">Veckans dos och kommande pass</p></div>
       <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="upcoming">Plan</button><button type="button" class="subnav-item" data-action="goto" data-page="strength">Styrka</button><button type="button" class="subnav-item" data-action="goto" data-page="analysis">Utveckling</button></div>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;align-items:center;">
         <div style="display:flex;align-items:center;gap:7px;">
@@ -925,110 +930,6 @@
           </form>
         </details>
       </section>
-
-      <section class="pace-panel lab-panel" id="lab-panel" aria-labelledby="lab-title">
-        <div class="pace-panel-head">
-          <div>
-            <div class="pace-panel-title" id="lab-title">Labbtest</div>
-            <div class="pace-panel-sub" id="lab-sub">Tröskel- och VO2max-test går före klockans uppskattningar.</div>
-          </div>
-        </div>
-        <div id="lab-latest"></div>
-        <details class="lab-form-wrap" id="lab-form-wrap">
-          <summary>Mata in ett testresultat</summary>
-          <form class="lab-form" id="lab-form">
-            <label>Datum<input name="date" type="date" required></label>
-            <label>Puls vid LT1<input name="lt1Hr" type="text" inputmode="numeric" placeholder="t.ex. 158"></label>
-            <label>Fart vid LT1<input name="lt1Pace" type="text" inputmode="decimal" placeholder="4:30 eller 13,3 km/h"></label>
-            <label>Puls vid LT2 (tröskel)<input name="lt2Hr" type="text" inputmode="numeric" placeholder="t.ex. 180"></label>
-            <label>Fart vid LT2<input name="lt2Pace" type="text" inputmode="decimal" placeholder="3:58 eller 15,1 km/h"></label>
-            <label>VO2max<input name="vo2max" type="text" inputmode="numeric" placeholder="ml/kg/min"></label>
-            <label>Maxpuls<input name="maxHr" type="text" inputmode="numeric" placeholder="t.ex. 196"></label>
-            <label class="lab-note">Anteckning<input name="note" type="text" maxlength="300" placeholder="t.ex. löpband 1 % lutning, laktat 2,0 / 4,0"></label>
-            <div class="lab-actions">
-              <button class="pace-btn pace-btn-ok" type="submit">Spara testet</button>
-              <span class="pace-vdot-msg" id="lab-msg" role="status"></span>
-            </div>
-          </form>
-        </details>
-      </section>
-
-      <div class="pace-panel" id="pace-panel" style="display:none;">
-        <div class="pace-panel-head">
-          <div>
-            <div class="pace-panel-title">Måltempon &amp; zoner</div>
-            <div class="pace-panel-sub" id="pace-anchor-sub">Laddar…</div>
-          </div>
-          <button class="refresh-btn pace-generate-btn" id="pace-generate-btn" data-action="pace-generate" type="button">Räkna om måltempon</button>
-        </div>
-        <div id="pace-bands" class="pace-bands"></div>
-        <div id="pace-goal" class="pace-goal" style="display:none;"></div>
-        <details class="pace-vdot" id="pace-vdot" style="display:none;">
-          <summary>Vad är VDOT?</summary>
-          <p id="pace-vdot-about"></p>
-          <form class="pace-vdot-form" id="pace-vdot-form">
-            <label for="pace-vdot-input">Eget VDOT</label>
-            <input id="pace-vdot-input" name="vdot" type="text" inputmode="decimal" placeholder="Automatiskt" autocomplete="off">
-            <button class="pace-btn pace-btn-ok" type="submit">Spara</button>
-            <span class="pace-vdot-msg" id="pace-vdot-msg" role="status"></span>
-          </form>
-        </details>
-        <div id="pace-proposals"></div>
-
-        <details class="pace-calc-wrap" id="pace-calc-wrap">
-          <summary class="pace-calc-toggle">
-            <span class="pace-calc-toggle-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              <span>Intervall- &amp; löpbandskalkylator</span>
-            </span>
-            <span class="pace-calc-toggle-hint">Klicka för splittar &amp; km/h</span>
-          </summary>
-          <div class="pace-calc-body">
-            <div class="pace-calc-inputs">
-              <div class="pace-calc-field">
-                <label for="pace-calc-min">Km-tempo</label>
-                <div class="pace-calc-input-group">
-                  <input type="number" id="pace-calc-min" min="2" max="15" value="4" step="1" aria-label="Minuter per km">
-                  <span class="pace-calc-sep">:</span>
-                  <input type="number" id="pace-calc-sec" min="0" max="59" value="00" step="1" aria-label="Sekunder per km">
-                  <span class="pace-calc-unit">/km</span>
-                </div>
-              </div>
-              <div class="pace-calc-field">
-                <label for="pace-calc-speed">Löpbandshastighet</label>
-                <div class="pace-calc-input-group">
-                  <input type="number" id="pace-calc-speed" min="4" max="30" step="0.1" value="15.0" aria-label="Hastighet i km/h">
-                  <span class="pace-calc-unit">km/h</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="pace-calc-results">
-              <div class="pace-calc-block">
-                <div class="pace-calc-block-title">Intervallsplittar</div>
-                <div class="pace-calc-splits">
-                  <div class="pace-split-pill"><span class="split-dist">200m</span><strong class="split-val" id="split-200">0:48</strong></div>
-                  <div class="pace-split-pill"><span class="split-dist">400m</span><strong class="split-val" id="split-400">1:36</strong></div>
-                  <div class="pace-split-pill"><span class="split-dist">800m</span><strong class="split-val" id="split-800">3:12</strong></div>
-                  <div class="pace-split-pill"><span class="split-dist">1000m</span><strong class="split-val" id="split-1000">4:00</strong></div>
-                  <div class="pace-split-pill"><span class="split-dist">1500m</span><strong class="split-val" id="split-1500">6:00</strong></div>
-                  <div class="pace-split-pill"><span class="split-dist">2000m</span><strong class="split-val" id="split-2000">8:00</strong></div>
-                </div>
-              </div>
-
-              <div class="pace-calc-block">
-                <div class="pace-calc-block-title">Loppdistanser vid detta tempo</div>
-                <div class="pace-calc-races">
-                  <div class="pace-race-item"><span class="race-name">5 km</span><strong class="race-val" id="race-5k">20:00</strong></div>
-                  <div class="pace-race-item"><span class="race-name">10 km</span><strong class="race-val" id="race-10k">40:00</strong></div>
-                  <div class="pace-race-item"><span class="race-name">Halvmaraton</span><strong class="race-val" id="race-half">1:24:23</strong></div>
-                  <div class="pace-race-item"><span class="race-name">Maraton</span><strong class="race-val" id="race-full">2:48:47</strong></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </details>
-      </div>
 
       <section class="pace-panel week-planner" id="week-planner" aria-labelledby="week-planner-title">
         <div class="pace-panel-head">
@@ -1278,10 +1179,121 @@
           <p>Du, dina datakällor och inställningar samlat på ett ställe.</p>
         </div>
         <div class="settings-profile">
-          <span class="settings-avatar" id="settings-avatar">H</span>
-          <div><strong id="settings-username">Hugo</strong><small id="settings-role">Användare</small></div>
+          <span class="settings-avatar" id="settings-avatar">–</span>
+          <div><strong id="settings-username">–</strong><small id="settings-role">Användare</small></div>
         </div>
       </div>
+
+
+      <!-- DIN FYSIOLOGI — personliga värden som tempon och zoner räknas från.
+           Flyttat hit från Plan (2026-11-28): det är inställningar om dig, inte
+           dagens träning, och alla användare har inte labbtester. -->
+      <section class="settings-section settings-physiology" aria-labelledby="settings-physiology-title">
+        <div class="settings-section-head"><div><span>DIN FYSIOLOGI</span><h3 id="settings-physiology-title">Tester, tempon och zoner</h3></div><p>Underlaget som dina träningstempon räknas från</p></div>
+      <section class="pace-panel lab-panel" id="lab-panel" aria-labelledby="lab-title">
+        <div class="pace-panel-head">
+          <div>
+            <div class="pace-panel-title" id="lab-title">Labbtest</div>
+            <div class="pace-panel-sub" id="lab-sub">Tröskel- och VO2max-test går före klockans uppskattningar.</div>
+          </div>
+        </div>
+        <div id="lab-latest"></div>
+        <details class="lab-form-wrap" id="lab-form-wrap">
+          <summary>Mata in ett testresultat</summary>
+          <form class="lab-form" id="lab-form">
+            <label>Datum<input name="date" type="date" required></label>
+            <label>Puls vid LT1<input name="lt1Hr" type="text" inputmode="numeric" placeholder="t.ex. 158"></label>
+            <label>Fart vid LT1<input name="lt1Pace" type="text" inputmode="decimal" placeholder="4:30 eller 13,3 km/h"></label>
+            <label>Puls vid LT2 (tröskel)<input name="lt2Hr" type="text" inputmode="numeric" placeholder="t.ex. 180"></label>
+            <label>Fart vid LT2<input name="lt2Pace" type="text" inputmode="decimal" placeholder="3:58 eller 15,1 km/h"></label>
+            <label>VO2max<input name="vo2max" type="text" inputmode="numeric" placeholder="ml/kg/min"></label>
+            <label>Maxpuls<input name="maxHr" type="text" inputmode="numeric" placeholder="t.ex. 196"></label>
+            <label class="lab-note">Anteckning<input name="note" type="text" maxlength="300" placeholder="t.ex. löpband 1 % lutning, laktat 2,0 / 4,0"></label>
+            <div class="lab-actions">
+              <button class="pace-btn pace-btn-ok" type="submit">Spara testet</button>
+              <span class="pace-vdot-msg" id="lab-msg" role="status"></span>
+            </div>
+          </form>
+        </details>
+      </section>
+
+      <div class="pace-panel" id="pace-panel" style="display:none;">
+        <div class="pace-panel-head">
+          <div>
+            <div class="pace-panel-title">Måltempon &amp; zoner</div>
+            <div class="pace-panel-sub" id="pace-anchor-sub">Laddar…</div>
+          </div>
+          <button class="refresh-btn pace-generate-btn" id="pace-generate-btn" data-action="pace-generate" type="button">Räkna om måltempon</button>
+        </div>
+        <div id="pace-bands" class="pace-bands"></div>
+        <div id="pace-goal" class="pace-goal" style="display:none;"></div>
+        <details class="pace-vdot" id="pace-vdot" style="display:none;">
+          <summary>Vad är VDOT?</summary>
+          <p id="pace-vdot-about"></p>
+          <form class="pace-vdot-form" id="pace-vdot-form">
+            <label for="pace-vdot-input">Eget VDOT</label>
+            <input id="pace-vdot-input" name="vdot" type="text" inputmode="decimal" placeholder="Automatiskt" autocomplete="off">
+            <button class="pace-btn pace-btn-ok" type="submit">Spara</button>
+            <span class="pace-vdot-msg" id="pace-vdot-msg" role="status"></span>
+          </form>
+        </details>
+        <div id="pace-proposals"></div>
+
+        <details class="pace-calc-wrap" id="pace-calc-wrap">
+          <summary class="pace-calc-toggle">
+            <span class="pace-calc-toggle-title">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>Intervall- &amp; löpbandskalkylator</span>
+            </span>
+            <span class="pace-calc-toggle-hint">Klicka för splittar &amp; km/h</span>
+          </summary>
+          <div class="pace-calc-body">
+            <div class="pace-calc-inputs">
+              <div class="pace-calc-field">
+                <label for="pace-calc-min">Km-tempo</label>
+                <div class="pace-calc-input-group">
+                  <input type="number" id="pace-calc-min" min="2" max="15" value="4" step="1" aria-label="Minuter per km">
+                  <span class="pace-calc-sep">:</span>
+                  <input type="number" id="pace-calc-sec" min="0" max="59" value="00" step="1" aria-label="Sekunder per km">
+                  <span class="pace-calc-unit">/km</span>
+                </div>
+              </div>
+              <div class="pace-calc-field">
+                <label for="pace-calc-speed">Löpbandshastighet</label>
+                <div class="pace-calc-input-group">
+                  <input type="number" id="pace-calc-speed" min="4" max="30" step="0.1" value="15.0" aria-label="Hastighet i km/h">
+                  <span class="pace-calc-unit">km/h</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="pace-calc-results">
+              <div class="pace-calc-block">
+                <div class="pace-calc-block-title">Intervallsplittar</div>
+                <div class="pace-calc-splits">
+                  <div class="pace-split-pill"><span class="split-dist">200m</span><strong class="split-val" id="split-200">0:48</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">400m</span><strong class="split-val" id="split-400">1:36</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">800m</span><strong class="split-val" id="split-800">3:12</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">1000m</span><strong class="split-val" id="split-1000">4:00</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">1500m</span><strong class="split-val" id="split-1500">6:00</strong></div>
+                  <div class="pace-split-pill"><span class="split-dist">2000m</span><strong class="split-val" id="split-2000">8:00</strong></div>
+                </div>
+              </div>
+
+              <div class="pace-calc-block">
+                <div class="pace-calc-block-title">Loppdistanser vid detta tempo</div>
+                <div class="pace-calc-races">
+                  <div class="pace-race-item"><span class="race-name">5 km</span><strong class="race-val" id="race-5k">20:00</strong></div>
+                  <div class="pace-race-item"><span class="race-name">10 km</span><strong class="race-val" id="race-10k">40:00</strong></div>
+                  <div class="pace-race-item"><span class="race-name">Halvmaraton</span><strong class="race-val" id="race-half">1:24:23</strong></div>
+                  <div class="pace-race-item"><span class="race-name">Maraton</span><strong class="race-val" id="race-full">2:48:47</strong></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+      </section>
 
       <section class="settings-section">
         <div class="settings-section-head"><div><span>ANSLUTNINGAR</span><h3>Dina datakällor</h3></div><p id="settings-connection-summary">Kontrollerar status…</p></div>
@@ -1338,6 +1350,7 @@
       <section class="settings-section settings-tools">
         <div class="settings-section-head"><div><span>VERKTYG</span><h3>Genvägar</h3></div><p>Funktioner och underhåll</p></div>
         <div class="settings-link-grid">
+          <button type="button" data-action="open-goal-modal"><span>◎</span><div><strong>Mitt mål</strong><small>Vad du tränar mot och när</small></div><b>→</b></button>
           <button type="button" data-action="refresh-data"><span>↻</span><div><strong>Uppdatera all data</strong><small>Hämta senaste värden och pass</small></div><b>→</b></button>
           <button type="button" data-action="toggle-theme" id="theme-toggle" aria-label="Växla mellan dag- och nattläge"><span id="theme-toggle-icon"></span><div><strong id="theme-toggle-label">Läge</strong><small>Växla mellan dag- och nattläge</small></div><b>→</b></button>
           <button type="button" id="settings-climate-link" data-action="goto" data-page="climate"><span>⌁</span><div><strong>Klimat</strong><small>Hemstyrning och luftkvalitet</small></div><b>→</b></button>
