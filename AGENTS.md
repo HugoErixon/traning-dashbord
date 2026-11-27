@@ -15,6 +15,12 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
 
 ## Where things run
 
+- **Production on g3 runs branch `main`** (unified 2026-11-27; it used to run
+  `redesign/on-prod` with uncommitted changes). Commit and push to `main`.
+- How the whole g3 machine fits together (services, Bryggan, git-vakt backups,
+  agent rules) is documented in `~/G3.md` on g3 (source: `HugoErixon/bryggan-2`
+  `docs/G3.md`). Uncommitted work on g3 is snapshotted to `backup/g3/<branch>`.
+
 - **Local dev clone:** this directory, on the machine `t490` (Tailscale hostname `t490`).
 - **Production:** machine `g3` (Tailscale hostname `g3`, reachable via `ssh g3`), running
   as systemd service `dashboard.service`, local Postgres on the same box.
