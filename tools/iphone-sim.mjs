@@ -83,18 +83,56 @@ async function emulateIphone() {
   }
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   let id = 0;
-  const send = (method, params = {}) => ws.send(JSON.stringify({ id: ++id, method, params }));
-  ws.addEventListener('open', () => {
+  const pending = new Map();
+  const send = (method, params = {}) => new Promise(resolve => {
+    pending.set(++id, resolve);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+  ws.addEventListener('message', event => {
+    const msg = JSON.parse(event.data);
+    if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg.result || {}); pending.delete(msg.id); }
+  });
+  ws.addEventListener('open', async () => {
     send('Network.enable');
     send('Network.setUserAgentOverride', { userAgent: IPHONE_UA, platform: 'iPhone' });
     send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
     send('Emulation.setEmitTouchEventsForMouse', { enabled: true, configuration: 'mobile' });
     send('Page.enable');
-    send('Page.reload', { ignoreCache: true });  // så att appen laddas med iPhone-identiteten
+    await send('Page.reload', { ignoreCache: true });  // så att appen laddas med iPhone-identiteten
+    await fitWindow(send);
   });
   // Emuleringen gäller bara så länge anslutningen lever, så den hålls öppen
   // tills fönstret stängs.
   return new Promise(resolve => ws.addEventListener('close', resolve));
+}
+
+// Fönstret ska vara precis en telefon, så stort som skärmen tillåter. Telefonen
+// med titankant och knappar är 429 × 888 punkter; den skalas ner på små skärmar
+// (t.ex. 1280 × 800) i stället för att klippas.
+const PHONE_W = 429;
+const PHONE_H = 888;
+const TOP_PANEL = 40;  // GNOMEs toppanel – Wayland talar inte om arbetsytan
+
+async function fitWindow(send) {
+  try {
+    const { result } = await send('Runtime.evaluate', {
+      returnByValue: true,
+      expression: '({ah: screen.availHeight, aw: screen.availWidth, dw: outerWidth - innerWidth, dh: outerHeight - innerHeight})',
+    });
+    const s = result.value;
+    const innerH = Math.min(PHONE_H, s.ah - TOP_PANEL - s.dh - 8);
+    const scale = innerH / PHONE_H;
+    const innerW = Math.ceil(PHONE_W * scale);
+    const { windowId } = await send('Browser.getWindowForTarget');
+    // Ett maximerat fönster måste först bli "normal" innan storleken kan sättas;
+    // Chrome minns annars att fönstret var maximerat förra gången.
+    await send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
+    await new Promise(r => setTimeout(r, 300));
+    await send('Browser.setWindowBounds', {
+      windowId,
+      bounds: { width: innerW + s.dw, height: Math.ceil(innerH) + s.dh },
+    });
+  } catch { /* fönstret får behålla sin storlek; telefonen skalas ändå in */ }
 }
 
 // VS Code som snap lägger sina egna (äldre) GNOME-scheman och GTK-sökvägar i
@@ -120,7 +158,7 @@ const chrome = spawn(findChrome(), [
   `--app=${BASE}/__iphone/`,
   `--user-data-dir=${join(CACHE, 'chrome')}`,
   `--remote-debugging-port=${CDP_PORT}`,
-  '--window-size=500,980',
+  '--window-size=360,740',
   '--no-first-run',
   '--no-default-browser-check',
   '--class=TrainyzeIphone',

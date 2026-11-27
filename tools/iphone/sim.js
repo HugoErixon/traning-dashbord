@@ -87,25 +87,41 @@
   // Storlek: "Anpassa" krymper telefonen så att den får plats i fönstret.
   const SCALES = [['fit', 'Anpassa'], ['1', '100 %'], ['0.75', '75 %']];
   const scaleBtn = document.getElementById('btn-scale');
-  let scaleIndex = Math.max(0, SCALES.findIndex(([k]) => k === store.get('sim:scale', 'fit')));
+  // Startar alltid i "Anpassa", så att hela telefonen syns oavsett skärm.
+  let scaleIndex = 0;
   function applyScale() {
     const [key, label] = SCALES[scaleIndex];
     scaleBtn.textContent = label;
     let scale = Number(key);
     if (key === 'fit') {
       const phone = document.getElementById('phone');
-      const w = phone.offsetWidth + 24, h = phone.offsetHeight + 24;
-      scale = Math.min(1, (window.innerWidth) / w, (window.innerHeight - 44) / h);
+      // +12 så att titankanten och sidoknapparna får plats.
+      const w = phone.offsetWidth + 12, h = phone.offsetHeight + 12;
+      scale = Math.min(1, window.innerWidth / w, window.innerHeight / h);
     }
     root.style.setProperty('--scale', scale.toFixed(3));
   }
   scaleBtn.addEventListener('click', () => {
     scaleIndex = (scaleIndex + 1) % SCALES.length;
-    store.set('sim:scale', SCALES[scaleIndex][0]);
     applyScale();
   });
   window.addEventListener('resize', applyScale);
   applyScale();
+
+  // ── Gömt verktygsfält ──────────────────────────────────────────────────
+  // Musen över appen syns inte för den här sidan (den ligger i en iframe), så
+  // en tunn zon i överkanten tänder fältet och det släcks när musen lämnar det.
+  const toolbar = document.getElementById('toolbar');
+  let hideTimer;
+  const showTools = ms => {
+    toolbar.classList.add('show');
+    clearTimeout(hideTimer);
+    if (ms) hideTimer = setTimeout(() => toolbar.classList.remove('show'), ms);
+  };
+  document.getElementById('hotzone').addEventListener('mouseenter', () => showTools(0));
+  toolbar.addEventListener('mouseenter', () => showTools(0));
+  toolbar.addEventListener('mouseleave', () => showTools(600));
+  showTools(2500);  // visa en kort stund vid start, så att man vet att det finns
 
   // ── Läge och automatisk omladdning ─────────────────────────────────────
   const mode = document.getElementById('mode');
