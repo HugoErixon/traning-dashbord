@@ -31,6 +31,33 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   local clone, commits, and pushes. `/deploy` SSHes to g3, pulls, restarts
   `dashboard.service`, and verifies status.
 
+## Two frontends: website and mobile app
+
+Trainyze has two frontends against the **same API** (`garmin_server.py`):
+
+- **Website**: `/` → `public/index.html`, `public/app.js`, `public/styles.css`.
+- **Mobile app (PWA)**: `/app/` → `public/app/` (`index.html`, `app.js`, `app.css`,
+  `manifest.json` with `scope`/`start_url` `/app/`). It is built mobile-first for iPhone and
+  installed via Safari → Share → Add to Home Screen. Views are hash routes: `#idag`, `#plan`,
+  `#coach`, `#halsa`, `#mer`. It shows its own login, so `/app/` is always served; the API
+  enforces auth. It reuses `/sw.js` (scope `/`) for push. Keep it free of inline scripts
+  (CSP `script-src 'self'`, there's a test). Its files count toward `ASSET_VERSION`.
+- Change the app without touching the website, and vice versa. Server decisions (today's
+  verdict, readiness score) come from the API; don't recompute them in either client.
+
+**Developing the frontends on a laptop** (no Postgres/venv needed, only Python 3 + Node):
+
+- `node tools/iphone-sim.mjs` opens the app in an **iPhone 15 Pro simulator** window
+  (393×852, Dynamic Island, safe areas 59/34 pt, touch emulation and iPhone UA via Chrome
+  DevTools Protocol) with live reload on file save. Add `--prod` to use real data.
+- `python3 tools/dev_shell.py` serves `/`, `/app/` and `/__iphone/` on `localhost:3100` with
+  mock data. `--prod` proxies `/api/*` to trainyze.com **read-only** (only login/logout pass;
+  writes return 403 `dev_readonly`); `--prod --skriv` allows writes. `--lan` exposes it to a
+  phone on the same network/Tailscale.
+- VS Code tasks in `.vscode/tasks.json` start both. The simulator strips VS Code's snap paths
+  from the environment before launching Chrome; without that Chrome crashes on a GNOME
+  schema mismatch ("antialiasing").
+
 ## Hard rules / known gotchas
 
 - **`migrate_db.py` is a manual, one-off data-migration tool** — it requires an explicit
