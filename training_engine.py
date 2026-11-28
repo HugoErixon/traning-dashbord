@@ -44,7 +44,7 @@ MIN_EASY_KM_SHORT = 3.0
 STRIDES = '6 × 20 s stegringar, gå tillbaka'
 
 # Puls som andel av tröskelpulsen (Friels löpzoner).
-HR_SHARE = {'E': (0.75, 0.88), 'M': (0.89, 0.93), 'SUBT': (0.92, 0.97), 'T': (0.95, 1.0),
+HR_SHARE = {'E': (0.75, 0.88), 'M': (0.89, 0.93), 'HM': (0.93, 0.98), 'SUBT': (0.92, 0.97), 'T': (0.95, 1.0),
             'I': (1.0, 1.04), 'R': (None, None)}
 
 RESEARCH = [
@@ -66,6 +66,11 @@ RESEARCH = [
      'text': 'Tung styrka förbättrar löpekonomin. Den läggs samma dag som ett kvalitetspass, '
              'så att återhämtningsdagarna förblir lätta.'},
 ]
+
+
+def km_text(value):
+    """Kilometer med svenskt decimalkomma: 2,5 och inte 2.5."""
+    return f'{round(value, 1):g}'.replace('.', ',')
 
 
 def fmt_pace(sec):
@@ -280,9 +285,9 @@ def quality_session(kind, index, weekly_km, zones, distance, lthr=None, goal_zon
 def _set_quality_padding(session, zones, warmup_km, cooldown_km):
     """Håll text, struktur, distans och tid överens när lugna delar kortas."""
     warm, work, cool = session['structure']
-    warm.update(km=warmup_km, text=f'{warmup_km:g} km uppvärmning {pace_text(zones, "E")}'
+    warm.update(km=warmup_km, text=f'{km_text(warmup_km)} km uppvärmning {pace_text(zones, "E")}'
                 + (' + 4 stegringar' if session['zone'] in ('I', 'R', 'HM', 'T') else ''))
-    cool.update(km=cooldown_km, text=f'{cooldown_km:g} km nedjogg')
+    cool.update(km=cooldown_km, text=f'{km_text(cooldown_km)} km nedjogg')
     session['detail'] = ' · '.join(part['text'] for part in session['structure'])
     session['km'] = round(warmup_km + work['km'] + work['restKm'] + cooldown_km, 1)
     # Vilorna räknas som cirka en minut vardera, inte en gång till i E-fart.
@@ -302,7 +307,7 @@ def long_run(km, zones, phase, index, distance, lthr=None, goal_zones=None):
     if phase == 'base' and index % 2 == 1:
         finish = min(3, km)
         finish_pace = (zones['E']['paceSec'] + zones['M']['paceSec']) / 2
-        detail = f'{km:g} km {e}{f" ({hr})" if hr else ""}, de sista {finish:g} km progressivt mot M-fart {pace_text(zones, "M")}'
+        detail = f'{km_text(km)} km {e}{f" ({hr})" if hr else ""}, de sista {km_text(finish)} km progressivt mot M-fart {pace_text(zones, "M")}'
         kind, title = 'long', f'Långpass {km} km progressivt'
     elif finish:
         key, z = _race_zone(zones, distance, goal_zones)
@@ -324,7 +329,7 @@ def easy_run(km, zones, lthr=None, strides=False, recovery=False):
     e = pace_text(zones, 'E')
     hr = hr_text('E', lthr)
     km = round(km, 1)
-    km_txt = f'{km:g}'.replace('.', ',')
+    km_txt = km_text(km)
     detail = f'{km_txt} km {e}{f" ({hr})" if hr else ""}' + (f' · {STRIDES}' if strides else '')
     title = f'{km_txt} km ' + ('återhämtning' if recovery else 'lugnt') + (' + stegringar' if strides else '')
     kind = 'recovery' if recovery else 'easy'

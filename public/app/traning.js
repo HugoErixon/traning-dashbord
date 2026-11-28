@@ -408,7 +408,7 @@
       const rows = ZONE_ORDER.filter(k => zMap[k]).map(k => {
         const z = zMap[k];
         const hrText = z.hr && (z.hr.low != null || z.hr.high != null)
-          ? `${num(z.hr.low)}–${num(z.hr.high)} bpm`
+          ? (z.hr.low == null ? `under ${num(z.hr.high)} bpm` : `${num(z.hr.low)}–${num(z.hr.high)} bpm`)
           : '–';
         return `<div class="tr-zone-row">
           <span class="tr-zone" data-zone="${esc(k)}">${esc(k)}</span>

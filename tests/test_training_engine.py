@@ -154,7 +154,7 @@ class WeekTests(unittest.TestCase):
             self.assertEqual(warm['km'], 2)
             self.assertEqual(cool['km'], 1.5)
             self.assertIn('2 km uppvärmning', warm['text'])
-            self.assertIn('1.5 km nedjogg', cool['text'])
+            self.assertIn('1,5 km nedjogg', cool['text'])
             self.assertEqual(session['detail'], ' · '.join(p['text'] for p in session['structure']))
             self.assertAlmostEqual(session['km'], 3.5 + work['km'] + work['restKm'], delta=0.051)
             self.assertAlmostEqual(session['minutes'], 3.5 * self.zones['E']['paceSec'] / 60

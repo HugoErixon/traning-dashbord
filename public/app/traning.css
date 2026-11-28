@@ -632,3 +632,8 @@
   display: grid;
   gap: 4px;
 }
+
+/* Fem underflikar får inte bryta raden på en telefon: de scrollar i sidled. */
+.subnav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.subnav::-webkit-scrollbar { display: none; }
+.subnav-item { flex: 0 0 auto; white-space: nowrap; }
