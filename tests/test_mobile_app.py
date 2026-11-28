@@ -49,7 +49,8 @@ class MobileAppTests(unittest.TestCase):
         self.assertTrue(res.headers['Location'].endswith('/app/'))
 
     def test_app_assets_are_served(self):
-        for path in ('/app/app.js', '/app/styles.css', '/app/ambient-fibers.js', '/app/manifest.json'):
+        for path in ('/app/app.js', '/app/styles.css', '/app/ambient-fibers.js', '/app/manifest.json',
+                     '/app/runner-profile.js', '/app/runner-profile.css'):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
 

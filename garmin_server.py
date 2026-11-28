@@ -27,6 +27,7 @@ import strava_integration
 import plan_calendar
 import season_plan
 import lab_tests
+import runner_profile
 import niggles
 import strength_program
 import weekly_report
@@ -2814,6 +2815,29 @@ def _goal_prompt_block(user_id, performance=True):
     if performance:
         lines.append(performance)
     return '\n'.join(lines)
+
+
+@app.get('/api/runner-profile')
+def runner_profile_view():
+    try:
+        row = get_cache(runner_profile.CACHE_KEY, uid())
+        profile = runner_profile.normalize(row[0] if row else {})
+        return jsonify(runner_profile.payload(profile))
+    except Exception as exc:
+        return _server_error(exc, 'runner_profile.load_failed', message='Löparprofilen kunde inte läsas.')
+
+
+@app.put('/api/runner-profile')
+def runner_profile_save():
+    try:
+        profile = runner_profile.normalize(request.get_json(silent=True))
+    except ValueError as exc:
+        return _api_error('invalid_runner_profile', str(exc), 400)
+    try:
+        set_cache(runner_profile.CACHE_KEY, profile, uid())
+        return jsonify(runner_profile.payload(profile))
+    except Exception as exc:
+        return _server_error(exc, 'runner_profile.save_failed', message='Löparprofilen kunde inte sparas.')
 
 
 @app.get('/api/goals')
@@ -8362,6 +8386,15 @@ def season_plan_rebuild():
         return _server_error(exc, 'season_plan.rebuild_failed', message='Säsongsplanen kunde inte byggas om.')
 
 
+@app.get('/api/training-paces')
+def training_paces_view():
+    """Deterministic reference paces; never generate or load AI proposals."""
+    try:
+        return jsonify(_pace_context(uid()))
+    except Exception as exc:
+        return _server_error(exc, 'training_paces.failed', message='Beräknade tempon kunde inte läsas.')
+
+
 @app.get('/api/vdot')
 def vdot_view():
     try:
@@ -10955,7 +10988,8 @@ def _asset_version():
     """
     digest = hashlib.sha256()
     for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js',
-                 'app/app.js', 'app/styles.css', 'app/ambient-fibers.js'):
+                 'app/app.js', 'app/styles.css', 'app/ambient-fibers.js',
+                 'app/runner-profile.js', 'app/runner-profile.css'):
         try:
             digest.update((PUBLIC_DIR / name).read_bytes())
         except OSError:

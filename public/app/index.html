@@ -27,6 +27,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=__ASSETV__">
+  <link rel="stylesheet" href="runner-profile.css?v=__ASSETV__">
   <script src="ambient-fibers.js?v=__ASSETV__" defer></script>
 </head>
 <body>
@@ -1175,8 +1176,8 @@
       <div class="settings-hero">
         <div>
           <span class="settings-kicker">DITT TRAINYZE</span>
-          <h2>Profil</h2>
-          <p>Du, dina datakällor och inställningar samlat på ett ställe.</p>
+          <h2>Din löparprofil</h2>
+          <p>Din vardag. Dina mål. Ditt sätt att springa.</p>
         </div>
         <div class="settings-profile">
           <span class="settings-avatar" id="settings-avatar">–</span>
@@ -1185,11 +1186,84 @@
       </div>
 
 
+
+      <section class="rp-overview" aria-label="Din profil i korthet">
+        <div><span>TRÄNINGSDAGAR</span><strong id="rp-days-summary">–</strong></div>
+        <div><span>EGNA ZONER</span><strong id="rp-zones-summary">–</strong></div>
+        <p id="rp-summary">Fyll i det som är relevant för dig. Alla profilfält är frivilliga.</p>
+      </section>
+      <p class="rp-status" id="rp-load-status" role="status">Laddar din löparprofil…</p>
+      <button type="button" class="settings-btn" id="rp-retry" hidden>Försök igen</button>
+      <form id="runner-profile-form" class="rp-form">
+        <fieldset id="rp-fields" disabled>
+          <section class="rp-card" aria-labelledby="rp-about-title">
+            <div class="rp-card-heading"><span>01 / LÖPAREN</span><h3 id="rp-about-title">Vem är du som löpare?</h3><p>Utgångsläget och det som gör löpningen till din.</p></div>
+            <div class="rp-grid">
+              <label>Ditt namn<input name="displayName" maxlength="80" autocomplete="nickname" placeholder="Vad vill du kallas?"></label>
+              <label>Löparbakgrund<select name="experience"><option value="">Välj om du vill</option><option value="new">Ny inom löpning</option><option value="recreational">Motionär</option><option value="experienced">Van löpare</option><option value="competitive">Tävlingsinriktad</option></select></label>
+            </div>
+            <label>Om dig<textarea name="about" rows="3" maxlength="1000" placeholder="Vad gillar du med löpning? Hur länge har du sprungit?"></textarea></label>
+          </section>
+          <section class="rp-card" aria-labelledby="rp-week-title">
+            <div class="rp-card-heading"><span>02 / VARDAGEN</span><h3 id="rp-week-title">Din träningsvecka</h3><p>Välj dagarna du helst springer. Det här är önskemål, inte ett fast schema.</p></div>
+            <fieldset class="rp-day-field"><legend>Jag tränar helst på</legend><div class="rp-days"><label class="rp-day"><input type="checkbox" name="preferredDays" value="0"><span>Mån</span></label>
+                <label class="rp-day"><input type="checkbox" name="preferredDays" value="1"><span>Tis</span></label>
+                <label class="rp-day"><input type="checkbox" name="preferredDays" value="2"><span>Ons</span></label>
+                <label class="rp-day"><input type="checkbox" name="preferredDays" value="3"><span>Tor</span></label>
+                <label class="rp-day"><input type="checkbox" name="preferredDays" value="4"><span>Fre</span></label>
+                <label class="rp-day"><input type="checkbox" name="preferredDays" value="5"><span>Lör</span></label>
+                <label class="rp-day"><input type="checkbox" name="preferredDays" value="6"><span>Sön</span></label></div></fieldset>
+            <div class="rp-grid">
+              <label>Önskade löppass / vecka<input name="sessionsPerWeek" type="number" min="1" max="14" placeholder="t.ex. 4"></label>
+              <label>Helst långpass på<select name="longRunDay"><option value="">Ingen särskild dag</option><option value="0">Måndag</option><option value="1">Tisdag</option><option value="2">Onsdag</option><option value="3">Torsdag</option><option value="4">Fredag</option><option value="5">Lördag</option><option value="6">Söndag</option></select></label>
+              <label>Nuvarande km / vecka<input name="weeklyKm" type="text" inputmode="decimal" placeholder="t.ex. 30"></label>
+            </div>
+            <label>Så får träningen plats<textarea name="trainingNotes" rows="3" maxlength="1000" placeholder="T.ex. korta pass på vardagar, styrka på onsdagar, mer tid på helgen."></textarea></label>
+            <p class="rp-note">Dina önskemål sparas i profilen. Befintliga träningspass flyttas inte när du sparar.</p>
+          </section>
+          <section class="rp-card" aria-labelledby="rp-zone-title">
+            <div class="rp-card-heading"><span>03 / INTENSITETEN</span><h3 id="rp-zone-title">Dina egna zoner</h3><p>Använd värden från ett test, din klocka eller din tränare. Dina inmatningar skrivs inte över av beräknade värden.</p></div>
+            <details class="rp-details"><summary>Pulszoner <span>bpm</span></summary>
+              <div class="rp-grid"><label>Maxpuls, valfritt<input name="maxHr" type="number" min="80" max="250" placeholder="t.ex. 190"></label><label>Vilopuls, valfritt<input name="restingHr" type="number" min="25" max="150" placeholder="t.ex. 50"></label></div>
+              <p class="rp-note">Fyll i alla fem zoner, eller lämna alla tomma. Nästa zon börjar ett slag över den föregående, utan luckor eller överlapp.</p>
+              <div class="rp-zones"><div class="rp-zone-row"><strong>Z1</strong><label><span class="sr-only">Z1 från bpm</span><input name="hrMin0" inputmode="numeric" type="number" min="25" max="250" placeholder="Från"></label><span>–</span><label><span class="sr-only">Z1 till bpm</span><input name="hrMax0" inputmode="numeric" type="number" min="25" max="250" placeholder="Till"></label></div>
+                <div class="rp-zone-row"><strong>Z2</strong><label><span class="sr-only">Z2 från bpm</span><input name="hrMin1" inputmode="numeric" type="number" min="25" max="250" placeholder="Från"></label><span>–</span><label><span class="sr-only">Z2 till bpm</span><input name="hrMax1" inputmode="numeric" type="number" min="25" max="250" placeholder="Till"></label></div>
+                <div class="rp-zone-row"><strong>Z3</strong><label><span class="sr-only">Z3 från bpm</span><input name="hrMin2" inputmode="numeric" type="number" min="25" max="250" placeholder="Från"></label><span>–</span><label><span class="sr-only">Z3 till bpm</span><input name="hrMax2" inputmode="numeric" type="number" min="25" max="250" placeholder="Till"></label></div>
+                <div class="rp-zone-row"><strong>Z4</strong><label><span class="sr-only">Z4 från bpm</span><input name="hrMin3" inputmode="numeric" type="number" min="25" max="250" placeholder="Från"></label><span>–</span><label><span class="sr-only">Z4 till bpm</span><input name="hrMax3" inputmode="numeric" type="number" min="25" max="250" placeholder="Till"></label></div>
+                <div class="rp-zone-row"><strong>Z5</strong><label><span class="sr-only">Z5 från bpm</span><input name="hrMin4" inputmode="numeric" type="number" min="25" max="250" placeholder="Från"></label><span>–</span><label><span class="sr-only">Z5 till bpm</span><input name="hrMax4" inputmode="numeric" type="number" min="25" max="250" placeholder="Till"></label></div></div>
+            </details>
+            <details class="rp-details"><summary>Tempozoner <span>min:sek / km</span></summary>
+              <p class="rp-note">Fyll i de intensiteter du använder. Snabbaste tempo först, långsammaste sist. Lämna båda fälten tomma för att ta bort en egen zon.</p>
+              <div class="rp-zones"><div class="rp-pace-row"><strong>Lugnt / långpass</strong><div><label><span class="sr-only">Lugnt / långpass snabbast min:sek/km</span><input name="paceFast_easy" inputmode="text" placeholder="5:00" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label><span>–</span><label><span class="sr-only">Lugnt / långpass långsammast min:sek/km</span><input name="paceSlow_easy" inputmode="text" placeholder="5:30" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label></div></div>
+                <div class="rp-pace-row"><strong>Stadigt</strong><div><label><span class="sr-only">Stadigt snabbast min:sek/km</span><input name="paceFast_steady" inputmode="text" placeholder="5:00" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label><span>–</span><label><span class="sr-only">Stadigt långsammast min:sek/km</span><input name="paceSlow_steady" inputmode="text" placeholder="5:30" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label></div></div>
+                <div class="rp-pace-row"><strong>Maraton</strong><div><label><span class="sr-only">Maraton snabbast min:sek/km</span><input name="paceFast_marathon" inputmode="text" placeholder="5:00" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label><span>–</span><label><span class="sr-only">Maraton långsammast min:sek/km</span><input name="paceSlow_marathon" inputmode="text" placeholder="5:30" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label></div></div>
+                <div class="rp-pace-row"><strong>Tröskel</strong><div><label><span class="sr-only">Tröskel snabbast min:sek/km</span><input name="paceFast_threshold" inputmode="text" placeholder="5:00" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label><span>–</span><label><span class="sr-only">Tröskel långsammast min:sek/km</span><input name="paceSlow_threshold" inputmode="text" placeholder="5:30" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label></div></div>
+                <div class="rp-pace-row"><strong>Intervall</strong><div><label><span class="sr-only">Intervall snabbast min:sek/km</span><input name="paceFast_interval" inputmode="text" placeholder="5:00" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label><span>–</span><label><span class="sr-only">Intervall långsammast min:sek/km</span><input name="paceSlow_interval" inputmode="text" placeholder="5:30" maxlength="5" pattern="[0-9]{1,2}:[0-5][0-9]"></label></div></div></div>
+            </details>
+            <p class="rp-note">Zonerna sparas här för din profil. Planeringen kopplas till dem i ett kommande steg.</p>
+          </section>
+        </fieldset>
+        <div class="rp-savebar"><p id="rp-save-status" role="status">Dina uppgifter sparas på ditt konto.</p><button type="submit" class="settings-btn primary" id="rp-save" disabled>Spara löparprofil</button></div>
+      </form>
+      <section class="rp-card" aria-labelledby="rp-goal-title">
+        <div class="rp-card-heading"><span>04 / RIKTNINGEN</span><h3 id="rp-goal-title">Det här springer du mot</h3><p>Ett lopp, en tid eller att få till en hållbar vana. Det är ditt mål.</p></div>
+        <form id="rp-goal-form">
+          <fieldset id="rp-goal-fields" disabled>
+            <label>Mitt viktigaste mål<input name="goalTitle" required maxlength="200" placeholder="T.ex. springa milen under 45 minuter"></label>
+            <div class="rp-grid"><label>Måldatum, valfritt<input name="goalDeadline" type="date"></label><label>Nuläge / personbästa<input name="currentBest" maxlength="200" placeholder="T.ex. 10 km på 48:30"></label></div>
+            <label>Andra mål<textarea name="secondaryGoal" rows="2" maxlength="300" placeholder="T.ex. springa tre gånger i veckan och hålla mig skadefri."></textarea></label>
+            <button type="submit" class="settings-btn primary">Spara mitt mål</button>
+          </fieldset>
+          <p class="rp-status" id="rp-goal-status" role="status">Laddar ditt mål…</p>
+          <button type="button" class="settings-btn" id="rp-goal-retry" hidden>Hämta målet igen</button>
+        </form>
+      </section>
+
       <!-- DIN FYSIOLOGI — personliga värden som tempon och zoner räknas från.
            Flyttat hit från Plan (2026-11-28): det är inställningar om dig, inte
            dagens träning, och alla användare har inte labbtester. -->
       <section class="settings-section settings-physiology" aria-labelledby="settings-physiology-title">
-        <div class="settings-section-head"><div><span>DIN FYSIOLOGI</span><h3 id="settings-physiology-title">Tester, tempon och zoner</h3></div><p>Underlaget som dina träningstempon räknas från</p></div>
+        <div class="settings-section-head"><div><span>DIN FYSIOLOGI</span><h3 id="settings-physiology-title">Tester &amp; beräknade referenstempon</h3></div><p>Beräknas med inbyggda formler. Dina egna zoner ovan sparas separat.</p></div>
       <section class="pace-panel lab-panel" id="lab-panel" aria-labelledby="lab-title">
         <div class="pace-panel-head">
           <div>
@@ -1220,10 +1294,10 @@
       <div class="pace-panel" id="pace-panel" style="display:none;">
         <div class="pace-panel-head">
           <div>
-            <div class="pace-panel-title">Måltempon &amp; zoner</div>
+            <div class="pace-panel-title">Beräknade referenstempon</div>
             <div class="pace-panel-sub" id="pace-anchor-sub">Laddar…</div>
           </div>
-          <button class="refresh-btn pace-generate-btn" id="pace-generate-btn" data-action="pace-generate" type="button">Räkna om måltempon</button>
+
         </div>
         <div id="pace-bands" class="pace-bands"></div>
         <div id="pace-goal" class="pace-goal" style="display:none;"></div>
@@ -1237,8 +1311,13 @@
             <span class="pace-vdot-msg" id="pace-vdot-msg" role="status"></span>
           </form>
         </details>
-        <div id="pace-proposals"></div>
+        <p class="rp-note">Referensvärden från din sparade löpform, utan AI. De ersätter inte dina egna zoner ovan.</p>
 
+
+      </div>
+      </section>
+
+      <section class="rp-card">
         <details class="pace-calc-wrap" id="pace-calc-wrap">
           <summary class="pace-calc-toggle">
             <span class="pace-calc-toggle-title">
@@ -1292,7 +1371,6 @@
             </div>
           </div>
         </details>
-      </div>
       </section>
 
       <section class="settings-section">
@@ -1350,7 +1428,7 @@
       <section class="settings-section settings-tools">
         <div class="settings-section-head"><div><span>VERKTYG</span><h3>Genvägar</h3></div><p>Funktioner och underhåll</p></div>
         <div class="settings-link-grid">
-          <button type="button" data-action="open-goal-modal"><span>◎</span><div><strong>Mitt mål</strong><small>Vad du tränar mot och när</small></div><b>→</b></button>
+          <button type="button" id="rp-goal-shortcut"><span>◎</span><div><strong>Mitt mål</strong><small>Vad du tränar mot och när</small></div><b>→</b></button>
           <button type="button" data-action="refresh-data"><span>↻</span><div><strong>Uppdatera all data</strong><small>Hämta senaste värden och pass</small></div><b>→</b></button>
           <button type="button" data-action="toggle-theme" id="theme-toggle" aria-label="Växla mellan dag- och nattläge"><span id="theme-toggle-icon"></span><div><strong id="theme-toggle-label">Läge</strong><small>Växla mellan dag- och nattläge</small></div><b>→</b></button>
           <button type="button" id="settings-climate-link" data-action="goto" data-page="climate"><span>⌁</span><div><strong>Klimat</strong><small>Hemstyrning och luftkvalitet</small></div><b>→</b></button>
@@ -1387,5 +1465,6 @@
 </div>
 
 <script src="app.js?v=__ASSETV__"></script>
+<script src="runner-profile.js?v=__ASSETV__"></script>
 </body>
 </html>

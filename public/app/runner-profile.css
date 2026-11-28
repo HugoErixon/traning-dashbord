@@ -1,0 +1,49 @@
+/* === Codex: Profil — löparprofil === */
+#page-settings .rp-overview { display:grid; grid-template-columns:1fr 1fr; gap:20px; padding:24px; margin-bottom:20px; border:1px solid var(--border2); border-radius:20px; background:var(--bg2); }
+.rp-overview div { display:grid; gap:8px; }
+.rp-overview div > span, .rp-card-heading > span { font-size:10px; font-weight:700; letter-spacing:.12em; color:var(--muted); }
+.rp-overview strong { font-size:24px; letter-spacing:-.04em; }
+.rp-overview p { grid-column:1/-1; margin:0; font-size:13px; line-height:1.6; color:var(--muted); }
+#page-settings .rp-card { margin:0 0 18px; padding:24px; background:var(--bg2); border:1px solid var(--border2); border-radius:20px; }
+.rp-card-heading { margin-bottom:20px; }
+.rp-card-heading h3 { margin:8px 0; font-size:21px; letter-spacing:-.04em; }
+.rp-card-heading p, .rp-note { font-size:13px; line-height:1.65; color:var(--muted); }
+.rp-card-heading p { margin:0; }
+.rp-form fieldset, #rp-goal-form fieldset { min-width:0; border:0; margin:0; padding:0; }
+#page-settings .rp-card label { display:grid; gap:8px; margin:0 0 16px; font-size:13px; font-weight:600; min-width:0; }
+#page-settings .rp-card :is(input,select,textarea) { box-sizing:border-box; width:100%; min-width:0; min-height:46px; padding:11px 12px; border:1px solid var(--border2); border-radius:10px; background:var(--bg); color:var(--text); font:inherit; font-size:16px; }
+#page-settings .rp-card textarea { resize:vertical; line-height:1.5; }
+#page-settings .rp-card :is(input,select,textarea):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.rp-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+.rp-day-field legend { font-size:13px; font-weight:600; margin-bottom:12px; }
+.rp-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:7px; margin-bottom:6px; }
+#page-settings .rp-card .rp-day { position:relative; display:block; text-align:center; }
+#page-settings .rp-day input { position:absolute; opacity:0; inset:0; margin:0; cursor:pointer; }
+.rp-day span { display:grid; place-items:center; min-height:46px; border:1px solid var(--border2); border-radius:10px; font-size:12px; }
+.rp-day input:checked + span { background:var(--accent); color:var(--bg); border-color:var(--accent); font-weight:800; }
+.rp-day input:focus-visible + span { outline:2px solid var(--accent); outline-offset:3px; }
+.rp-details { border-top:1px solid var(--border2); padding:16px 0 4px; }
+.rp-details summary { cursor:pointer; font-size:15px; font-weight:700; min-height:40px; }
+.rp-details summary span { float:right; font-size:11px; font-weight:500; color:var(--muted); }
+.rp-zone-row { display:grid; grid-template-columns:32px minmax(0,1fr) 10px minmax(0,1fr); align-items:center; gap:10px; margin-bottom:10px; }
+#page-settings .rp-zone-row label, #page-settings .rp-pace-row label { margin:0; }
+.rp-zone-row > strong { font-size:13px; color:var(--accent); }
+.rp-pace-row { margin-bottom:16px; }
+.rp-pace-row > strong { display:block; font-size:13px; margin-bottom:8px; }
+.rp-pace-row > div { display:grid; grid-template-columns:minmax(0,1fr) 10px minmax(0,1fr); gap:10px; align-items:center; }
+.rp-savebar { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:16px 0 24px; }
+.rp-savebar p, .rp-status { font-size:13px; line-height:1.6; color:var(--muted); }
+.rp-savebar button { flex-shrink:0; min-height:46px; }
+.rp-savebar [data-error="true"] { color:var(--red); }
+.rp-status:empty { display:none; }
+#rp-fields:disabled { opacity:.6; }
+@media(max-width:520px) {
+  #page-settings .rp-card { padding:18px; border-radius:16px; }
+  #page-settings .rp-overview { padding:20px; border-radius:16px; }
+  .rp-grid { grid-template-columns:1fr; }
+  .rp-days { gap:4px; }
+  .rp-day span { font-size:11px; min-height:44px; }
+  .rp-savebar { flex-direction:column; align-items:stretch; gap:8px; }
+  .rp-savebar p { margin:0; }
+  .rp-overview strong { font-size:21px; }
+}

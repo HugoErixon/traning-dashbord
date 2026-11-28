@@ -32,6 +32,7 @@ import json
 import mimetypes
 import random
 import ssl
+import sys
 import time
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +40,14 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+import runner_profile
+import vdot
+
+MOCK_RUNNER_PROFILE = runner_profile.normalize({})
+MOCK_GOAL = {'goal_title': 'Mitt första 10 km-lopp', 'goal_deadline': None,
+             'current_best': None, 'secondary_goal': None, 'start_date': None}
+MOCK_VDOT = None
 PUBLIC = ROOT / 'public'
 IPHONE = Path(__file__).resolve().parent / 'iphone'
 PROD_HOST = 'trainyze.com'
@@ -159,7 +168,10 @@ MOCK_GET = {
     '/api/session': lambda: {'authenticated': True, 'username': 'demo', 'userId': 2, 'isAdmin': False,
                              'garminConnected': True, 'stravaConfigured': False, 'stravaConnected': False,
                              'stravaAthlete': None, 'csrfToken': 'dev'},
-    '/api/goals': lambda: {'goal': {'goal': 'Milen under 45 min', 'deadline': None, 'current': None, 'secondary': None}},
+    '/api/goals': lambda: {'goal': MOCK_GOAL},
+    '/api/runner-profile': lambda: runner_profile.payload(MOCK_RUNNER_PROFILE),
+    '/api/training-paces': lambda: {'anchor': {}, 'bands': {}, 'vdot': vdot.current(manual=MOCK_VDOT)},
+    '/api/vdot': lambda: vdot.current(manual=MOCK_VDOT),
     '/api/today': mock_today,
     '/api/health': mock_health,
     '/api/health/spark': lambda: {'sleep': [74, 80, 68, 85, 79, 77, 82], 'hrv': [55, 58, 61, 57, 60, 59, 62],
@@ -250,6 +262,7 @@ class Handler(BaseHTTPRequestHandler):
         self._route()
 
     def do_POST(self):
+        global MOCK_RUNNER_PROFILE, MOCK_GOAL, MOCK_VDOT
         path = urlparse(self.path).path
         if not path.startswith('/api/'):
             return self._send(405, b'Method Not Allowed', 'text/plain')
@@ -260,6 +273,33 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length) or b'{}') if length else {}
         except ValueError:
             body = {}
+        if path == '/api/vdot' and self.command == 'PUT':
+            try:
+                raw = body.get('vdot')
+                value = None if raw in (None, '') else float(str(raw).replace(',', '.'))
+                if value is not None and not vdot.MIN_VDOT <= value <= vdot.MAX_VDOT:
+                    raise ValueError()
+            except (ValueError, TypeError):
+                return self._json({'message': 'VDOT måste vara mellan 25 och 85.'}, status=400)
+            MOCK_VDOT = value
+            return self._json(vdot.current(manual=MOCK_VDOT))
+        if path == '/api/runner-profile':
+            if self.command != 'PUT':
+                return self._json({'error': 'Method Not Allowed'}, status=405)
+            try:
+                MOCK_RUNNER_PROFILE = runner_profile.normalize(body)
+            except ValueError as exc:
+                return self._json({'message': str(exc)}, status=400)
+            return self._json(runner_profile.payload(MOCK_RUNNER_PROFILE))
+        if path == '/api/goals' and self.command == 'PUT':
+            title = str(body.get('goalTitle') or '').strip()
+            if not title or len(title) > 200:
+                return self._json({'message': 'Skriv ett mål på max 200 tecken.'}, status=400)
+            MOCK_GOAL = {'goal_title': title, 'goal_deadline': body.get('goalDeadline') or None,
+                         'current_best': body.get('currentBest') or None,
+                         'secondary_goal': body.get('secondaryGoal') or None,
+                         'start_date': date.today().isoformat()}
+            return self._json({'ok': True, 'goal': MOCK_GOAL})
         if path == '/api/assistant':
             time.sleep(1.2)
             return self._json({'reply': random.choice(COACH_REPLIES)})
