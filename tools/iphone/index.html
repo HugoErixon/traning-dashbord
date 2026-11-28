@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trainyze – iPhone 15 Pro</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/__iphone/sim.css">
+</head>
+<body>
+  <div class="hotzone" id="hotzone"></div>
+  <header class="toolbar" id="toolbar">
+    <span class="mode" id="mode">…</span>
+    <div class="tools">
+      <button type="button" id="btn-home" title="Till Idag">Hem</button>
+      <button type="button" id="btn-reload" title="Ladda om appen (Ctrl+R)">⟳</button>
+      <button type="button" id="btn-theme" title="Byt tema">Auto</button>
+      <button type="button" id="btn-scale" title="Storlek">Anpassa</button>
+      <a href="/app/" target="_blank" rel="noopener" title="Öppna appen i en vanlig flik">↗</a>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="phone" id="phone">
+      <span class="btn btn-action"></span>
+      <span class="btn btn-vol-up"></span>
+      <span class="btn btn-vol-down"></span>
+      <span class="btn btn-power"></span>
+      <div class="screen">
+        <iframe id="app" title="Trainyze-appen" src="about:blank"></iframe>
+        <div class="overlay" aria-hidden="true">
+          <div class="statusbar">
+            <span class="time" id="clock">9:41</span>
+            <span class="icons">
+              <svg viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+              <svg viewBox="0 0 16 12"><path d="M8 2.2c2.3 0 4.4.9 6 2.4l1.3-1.4A10.4 10.4 0 0 0 8 .3 10.4 10.4 0 0 0 .7 3.2L2 4.6a8.5 8.5 0 0 1 6-2.4zm0 3.8c1.3 0 2.5.5 3.4 1.3l1.3-1.4A7 7 0 0 0 8 4.1a7 7 0 0 0-4.7 1.8l1.3 1.4A5 5 0 0 1 8 6zm0 3.8L10 7.7a3 3 0 0 0-4 0z"/></svg>
+              <span class="battery"><span class="level"></span></span>
+            </span>
+          </div>
+          <div class="island"></div>
+          <div class="home-indicator"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/__iphone/sim.js"></script>
+</body>
+</html>

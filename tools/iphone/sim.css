@@ -1,0 +1,189 @@
+/* iPhone 15 Pro: 393 × 852 punkter, hörnradie ~55 pt, Dynamic Island 126 × 37. */
+:root {
+  --screen-w: 393px;
+  --screen-h: 852px;
+  --bezel: 12px;
+  --scale: 1;
+  --status-ink: #fff;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font: 13px/1.3 -apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif;
+  color: #c9d1dc;
+}
+
+/* Verktygsfältet ligger gömt ovanpå telefonen och visas när musen når
+   fönstrets överkant (se .hotzone), så att fönstret bara är en telefon. */
+.hotzone { position: fixed; inset: 0 0 auto 0; height: 18px; z-index: 6; }
+.toolbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 44px;
+  display: flex;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(12px);
+  opacity: 0;
+  transform: translateY(-100%);
+  transition: opacity 0.18s, transform 0.18s;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  z-index: 7;
+}
+.toolbar.show { opacity: 1; transform: none; }
+.mode {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mode.prod { background: rgba(46, 211, 167, 0.18); color: #6ff0c9; }
+.mode.write { background: rgba(255, 126, 134, 0.2); color: #ff9ca2; }
+.tools { display: flex; gap: 6px; }
+.tools button, .tools a {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+}
+.tools button:hover, .tools a:hover { background: rgba(255, 255, 255, 0.12); }
+
+.stage {
+  position: fixed;
+  inset: 0;
+}
+
+.phone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--screen-w) + 2 * var(--bezel));
+  height: calc(var(--screen-h) + 2 * var(--bezel));
+  padding: var(--bezel);
+  border-radius: 67px;
+  /* Naturlig titan: tunn metallkant runt en svart glasram. */
+  background: #050506;
+  box-shadow:
+    0 0 0 2px #6e6b66,
+    0 0 0 3.5px #a8a49c,
+    0 0 0 5px #4a4844;
+  transform: translate(-50%, -50%) scale(var(--scale));
+  transform-origin: center center;
+  flex: none;
+}
+
+.btn {
+  position: absolute;
+  width: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #5d5a55, #a8a49c);
+}
+.btn-action { left: -9px; top: 148px; height: 32px; }
+.btn-vol-up { left: -9px; top: 210px; height: 62px; }
+.btn-vol-down { left: -9px; top: 286px; height: 62px; }
+.btn-power { right: -9px; top: 240px; height: 96px; background: linear-gradient(270deg, #5d5a55, #a8a49c); }
+
+.screen {
+  position: relative;
+  width: var(--screen-w);
+  height: var(--screen-h);
+  border-radius: 55px;
+  overflow: hidden;
+  background: #000;
+  isolation: isolate;
+}
+.screen iframe {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--status-bg, #0A1220);
+}
+/* Webbapp utan viewport-fit=cover: iOS lägger innehållet under statusfältet
+   och fyller statusfältet med appens theme-color. */
+.screen::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--status-bar, 59px);
+  background: var(--status-bg, #0A1220);
+}
+.screen.inset iframe {
+  top: var(--status-bar, 59px);
+  height: calc(100% - var(--status-bar, 59px));
+}
+
+.overlay { position: absolute; inset: 0; pointer-events: none; color: var(--status-ink); }
+.statusbar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 34px 0 52px;
+}
+.time { font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+.icons { display: flex; align-items: center; gap: 6px; }
+.icons svg { height: 12px; width: auto; fill: currentColor; }
+.battery {
+  position: relative;
+  width: 25px;
+  height: 12px;
+  border: 1.2px solid currentColor;
+  border-radius: 4px;
+  opacity: 0.95;
+}
+.battery::after {
+  content: "";
+  position: absolute;
+  right: -3.5px;
+  top: 3.5px;
+  width: 1.6px;
+  height: 4px;
+  border-radius: 0 1px 1px 0;
+  background: currentColor;
+  opacity: 0.5;
+}
+.battery .level { position: absolute; inset: 1.5px; width: 72%; border-radius: 2px; background: currentColor; }
+.island {
+  position: absolute;
+  top: 11px;
+  left: 50%;
+  width: 126px;
+  height: 37px;
+  transform: translateX(-50%);
+  border-radius: 20px;
+  background: #000;
+}
+.home-indicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  width: 134px;
+  height: 5px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: currentColor;
+  opacity: 0.9;
+}

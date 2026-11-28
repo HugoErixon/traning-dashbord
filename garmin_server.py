@@ -26,7 +26,10 @@ import re
 import strava_integration
 import plan_calendar
 import season_plan
+import training_engine
+import training_load as load_model
 import lab_tests
+import runner_profile
 import niggles
 import strength_program
 import weekly_report
@@ -141,6 +144,11 @@ logger.propagate = False
 
 config = {**dotenv_values('.env'), **os.environ}
 APP_TESTING = _as_bool(config.get('APP_TESTING'))
+# Bakgrundsjobben (Garmin-synk, notiser, veckorapport, MQTT-sensorer, historik
+# vid start) får bara köras av EN server per databas. En testinstans mot samma
+# databas, t.ex. mobilappens beta på G3, sätter BACKGROUND_JOBS=false; annars
+# skulle varje synk och morgonnotis ske två gånger.
+BACKGROUND_JOBS = not APP_TESTING and _as_bool(config.get('BACKGROUND_JOBS', 'true'))
 SESSION_SECRET = str(config.get('SESSION_SECRET') or '').strip()
 if not SESSION_SECRET and APP_TESTING:
     SESSION_SECRET = 'test-session-secret-not-for-production'
@@ -1251,6 +1259,11 @@ def migrate_db():
                     last_ok REAL)''')
                 cur.execute('''CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
                     ON push_subscriptions (user_id)''')
+                # 'web' = webbsidan på /, 'app' = mobilappen på /app/. En notis
+                # måste öppna samma app som prenumererade, annars hamnar man i
+                # Safari i stället för i hemskärmsappen.
+                cur.execute('''ALTER TABLE push_subscriptions
+                    ADD COLUMN IF NOT EXISTS client TEXT NOT NULL DEFAULT 'web' ''')
             except Exception as e:
                 print('migrate_db push_subscriptions:', e)
             try:
@@ -1467,7 +1480,7 @@ def purge_old_sensor_readings():
         logger.exception('Could not purge sensor readings', extra={'event': 'climate.purge_failed'})
 
 
-if not APP_TESTING:
+if BACKGROUND_JOBS:
     start_mqtt_listener()
 
 # --- Användarlager ---
@@ -1728,6 +1741,8 @@ def secure_response(response):
     elif request.path in (
         '/', '/index.html', '/landing.html', '/app.js', '/styles.css',
         '/landing.css', '/landing.js', '/ambient-fibers.js',
+        # Service workers: en cachad gammal version kan styra notiserna i ett dygn.
+        '/sw.js', '/app/sw.js',
     ):
         response.headers['Cache-Control'] = 'no-cache'
     if ENABLE_HSTS:
@@ -2814,6 +2829,29 @@ def _goal_prompt_block(user_id, performance=True):
     if performance:
         lines.append(performance)
     return '\n'.join(lines)
+
+
+@app.get('/api/runner-profile')
+def runner_profile_view():
+    try:
+        row = get_cache(runner_profile.CACHE_KEY, uid())
+        profile = runner_profile.normalize(row[0] if row else {})
+        return jsonify(runner_profile.payload(profile))
+    except Exception as exc:
+        return _server_error(exc, 'runner_profile.load_failed', message='Löparprofilen kunde inte läsas.')
+
+
+@app.put('/api/runner-profile')
+def runner_profile_save():
+    try:
+        profile = runner_profile.normalize(request.get_json(silent=True))
+    except ValueError as exc:
+        return _api_error('invalid_runner_profile', str(exc), 400)
+    try:
+        set_cache(runner_profile.CACHE_KEY, profile, uid())
+        return jsonify(runner_profile.payload(profile))
+    except Exception as exc:
+        return _server_error(exc, 'runner_profile.save_failed', message='Löparprofilen kunde inte sparas.')
 
 
 @app.get('/api/goals')
@@ -3993,6 +4031,19 @@ def _forget_subscription(endpoint):
         print('push: kunde inte rensa prenumeration:', exc)
 
 
+def push_url_for(client, url):
+    """Länken en notis ska öppna på en viss klient.
+
+    Webbsidans länkar ('/', '/?activity=…') pekas om till mobilappen ('/app/',
+    '/app/?activity=…') för enheter som prenumererat från appen. iPhone öppnar
+    en länk utanför hemskärmsappens scope i Safari, så det här är skillnaden
+    mellan att landa i appen och att landa på fel ställe."""
+    url = url or '/'
+    if client == 'app' and url.startswith('/') and not url.startswith('/app/'):
+        return '/app' + url
+    return url
+
+
 def send_push(user_id, title, body, url='/', tag='trainyze'):
     """Skicka en notis till alla enheter en användare registrerat.
 
@@ -4004,16 +4055,19 @@ def send_push(user_id, title, body, url='/', tag='trainyze'):
     try:
         with db() as conn:
             with conn.cursor() as cur:
-                cur.execute('''SELECT endpoint, p256dh, auth FROM push_subscriptions
+                cur.execute('''SELECT endpoint, p256dh, auth, client FROM push_subscriptions
                     WHERE user_id=%s''', (user_id,))
                 rows = cur.fetchall()
     except Exception as exc:
         print('push: kunde inte läsa prenumerationer:', exc)
         return 0
 
-    payload = json.dumps({'title': title, 'body': body, 'url': url, 'tag': tag})
     sent = 0
-    for endpoint, p256dh, auth in rows:
+    for row in rows:
+        endpoint, p256dh, auth = row[:3]
+        client = row[3] if len(row) > 3 else 'web'
+        payload = json.dumps({'title': title, 'body': body,
+                              'url': push_url_for(client, url), 'tag': tag})
         try:
             webpush(
                 subscription_info={'endpoint': endpoint,
@@ -4059,6 +4113,7 @@ def push_subscribe():
     endpoint = data.get('endpoint')
     keys = data.get('keys') or {}
     p256dh, auth = keys.get('p256dh'), keys.get('auth')
+    client = 'app' if data.get('client') == 'app' else 'web'
     if not endpoint or not p256dh or not auth:
         return _api_error('invalid_subscription', 'Prenumerationen saknar nycklar.', 400)
     try:
@@ -4067,12 +4122,12 @@ def push_subscribe():
                 # Samma enhet kan prenumerera om efter en omregistrering; då ska
                 # raden bytas ut, och byter användare på enheten ska den följa med.
                 cur.execute('''INSERT INTO push_subscriptions
-                        (endpoint, user_id, p256dh, auth, created_at)
-                    VALUES (%s, %s, %s, %s, %s)
+                        (endpoint, user_id, p256dh, auth, created_at, client)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (endpoint) DO UPDATE SET
                         user_id=EXCLUDED.user_id, p256dh=EXCLUDED.p256dh,
-                        auth=EXCLUDED.auth''',
-                    (endpoint, uid(), p256dh, auth, time.time()))
+                        auth=EXCLUDED.auth, client=EXCLUDED.client''',
+                    (endpoint, uid(), p256dh, auth, time.time(), client))
             conn.commit()
     except Exception as exc:
         return _server_error(exc, 'push.subscribe_failed',
@@ -4119,7 +4174,8 @@ def push_test():
     """Skicka en testnotis så att uppsättningen går att verifiera på riktigt."""
     if not push_available():
         return _api_error('push_not_configured', 'Notiser är inte konfigurerade på servern.', 503)
-    sent = send_push(uid(), 'Trainyze', 'Testnotis — notiser fungerar.', url='/')
+    sent = send_push(uid(), 'Trainyze', 'Testnotis — notiser fungerar.', url='/?vy=morgon',
+                     tag='push-test')
     if not sent:
         return _api_error('no_devices',
                           'Ingen enhet tog emot notisen. Aktivera notiser på enheten först.', 404)
@@ -8362,6 +8418,296 @@ def season_plan_rebuild():
         return _server_error(exc, 'season_plan.rebuild_failed', message='Säsongsplanen kunde inte byggas om.')
 
 
+# Regelbaserad planmotor och fysiologi. Alla underlag är lokalt sparade;
+# inga LLM-anrop eller hämtningar från Garmin/Strava görs här.
+_TRAINING_VDOT_REASON = 'VDOT behövs för att räkna träningstempon (Profil → Din fysiologi).'
+_TRAINING_SEASON_REASON = 'Sätt ett mållopp med datum (Översikt → Ändra mål) så byggs säsongsplanen.'
+
+
+def _training_activities(user_id, since, today):
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT date, type, raw FROM activities
+                WHERE user_id=%s AND date >= %s AND date < %s ORDER BY date''',
+                        (user_id, since.isoformat(), (today + timedelta(days=1)).isoformat()))
+            return [dict(row) for row in cur.fetchall()]
+
+
+def _training_lthr(user_id, today):
+    value = _threshold_hr(user_id)
+    if value:
+        return {'value': value, 'source': _manual_lthr_source(user_id)}
+    value = _latest_lactate_hr(user_id)
+    if value:
+        return {'value': value, 'source': 'garmin'}
+    estimate = race_predictor.estimate_lthr(
+        _training_activities(user_id, today - timedelta(days=180), today), today)
+    return {'value': estimate['lthr'] if estimate else None,
+            'source': 'estimated' if estimate else None}
+
+
+def _training_profile(user_id):
+    row = get_cache(runner_profile.CACHE_KEY, user_id)
+    try:
+        return runner_profile.normalize(row[0] if row and isinstance(row[0], dict) else {})
+    except ValueError:
+        # En gammal eller trasig sparad profil får inte stoppa planen.
+        return runner_profile.normalize({})
+
+
+def _training_options(data, maximum=4, default=4):
+    if not isinstance(data, dict) and not hasattr(data, 'get'):
+        raise ValueError('Ange ett JSON-objekt med weeks och from.')
+    value = data.get('weeks', default)
+    if isinstance(value, bool) or not re.fullmatch(r'[0-9]+', str(value)):
+        raise ValueError(f'weeks måste vara ett heltal mellan 1 och {maximum}.')
+    count = int(value)
+    if not 1 <= count <= maximum:
+        raise ValueError(f'weeks måste vara ett heltal mellan 1 och {maximum}.')
+    start = data.get('from', 'next')
+    if start not in ('next', 'current'):
+        raise ValueError('from måste vara next eller current.')
+    return count, start
+
+
+def _training_preview(user_id, count, start, today):
+    frames, meta = _season_weeks(user_id)
+    if not frames:
+        return {'available': False, 'reason': _TRAINING_SEASON_REASON}
+    profile = _training_profile(user_id)
+    info = _pace_context(user_id).get('vdot') or {}
+    zones = info.get('paces')
+    if not zones:
+        return {'available': False, 'reason': _TRAINING_VDOT_REASON}
+    lthr = _training_lthr(user_id, today)
+    target = meta['target']
+    distance, race_day = target['distance'], target['raceDate']
+    label = meta.get('raceName') or season_plan.RACE_LABELS[distance]
+    current = plan_calendar.plan_week(today)
+    first = current + (start == 'next')
+    phase_counts, phase_indices, selected = {}, {}, []
+    for frame in frames:
+        phase = frame['phase']
+        phase_counts[phase] = phase_counts.get(phase, 0) + 1
+    for frame in sorted(frames, key=lambda frame: frame['week']):
+        phase, week = frame['phase'], frame['week']
+        index = phase_indices.get(phase, 0)
+        phase_indices[phase] = index + 1
+        if not first <= week < first + count:
+            continue
+        frame = {**frame, 'indexInPhase': index}
+        from_dow = today.weekday() if week == current else 0
+        goal_zones = (info.get('goal') or {}).get('paces') if phase in ('sharpen', 'taper', 'race') else None
+        built = training_engine.build_week(frame, zones, profile, distance, lthr['value'],
+                                            goal_zones, from_dow, race_day.weekday(), label)
+        monday = plan_calendar.plan_monday(week)
+        sessions = [{**s, 'date': (monday + timedelta(days=s['dow'])).isoformat()}
+                    for s in built['sessions']]
+        selected.append({
+            'week': week, 'isoWeek': plan_calendar.iso_week_label(week), 'monday': monday.isoformat(),
+            'phase': phase, 'phaseLabel': frame['phaseLabel'], 'aim': frame['aim'],
+            'indexInPhase': index, 'phaseWeeks': phase_counts[phase], 'phaseWeekNumber': index + 1,
+            'recovery': frame.get('recovery', False), 'targetKm': frame['targetKm'],
+            'longRunKm': frame['longRunKm'], 'sessions': sessions,
+            'summary': built['summary'], 'checks': built['checks'],
+            'existing': {'planned': 0, 'kept': 0},
+        })
+    if not selected:
+        return {'available': False, 'reason': 'Säsongsplanen har inga veckor i det valda intervallet.'}
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT week, status, COUNT(*) FROM plan_sessions
+                WHERE user_id=%s AND week = ANY(%s) GROUP BY week, status''',
+                        (user_id, [w['week'] for w in selected]))
+            counts = cur.fetchall()
+    by_week = {w['week']: w for w in selected}
+    for week, status, total in counts:
+        if status == 'planned':
+            by_week[week]['existing']['planned'] += total
+        elif status in ('completed', 'missed', 'skipped'):
+            by_week[week]['existing']['kept'] += total
+    return {
+        'available': True,
+        'race': {'date': race_day.isoformat(), 'distance': distance, 'label': label,
+                 'daysLeft': (race_day - today).days, 'goalSeconds': target.get('seconds')},
+        'vdot': info.get('vdot'), 'lthr': lthr,
+        'profile': {'experience': profile['experience'], 'days': profile['preferredDays'],
+                    'longRunDay': profile['longRunDay'], 'sessionsPerWeek': profile['sessionsPerWeek']},
+        'from': start, 'weeks': selected,
+    }
+
+
+@app.get('/api/training-plan/preview')
+def training_plan_preview():
+    try:
+        count, start = _training_options(request.args)
+    except ValueError as exc:
+        return _api_error('invalid_training_options', str(exc), 400)
+    try:
+        return jsonify(_training_preview(uid(), count, start, datetime.now(LOCAL_TZ).date()))
+    except Exception as exc:
+        return _server_error(exc, 'training_plan.preview_failed', message='Planen kunde inte räknas.')
+
+
+@app.post('/api/training-plan/apply')
+def training_plan_apply():
+    data = request.get_json(silent=True)
+    try:
+        count, start = _training_options({} if data is None else data)
+    except ValueError as exc:
+        return _api_error('invalid_training_options', str(exc), 400)
+    try:
+        user_id, today = uid(), datetime.now(LOCAL_TZ).date()
+        preview = _training_preview(user_id, count, start, today)
+        if not preview['available']:
+            return jsonify(preview), 400
+        current = plan_calendar.plan_week(today)
+        applied = removed = 0
+        # One transaction for all weeks: a failed insert rolls back every deletion.
+        with db() as conn:
+            with conn.cursor() as cur:
+                for week in preview['weeks']:
+                    number = week['week']
+                    start_day = today.weekday() if number == current else 0
+                    cur.execute('''SELECT dow, type FROM plan_sessions
+                        WHERE user_id=%s AND week=%s AND status='completed' ''', (user_id, number))
+                    completed = set(cur.fetchall())
+                    cur.execute('''DELETE FROM plan_sessions
+                        WHERE user_id=%s AND week=%s AND status='planned' AND dow >= %s''',
+                                (user_id, number, start_day))
+                    removed += cur.rowcount
+                    for s in week['sessions']:
+                        if s['dow'] < start_day or (s['dow'], s['type']) in completed:
+                            continue
+                        cur.execute('''INSERT INTO plan_sessions
+                            (user_id, week, dow, type, km, title, detail, status, ai_note, modified_at)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,'planned',%s,%s)''',
+                                    (user_id, number, s['dow'], s['type'], s['km'], s['title'],
+                                     s['detail'] + ' · Syfte: ' + s['purpose'],
+                                     'Trainyze planmotor', time.time()))
+                        applied += 1
+        numbers = [w['week'] for w in preview['weeks']]
+        logger.info('Rule-based training plan applied', extra={
+            'event': 'training_plan.applied', 'user_id': user_id, 'weeks': numbers,
+            'applied': applied, 'removed': removed, 'from': start})
+        return jsonify({'applied': applied, 'removed': removed, 'weeks': numbers})
+    except Exception as exc:
+        return _server_error(exc, 'training_plan.apply_failed', message='Planen kunde inte sparas.')
+
+
+def _physiology_zones(zones, lthr):
+    heart = (training_engine.hr_zones(lthr) or {}).get('zones', {})
+    result = {key: {**zones[key], 'hr': heart.get(key)} for key in ('E', 'M', 'T', 'I', 'R', 'HM')}
+    threshold = zones['T']['paceSec']
+    fast, slow = threshold + 4, threshold + 10
+    result['SUBT'] = {'key': 'SUBT', 'label': 'Sub-tröskel', 'paceSec': threshold + 7,
+                      'lowSec': fast, 'highSec': slow,
+                      'pace': vdot_model.format_pace(threshold + 7),
+                      'text': f'{fast // 60}:{fast % 60:02d}–{slow // 60}:{slow % 60:02d}/km',
+                      'hr': heart.get('SUBT')}
+    return result
+
+
+@app.get('/api/physiology')
+def physiology_view():
+    try:
+        user_id, today = uid(), datetime.now(LOCAL_TZ).date()
+        info = _pace_context(user_id).get('vdot') or {}
+        if not info.get('paces'):
+            return jsonify({'available': False, 'reason': _TRAINING_VDOT_REASON})
+        lthr = _training_lthr(user_id, today)
+        goal = None
+        target = _season_target(user_id)
+        goal_info = info.get('goal') or {}
+        if goal_info.get('vdot') is not None:
+            gap = goal_info['vdot'] - info['vdot']
+            weeks_left = max(0, (target['raceDate'] - today).days / 7) if target else None
+            rate = gap / weeks_left if weeks_left else None
+            if gap <= 0:
+                realistic = {'level': 'realistic', 'text': 'Din nuvarande form räcker redan till målet. Nu gäller det att hålla den till loppet.'}
+            elif rate is None:
+                realistic = {'level': 'ambitious', 'text': 'Kan inte bedömas utan ett framtida loppdatum.'}
+            elif rate <= 0.15:
+                realistic = {'level': 'realistic', 'text': f'Rimligt: {rate:.2f} VDOT per vecka (tumregel: högst 0,15 för en vältränad löpare).'.replace('.', ',', 1)}
+            elif rate <= 0.3:
+                realistic = {'level': 'ambitious', 'text': f'Ambitiöst: {rate:.2f} VDOT per vecka kräver att allt går bra.'.replace('.', ',', 1)}
+            else:
+                realistic = {'level': 'unrealistic', 'text': f'Orealistiskt: {rate:.2f} VDOT per vecka. Justera måltiden eller välj ett senare lopp.'.replace('.', ',', 1)}
+            goal = {'label': goal_info.get('label'), 'vdot': goal_info['vdot'],
+                    'gap': round(gap, 2), 'weeksLeft': round(weeks_left, 2) if weeks_left is not None else None,
+                    'perWeek': round(rate, 3) if rate is not None else None, 'realistic': realistic}
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT date, lactate_pace FROM metric_history
+                    WHERE user_id=%s AND date >= %s AND date <= %s
+                      AND lactate_pace IS NOT NULL ORDER BY date''',
+                            (user_id, (today - timedelta(days=179)).isoformat(), today.isoformat()))
+                rows = cur.fetchall()
+        trend = {}
+        for raw_date, pace in rows:
+            day = date.fromisoformat(str(raw_date)[:10])
+            value = vdot_model.from_threshold_pace(pace)
+            if value is not None:
+                trend[plan_calendar.plan_week(day)] = {'date': day.isoformat(), 'vdot': value}
+        return jsonify({
+            'available': True,
+            'vdot': {'vdot': info['vdot'], 'value': info['vdot'], 'source': info.get('source'),
+                     'sourceLabel': info.get('sourceLabel'), 'date': info.get('date')},
+            'zones': _physiology_zones(info['paces'], lthr['value']), 'lthr': lthr,
+            'equivalents': load_model.race_equivalents(info['vdot']),
+            'goal': goal, 'trend': [trend[w] for w in sorted(trend)],
+        })
+    except Exception as exc:
+        return _server_error(exc, 'physiology.failed', message='Fysiologin kunde inte räknas.')
+
+
+@app.get('/api/intensity')
+def intensity_view():
+    try:
+        weeks, _ = _training_options(request.args, maximum=26, default=12)
+    except ValueError as exc:
+        return _api_error('invalid_training_options', str(exc), 400)
+    try:
+        today = datetime.now(LOCAL_TZ).date()
+        # Include the complete EWMA warmup, plus 42 days of spare history.
+        activities = _training_activities(uid(), today - timedelta(days=weeks * 7 + 90 + 42), today)
+        return jsonify({'weeks': load_model.weekly_intensity(activities, weeks, today),
+                        'load': load_model.load_series(activities, weeks * 7, today),
+                        'assumptions': load_model.ASSUMPTIONS, 'target': {'low': 0.8}})
+    except Exception as exc:
+        return _server_error(exc, 'intensity.failed', message='Intensiteten kunde inte räknas.')
+
+
+@app.get('/api/training-library')
+def training_library_view():
+    try:
+        user_id, today = uid(), datetime.now(LOCAL_TZ).date()
+        info = _pace_context(user_id).get('vdot') or {}
+        zones = info.get('paces')
+        if not zones:
+            return jsonify({'available': False, 'reason': _TRAINING_VDOT_REASON})
+        profile = _training_profile(user_id)
+        frames, meta = _season_weeks(user_id)
+        current = plan_calendar.plan_week(today)
+        frame = next((f for f in frames or [] if f['week'] == current), None)
+        weekly_km = frame['targetKm'] if frame else profile.get('weeklyKm') or 50
+        distance = meta['target']['distance'] if meta else 'half'
+        lthr = _training_lthr(user_id, today)
+        return jsonify({'available': True, 'groups': training_engine.library(zones, lthr['value'], weekly_km, distance),
+                        'research': training_engine.RESEARCH, 'zones': zones})
+    except Exception as exc:
+        return _server_error(exc, 'training_library.failed', message='Passbanken kunde inte byggas.')
+
+
+@app.get('/api/training-paces')
+def training_paces_view():
+    """Deterministic reference paces; never generate or load AI proposals."""
+    try:
+        return jsonify(_pace_context(uid()))
+    except Exception as exc:
+        return _server_error(exc, 'training_paces.failed', message='Beräknade tempon kunde inte läsas.')
+
+
 @app.get('/api/vdot')
 def vdot_view():
     try:
@@ -10080,7 +10426,7 @@ def run_sync(count=50, username=None, user_id=1):
     except Exception as e:
         print('Matchning efter synk fel:', e)
     try:
-        maybe_run_daily_routine()
+        maybe_run_daily_routine(username)
     except Exception as e:
         print('Daglig rutin fel:', e)
     return len(acts)
@@ -10752,7 +11098,11 @@ def _morning_report_text(user_id):
         return None, None
 
     headline = session_title or 'God morgon'
-    return headline, ' · '.join(parts) if parts else 'Dagens data är inne.'
+    parts.append('Checka in')
+    return headline, ' · '.join(parts)
+
+
+MORNING_REPORT_URL = '/?vy=morgon'
 
 
 def maybe_send_morning_report(user_id):
@@ -10788,18 +11138,20 @@ def maybe_send_morning_report(user_id):
     if not headline:
         return False
 
-    sent = send_push(user_id, headline, body, url='/', tag='morning-report')
+    # Appen öppnar dagssammanfattningen (/app/?vy=morgon); webbsidan ignorerar parametern.
+    sent = send_push(user_id, headline, body, url=MORNING_REPORT_URL, tag='morning-report')
     set_cache('morning_report_sent', {'date': today, 'devices': sent}, user_id)
     logger.info('Morning report sent', extra={
         'event': 'push.morning_report', 'user_id': user_id, 'devices': sent})
     return bool(sent)
 
 
-def maybe_run_daily_routine():
+def maybe_run_daily_routine(username=None):
     """Den dagliga rutinen körs EN gång per dag — men först när dagens hälsodata
     faktiskt har synkat. Ingen gissad klockslag, inget 'recovery unavailable'.
-    Drivs av autosynken (var 3:e timme) + varje manuell synk. Kör bara för user_id=1."""
-    first_user = list(USERS.keys())[0] if USERS else 'hugo'
+    Drivs av autosynken + varje manuell synk, per användare: varje användare med
+    Garmin får sin egen historik och sin egen morgonnotis när sömnen är inne."""
+    first_user = username or (list(USERS.keys())[0] if USERS else 'hugo')
     first_uid  = USERS.get(first_user, {}).get('id', 1)
     today = date.today().isoformat()
     history_row = get_cache('last_daily_history', first_uid)
@@ -10871,7 +11223,7 @@ def auto_sync_job():
                 print(f'Auto-sync historik-fel ({username}):', e)
 
 scheduler = None
-if not APP_TESTING:
+if BACKGROUND_JOBS:
     scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
     scheduler.add_job(auto_sync_job, 'interval', minutes=GARMIN_SYNC_MINUTES,
                       # APScheduler interprets a naive datetime in its own
@@ -10895,7 +11247,7 @@ def _bootstrap_history():
     collect_metric_history(45, username=first_user)
 
 
-if not APP_TESTING:
+if BACKGROUND_JOBS:
     threading.Thread(target=_bootstrap_history, daemon=True).start()
 
 
@@ -10954,7 +11306,11 @@ def _asset_version():
     kan inte glömmas bort.
     """
     digest = hashlib.sha256()
-    for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js'):
+    for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js',
+                 'app/app.js', 'app/styles.css', 'app/ambient-fibers.js',
+                 'app/runner-profile.js', 'app/runner-profile.css',
+                 'app/kropp.js', 'app/kropp.css', 'app/traning.js', 'app/traning.css', 'app/morgon.js', 'app/morgon.css',
+                 'app/intro.css', 'app/manifest.json'):
         try:
             digest.update((PUBLIC_DIR / name).read_bytes())
         except OSError:
@@ -10977,6 +11333,21 @@ def index():
     if not user:
         return _render_page('landing.html')
     return _render_page('index.html')
+
+
+# Mobilappen (PWA) under /app/ utgår från exakt samma kod som webbsidan
+# (public/app/ kopierades från public/ 2026-11-28, commit f737d5f) men har eget
+# manifest med scope /app/ och utvecklas vidare för sig. Den visar själv
+# inloggning, så sidan serveras alltid; skyddet ligger i API:t.
+@app.get('/app')
+def mobile_app_redirect():
+    return app.redirect('/app/', code=301)
+
+
+@app.get('/app/')
+def mobile_app():
+    return _render_page('app/index.html')
+
 
 @app.get('/ai')
 def ai_control_page():

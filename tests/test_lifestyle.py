@@ -30,6 +30,29 @@ class LifestyleEntryTests(unittest.TestCase):
         self.assertEqual(store.get(2, date(2026, 8, 5)), {})
 
 
+class LifestyleQueryTests(unittest.TestCase):
+    def test_outcome_join_compares_text_dates(self):
+        # health_history.date är TEXT och lifestyle_logs.log_date är DATE. Utan
+        # typomvandling svarade Postgres "operator does not exist: text = date"
+        # och /api/lifestyle gav 500 i produktion (2026-11-28).
+        executed = []
+
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *exc): return False
+            def execute(self, sql, params=None): executed.append(sql)
+            def fetchall(self): return [(date(2026, 11, 26), {'alcohol_drinks': 0}, 88, 55, 50)]
+
+        class Conn:
+            def __enter__(self): return self
+            def __exit__(self, *exc): return False
+            def cursor(self): return Cursor()
+
+        rows = LifestyleStore(lambda: Conn()).rows_with_outcomes(1, date(2026, 9, 1))
+        self.assertIn('h.date=(l.log_date + 1)::text', ' '.join(executed[-1].split()))
+        self.assertEqual(rows[0]['outcome'], {'sleep_score': 88, 'hrv': 55, 'resting_hr': 50})
+
+
 class LifestyleImpactTests(unittest.TestCase):
     @staticmethod
     def row(alcohol, sleep, hrv, rhr):

@@ -21,7 +21,7 @@ os.environ['APP_TESTING'] = '1'
 os.environ['SESSION_SECRET'] = 'test-session-secret-with-at-least-32-characters'
 os.environ['SESSION_COOKIE_SECURE'] = 'false'
 os.environ['USERS'] = f'hugo:{generate_password_hash("test-password")}'
-os.environ['DATABASE_URL'] = 'postgresql://unused-in-tests'
+os.environ['DATABASE_URL'] = 'postgresql://unused-in-tests@127.0.0.1:1/unused-in-tests'
 
 import garmin_server  # noqa: E402
 

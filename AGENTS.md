@@ -31,6 +31,44 @@ Public site: **https://trainyze.com** (Cloudflare named tunnel).
   local clone, commits, and pushes. `/deploy` SSHes to g3, pulls, restarts
   `dashboard.service`, and verifies status.
 
+## Two frontends: website and mobile app
+
+Trainyze has two frontends against the **same API** (`garmin_server.py`):
+
+- **Website**: `/` → `public/index.html`, `public/app.js`, `public/styles.css`.
+- **Mobile app (PWA)**: `/app/` → `public/app/`. It started on 2026-11-28 as an **exact copy**
+  of the website code that ran on trainyze.com (main `f737d5f`): `app.js`, `styles.css`,
+  `ambient-fibers.js` byte-identical, `index.html` differing only in the manifest link
+  (`/app/manifest.json`, `scope`/`start_url` `/app/`, standalone). From there it is developed
+  on its own toward the best possible training app; the website is not touched by app work.
+  The copy uses relative asset paths, so files must exist in `public/app/` (there's a test).
+  `/app/` is always served (the page shows its own login; the API enforces auth). It reuses
+  `/sw.js` (scope `/`) for push. Its files count toward `ASSET_VERSION`.
+- Server decisions (today's verdict, readiness score) come from the API; don't recompute them
+  in either client.
+- The pages have no `viewport-fit=cover`, so on iPhone the home-screen app starts *below* the
+  status bar, which takes the page's `theme-color`. The simulator reproduces that from the
+  page's own meta tags. If you add `viewport-fit=cover` + `black-translucent`, the app has to
+  handle safe areas itself, and the simulator then draws it behind the status bar.
+- The CSP blocks inline scripts, so the inline theme script in `index.html` never runs in
+  production. The dev server sends the same CSP, so the simulator shows the same behaviour.
+
+**Developing the frontends on a laptop** (no Postgres/venv needed, only Python 3 + Node):
+
+- `node tools/iphone-sim.mjs` opens the app in an **iPhone 15 Pro simulator** window
+  (393×852, Dynamic Island, safe areas 59/34 pt, touch emulation and iPhone UA via Chrome
+  DevTools Protocol) with live reload on file save. Add `--g3` for real data straight from
+  Trainyze on g3 (port 3000 over Tailscale `100.82.234.62`, falling back to LAN
+  `192.168.1.195`), or `--prod` for real data via trainyze.com. Both are read-only unless
+  `--skriv`; you log in once with a normal account (cookie kept in the simulator's profile).
+- `python3 tools/dev_shell.py` serves `/`, `/app/` and `/__iphone/` on `localhost:3100` with
+  mock data. `--prod` proxies `/api/*` to trainyze.com **read-only** (only login/logout pass;
+  writes return 403 `dev_readonly`); `--prod --skriv` allows writes. `--lan` exposes it to a
+  phone on the same network/Tailscale.
+- VS Code tasks in `.vscode/tasks.json` start both. The simulator strips VS Code's snap paths
+  from the environment before launching Chrome; without that Chrome crashes on a GNOME
+  schema mismatch ("antialiasing").
+
 ## Hard rules / known gotchas
 
 - **`migrate_db.py` is a manual, one-off data-migration tool** — it requires an explicit
@@ -353,3 +391,8 @@ read-only by default). They feed the Bryggan "Coach" room in `~/trainyze-coach`
 without shell-level access to the app's credentials. `coach.cache` is an **allowlist** of
 cache keys — never widen it to tokens or other users. Postgres will refuse to drop or retype
 a column a view uses: drop/recreate the matching `coach.*` view in the same migration.
+
+## Parallellt arbete (flera agenter)
+
+Mobilappen utvecklas av flera agenter samtidigt, var och en i egen worktree och gren (`app/<agent>`).
+Läs `docs/PARALLELLT.md` för ansvarsområden, portar och regler innan du ändrar något i `public/app/`.

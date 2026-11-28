@@ -1,0 +1,64 @@
+/* Intro-animationen när appen öppnas (#tz-intro i index.html).
+   Tidslinje, totalt ca 2 s:
+     0.00–0.50  plattan skalas in
+     0.25–0.95  banan ritas upp
+     0.80–1.25  pulslinjen slår
+     1.20–1.45  ett hjärtslag i plattan
+     0.95–1.40  ordmärket glider upp
+     1.70–2.10  allt tonas ut och släpper klicken */
+
+.tz-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(60% 45% at 50% 42%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%),
+    var(--bg);
+  animation: tz-intro-out 0.4s ease-in 1.7s forwards;
+}
+.tz-intro-stage { display: grid; justify-items: center; gap: 0; }
+.tz-intro-mark {
+  width: 112px;
+  height: 112px;
+  overflow: visible;
+  filter: drop-shadow(0 18px 40px color-mix(in srgb, #2F7BFF 45%, transparent));
+}
+.tz-intro-plate {
+  transform-origin: 256px 256px;
+  animation:
+    tz-intro-plate 0.5s cubic-bezier(.2, 1.4, .4, 1) both,
+    tz-intro-beat 0.25s ease-in-out 1.2s;
+}
+.tz-intro-track,
+.tz-intro-pulse { stroke-dasharray: 1; stroke-dashoffset: 1; }
+.tz-intro-track { animation: tz-intro-draw 0.7s cubic-bezier(.6, 0, .2, 1) 0.25s forwards; }
+.tz-intro-pulse { animation: tz-intro-draw 0.45s cubic-bezier(.5, 0, .2, 1) 0.8s forwards; }
+.tz-intro-word {
+  margin-top: 22px;
+  font: 800 30px/1 var(--font-sans);
+  letter-spacing: -0.02em;
+  color: var(--text);
+  opacity: 0;
+  animation: tz-intro-rise 0.45s ease-out 0.95s forwards;
+}
+.tz-intro-tag {
+  margin-top: 8px;
+  font: 600 11px 'IBM Plex Mono', monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted2);
+  opacity: 0;
+  animation: tz-intro-rise 0.45s ease-out 1.1s forwards;
+}
+
+@keyframes tz-intro-plate { from { transform: scale(.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes tz-intro-beat { 50% { transform: scale(1.07); } }
+@keyframes tz-intro-draw { to { stroke-dashoffset: 0; } }
+@keyframes tz-intro-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes tz-intro-out { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .tz-intro { display: none; }
+}
