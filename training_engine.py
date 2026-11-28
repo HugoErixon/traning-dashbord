@@ -24,6 +24,7 @@ Forskningen bakom reglerna:
 """
 
 from itertools import combinations
+from math import floor
 
 DAY_NAMES = ['Måndag', 'Tisdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lördag', 'Söndag']
 
@@ -39,6 +40,7 @@ SUB_T_SLOWER = (4, 10)
 WARMUP_KM = 2.5
 COOLDOWN_KM = 2.0
 MIN_EASY_KM = 4.0
+MIN_EASY_KM_SHORT = 3.0
 STRIDES = '6 × 20 s stegringar, gå tillbaka'
 
 # Puls som andel av tröskelpulsen (Friels löpzoner).
@@ -256,38 +258,55 @@ def quality_session(kind, index, weekly_km, zones, distance, lthr=None, goal_zon
     specs = LIBRARY[kind]
     spec = _cap_spec(specs[index % len(specs)], weekly_km * easy_share, zones, distance, goal_zones)
     text, km, minutes, zkey, rest_km, head = _work(spec, zones, distance, goal_zones)
-    e = pace_text(zones, 'E')
     hr = hr_text(zkey if zkey in HR_SHARE else 'T', lthr)
-    warm = f'{WARMUP_KM:g} km uppvärmning {e}' + (' + 4 stegringar' if zkey in ('I', 'R', 'HM', 'T') else '')
-    cool = f'{COOLDOWN_KM:g} km nedjogg'
-    detail = f"{warm} · {text}{f' ({hr})' if hr else ''} · {cool}"
-    total = WARMUP_KM + km + rest_km + COOLDOWN_KM
     titles = {'subt_short': 'Sub-tröskel', 'subt_long': 'Långa tröskeldrag', 'threshold': 'Tröskel',
               'vo2': 'Intervaller', 'speed': 'Snabbhet', 'hills': 'Backar', 'race_pace': 'Loppfart'}
-    return {
+    session = {
         'kind': kind, 'type': 'run', 'title': f'{titles[kind]} {head}',
-        'detail': detail, 'purpose': PURPOSE[kind], 'km': round(total, 1),
-        'zone': zkey, 'qualityKm': round(km, 1), 'qualityMin': round(minutes),
+        'purpose': PURPOSE[kind], 'slot': None,
+        'zone': zkey, 'qualityKm': round(km, 1), 'qualityMin': round(minutes, 2),
         'structure': [
-            {'part': 'warmup', 'text': warm},
-            {'part': 'work', 'text': text + (f' ({hr})' if hr else '')},
-            {'part': 'cooldown', 'text': cool},
+            {'part': 'warmup'},
+            {'part': 'work', 'text': text + (f' ({hr})' if hr else ''),
+             'km': km, 'minutes': minutes, 'reps': spec['reps'], 'zone': spec['zone'],
+             'restKm': rest_km, 'restMinutes': spec['reps'] - 1 if spec.get('rest') else 0},
+            {'part': 'cooldown'},
         ],
     }
+    _set_quality_padding(session, zones, WARMUP_KM, COOLDOWN_KM)
+    return session
+
+
+def _set_quality_padding(session, zones, warmup_km, cooldown_km):
+    """Håll text, struktur, distans och tid överens när lugna delar kortas."""
+    warm, work, cool = session['structure']
+    warm.update(km=warmup_km, text=f'{warmup_km:g} km uppvärmning {pace_text(zones, "E")}'
+                + (' + 4 stegringar' if session['zone'] in ('I', 'R', 'HM', 'T') else ''))
+    cool.update(km=cooldown_km, text=f'{cooldown_km:g} km nedjogg')
+    session['detail'] = ' · '.join(part['text'] for part in session['structure'])
+    session['km'] = round(warmup_km + work['km'] + work['restKm'] + cooldown_km, 1)
+    # Vilorna räknas som cirka en minut vardera, inte en gång till i E-fart.
+    session['minutes'] = round((warmup_km + cooldown_km) * zones['E']['paceSec'] / 60
+                               + work['minutes'] + work['restMinutes'], 2)
 
 
 def long_run(km, zones, phase, index, distance, lthr=None, goal_zones=None):
     e = pace_text(zones, 'E')
     hr = hr_text('E', lthr)
-    km = round(km)
+    # Avrunda nedåt så att varken km- eller 150-minuterstaket överskrids.
+    km = floor(km * 10 + 1e-9) / 10
     finish = 0
+    finish_pace = 0
     if phase in ('specific', 'sharpen') and distance in ('half', 'marathon'):
         finish = min(8 if distance == 'half' else 14, 3 + 2 * index, int(km * 0.4))
     if phase == 'base' and index % 2 == 1:
-        detail = f'{km} km {e}{f" ({hr})" if hr else ""}, de sista 3 km progressivt mot M-fart {pace_text(zones, "M")}'
+        finish = min(3, km)
+        finish_pace = (zones['E']['paceSec'] + zones['M']['paceSec']) / 2
+        detail = f'{km:g} km {e}{f" ({hr})" if hr else ""}, de sista {finish:g} km progressivt mot M-fart {pace_text(zones, "M")}'
         kind, title = 'long', f'Långpass {km} km progressivt'
     elif finish:
         key, z = _race_zone(zones, distance, goal_zones)
+        finish_pace = z['paceSec']
         detail = (f'{km - finish} km {e} och sedan {finish} km i loppfart '
                   f'{fmt_pace(z["lowSec"])}–{fmt_pace(z["highSec"])}/km')
         kind, title = 'long_mp', f'Långpass {km} km, {finish} km loppfart'
@@ -295,7 +314,9 @@ def long_run(km, zones, phase, index, distance, lthr=None, goal_zones=None):
         detail = f'{km} km {e}{f" ({hr})" if hr else ""}, jämnt och lugnt'
         kind, title = 'long', f'Långpass {km} km'
     return {'kind': kind, 'type': 'run', 'title': title, 'detail': detail, 'purpose': PURPOSE[kind],
-            'km': km, 'zone': 'E', 'qualityKm': finish, 'qualityMin': 0,
+            'km': km, 'zone': 'E', 'qualityKm': finish,
+            'qualityMin': round(finish * finish_pace / 60, 2), 'slot': None,
+            'minutes': round(((km - finish) * zones['E']['paceSec'] + finish * finish_pace) / 60, 2),
             'structure': [{'part': 'work', 'text': detail}]}
 
 
@@ -309,6 +330,7 @@ def easy_run(km, zones, lthr=None, strides=False, recovery=False):
     kind = 'recovery' if recovery else 'easy'
     return {'kind': kind, 'type': 'easy', 'title': title, 'detail': detail, 'purpose': PURPOSE[kind],
             'km': km, 'zone': 'E', 'qualityKm': 0, 'qualityMin': 0,
+            'minutes': round(km * zones['E']['paceSec'] / 60, 2), 'slot': None,
             'structure': [{'part': 'work', 'text': detail}]}
 
 
@@ -364,7 +386,7 @@ def build_week(frame, zones, profile=None, distance='half', lthr=None, goal_zone
     if long_day not in days:
         long_day = 6 if 6 in days else days[-1]
     if phase == 'race':
-        long_day = race_dow if race_dow in days else race_dow
+        long_day = race_dow
         if long_day not in days:
             days = sorted(set(days + [long_day]))
 
@@ -381,6 +403,9 @@ def build_week(frame, zones, profile=None, distance='half', lthr=None, goal_zone
               and phase in ('base', 'specific') and not recovery)
 
     q_days = place_quality(days, long_day, n_quality)
+    # Vissa önskade dagkombinationer rymmer inte tre åtskilda kvalitetsdagar.
+    while len(days) >= 5 and any(b - a < 2 for a, b in zip(q_days, q_days[1:])):
+        q_days = place_quality(days, long_day, len(q_days) - 1)
     kinds = PHASE_QUALITY.get(distance, PHASE_QUALITY['half']).get(phase, ['subt_short'])
     idx = frame.get('indexInPhase', frame['week'])
     sessions = []
@@ -390,6 +415,8 @@ def build_week(frame, zones, profile=None, distance='half', lthr=None, goal_zone
     for i, d in enumerate(q_days):
         kind = kinds[i % len(kinds)]
         if recovery:
+            kind = 'subt_short'
+        if double and i == 0 and not kind.startswith('subt'):
             kind = 'subt_short'
         s = quality_session(kind, idx + i, target, zones, distance, lthr, goal_zones,
                             easy_share=0.8 if recovery else 1.0)
@@ -406,6 +433,8 @@ def build_week(frame, zones, profile=None, distance='half', lthr=None, goal_zone
             pm['purpose'] = ('Andra sub-tröskelpasset samma dag (norska dubbeltröskeln). Två '
                              'kontrollerade pass ger mer tid vid tröskeln än ett hårt.')
             pm['dow'] = d
+            s['slot'] = 'am'
+            pm['slot'] = 'pm'
             pm['double'] = True
             sessions.append(pm)
             used_km += pm['km']
@@ -420,12 +449,13 @@ def build_week(frame, zones, profile=None, distance='half', lthr=None, goal_zone
                                     f'{fmt_pace(z["lowSec"])}–{fmt_pace(z["highSec"])}/km och öka efter halva '
                                     'om det känns bra.'),
                          'purpose': PURPOSE['race'], 'km': race_km + 2, 'zone': key,
-                         'qualityKm': race_km, 'qualityMin': 0, 'structure': []})
+                         'qualityKm': race_km, 'qualityMin': round(race_km * z['paceSec'] / 60, 2),
+                         'minutes': round((2 * zones['E']['paceSec'] + race_km * z['paceSec']) / 60, 2),
+                         'slot': None, 'structure': []})
         used_km += race_km + 2
     else:
         long_km = min(float(frame.get('longRunKm') or target * 0.28), target * 0.30,
                       150 * 60 / _zone(zones, 'E')[2])
-        long_km = max(long_km, min(8, target * 0.3))
         lr = long_run(long_km, zones, phase, idx, distance, lthr, goal_zones)
         lr['dow'] = long_day
         sessions.append(lr)
@@ -435,16 +465,25 @@ def build_week(frame, zones, profile=None, distance='half', lthr=None, goal_zone
     taken = {s['dow'] for s in sessions}
     easy_days = [d for d in days if d not in taken]
     remaining = max(0.0, target - used_km)
+    min_easy = MIN_EASY_KM_SHORT if level in ('competitive', 'experienced') else MIN_EASY_KM
     if easy_days:
-        while easy_days and remaining / len(easy_days) < MIN_EASY_KM and len(easy_days) > 1:
+        if remaining < len(easy_days) * min_easy:
+            # Behåll löpfrekvensen: korta först lugna delar av kvalitetspassen.
+            for s in sessions:
+                if s['kind'] in LIBRARY:
+                    previous_km = s['km']
+                    _set_quality_padding(s, zones, 2.0, 1.5)
+                    used_km -= previous_km - s['km']
+            remaining = max(0.0, target - used_km)
+        while remaining / len(easy_days) < min_easy and len(easy_days) > 1:
             # För få km för alla lätta dagar: dagen efter ett hårt pass blir vilodag.
             hard_next = [d for d in easy_days if (d - 1) % 7 in taken]
             easy_days.remove(hard_next[0] if hard_next else easy_days[-1])
         per = remaining / len(easy_days) if easy_days else 0
-        cap = max(MIN_EASY_KM, (sessions[-1]['km'] if phase != 'race' else 12) * 0.75)
+        cap = max(min_easy, (sessions[-1]['km'] if phase != 'race' else 12) * 0.75)
         strides_left = 2 if phase in ('base', 'specific', 'sharpen') and not recovery else 1
         for d in easy_days:
-            km = max(MIN_EASY_KM, min(per, cap))
+            km = max(min_easy, min(per, cap))
             after_hard = (d - 1) % 7 in taken
             strides = (not after_hard and strides_left > 0 and (d + 1) % 7 not in taken)
             if strides:
@@ -452,6 +491,14 @@ def build_week(frame, zones, profile=None, distance='half', lthr=None, goal_zone
             s = easy_run(km, zones, lthr, strides=strides, recovery=after_hard and km <= 8)
             s['dow'] = d
             sessions.append(s)
+
+    if phase != 'race':
+        # Vid få löpdagar kan veckan bli kortare än ramen. Taket gäller även
+        # den faktiskt planerade veckan, inte bara targetKm.
+        other_km = sum(s['km'] for s in sessions if s is not lr)
+        if lr['km'] > other_km * 0.30 / 0.70:
+            shorter = long_run(other_km * 0.30 / 0.70, zones, phase, idx, distance, lthr, goal_zones)
+            lr.update(shorter)
 
     # Styrka på kvalitetsdagar (hårt hårt, lätt lätt).
     strength = frame.get('strength') or {}
@@ -464,6 +511,7 @@ def build_week(frame, zones, profile=None, distance='half', lthr=None, goal_zone
                          'title': 'Styrka efter löpningen',
                          'detail': strength.get('text') or 'Tunga baslyft och enbensövningar.',
                          'purpose': PURPOSE['strength'], 'km': 0, 'zone': None,
+                         'minutes': 0, 'slot': None,
                          'qualityKm': 0, 'qualityMin': 0, 'structure': []})
 
     sessions = [s for s in sessions if s['dow'] >= from_dow]
@@ -479,15 +527,18 @@ def check_week(sessions, target_km, phase):
     runs = [s for s in sessions if s['type'] in ('run', 'easy', 'race')]
     km = sum(s['km'] for s in runs)
     quality_km = sum(s.get('qualityKm') or 0 for s in runs)
+    minutes = sum(s['minutes'] for s in runs)
+    quality_minutes = sum(s.get('qualityMin') or 0 for s in runs)
     hard_days = sorted({s['dow'] for s in runs if s['kind'] not in ('easy', 'recovery', 'long', 'long_mp')})
     long = max((s for s in runs if s['kind'] in ('long', 'long_mp')), key=lambda s: s['km'], default=None)
     easy_share = 1 - quality_km / km if km else 1
+    easy_time_share = 1 - quality_minutes / minutes if minutes else 1
     gaps = [b - a for a, b in zip(hard_days, hard_days[1:])]
     checks = [
         {'rule': '80/20-fördelning', 'source': 'Seiler',
-         'ok': easy_share >= 0.70 or phase in ('race', 'taper'),
+         'ok': easy_time_share >= 0.75 or phase in ('race', 'taper'),
          'text': f'{round(easy_share * 100)} % av veckans km går lugnt, inklusive uppvärmning '
-                 'och vila (mål omkring 75–80 %, och ungefär 80 % av tiden).'},
+                 f'och vila; {round(easy_time_share * 100)} % av tiden (mål omkring 80 %).'},
         {'rule': 'Högst tre hårda dagar', 'source': 'Seiler',
          'ok': len(hard_days) <= 3,
          'text': f'{len(hard_days)} kvalitetsdag{"ar" if len(hard_days) != 1 else ""} utöver långpasset.'},
@@ -498,7 +549,7 @@ def check_week(sessions, target_km, phase):
     ]
     if long:
         share = long['km'] / km if km else 0
-        checks.append({'rule': 'Långpass ≤ 30 %', 'source': 'Daniels', 'ok': share <= 0.31,
+        checks.append({'rule': 'Långpass ≤ 30 %', 'source': 'Daniels', 'ok': share <= 0.30 + 1e-9,
                        'text': f'Långpasset är {round(share * 100)} % av veckan.'})
     if target_km:
         dev = km / target_km - 1
@@ -506,6 +557,7 @@ def check_week(sessions, target_km, phase):
                        'text': f'{round(km)} km planerat mot ramens {round(target_km)} km.'})
     summary = {'km': round(km, 1), 'qualityKm': round(quality_km, 1),
                'easyShare': round(easy_share, 2), 'hardDays': len(hard_days),
+               'easyTimeShare': round(easy_time_share, 2),
                'runDays': len({s['dow'] for s in runs}),
                'longKm': long['km'] if long else 0, 'phase': phase}
     return summary, checks
