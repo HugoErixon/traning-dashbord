@@ -13,15 +13,23 @@ Tre agenter jobbar samtidigt, var och en i **sin egen worktree och gren**. Alla 
 Simulatorn väljer port och Chrome-profil efter mappnamnet, så `node tools/iphone-sim.mjs --g3`
 fungerar parallellt i alla tre mapparna. Första gången måste man logga in i varje simulator.
 
-## Ansvarsområden (för att slippa merge-konflikter)
+## Ansvarsområden (uppdaterat 2026-11-28)
 
-`public/app/app.js` är en enda stor funktion, så uppdelningen följer sektionerna i filen och flikarna.
-
-| Agent | Flikar / sektioner | Får röra |
+| Agent | Område | Huvudsakliga filer |
 |---|---|---|
-| Claude | **Start** och **Träning** (Idag, Översikt, Plan, Veckorapport, Säsongsplan, Planera själv, Styrka, Utveckling, Passdetalj, Löpbandet) | dessa sektioner i `app.js`, motsvarande HTML |
-| Codex | **Kropp** (Dygnet, Känningar, Sömn, Dagbok) och backend/API/tester | sektionerna Sömn och Känningar, `garmin_server.py`, `tests/` |
-| Gemini | **Profil** (Labbtest, Måltempon, Anslutningar, Notiser, Konto) och **design** (`styles.css`, tooltips, tema) | sektionerna Labbtest, Måltempon, Notiser och Konto, `styles.css` |
+| Gemini | **Träningslogiken**: planen, veckorapport, säsongsplan, dagens bedömning, så att allt bygger på inbyggda regler och inte på AI-nycklar | backend (`garmin_server.py`, `adaptive_plan.py`, plan-moduler), Träning-flikens sektioner |
+| Codex | **Profil** som löparprofil: om mig, föredragna träningsdagar, mål, egna puls- och tempozoner | Profil-sidan, profil-API |
+| Claude | **Kropp**: Läget, Sömn, Känningar, Vanor | `public/app/kropp.js`, `public/app/kropp.css`, Kropp-sidorna i `index.html` |
+
+Gemensam princip: allt nytt ska bygga på inbyggda funktioner och regler, inte på AI-anrop.
+
+### Lägg nytt i egna filer
+
+`public/app/app.js` är ett vanligt skript där all kod ligger på toppnivå, så alla funktioner är
+globala. Ny kod för ett område läggs därför i en **egen fil** som laddas efter `app.js`
+(`<script src="kropp.js?v=__ASSETV__"></script>`), med egen CSS-fil. Filen måste läggas till i
+`_asset_version()` i `garmin_server.py` och i `tests/test_mobile_app.py`. Då rör man bara några
+rader i `app.js` (`NAV_SECTION`, `goto()`), och de andra agenterna krockar inte med en.
 
 Regler:
 1. Rör inte en annan agents sektion. Behövs en ändring där: skriv en rad i `docs/PARALLELLT-KO.md`
