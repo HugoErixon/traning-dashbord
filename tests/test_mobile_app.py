@@ -50,7 +50,8 @@ class MobileAppTests(unittest.TestCase):
 
     def test_app_assets_are_served(self):
         for path in ('/app/app.js', '/app/styles.css', '/app/ambient-fibers.js', '/app/manifest.json',
-                     '/app/runner-profile.js', '/app/runner-profile.css'):
+                     '/app/runner-profile.js', '/app/runner-profile.css',
+                     '/app/kropp.js', '/app/kropp.css'):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
 
@@ -84,6 +85,29 @@ class MobileAppTests(unittest.TestCase):
         with mock.patch.object(Path, 'read_bytes', changed):
             after = garmin_server._asset_version()
         self.assertNotEqual(before, after, 'versionen ändras inte när appens css ändras')
+
+
+    def test_body_tab_assets_are_versioned_and_load_after_app_js(self):
+        html = self.client.get('/app/').get_data(as_text=True)
+        for name in ('kropp.js', 'kropp.css'):
+            with self.subTest(name=name):
+                self.assertIn(f'{name}?v={garmin_server.ASSET_VERSION}', html)
+        self.assertLess(html.index('app.js?v='), html.index('kropp.js?v='))
+
+    def test_body_tab_pages_share_one_subnav(self):
+        # Kropp = Läget, Sömn, Känningar och Vanor. Varje sida har samma undermeny
+        # och NAV_SECTION låter Kropp-fliken lysa på alla fyra.
+        html = (ROOT / 'public' / 'app' / 'index.html').read_text(encoding='utf-8')
+        app_js = (ROOT / 'public' / 'app' / 'app.js').read_text(encoding='utf-8')
+        pages = ('health', 'sleep', 'niggles', 'habits')
+        for page in pages:
+            with self.subTest(page=page):
+                start = html.index(f'id="page-{page}"')
+                subnav = html[html.index('<div class="subnav"', start):]
+                subnav = subnav[:subnav.index('</div>')]
+                self.assertEqual(re.findall(r'data-page="(\w+)"', subnav), list(pages))
+                self.assertIn(f"{page}: 'health'", app_js)
+        self.assertNotIn('id="page-journal"', html)
 
 
 if __name__ == '__main__':

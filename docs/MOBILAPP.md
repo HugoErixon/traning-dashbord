@@ -29,11 +29,11 @@ Trainyze delas i två delar mot samma API (`garmin_server.py`):
 |---|---|
 | **Start** | Idag (startsida) · Översikt |
 | **Träning** | Plan (veckorapport, säsongsplan, Planera själv) · Styrka · Utveckling |
-| **Kropp** | Dygnet (inkl. **Känningar**) · Sömn · Dagbok |
+| **Kropp** | **Läget** (beredskap från `/api/today`, nyckelvärden mot egen normalnivå, belastning 14 d) · Sömn · **Känningar** · **Vanor** (livsstilslogg + effektanalys, dagbok). Koden i `public/app/kropp.js` och `kropp.css`. |
 | **Profil** | Profil · **Din fysiologi** (Labbtest, Måltempon & zoner med VDOT/kalkylator) · Anslutningar · Notiser · Genvägar (**Mitt mål**, Uppdatera data, dag/natt-läge; för admin även Klimat, Hantera användare, AI Control) · Konto |
 
 - Flik ↔ sida-kartan finns i `NAV_SECTION` i `public/app/app.js`. Underflikarna är `.subnav`-rader i `public/app/index.html`.
-- Laddningen följer sidan i `goto()`: Profil laddar labbtest och tempon, Kropp laddar känningar.
+- Laddningen följer sidan i `goto()`: Profil laddar labbtest och tempon. Kropp-sidorna laddas via `window.loadBody`/`loadHabits` i `kropp.js`.
 - Admin-saker visas bara för admin (`isAdmin`). Hälsningen använder inloggad användare.
 - Hittills har vi **bara strukturerat om, inga nya funktioner**. Användaren har uttryckligen bett om det.
 
