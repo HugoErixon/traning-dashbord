@@ -51,6 +51,7 @@ MOCK_VDOT = None
 PUBLIC = ROOT / 'public'
 IPHONE = Path(__file__).resolve().parent / 'iphone'
 PROD_HOST = 'trainyze.com'
+BETA_HOST = 'g3.tail91d6c1.ts.net'
 # Trainyze på G3 lyssnar på port 3000. Tailscale först (fungerar även borta),
 # sedan hemmanätet.
 G3_CANDIDATES = [('100.82.234.62', 3000), ('192.168.1.195', 3000)]
@@ -240,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/api/'):
             return self._proxy() if UPSTREAM else self._mock(path)
         if path == '/__dev/info':
-            return self._json({'mode': ('g3' if ARGS.g3 else 'prod') if UPSTREAM else 'mock',
+            return self._json({'mode': ('g3' if ARGS.g3 else 'beta' if ARGS.beta else 'prod') if UPSTREAM else 'mock',
                                'upstream': f'{UPSTREAM[1]}:{UPSTREAM[2]}' if UPSTREAM else None,
                                'readonly': bool(UPSTREAM and not ARGS.skriv), 'version': asset_version()})
         if path == '/__dev/version':
@@ -322,7 +323,7 @@ class Handler(BaseHTTPRequestHandler):
                                         'Starta med --skriv för att tillåta dem.',
                                'code': 'dev_readonly'}, status=403)
         scheme, host, port = UPSTREAM
-        headers = {'Host': PROD_HOST if scheme == 'https' else f'{host}:{port}',
+        headers = {'Host': (host if port == 443 else f'{host}:{port}') if scheme == 'https' else f'{host}:{port}',
                    'User-Agent': 'trainyze-dev-proxy',
                    'Accept': self.headers.get('Accept', 'application/json')}
         for name in ('Cookie', 'Content-Type', 'X-CSRF-Token'):
@@ -367,6 +368,7 @@ def main():
     ap.add_argument('--lan', action='store_true', help='lyssna på alla nätverk (för telefonen)')
     ap.add_argument('--g3', action='store_true', help='riktig data direkt från G3 (hemmanätet/Tailscale)')
     ap.add_argument('--prod', action='store_true', help='riktig data via trainyze.com (internet)')
+    ap.add_argument('--beta', action='store_true', help='betans API på G3 (Tailscale), nyaste serverkoden')
     ap.add_argument('--skriv', action='store_true', help='tillåt ändringar i --g3/--prod-läge')
     ap.add_argument('--verbose', action='store_true')
     ARGS = ap.parse_args()
@@ -376,10 +378,12 @@ def main():
         if not UPSTREAM:
             raise SystemExit('G3 svarar inte på port 3000 via Tailscale eller hemmanätet. '
                              'Prova --prod (via trainyze.com) eller kontrollera att Tailscale är på.')
+    elif ARGS.beta:
+        UPSTREAM = ('https', BETA_HOST, 8444)
     elif ARGS.prod:
         UPSTREAM = ('https', PROD_HOST, 443)
     host = '0.0.0.0' if ARGS.lan else '127.0.0.1'
-    source = f'G3 ({UPSTREAM[1]})' if ARGS.g3 else 'trainyze.com'
+    source = f'G3 ({UPSTREAM[1]})' if ARGS.g3 else 'betan på G3' if ARGS.beta else 'trainyze.com'
     mode = (f'riktig data från {source}' + ('' if ARGS.skriv else ' (skrivskyddat)')) if UPSTREAM else 'påhittad data'
     print(f'Trainyze dev – {mode}', flush=True)
     print(f'  Webbsidan:  http://localhost:{ARGS.port}/', flush=True)

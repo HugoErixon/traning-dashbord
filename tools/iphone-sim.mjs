@@ -3,6 +3,7 @@
 //
 //   node tools/iphone-sim.mjs            påhittad data
 //   node tools/iphone-sim.mjs --g3       din riktiga data direkt från G3 (skrivskyddat)
+//   node tools/iphone-sim.mjs --beta     betans API på G3 (nyaste servern, tailnet), skrivskyddat
 //   node tools/iphone-sim.mjs --prod     din riktiga data via trainyze.com (skrivskyddat)
 //   lägg till --skriv för att tillåta ändringar
 //   --slot N väljer port 3100+N (annars från mappnamnet, se nedan)
@@ -31,9 +32,9 @@ const PORT = 3100 + SLOT;
 const CDP_PORT = 9333 + SLOT;
 const BASE = `http://127.0.0.1:${PORT}`;
 const CACHE = join(homedir(), '.cache', SLOT ? `trainyze-iphone-${SLOT}` : 'trainyze-iphone');
-const wantMode = args.includes('--g3') ? 'g3' : args.includes('--prod') ? 'prod' : 'mock';
+const wantMode = args.includes('--beta') ? 'beta' : args.includes('--g3') ? 'g3' : args.includes('--prod') ? 'prod' : 'mock';
 const serverArgs = [join(HERE, 'dev_shell.py'), '--port', String(PORT), ...(wantMode === 'mock' ? [] : [`--${wantMode}`]), ...(args.includes('--skriv') ? ['--skriv'] : [])];
-const MODE_TEXT = { mock: 'påhittad data', g3: 'riktig data från G3', prod: 'riktig data via trainyze.com' };
+const MODE_TEXT = { mock: 'påhittad data', g3: 'riktig data från G3', beta: 'riktig data via betan på G3', prod: 'riktig data via trainyze.com' };
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 '
   + '(KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
 
