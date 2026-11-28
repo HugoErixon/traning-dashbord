@@ -571,23 +571,27 @@ async function saveGoalFromForm(keepOpen = false) {
 async function saveGoalAndRebuildPlan() {
   const saved = await saveGoalFromForm(true);
   if (!saved) return;
-  if (!confirm('Bygga om hela schemat utifrån målet?\n\nKommande planerade pass ersätts av en ny plan från coachen. Genomförda och missade pass behålls som historik.')) {
+  if (!confirm('Bygga om schemat utifrån målet?\n\nPlanmotorn lägger in de fyra kommande veckorna från och med nästa måndag. Redan planerade pass i de veckorna ersätts. Genomförda och missade pass behålls.')) {
     closeGoalModal();
     return;
   }
   const rebuildBtn = document.getElementById('goal-rebuild-btn');
   const saveBtn = document.getElementById('goal-save-btn');
-  if (rebuildBtn) { rebuildBtn.disabled = true; rebuildBtn.textContent = 'Coachen bygger din plan…'; }
+  if (rebuildBtn) { rebuildBtn.disabled = true; rebuildBtn.textContent = 'Bygger planen…'; }
   if (saveBtn) saveBtn.disabled = true;
-  showGoalModalMessage('Coachen bygger din nya plan utifrån målet och din nuvarande form — det kan ta upp till en minut…', 'var(--muted2)');
+  showGoalModalMessage('Säsongsplanen räknas om och veckorna byggs efter dina tempon…', 'var(--muted2)');
   try {
-    const res = await fetch('/api/plan/generate', {method: 'POST'});
+    // Regelbaserat: säsongsramen räknas om för det nya målet, sedan lägger
+    // planmotorn in fyra veckor. Ingen AI.
+    await fetch('/api/season-plan/rebuild', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+    const res = await fetch('/api/training-plan/apply', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({weeks: 4, from: 'next'})});
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      showGoalModalMessage(data.error || 'Planen kunde inte skapas. Försök igen.');
+      showGoalModalMessage(data.reason || data.error || 'Planen kunde inte skapas. Försök igen.');
       return;
     }
-    showGoalModalMessage(`Klart! ${data.sessions} pass inlagda t.o.m. vecka ${data.endWeek}. Sidan laddas om…`, 'var(--accent)');
+    showGoalModalMessage(`Klart! ${data.applied} pass inlagda för vecka ${(data.weeks || []).join(', ')}. Sidan laddas om…`, 'var(--accent)');
     setTimeout(() => location.reload(), 2000);
   } catch (error) {
     showGoalModalMessage('Servern kunde inte nås. Försök igen.');
@@ -1517,7 +1521,7 @@ document.addEventListener('keydown', event => {
     if (id === 'niggles')  loadNiggles();
     if (id === 'habits')   { loadJournal(); window.loadHabits?.(); }
     if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
-    if (id === 'analysis') { loadAnalysis(); loadInsights(); }
+    if (id === 'analysis') { loadAnalysis(); }
     if (id === 'strength') loadStrengthPage();
     if (id === 'physiology') window.loadPhysiology?.();
     if (id === 'intensity')  window.loadIntensity?.();
@@ -2330,7 +2334,7 @@ document.addEventListener('keydown', event => {
     setButtons(refreshIds, 'Uppdaterar…', 'var(--amber)', true);
     try {
       await fetch('/api/sync', { method: 'POST' });
-      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadTrainingReview(true), loadPlan(), loadStrain(), loadSessionVerdict(), loadToday(), loadOverview(), loadRacePrediction()]);
+      await Promise.all([loadHealth(), loadRecentActivities(), loadTrainingLoad(), loadPlan(), loadStrain(), loadSessionVerdict(), loadToday(), loadOverview(), loadRacePrediction()]);
       const res = await fetch('/api/refresh', { method: 'POST' });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -2699,7 +2703,6 @@ document.addEventListener('keydown', event => {
       // besked som sa "vila i dag".
     } catch(e) {}
   }
-  loadTrainingReview();
 
   // Outdoor weather - fetched through the dashboard proxy (/api/weather/current)
   async function loadWeatherStatus() {
