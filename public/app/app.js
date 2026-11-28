@@ -1520,7 +1520,7 @@ document.addEventListener('keydown', event => {
     if (id === 'journal')  loadJournal();
     if (id === 'upcoming') { checkGcalStatus(); loadWeeklyReport(); loadSeasonPlan(); }
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
-    if (id === 'settings') { loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); }
+    if (id === 'settings') { loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); initPaceCalculator(); }
     if (id === 'home') loadToday();
     if (id === 'overview') { loadHealth(); loadOverview(); loadRacePrediction(); }
   }
@@ -7459,7 +7459,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const panel = document.getElementById('pace-panel');
     if (!panel) return;
     try {
-      const res = await fetch('/api/plan/pace-proposals');
+      const res = await fetch('/api/training-paces');
       if (!res.ok) { panel.style.display = 'none'; return; }
       renderPacePanel(await res.json());
     } catch (_) {
@@ -7639,7 +7639,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     const panel = document.getElementById('pace-panel');
     const anchor = data.anchor || {};
     const vdot = data.vdot || {};
-    if (!anchor.ltPaceSec && !vdot.available) { panel.style.display = 'none'; return; }
     panel.style.display = '';
 
     initPaceCalculator();
@@ -7659,11 +7658,15 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           const extra = zone.per400Sec ? ` · ${zone.per400Sec} s/400 m` : '';
           return bandChip(label, text + extra, key === 'E' ? zone.text : zone.pace);
         }).join('');
-    } else {
+    } else if (anchor.ltPaceSec) {
       document.getElementById('pace-anchor-sub').textContent =
         `Tröskel ${anchor.ltPace} · källa: ${anchor.source} · konfidens: ${anchor.confidence}`;
       bandsEl.innerHTML = Object.entries(data.bands || {})
         .map(([kind, band]) => bandChip(PACE_KIND_LABELS[kind] || kind, band.text)).join('');
+    } else {
+      document.getElementById('pace-anchor-sub').textContent =
+        'Ingen löpform att räkna från ännu. Du kan ange ett eget VDOT nedan eller använda egna zoner ovan.';
+      bandsEl.textContent = '';
     }
     renderVdotInfo(vdot);
 
@@ -7694,6 +7697,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     }
 
     const list = document.getElementById('pace-proposals');
+    if (!list) return; // Löparprofilen visar bara inbyggt beräknade referensvärden.
     const proposals = data.proposals || [];
     if (!proposals.length) {
       list.innerHTML = '<div class="pace-empty">Inga väntande förslag. '
