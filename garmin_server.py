@@ -11021,7 +11021,8 @@ def _asset_version():
     for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js',
                  'app/app.js', 'app/styles.css', 'app/ambient-fibers.js',
                  'app/runner-profile.js', 'app/runner-profile.css',
-                 'app/kropp.js', 'app/kropp.css', 'app/morgon.js', 'app/morgon.css'):
+                 'app/kropp.js', 'app/kropp.css', 'app/morgon.js', 'app/morgon.css',
+                 'app/intro.css', 'app/manifest.json'):
         try:
             digest.update((PUBLIC_DIR / name).read_bytes())
         except OSError:

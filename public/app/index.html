@@ -19,9 +19,12 @@
       } catch (e) { /* privat läge: följ systemet i stället */ }
     })();
   </script>
-  <link rel="icon" href="/favicon.ico" sizes="48x48">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="icon" href="/app/icons/favicon-64.png" sizes="64x64">
+  <link rel="icon" href="/app/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/app/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Trainyze">
   <link rel="manifest" href="/app/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,18 +33,34 @@
   <link rel="stylesheet" href="runner-profile.css?v=__ASSETV__">
   <link rel="stylesheet" href="kropp.css?v=__ASSETV__">
   <link rel="stylesheet" href="morgon.css?v=__ASSETV__">
+  <link rel="stylesheet" href="intro.css?v=__ASSETV__">
   <script src="ambient-fibers.js?v=__ASSETV__" defer></script>
 </head>
 <body>
+<!-- INTRO: visas när appen öppnas. Ren CSS (intro.css), så den kräver inget
+     skript och försvinner av sig själv; med "minska rörelse" hoppas den över. -->
+<div class="tz-intro" aria-hidden="true">
+  <div class="tz-intro-stage">
+    <svg class="tz-intro-mark" viewBox="0 0 512 512">
+      <defs><linearGradient id="tz-intro-plate" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2F7BFF"/><stop offset="1" stop-color="#0B2F8A"/></linearGradient></defs>
+      <rect class="tz-intro-plate" width="512" height="512" rx="112" fill="url(#tz-intro-plate)"/>
+      <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round">
+        <path class="tz-intro-track" pathLength="1" d="M176 168 H336 A88 88 0 0 1 336 344 H176 A88 88 0 0 1 176 168 Z" stroke-width="30" stroke-opacity=".5"/>
+        <path class="tz-intro-pulse" pathLength="1" d="M116 300 H196 L234 216 L282 326 L318 256 H396" stroke-width="34"/>
+      </g>
+    </svg>
+    <div class="tz-intro-word">Trainyze</div>
+    <div class="tz-intro-tag">Träna smartare. Varje dag.</div>
+  </div>
+</div>
 <canvas id="ambient-fibers" class="ambient-fibers" aria-hidden="true"></canvas>
 <div class="shell">
 
   <header class="topbar">
     <div class="topbar-brand" data-action="goto" data-page="overview" role="button" tabindex="0" title="Till startsidan">
-      <!-- Löparbanan, yttersta och innersta banan. Samma geometri som
-           public/favicon.svg; de mellersta utelämnas för att märket ritas
-           litet och fyra linjer skulle flyta ihop. -->
-      <svg width="26" height="26" viewBox="0 0 64 64" fill="none" aria-hidden="true"><rect width="64" height="64" rx="14.1" style="fill:var(--accent)"/><g fill="none" style="stroke:var(--accent-ink)" stroke-width="4.2"><rect x="6.59" y="17.47" width="50.82" height="29.06" rx="14.53"/><rect x="22.59" y="28.54" width="18.82" height="6.91" rx="3.46"/></g></svg>
+      <!-- Appens märke: löparbanan med en pulslinje (public/app/icons/icon.svg,
+           tools/make_app_icons.py). -->
+      <svg width="26" height="26" viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="tz-brand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2F7BFF"/><stop offset="1" stop-color="#0B2F8A"/></linearGradient></defs><rect width="512" height="512" rx="112" fill="url(#tz-brand)"/><g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round"><rect x="88" y="168" width="336" height="176" rx="88" stroke-width="34" stroke-opacity=".5"/><path d="M116 300 H196 L234 216 L282 326 L318 256 H396" stroke-width="40"/></g></svg>
       <span class="topbar-brand-name">Trainyze</span>
     </div>
 
