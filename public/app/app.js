@@ -1490,11 +1490,11 @@ document.addEventListener('keydown', event => {
   // Vilken av de fyra flikarna en sida hör under. Sidorna finns kvar som egna
   // vyer och nås via underflikarna; kartan gör att rätt flik lyser upp.
   //   Start: Idag, Översikt · Träning: Plan, Styrka, Utveckling
-  //   Kropp: Dygnet, Sömn, Dagbok · Profil: Profil, Klimat
+  //   Kropp: Läget, Sömn, Känningar, Vanor (kropp.js) · Profil: Profil, Klimat
   const NAV_SECTION = {
     home: 'home', overview: 'home',
     upcoming: 'upcoming', strength: 'upcoming', analysis: 'upcoming',
-    health: 'health', sleep: 'health', journal: 'health',
+    health: 'health', sleep: 'health', niggles: 'health', habits: 'health',
     settings: 'settings', climate: 'settings',
   };
 
@@ -1513,11 +1513,12 @@ document.addEventListener('keydown', event => {
     });
     document.querySelector('.topbar-account')?.classList.toggle('is-active', id === 'settings');
     window.scrollTo(0, 0);
-    if (id === 'health')   { loadHealth(); loadNiggles(); }
+    if (id === 'health')   { loadHealth(); window.loadBody?.(); }
+    if (id === 'niggles')  loadNiggles();
+    if (id === 'habits')   { loadJournal(); window.loadHabits?.(); }
     if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') { loadAnalysis(); loadInsights(); }
     if (id === 'strength') loadStrengthPage();
-    if (id === 'journal')  loadJournal();
     if (id === 'upcoming') { checkGcalStatus(); loadWeeklyReport(); loadSeasonPlan(); }
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); }
@@ -1537,91 +1538,8 @@ document.addEventListener('keydown', event => {
   loadToday();
 
 
-function setHG(scoreId, barId, badgeId, descId, score, desc) {
-    const el = document.getElementById(scoreId);
-    const bar = document.getElementById(barId);
-    const badge = document.getElementById(badgeId);
-    const descEl = document.getElementById(descId);
-    if (!el) return;
-    el.textContent = Math.round(score);
-    bar.style.width = Math.min(score, 100) + '%';
-    descEl.textContent = desc;
-    if (score >= 75) {
-      el.style.color = 'var(--green)';
-      badge.className = 'hg-status hs-great';
-      badge.textContent = 'Good';
-    } else if (score >= 50) {
-      el.style.color = 'var(--amber)';
-      badge.className = 'hg-status hs-ok';
-      badge.textContent = 'Ok';
-    } else {
-      el.style.color = 'var(--red)';
-      badge.className = 'hg-status hs-low';
-      badge.textContent = 'Rest';
-    }
-  }
 
-  // Dagens rörelse: steg, kalorier, sträcka och intensitetsminuter från
-  // Garmins dygnssammanfattning. Kortet döljs helt när dagen saknar data.
-  function renderDailyActivity(daily) {
-    const card = document.getElementById('hg-daily');
-    if (!card) return;
-    if (daily.steps == null && daily.caloriesActive == null) {
-      card.style.display = 'none';
-      return;
-    }
-    card.style.display = '';
 
-    const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
-    const nf = value => (value == null ? '-' : value.toLocaleString('sv-SE'));
-
-    const pct = daily.stepPct;
-    const reached = pct != null && pct >= 100;
-    const colour = reached ? 'var(--accent)' : pct != null && pct >= 70 ? 'var(--amber)' : 'var(--muted2)';
-
-    const score = document.getElementById('hg-daily-score');
-    if (score) { score.textContent = nf(daily.steps); score.style.color = colour; }
-
-    const badge = document.getElementById('hg-daily-badge');
-    if (badge) {
-      badge.textContent = pct == null ? 'Inget stegmål' : reached ? 'Mål uppnått' : pct + '% av målet';
-      badge.className = 'hg-status ' + (reached ? 'hs-great' : pct != null && pct >= 70 ? 'hs-ok' : 'hs-low');
-    }
-
-    setText('hg-daily-summary', daily.stepGoal ? 'Mål ' + nf(daily.stepGoal) : '');
-
-    const bar = document.getElementById('hg-daily-bar');
-    if (bar) bar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
-
-    setText('hg-daily-desc', daily.steps == null
-      ? 'Ingen stegdata från Garmin ännu.'
-      : reached
-        ? `Stegmålet är passerat med ${nf(daily.steps - daily.stepGoal)} steg.`
-        : daily.stepGoal
-          ? `${nf(daily.stepGoal - daily.steps)} steg kvar till dagens mål.`
-          : 'Steg registrerade, men inget mål är satt i Garmin.');
-
-    setMetric('hd-cal-active', 'hd-cal-active-status', nf(daily.caloriesActive), 'kcal', 'kcal', 'var(--accent)');
-    setMetric('hd-cal-total', 'hd-cal-total-status', nf(daily.caloriesTotal), 'kcal', 'kcal', '');
-    setText('hd-cal-total-desc', daily.caloriesBmr != null
-      ? `Varav ${nf(daily.caloriesBmr)} kcal basalomsättning`
-      : 'Inklusive basalomsättning');
-
-    setText('hd-daily-dist', daily.distanceM != null ? (daily.distanceM / 1000).toFixed(1) : '-');
-
-    const goal = daily.intensityGoal;
-    setMetric('hd-intensity', 'hd-intensity-status',
-      daily.intensityMinutes != null ? daily.intensityMinutes : '-',
-      '', goal ? '/ ' + goal + ' i veckan' : '',
-      goal && daily.intensityMinutes >= goal ? 'var(--accent)' : '');
-  }
-
-  function setMetric(valId, statusId, value, unit, statusText, col) {
-    const v = document.getElementById(valId);
-    const s = document.getElementById(statusId);
-    if (v) { v.textContent = value; v.style.color = col || ''; }
-    if (s) { s.textContent = statusText || unit || ''; s.style.color = col || ''; }
-  }
 
   // ─── SÖMNSIDAN ──────────────────────────────────────────────
   // Nattens siffror kommer från /api/health, historik och härledda mått
@@ -2153,25 +2071,6 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return 'HRV otillgängligt';
   }
 
-  function getHrvVerdictText(hrv) {
-    const statusText = getHrvStatusLabel(hrv?.status);
-    if (statusText) {
-      const key = String(hrv.status || '').toUpperCase();
-      return {
-        BALANCED: 'HRV balanserad — autonoma nervsystemet ligger i ditt normala spann',
-        UNBALANCED: 'HRV i obalans — utanför ditt normala spann, träna med viss försiktighet',
-        LOW: 'HRV låg — under baslinjen, prioritera återhämtning',
-        POOR: 'HRV mycket låg — längre låg trend, vila rekommenderas',
-      }[key] || statusText;
-    }
-    if (!hrv?.verdict) return 'HRV-data saknas';
-    return String(hrv.verdict)
-      .replace(/Balanced\s*[—-]\s*autonomic system in your normal range/i, 'HRV balanserad — autonoma nervsystemet ligger i ditt normala spann')
-      .replace(/Unbalanced\s*[—-]\s*outside your normal range,\s*train with caution/i, 'HRV i obalans — utanför ditt normala spann, träna med viss försiktighet')
-      .replace(/Low\s*[—-]\s*below baseline,\s*prioritize recovery/i, 'HRV låg — under baslinjen, prioritera återhämtning')
-      .replace(/Poor\s*[—-]\s*sustained low HRV,\s*rest needed/i, 'HRV mycket låg — längre låg trend, vila rekommenderas')
-      .replace(/Not enough baseline data yet/i, 'Inte tillräckligt med baslinjedata ännu');
-  }
 
   function getHrvClass(hrv) {
     if (hrv?.light === 'green') return 'good';
@@ -2190,88 +2089,8 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     return pct >= 85 ? 'var(--green)' : pct >= 70 ? 'var(--amber)' : 'var(--red)';
   }
 
-  function stressMeta(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) return { color:'var(--muted2)', status:'Ingen data', badge:'Ingen data', pct:0 };
-    if (n <= 25) return { color:'var(--green)', status:'Vila', badge:'Vila', pct:n };
-    if (n <= 50) return { color:'var(--green)', status:'Låg stress', badge:'Låg', pct:n };
-    if (n <= 75) return { color:'var(--amber)', status:'Måttlig stress', badge:'Måttlig', pct:n };
-    return { color:'var(--red)', status:'Hög stress', badge:'Hög', pct:n };
-  }
 
-  function setCnsDriver(key, value, pct, color) {
-    const val = document.getElementById(`cns-driver-${key}-val`);
-    const bar = document.getElementById(`cns-driver-${key}-bar`);
-    if (val) {
-      val.textContent = value ?? '-';
-      val.style.color = color || 'var(--muted2)';
-    }
-    if (bar) {
-      bar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
-      bar.style.background = color || 'var(--muted2)';
-    }
-  }
 
-  function drawStressHistory(points, current, avg) {
-    const svg = document.getElementById('stress-history-chart');
-    if (!svg) return;
-    const values = (points || []).map(p => Number(p.value)).filter(Number.isFinite);
-    if (values.length < 2) {
-      svg.innerHTML = '<text x="18" y="72" fill="currentColor" style="color:var(--muted);font-size:11px;">Mer historik visas efter några synkar.</text>';
-      return;
-    }
-    const W = 320, H = 132, PX = 18, PT = 28, PB = 24;
-    const chartH = H - PT - PB;
-    const max = Math.min(100, Math.max(70, ...values, current ?? 0, avg ?? 0) + 8);
-    const min = Math.max(0, Math.min(15, ...values, current ?? 100, avg ?? 100) - 8);
-    const span = Math.max(1, max - min);
-    const pts = values.map((v, i) => ({
-      x: PX + (i / Math.max(1, values.length - 1)) * (W - PX * 2),
-      y: PT + (1 - ((v - min) / span)) * chartH
-    }));
-    const lineD = pts.map((p, i) => {
-      if (i === 0) return `M${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-      const prev = pts[i - 1];
-      const cx = (prev.x + p.x) / 2;
-      return `C${cx.toFixed(1)},${prev.y.toFixed(1)} ${cx.toFixed(1)},${p.y.toFixed(1)} ${p.x.toFixed(1)},${p.y.toFixed(1)}`;
-    }).join(' ');
-    const baseY = H - PB;
-    const areaD = `${lineD} L${pts[pts.length - 1].x.toFixed(1)},${baseY} L${pts[0].x.toFixed(1)},${baseY} Z`;
-    const avgY = avg == null ? null : PT + (1 - ((avg - min) / span)) * chartH;
-    const last = pts[pts.length - 1];
-    const first = pts[0];
-    const avgLabel = avg == null ? '-' : Number(avg).toFixed(1);
-    const lastValue = values[values.length - 1];
-    const stressColor = stressMeta(lastValue).color;
-    const grid = [0.25, 0.5, 0.75].map(t => {
-      const y = PT + chartH * t;
-      return `<line x1="${PX}" y1="${y.toFixed(1)}" x2="${W - PX}" y2="${y.toFixed(1)}" class="stress-grid-line"/>`;
-    }).join('');
-    svg.innerHTML = `
-      <defs>
-        <linearGradient id="stress-area-grad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" style="stop-color:var(--amber)" stop-opacity="0.28"/>
-          <stop offset="72%" style="stop-color:var(--amber)" stop-opacity="0.04"/>
-          <stop offset="100%" style="stop-color:var(--amber)" stop-opacity="0"/>
-        </linearGradient>
-        <filter id="stress-line-glow" x="-10%" y="-80%" width="120%" height="260%">
-          <feGaussianBlur stdDeviation="2.2" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-      </defs>
-      <rect x="0" y="0" width="${W}" height="${H}" rx="12" class="stress-chart-bg"/>
-      ${grid}
-      ${avgY == null ? '' : `<line x1="${PX}" y1="${avgY.toFixed(1)}" x2="${W - PX}" y2="${avgY.toFixed(1)}" class="stress-avg-line"/>`}
-      <path d="${areaD}" class="stress-area"/>
-      <path d="${lineD}" class="stress-line-shadow"/>
-      <path d="${lineD}" class="stress-line" filter="url(#stress-line-glow)"/>
-      <circle cx="${first.x.toFixed(1)}" cy="${first.y.toFixed(1)}" r="2" class="stress-end-dot stress-start-dot"/>
-      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="6.5" class="stress-current-halo"/>
-      <circle cx="${last.x.toFixed(1)}" cy="${last.y.toFixed(1)}" r="3.4" fill="${stressColor}" class="stress-current-dot"/>
-      <text x="${PX}" y="15" class="stress-chart-label">Senaste 30 dagar</text>
-      <text x="${W - PX}" y="15" text-anchor="end" class="stress-chart-label">Snitt ${avgLabel}</text>
-      <text x="${last.x.toFixed(1)}" y="${Math.max(25, last.y - 12).toFixed(1)}" text-anchor="middle" class="stress-current-label">${Math.round(lastValue)}</text>`;
-  }
 
   function getSessionDate(session, year) {
     const monday = getMondayOfISOWeek(session.week, year);
@@ -2413,301 +2232,9 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       if (h.error) return;
       currentHealthData = h;
       renderSleepPage(h);
-      const fmtTime = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h+'h '+m+'m'; };
-
-      // ── CNS-SCORE (ersätter Recovery) ──
-      // Formel: 0.40×HRV% + 0.30×sömnpoäng + 0.20×Garmin-beredskap + 0.10×(100-stress)
-      // Baserat på Flatt & Esco (2016)
-      const cnsScore = computeCnsScore(h) ?? 0;
-
-      const cnsCol   = cnsScore >= 70 ? 'var(--green)' : cnsScore >= 45 ? 'var(--amber)' : 'var(--red)';
-      const cnsTitle = cnsScore >= 70 ? 'Redo för kvalitetspass' : cnsScore >= 45 ? 'Normalt pass ok' : 'Vila eller Z2 idag';
-      const cnsDesc  = cnsScore >= 70
-        ? 'CNS fullt återhämtat. HRV, sömn och beredskap är gröna – perfekt dag för intervaller eller tröskelpass.'
-        : cnsScore >= 45
-        ? 'Acceptabel CNS-status. Planerat pass går bra, men undvik maxansträngning.'
-        : 'CNS visar tydliga tecken på otillräcklig återhämtning. Prioritera vila, lugn Z2, eller flytta fram kvalitetspasset.';
-
-      const sleepMissing = !(h.sleep && h.sleep.totalSec);
-      if (sleepMissing) {
-        const cs = document.getElementById('cns-score');
-        cs.textContent = '–'; cs.style.color = 'var(--muted2)';
-        document.getElementById('cns-title').textContent = 'Ingen sömndata';
-        document.getElementById('cns-desc').textContent  = 'I natt registrerades inte (klockan av eller slut på batteri), så CNS-poängen kan inte beräknas. Den kommer tillbaka automatiskt efter nästa synkade natt.';
-        document.getElementById('cns-bar').style.width   = '0%';
-        document.getElementById('hg-recovery').style.setProperty('--cns-color', 'var(--muted2)');
-      } else {
-        document.getElementById('cns-score').textContent = cnsScore;
-        document.getElementById('cns-score').style.color = cnsCol;
-        document.getElementById('cns-title').textContent = cnsTitle;
-        document.getElementById('cns-desc').textContent  = cnsDesc;
-        document.getElementById('cns-bar').style.width   = cnsScore + '%';
-        document.getElementById('cns-bar').style.background = cnsCol;
-        document.getElementById('hg-recovery').style.setProperty('--cns-color', cnsCol);
-      }
-
-      // HRV Traffic Light (Kiviniemi-metoden: ±5% från veckoavg)
-      const hrvDiff = h.hrv?.lastNightAvg && h.hrv?.weeklyAvg
-        ? ((h.hrv.lastNightAvg - h.hrv.weeklyAvg) / h.hrv.weeklyAvg) * 100
-        : null;
-      let hrvLight = h.hrv?.light || 'amber';
-      let hrvLightText = getHrvVerdictText(h.hrv);
-      if (!h.hrv?.light && hrvDiff !== null) {
-        if (hrvDiff >= 5)       { hrvLight = 'green'; hrvLightText = `HRV +${hrvDiff.toFixed(0)}% – kvalitetspass går bra`; }
-        else if (hrvDiff <= -5) { hrvLight = 'red';   hrvLightText = `HRV ${hrvDiff.toFixed(0)}% – vila eller Z2`; }
-        else                    { hrvLight = 'amber'; hrvLightText = `HRV +/-${Math.abs(hrvDiff).toFixed(0)}% – normalt pass`; }
-      }
-      ['green','amber','red'].forEach(c => document.getElementById('hrv-dot-' + c).className = 'hrv-dot');
-      document.getElementById('hrv-dot-' + hrvLight).classList.add('active-' + hrvLight);
-      document.getElementById('hrv-light-label').textContent = hrvLightText;
-
-      // CNS delmetriker
-      if (h.hrv?.lastNightAvg != null) {
-        const pct = h.hrv.component ?? h.hrv.pct ?? 0;
-        const pctCol = getHrvColor(h.hrv);
-        document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
-        document.getElementById('cns-hrv-val').style.color = pctCol;
-        const statusText = h.hrv.status && h.hrv.status !== 'NONE' ? `${getHrvStatusLabel(h.hrv.status)} - ` : '';
-        document.getElementById('cns-hrv-sub').textContent = `${statusText}${getHrvBaselineText(h.hrv)}`;
-      } else {
-        document.getElementById('cns-hrv-val').textContent = '–';
-        document.getElementById('cns-hrv-val').style.color = 'var(--muted2)';
-        document.getElementById('cns-hrv-sub').textContent = 'Ingen data i natt';
-      }
-      if (h.readiness?.score != null) {
-        const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('cns-readiness-val').textContent = h.readiness.score;
-        document.getElementById('cns-readiness-val').style.color = rc;
-        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
-        document.getElementById('cns-readiness-sub').textContent = lblMap[h.readiness.level] || '/ 100';
-      } else {
-        document.getElementById('cns-readiness-val').textContent = '–';
-        document.getElementById('cns-readiness-val').style.color = 'var(--muted2)';
-        document.getElementById('cns-readiness-sub').textContent = 'Ingen data';
-      }
-      if (h.restingHR?.value != null) {
-        const rhr = h.restingHR.value;
-        const rc = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('cns-rhr-val').textContent = rhr;
-        document.getElementById('cns-rhr-val').style.color = rc;
-        document.getElementById('cns-rhr-sub').textContent = `snitt ${h.restingHR.sevenDayAvg || '-'} bpm`;
-      } else {
-        document.getElementById('cns-rhr-val').textContent = '–';
-        document.getElementById('cns-rhr-val').style.color = 'var(--muted2)';
-        document.getElementById('cns-rhr-sub').textContent = 'Ingen data';
-      }
-
-      // CNS-drivare
-      const sleepDriver = h.sleep?.score;
-      const sleepDriverColor = sleepDriver == null ? 'var(--muted2)' : sleepDriver >= 80 ? 'var(--green)' : sleepDriver >= 60 ? 'var(--amber)' : 'var(--red)';
-      setCnsDriver('sleep', sleepDriver == null ? '-' : `${sleepDriver}/100`, sleepDriver || 0, sleepDriverColor);
-
-      const stressDriver = h.stress?.avg;
-      const stressRecovery = stressDriver == null ? null : Math.max(0, 100 - stressDriver);
-      const stressDriverColor = stressDriver == null ? 'var(--muted2)' : stressDriver <= 35 ? 'var(--green)' : stressDriver <= 60 ? 'var(--amber)' : 'var(--red)';
-      setCnsDriver('stress', stressDriver == null ? '-' : `${stressDriver}/100`, stressRecovery || 0, stressDriverColor);
-
-      const bbDriver = h.bodyBattery?.current;
-      const bbDriverColor = bbDriver == null ? 'var(--muted2)' : bbDriver >= 60 ? 'var(--green)' : bbDriver >= 30 ? 'var(--amber)' : 'var(--red)';
-      setCnsDriver('bb', bbDriver == null ? '-' : `${bbDriver}/100`, bbDriver || 0, bbDriverColor);
-
-      const driverSummary = document.getElementById('cns-driver-summary');
-      if (driverSummary) {
-        const weakSignals = [
-          sleepDriver != null && sleepDriver < 60 ? 'sömn' : '',
-          stressDriver != null && stressDriver > 60 ? 'stress' : '',
-          bbDriver != null && bbDriver < 35 ? 'batteri' : ''
-        ].filter(Boolean);
-        driverSummary.textContent = weakSignals.length ? `Begränsas av ${weakSignals.join(', ')}` : 'Stabil helhetsbild';
-      }
-
-      // ── SÖMN ──
-      let sleepScore = 50;
-      if (h.sleep?.totalSec) {
-        sleepScore = h.sleep.score || 50;
-        const totalH = Math.floor(h.sleep.totalSec / 3600);
-        const totalM = Math.floor((h.sleep.totalSec % 3600) / 60);
-
-        // Sleep score
-        const sc = h.sleep.score;
-        const scCol = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
-        const scStatus = sc >= 90 ? 'Utmärkt' : sc >= 80 ? 'Bra' : sc >= 60 ? 'Acceptabel' : 'Dålig';
-        setMetric('hd-sscore-val', 'hd-sscore-status', sc || '-', '/ 100', scStatus, scCol);
-
-        // Deep sleep
-        const deep = h.sleep.deepPct;
-        const deepCol = deep >= 15 ? 'var(--green)' : deep >= 10 ? 'var(--amber)' : 'var(--red)';
-        const deepStatus = deep >= 20 ? 'Utmärkt' : deep >= 15 ? 'Normal' : deep >= 10 ? 'Något lågt' : 'För lite';
-        setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus}  ·  mål 15–25%`, deepCol);
-        document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + '  ·  mål: 15–25% av sömnen';
-
-        // REM
-        const rem = h.sleep.remPct;
-        const remCol = rem >= 20 ? 'var(--green)' : rem >= 15 ? 'var(--amber)' : 'var(--red)';
-        const remStatus = rem >= 20 ? 'Utmärkt' : rem >= 15 ? 'Normal' : rem >= 10 ? 'Något lågt' : 'För lite';
-        setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus}  ·  mål 20–25%`, remCol);
-        document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + '  ·  mål: 20–25% av sömnen';
-
-        // Total sleep
-        const totalCol = totalH >= 7 ? 'var(--green)' : totalH >= 6 ? 'var(--amber)' : 'var(--red)';
-        const totalStatus = totalH >= 8 ? 'Utmärkt' : totalH >= 7 ? 'Bra' : totalH >= 6 ? 'Lite kort' : 'För lite';
-        setMetric('hd-stotal-val', 'hd-stotal-status', `${totalH}h ${totalM}m`, '', totalStatus, totalCol);
-
-        const sleepDesc = sleepScore >= 80
-          ? `${totalH}h ${totalM}m sömn – god återhämtning under natten.`
-          : sleepScore >= 60
-          ? `${totalH}h ${totalM}m sömn – acceptabelt, men kan bli bättre.`
-          : `${totalH}h ${totalM}m sömn – prioritera mer sömn i natt.`;
-        setHG('hg-sleep-score', 'hg-sleep-bar', 'hg-sleep-badge', 'hg-sleep-desc', sleepScore, sleepDesc);
-
-        // Sömnbrist - 7,5 h/natt mål = 52,5 h/vecka
-        // Beräkna baserat på dagensömnstid × dagar hittills i veckan
-        const SLEEP_TARGET_H = 7.5;
-        const todayDowSleep = new Date().getDay() || 7; // 1=mån
-        const daysIntoWeek = todayDowSleep;
-        const targetSoFar = SLEEP_TARGET_H * daysIntoWeek * 3600;
-        const actualSoFar = h.sleep.totalSec; // förenklat: ger i alla fall dagens underskott
-        const dailyDebt = Math.max(0, SLEEP_TARGET_H * 3600 - h.sleep.totalSec);
-        const dailyDebtH = Math.floor(dailyDebt / 3600);
-        const dailyDebtM = Math.round((dailyDebt % 3600) / 60);
-        const debtEl = document.getElementById('sleep-debt-val');
-        if (dailyDebt < 900) {
-          debtEl.textContent = 'Inget underskott';
-          debtEl.style.color = 'var(--green)';
-        } else {
-          debtEl.textContent = `-${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m idag`;
-          debtEl.style.color = dailyDebt > 3600 ? 'var(--red)' : 'var(--amber)';
-        }
-
-        // Sömnflaggor (djupsömn, REM, CNS-konsekvenser)
-        const flags = [];
-        if (deep < 10)  flags.push({ text: ' Låg djupsömn – hoppa över styrka', cls: 'bad' });
-        else if (deep >= 15) flags.push({ text: ' Djupsömn ok', cls: 'ok' });
-        else            flags.push({ text: '~ Djupsömn låg', cls: 'warn' });
-        if (rem < 15)   flags.push({ text: ' Låg REM – undvik intervaller', cls: 'bad' });
-        else if (rem >= 20) flags.push({ text: ' REM ok', cls: 'ok' });
-        else            flags.push({ text: '~ REM något låg', cls: 'warn' });
-        const flagRow = document.getElementById('sleep-flag-row');
-        flagRow.innerHTML = flags.map(f => `<span class="sleep-flag ${f.cls}">${f.text}</span>`).join('');
-        document.getElementById('hg-sleep-score').style.color = sleepScore >= 80 ? 'var(--purple)' : sleepScore >= 60 ? 'var(--amber)' : 'var(--red)';
-        const badge = document.getElementById('hg-sleep-badge');
-        badge.className = sleepScore >= 80 ? 'hg-status hs-purple' : sleepScore >= 60 ? 'hg-status hs-ok' : 'hg-status hs-low';
-        badge.textContent = sleepScore >= 80 ? 'Bra' : sleepScore >= 60 ? 'Ok' : 'Dålig';
-      } else {
-        // Ingen sömndata (klockan synkade ingen natt) — skriv ut det istället för att låta korten ladda
-        const muted = 'var(--muted2)';
-        const sEl = document.getElementById('hg-sleep-score');
-        sEl.textContent = '–'; sEl.style.color = muted;
-        document.getElementById('hg-sleep-bar').style.width = '0%';
-        const badge = document.getElementById('hg-sleep-badge');
-        badge.className = 'hg-status'; badge.style.color = muted; badge.textContent = 'Ingen data';
-        document.getElementById('hg-sleep-summary').textContent = '';
-        document.getElementById('hg-sleep-desc').textContent =
-          'Ingen sömn registrerad i natt — klockan synkade ingen natt (av eller slut på batteri). Sömnvärden återkommer automatiskt efter nästa registrerade natt.';
-        ['hd-sscore', 'hd-deep', 'hd-rem', 'hd-stotal'].forEach(id => setMetric(id + '-val', id + '-status', '–', '', '', muted));
-        const debtEl = document.getElementById('sleep-debt-val');
-        debtEl.textContent = '–'; debtEl.style.color = muted;
-        document.getElementById('sleep-flag-row').innerHTML = '<span class="sleep-flag warn">Ingen sömndata för i natt</span>';
-      }
-
-      // ── ENERGI & STRESS ──
-      let energyScore = 50;
-      if (h.bodyBattery?.current != null || h.stress?.avg != null) {
-        const bb = h.bodyBattery?.current ?? 50;
-        const stress = h.stress?.avg ?? 50;
-        energyScore = Math.round(bb * 0.6 + (100 - stress) * 0.4);
-
-        // Body Battery
-        const bbCol = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
-        const bbStatus = bb >= 75 ? 'Hög energi' : bb >= 50 ? 'Måttlig' : bb >= 25 ? 'Låg' : 'Tom – vila';
-        setMetric('hd-bb-val', 'hd-bb-status', bb, '/ 100', bbStatus, bbCol);
-        document.getElementById('hd-bb-desc').textContent = `Max idag: ${h.bodyBattery?.max || '-'}  ·  Min: ${h.bodyBattery?.drained ? bb : '-'}`;
-
-        // Stress
-        const stressCol = stress <= 25 ? 'var(--green)' : stress <= 50 ? 'var(--amber)' : 'var(--red)';
-        const stressStatus = stress <= 25 ? 'Avslappnad' : stress <= 50 ? 'Låg stress' : stress <= 75 ? 'Måttlig' : 'Hög stress';
-        setMetric('hd-stress-val', 'hd-stress-status', stress, '/ 100', stressStatus, stressCol);
-
-        // SpO2
-        if (h.spo2?.avg != null) {
-          const spo2 = h.spo2.avg;
-          const spo2Col = spo2 >= 97 ? 'var(--green)' : spo2 >= 95 ? 'var(--green)' : spo2 >= 90 ? 'var(--amber)' : 'var(--red)';
-          const spo2Status = spo2 >= 97 ? 'Optimal' : spo2 >= 95 ? 'Normal' : spo2 >= 90 ? 'Något lågt – bevaka' : 'Kritiskt lågt!';
-          setMetric('hd-spo2-val', 'hd-spo2-status', spo2 + '%', '%', spo2Status, spo2Col);
-          document.getElementById('hd-spo2-desc').textContent = `Lägst: ${h.spo2.min ? h.spo2.min + '%' : '-'}  ·  normalt: 95–100%`;
-        }
-
-        // Andning
-        if (h.respiration?.avg != null) {
-          const resp = h.respiration.avg;
-          const respCol = resp <= 16 ? 'var(--green)' : resp <= 20 ? 'var(--amber)' : 'var(--red)';
-          const respStatus = resp <= 12 ? 'Atlet – utmärkt' : resp <= 16 ? 'Normal' : resp <= 20 ? 'Något förhöjd' : 'Förhöjd';
-          setMetric('hd-resp-val', 'hd-resp-status', resp, '/min', respStatus, respCol);
-          document.getElementById('hd-resp-desc').textContent = `Under sömn: ${h.respiration.sleepAvg || '-'}/min  ·  normalt: 12–20/min`;
-        }
-
-        const energyDesc = energyScore >= 70
-          ? `Kroppsbatteri ${bb}/100 – kroppen har energi för ett bra pass.`
-          : energyScore >= 45
-          ? `Kroppsbatteri ${bb}/100 – måttlig energinivå; håll träningen lagom.`
-          : `Kroppsbatteri ${bb}/100 – kroppen är trött. Prioritera vila och återhämtning.`;
-        setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
-      }
-
-      renderDailyActivity(h.daily || {});
-
-      const healthStressAvg = h.stress?.avg;
-      const healthStressInfo = stressMeta(healthStressAvg);
-      const healthStressScoreEl = document.getElementById('hg-stress-score');
-      if (healthStressScoreEl) {
-        healthStressScoreEl.textContent = healthStressAvg ?? '-';
-        healthStressScoreEl.style.color = healthStressInfo.color;
-      }
-      const healthStressBadge = document.getElementById('hg-stress-badge');
-      if (healthStressBadge) {
-        healthStressBadge.textContent = healthStressInfo.badge;
-        healthStressBadge.className = healthStressInfo.color === 'var(--red)' ? 'hg-status hs-low' : healthStressInfo.color === 'var(--amber)' ? 'hg-status hs-ok' : 'hg-status hs-great';
-      }
-      const healthStressBar = document.getElementById('hg-stress-bar');
-      if (healthStressBar) healthStressBar.style.width = Math.max(0, Math.min(100, healthStressInfo.pct)) + '%';
-      setMetric('hd-stress-val', 'hd-stress-status', healthStressAvg ?? '-', '/ 100', healthStressInfo.status, healthStressInfo.color);
-      const healthStressDesc = document.getElementById('hg-stress-desc');
-      if (healthStressDesc) {
-        healthStressDesc.textContent = healthStressAvg == null
-          ? 'Ingen stressdata från Garmin ännu.'
-          : healthStressAvg <= 25 ? 'Låg fysiologisk belastning idag. Kroppen ser lugn ut.'
-          : healthStressAvg <= 50 ? 'Stressnivån är låg till normal. Bra läge för planerad träning.'
-          : healthStressAvg <= 75 ? 'Måttlig stress idag. Var uppmärksam på återhämtning och passintensitet.'
-          : 'Hög stress idag. Prioritera återhämtning och undvik extra belastning.';
-      }
-      const healthStressSummary = document.getElementById('hg-stress-summary');
-      if (healthStressSummary) healthStressSummary.textContent = h.stress?.max != null ? `Max ${h.stress.max}` : '';
-      try {
-        const sr = await fetch('/api/health/stress-history?days=30');
-        const sd = await sr.json();
-        const histAvg = sd.avg;
-        const delta = healthStressAvg != null && histAvg != null ? Math.round((healthStressAvg - histAvg) * 10) / 10 : null;
-        const deltaColor = delta == null ? 'var(--muted2)' : delta <= -5 ? 'var(--green)' : delta <= 5 ? 'var(--amber)' : 'var(--red)';
-        const histVal = document.getElementById('hd-stress-hist-val');
-        if (histVal) histVal.textContent = histAvg ?? '-';
-        const histStatus = document.getElementById('hd-stress-hist-status');
-        if (histStatus) histStatus.textContent = histAvg == null ? '' : '/ 100';
-        const deltaVal = document.getElementById('hd-stress-delta-val');
-        if (deltaVal) {
-          deltaVal.textContent = delta == null ? '-' : (delta > 0 ? '+' : '') + delta;
-          deltaVal.style.color = deltaColor;
-        }
-        const deltaStatus = document.getElementById('hd-stress-delta-status');
-        if (deltaStatus) deltaStatus.textContent = delta == null ? '' : delta <= -5 ? 'lägre än vanligt' : delta <= 5 ? 'nära normalt' : 'högre än vanligt';
-        const deltaDesc = document.getElementById('hd-stress-delta-desc');
-        if (deltaDesc && delta != null) deltaDesc.textContent = `Mot 30-dagars snitt ${histAvg}`;
-        drawStressHistory(sd.values || [], healthStressAvg, histAvg);
-      } catch(e) {
-        drawStressHistory([], healthStressAvg, null);
-      }
-
-      const d = new Date();
-      document.getElementById('h-date-label').textContent = d.toLocaleDateString('sv-SE', {day:'numeric',month:'long',year:'numeric'}) + '  ·  Garmin live-data';
+      // Kropp-sidan (Läget) ritas av kropp.js. Den gamla CNS-poängen räknades
+      // här i klienten; nu kommer beredskapen från /api/today som på Idag.
+      window.renderBodyHealth?.(h);
 
       // Snapshot på hemsidan
       const snapSets = [

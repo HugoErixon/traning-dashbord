@@ -1,0 +1,210 @@
+/* Kropp-fliken: Läget, Känningar och Vanor (kropp.js). Bygger på temats
+   variabler i styles.css och på sömnsidans kort (.sl-card). */
+
+/* ── Läget: beredskap ── */
+.bd-ready {
+  --tone: var(--accent);
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in srgb, var(--tone) 28%, var(--border));
+  border-radius: var(--radius-xl);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tone) 10%, transparent), transparent 70%), var(--bg2);
+  box-shadow: var(--shadow-card), var(--edge-top);
+}
+.bd-ready[data-tone="good"] { --tone: var(--green); }
+.bd-ready[data-tone="watch"] { --tone: var(--amber); }
+.bd-ready[data-tone="bad"] { --tone: var(--red); }
+.bd-ready-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 74px;
+}
+.bd-ready-score strong {
+  font: 800 44px/1 var(--font-sans);
+  color: var(--tone);
+  letter-spacing: -0.03em;
+}
+.bd-ready-score span {
+  margin-top: 6px;
+  font: 600 9px 'IBM Plex Mono', monospace;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.bd-ready-body { flex: 1; min-width: 0; }
+.bd-ready-body h3 { margin: 2px 0 4px; font-size: 17px; font-weight: 700; color: var(--text); }
+.bd-ready-body > p { margin: 0; color: var(--muted2); font-size: 13px; line-height: 1.45; }
+.bd-signals { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.bd-signal {
+  position: relative;
+  padding-left: 14px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted3);
+}
+.bd-signal::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.bd-signal[data-state="positive"]::before { background: var(--green); }
+.bd-signal[data-state="negative"]::before { background: var(--amber); }
+.bd-signal span { display: block; font-weight: 700; color: var(--text); font-size: 12px; }
+.bd-fresh { margin: 10px 0 0; font-size: 11.5px; color: var(--amber); }
+.bd-fresh[hidden] { display: none; }
+
+/* ── Läget: mot din normalnivå ── */
+.bd-metrics { display: grid; gap: 4px; }
+.bd-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 74px;
+  grid-template-areas: "name spark val" "foot foot foot";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.bd-metric:first-child { border-top: 0; padding-top: 0; }
+.bd-metric-name { grid-area: name; display: flex; flex-direction: column; min-width: 0; }
+.bd-metric-name strong { font-size: 14px; color: var(--text); }
+.bd-metric-name small { font-size: 11px; color: var(--muted); }
+.bd-spark { grid-area: spark; width: 96px; height: 34px; overflow: visible; }
+.bd-spark polyline { fill: none; stroke: var(--muted2); stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.bd-spark .bd-band { fill: var(--accent-dim); }
+.bd-spark circle { fill: var(--muted2); }
+.bd-spark circle[data-state="good"] { fill: var(--green); }
+.bd-spark circle[data-state="ok"] { fill: var(--accent); }
+.bd-spark circle[data-state="watch"] { fill: var(--amber); }
+.bd-spark circle[data-state="bad"] { fill: var(--red); }
+.bd-metric-val { grid-area: val; text-align: right; white-space: nowrap; }
+.bd-metric-val strong { font: 800 22px/1 var(--font-sans); color: var(--text); letter-spacing: -0.02em; }
+.bd-metric-val small { margin-left: 3px; font-size: 11px; color: var(--muted); }
+.bd-metric-foot {
+  grid-area: foot;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.bd-state { font-weight: 700; color: var(--muted2); }
+.bd-state[data-state="good"] { color: var(--green); }
+.bd-state[data-state="ok"] { color: var(--accent); }
+.bd-state[data-state="watch"] { color: var(--amber); }
+.bd-state[data-state="bad"] { color: var(--red); }
+
+/* ── Läget: belastning ── */
+.sl-pill[data-tone] { color: var(--muted2); background: var(--sheen-strong); }
+.sl-pill[data-tone="good"] { color: var(--green); background: var(--green-dim); }
+.sl-pill[data-tone="watch"] { color: var(--amber); background: var(--amber-dim); }
+.sl-pill[data-tone="bad"] { color: var(--red); background: var(--red-dim); }
+.sl-pill:empty { display: none; }
+.bd-load-text { margin: -4px 0 12px; font-size: 12.5px; color: var(--muted2); line-height: 1.45; }
+.bd-load-text:empty { display: none; }
+.bd-load-chart { display: flex; align-items: flex-end; gap: 4px; height: 92px; }
+.bd-bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 5px; }
+.bd-bar i { display: block; width: 100%; border-radius: 4px 4px 2px 2px; background: var(--zone-1); }
+.bd-bar i[data-level="mid"] { background: var(--zone-3); }
+.bd-bar i[data-level="high"] { background: var(--zone-4); }
+.bd-bar span { font: 600 9px 'IBM Plex Mono', monospace; color: var(--muted); }
+.bd-bar.is-today span { color: var(--text); }
+.bd-bar.is-today i { outline: 1px solid var(--text); outline-offset: 1px; }
+
+/* ── Läget: känningar och rörelse ── */
+.bd-niggle { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13.5px; }
+.bd-niggle span { font-weight: 700; color: var(--green); }
+.bd-niggle span[data-level="mid"] { color: var(--amber); }
+.bd-niggle span[data-level="high"] { color: var(--red); }
+.bd-move { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.bd-move div { display: flex; flex-direction: column; }
+.bd-move span { font-size: 11px; color: var(--muted); }
+.bd-move strong { font-size: 19px; font-weight: 800; color: var(--text); }
+.bd-move small { font-size: 10.5px; color: var(--muted); }
+.sl-card[hidden] { display: none; }
+
+/* ── Känningar ── */
+.bd-howto { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; color: var(--muted2); line-height: 1.45; }
+#page-niggles .ng-card { margin-bottom: 16px; }
+
+/* ── Vanor ── */
+.bd-daypick, .bd-choice { display: flex; gap: 6px; }
+.bd-chip {
+  padding: 7px 13px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--muted2);
+  font: 600 12.5px var(--font-sans);
+  cursor: pointer;
+  min-width: 40px;
+}
+.bd-chip.is-active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.bd-habits { display: grid; }
+.bd-habit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+}
+.bd-habit:first-child { border-top: 0; padding-top: 0; }
+.bd-habit-label { display: flex; flex-direction: column; min-width: 0; }
+.bd-habit-label strong { font-size: 14px; color: var(--text); }
+.bd-habit-label small { font-size: 11px; color: var(--muted); }
+.bd-habit-input { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.bd-stepper { display: flex; align-items: center; gap: 4px; }
+.bd-stepper button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bd-stepper output { min-width: 72px; text-align: center; font-weight: 800; font-size: 15px; color: var(--text); }
+.bd-stepper output small { font-weight: 500; font-size: 11px; color: var(--muted); }
+.bd-habit-time { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.bd-habit-time input,
+.bd-habit-note input {
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  background: var(--bg3);
+  color: var(--text);
+  font: 500 13px var(--font-sans);
+  padding: 6px 8px;
+}
+.bd-habit-note { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted2); }
+.bd-habit-note input { width: 100%; box-sizing: border-box; padding: 10px 12px; }
+.bd-habit-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 14px; }
+.bd-habit-actions .pace-btn { padding: 10px 22px; font-size: 13.5px; }
+.bd-habit-msg { font-size: 12px; color: var(--muted); }
+
+.bd-impact { padding: 10px 0; border-top: 1px solid var(--border); display: grid; gap: 4px; }
+.bd-impact:first-child { border-top: 0; padding-top: 0; }
+.bd-impact-head { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+.bd-impact-head strong { color: var(--text); }
+.bd-impact-head span { font-weight: 700; color: var(--muted2); white-space: nowrap; }
+.bd-impact[data-state="good"] .bd-impact-head span { color: var(--green); }
+.bd-impact[data-state="bad"] .bd-impact-head span { color: var(--red); }
+.bd-impact[data-state="collecting"] .bd-impact-head span { color: var(--muted); font-weight: 500; font-size: 12px; }
+.bd-impact small { font-size: 11px; color: var(--muted); }
+.bd-progress { height: 4px; border-radius: 2px; background: var(--sheen-strong); overflow: hidden; }
+.bd-progress i { display: block; height: 100%; background: var(--accent); }
+.bd-disclaimer { margin: 12px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+
+/* Dagboken under Vanor: samma layout som förut, men staplad på mobil. */
+.bd-journal { margin-bottom: 16px; }
+.bd-journal .journal-layout { grid-template-columns: 1fr; }

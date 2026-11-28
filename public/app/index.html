@@ -27,6 +27,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=__ASSETV__">
+  <link rel="stylesheet" href="kropp.css?v=__ASSETV__">
   <script src="ambient-fibers.js?v=__ASSETV__" defer></script>
 </head>
 <body>
@@ -484,285 +485,54 @@
     <!-- HÄLSA -->
     <div class="page" id="page-health">
       <div class="page-header"><h2>Kropp</h2><p id="h-date-label">Laddar…</p></div>
-      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="health">Dygnet</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="journal">Dagbok</button></div>
-      <div class="hg-row">
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="health">Läget</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="niggles">Känningar</button><button type="button" class="subnav-item" data-action="goto" data-page="habits">Vanor</button></div>
 
-        <!-- CNS-SCORE (ersätter Recovery) -->
-        <div class="cns-card" id="hg-recovery">
-          <div class="cns-top">
-            <div class="cns-score-wrap">
-              <div class="cns-score" id="cns-score">-</div>
-              <div class="cns-label">CNS-score</div>
-            </div>
-            <div class="cns-right">
-              <div class="cns-title" id="cns-title">Laddar…</div>
-              <div class="cns-desc" id="cns-desc">Räknar fram din dagliga CNS-beredskap utifrån HRV, sömn, Garmin-beredskap och stress.</div>
-              <div class="hrv-light-row">
-                <div class="hrv-dot" id="hrv-dot-green"></div>
-                <div class="hrv-dot" id="hrv-dot-amber"></div>
-                <div class="hrv-dot" id="hrv-dot-red"></div>
-                <span class="hrv-light-label" id="hrv-light-label">Laddar HRV…</span>
-              </div>
-            </div>
-          </div>
-          <div class="cns-bar-wrap">
-            <div class="cns-bar"><div class="cns-bar-fill" id="cns-bar" style="width:0%"></div></div>
-          </div>
-          <div class="cns-metrics">
-            <div class="cns-metric">
-              <div class="cns-metric-name">HRV mot snitt</div>
-              <div class="cns-metric-val" id="cns-hrv-val">-</div>
-              <div class="cns-metric-sub" id="cns-hrv-sub">Laddar…</div>
-            </div>
-            <div class="cns-metric">
-              <div class="cns-metric-name">Vilopuls</div>
-              <div class="cns-metric-val" id="cns-rhr-val">-</div>
-              <div class="cns-metric-sub" id="cns-rhr-sub">bpm</div>
-            </div>
-            <div class="cns-metric">
-              <div class="cns-metric-name">Garmin-beredskap</div>
-              <div class="cns-metric-val" id="cns-readiness-val">-</div>
-              <div class="cns-metric-sub" id="cns-readiness-sub">/ 100</div>
-            </div>
-          </div>
-          <div class="cns-drivers">
-            <div class="cns-drivers-head">
-              <span>Påverkar idag</span>
-              <strong id="cns-driver-summary">Laddar…</strong>
-            </div>
-            <div class="cns-driver-row">
-              <div class="cns-driver-top">
-                <span>Sömn</span>
-                <strong id="cns-driver-sleep-val">-</strong>
-              </div>
-              <div class="cns-driver-bar"><div id="cns-driver-sleep-bar"></div></div>
-            </div>
-            <div class="cns-driver-row">
-              <div class="cns-driver-top">
-                <span>Stress</span>
-                <strong id="cns-driver-stress-val">-</strong>
-              </div>
-              <div class="cns-driver-bar"><div id="cns-driver-stress-bar"></div></div>
-            </div>
-            <div class="cns-driver-row">
-              <div class="cns-driver-top">
-                <span>Kroppsbatteri</span>
-                <strong id="cns-driver-bb-val">-</strong>
-              </div>
-              <div class="cns-driver-bar"><div id="cns-driver-bb-bar"></div></div>
-            </div>
-          </div>
+      <!-- LÄGET: beredskapen kommer från /api/today, samma siffra som på Idag -->
+      <section class="bd-ready" id="bd-ready">
+        <div class="bd-ready-score"><strong id="bd-ready-score">–</strong><span>BEREDSKAP</span></div>
+        <div class="bd-ready-body">
+          <h3 id="bd-ready-title">Laddar…</h3>
+          <p id="bd-ready-detail"></p>
+          <ul class="bd-signals" id="bd-signals"></ul>
+          <p class="bd-fresh" id="bd-fresh"></p>
         </div>
+      </section>
 
-        <!-- SLEEP -->
-        <div class="hg-card c-sleep" id="hg-sleep">
-          <div class="hg-top">
-            <div class="hg-cat">Sömn</div>
-            <div class="hg-score-row">
-              <div class="hg-score cp" id="hg-sleep-score">-</div>
-              <div class="hg-score-right">
-                <span class="hg-status hs-purple" id="hg-sleep-badge">Laddar…</span>
-                <span class="hg-summary" id="hg-sleep-summary" style="font-size:11px;"></span>
-              </div>
-            </div>
-            <div class="hg-summary" id="hg-sleep-desc">Laddar sömnkvalitet och sömncykler…</div>
-            <div class="hg-bar-wrap">
-              <div class="hg-bar"><div class="hg-bar-fill" id="hg-sleep-bar" style="width:0%"></div></div>
-            </div>
-          </div>
-          <div class="hg-details" id="hg-sleep-details" style="display:flex;border-top:1px solid var(--border)">
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Sömnpoäng</div>
-                <div class="hg-metric-desc" id="hd-sscore-desc">Bra: 80+, utmärkt: 90+</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-sscore-val">-</div>
-                <div class="hg-metric-status" id="hd-sscore-status">/ 100</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Djupsömn</div>
-                <div class="hg-metric-desc" id="hd-deep-desc">Mål: 15–25% av total sömn</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-deep-val">-</div>
-                <div class="hg-metric-status" id="hd-deep-status">%</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">REM-sömn</div>
-                <div class="hg-metric-desc" id="hd-rem-desc">Mål: 20–25% av total sömn</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-rem-val">-</div>
-                <div class="hg-metric-status" id="hd-rem-status">%</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Total sömn</div>
-                <div class="hg-metric-desc">Mål: 7,5 h/natt</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stotal-val">-</div>
-                <div class="hg-metric-status" id="hd-stotal-status"></div>
-              </div>
-            </div>
-            <div class="sleep-debt-row">
-              <div>
-                <div class="sleep-debt-label">Sömnskuld denna vecka</div>
-                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Mål 52,5 h/vecka (7,5 h/natt)</div>
-              </div>
-              <div class="sleep-debt-val" id="sleep-debt-val">-</div>
-            </div>
-            <div class="sleep-flag-row" id="sleep-flag-row"></div>
-          </div>
+      <section class="sl-card">
+        <div class="sl-card-head">
+          <span class="sl-card-title">Mot din normalnivå</span>
+          <span class="sl-card-note">Senaste värdet mot dina egna 30 dagar</span>
         </div>
+        <div class="bd-metrics" id="bd-metrics"><p class="sl-empty">Laddar…</p></div>
+      </section>
 
-        <!-- STRESS -->
-        <div class="hg-card c-daily" id="hg-daily">
-          <div class="hg-top">
-            <div class="hg-cat">Dagens rörelse</div>
-            <div class="hg-score-row">
-              <div class="hg-score ca" id="hg-daily-score">-</div>
-              <span class="hg-daily-unit">steg</span>
-              <div class="hg-score-right">
-                <span class="hg-status hs-ok" id="hg-daily-badge">Laddar…</span>
-                <span class="hg-summary" id="hg-daily-summary" style="font-size:11px;"></span>
-              </div>
-            </div>
-            <div class="hg-summary" id="hg-daily-desc">Laddar steg och kalorier…</div>
-            <div class="hg-bar-wrap">
-              <div class="hg-bar"><div class="hg-bar-fill" id="hg-daily-bar" style="width:0%"></div></div>
-            </div>
-          </div>
-          <div class="hg-details" id="hg-daily-details" style="display:flex;border-top:1px solid var(--border)">
-            <div class="hg-metric">
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Aktiva kalorier</div>
-                <div class="hg-metric-desc">Det träningen och rörelsen kostat</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-cal-active">-</div>
-                <div class="hg-metric-status" id="hd-cal-active-status">kcal</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Totalt förbrända</div>
-                <div class="hg-metric-desc" id="hd-cal-total-desc">Inklusive basalomsättning</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-cal-total">-</div>
-                <div class="hg-metric-status" id="hd-cal-total-status">kcal</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Sträcka</div>
-                <div class="hg-metric-desc">All rörelse under dygnet</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-daily-dist">-</div>
-                <div class="hg-metric-status">km</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Intensitetsminuter</div>
-                <div class="hg-metric-desc" id="hd-intensity-desc">Hård intensitet räknas dubbelt</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-intensity">-</div>
-                <div class="hg-metric-status" id="hd-intensity-status"></div>
-              </div>
-            </div>
-          </div>
+      <section class="sl-card">
+        <div class="sl-card-head">
+          <span class="sl-card-title">Belastning · 14 dagar</span>
+          <span class="sl-pill" id="bd-load-pill"></span>
         </div>
+        <p class="bd-load-text" id="bd-load-text"></p>
+        <div class="bd-load-chart" id="bd-load-chart"></div>
+      </section>
 
-        <div class="hg-card c-stress" id="hg-stress">
-          <div class="hg-top">
-            <div class="hg-cat">Stress</div>
-            <div class="hg-score-row">
-              <div class="hg-score ca" id="hg-stress-score">-</div>
-              <div class="hg-score-right">
-                <span class="hg-status hs-ok" id="hg-stress-badge">Laddar…</span>
-                <span class="hg-summary" id="hg-stress-summary" style="font-size:11px;"></span>
-              </div>
-            </div>
-            <div class="hg-summary" id="hg-stress-desc">Laddar stressnivå och historik…</div>
-            <div class="hg-bar-wrap">
-              <div class="hg-bar"><div class="hg-bar-fill" id="hg-stress-bar" style="width:0%"></div></div>
-            </div>
-          </div>
-          <div class="hg-details" id="hg-stress-details" style="display:flex;border-top:1px solid var(--border)">
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Stressgenomsnitt</div>
-                <div class="hg-metric-desc" id="hd-stress-desc">0–25: vila  ·  26–50: låg  ·  51–75: måttlig</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stress-val">-</div>
-                <div class="hg-metric-status" id="hd-stress-status">/ 100</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Historiskt snitt</div>
-                <div class="hg-metric-desc" id="hd-stress-hist-desc">Senaste 30 dagarna</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stress-hist-val">-</div>
-                <div class="hg-metric-status" id="hd-stress-hist-status"></div>
-              </div>
-            </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Avvikelse</div>
-                <div class="hg-metric-desc" id="hd-stress-delta-desc">Jämfört med historiken</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stress-delta-val">-</div>
-                <div class="hg-metric-status" id="hd-stress-delta-status"></div>
-              </div>
-            </div>
-            <div class="stress-chart-wrap">
-              <svg id="stress-history-chart" viewBox="0 0 320 132" preserveAspectRatio="none" aria-hidden="true"></svg>
-            </div>
-            <div style="display:none">
-              <span id="hd-bb-desc"></span>
-              <span id="hd-spo2-desc"></span>
-              <span id="hd-resp-desc"></span>
-            </div>
-          </div>
+      <section class="sl-card" id="bd-niggle-summary" hidden>
+        <div class="sl-card-head">
+          <span class="sl-card-title">Känningar</span>
+          <button type="button" class="ov-link" data-action="goto" data-page="niggles">Visa →</button>
         </div>
+        <div id="bd-niggle-list"></div>
+      </section>
 
-      </div>
-
-      <!-- KÄNNINGAR — det klockan inte ser. Styr coachen, styrkeprogrammet och veckorapporten. -->
-      <section class="ng-card" id="niggle-card" aria-labelledby="niggle-title">
-        <div class="ng-head">
-          <h3 class="ng-title" id="niggle-title">Känningar</h3>
-          <button type="button" class="ng-add-toggle" data-action="niggle-toggle-form" aria-expanded="false" aria-controls="niggle-form">+ Logga känning</button>
-        </div>
-        <div id="niggle-list"><p class="ng-empty">Laddar…</p></div>
-        <form class="ng-form" id="niggle-form" hidden>
-          <label>Var<select name="area" id="niggle-area" required></select></label>
-          <label>Sida<select name="side"><option value="">–</option><option value="left">Vänster</option><option value="right">Höger</option><option value="both">Båda</option></select></label>
-          <fieldset class="ng-scale"><legend>Hur ont, 0–10</legend><div class="ng-scale-btns" id="niggle-scale"></div></fieldset>
-          <label class="ng-note">Anteckning<input name="note" type="text" maxlength="200" placeholder="t.ex. känns i början av passet, släpper efter 2 km"></label>
-          <div class="ng-actions"><button type="submit" class="pace-btn pace-btn-ok">Spara</button><span class="pace-vdot-msg" id="niggle-msg" role="status"></span></div>
-        </form>
+      <section class="sl-card" id="bd-move" hidden>
+        <div class="sl-card-head"><span class="sl-card-title">Dagens rörelse</span></div>
+        <div class="bd-move" id="bd-move-grid"></div>
       </section>
     </div>
 
     <!-- SLEEP -->
     <div class="page" id="page-sleep">
       <div class="page-header"><h2>Sömn</h2><p>Natten som gick, kvällens läggdags och hur sömnen rör sig över tid</p></div>
-      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Dygnet</button><button type="button" class="subnav-item active" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="journal">Dagbok</button></div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Läget</button><button type="button" class="subnav-item active" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="niggles">Känningar</button><button type="button" class="subnav-item" data-action="goto" data-page="habits">Vanor</button></div>
 
       <!-- I NATT ─ hero -->
       <section class="sl-hero">
@@ -1110,15 +880,68 @@
     </div>
 
     <!-- JOURNAL -->
-    <div class="page" id="page-journal">
-      <div class="page-header"><h2>Dagbok</h2><p>Hur dagen kändes, vad som hände och vad du vill minnas</p></div>
-      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Dygnet</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item active" data-action="goto" data-page="journal">Dagbok</button></div>
+    <div class="page" id="page-niggles">
+      <div class="page-header"><h2>Känningar</h2><p>Det klockan inte ser. Styr dagens bedömning, styrkeprogrammet och veckorapporten.</p></div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Läget</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item active" data-action="goto" data-page="niggles">Känningar</button><button type="button" class="subnav-item" data-action="goto" data-page="habits">Vanor</button></div>
+      <!-- KÄNNINGAR — det klockan inte ser. Styr coachen, styrkeprogrammet och veckorapporten. -->
+      <section class="ng-card" id="niggle-card" aria-labelledby="niggle-title">
+        <div class="ng-head">
+          <h3 class="ng-title" id="niggle-title">Aktiva känningar</h3>
+          <button type="button" class="ng-add-toggle" data-action="niggle-toggle-form" aria-expanded="false" aria-controls="niggle-form">+ Logga känning</button>
+        </div>
+        <div id="niggle-list"><p class="ng-empty">Laddar…</p></div>
+        <form class="ng-form" id="niggle-form" hidden>
+          <label>Var<select name="area" id="niggle-area" required></select></label>
+          <label>Sida<select name="side"><option value="">–</option><option value="left">Vänster</option><option value="right">Höger</option><option value="both">Båda</option></select></label>
+          <fieldset class="ng-scale"><legend>Hur ont, 0–10</legend><div class="ng-scale-btns" id="niggle-scale"></div></fieldset>
+          <label class="ng-note">Anteckning<input name="note" type="text" maxlength="200" placeholder="t.ex. känns i början av passet, släpper efter 2 km"></label>
+          <div class="ng-actions"><button type="submit" class="pace-btn pace-btn-ok">Spara</button><span class="pace-vdot-msg" id="niggle-msg" role="status"></span></div>
+        </form>
+      </section>
+      <section class="sl-card">
+        <div class="sl-card-head"><span class="sl-card-title">Så fungerar det</span></div>
+        <ol class="bd-howto">
+          <li>Logga en känning: var, vilken sida och hur ont det gör (0–10).</li>
+          <li>Uppdatera siffran när det ändras. 0 betyder att det är borta.</li>
+          <li>Aktiva känningar gör styrkeprogrammet skonsammare för det området och vägs in i dagens bedömning.</li>
+        </ol>
+      </section>
+    </div>
 
+    <div class="page" id="page-habits">
+      <div class="page-header"><h2>Vanor</h2><p>Logga dagen och se vad som faktiskt påverkar din sömn, HRV och vilopuls</p></div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Läget</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="niggles">Känningar</button><button type="button" class="subnav-item active" data-action="goto" data-page="habits">Vanor</button></div>
+
+      <section class="sl-card">
+        <div class="sl-card-head">
+          <span class="sl-card-title" id="bd-habit-title">Logga dagen</span>
+          <div class="bd-daypick" role="group" aria-label="Vilken dag">
+            <button type="button" class="bd-chip" data-kropp="habit-day" data-offset="1">I går</button>
+            <button type="button" class="bd-chip" data-kropp="habit-day" data-offset="0">I dag</button>
+          </div>
+        </div>
+        <form class="bd-habits" id="bd-habit-form"></form>
+        <div class="bd-habit-actions">
+          <span class="bd-habit-msg" id="bd-habit-msg" role="status"></span>
+          <button type="button" class="pace-btn pace-btn-ok" data-kropp="habit-save">Spara</button>
+        </div>
+      </section>
+
+      <section class="sl-card">
+        <div class="sl-card-head">
+          <span class="sl-card-title">Vad påverkar din återhämtning</span>
+          <span class="sl-card-note" id="bd-impact-note"></span>
+        </div>
+        <div id="bd-impacts"><p class="sl-empty">Laddar…</p></div>
+        <p class="bd-disclaimer">Jämför nätterna efter dagar med och utan vanan. Det visar samband, inte orsak, och kräver minst 5 dagar av varje.</p>
+      </section>
+
+      <section class="bd-journal">
       <div class="journal-layout">
         <section class="journal-editor">
           <div class="journal-editor-top">
             <div>
-              <div class="journal-kicker">Dagens incheckning</div>
+              <div class="journal-kicker">Dagbok</div>
               <h3 id="journal-editor-title">Skriv några rader</h3>
             </div>
             <span class="today-badge badge-amber" id="journal-save-status">OSPARAT</span>
@@ -1168,6 +991,7 @@
           </div>
         </aside>
       </div>
+      </section>
     </div>
 
     <!-- INSTÄLLNINGAR -->
@@ -1387,5 +1211,6 @@
 </div>
 
 <script src="app.js?v=__ASSETV__"></script>
+<script src="kropp.js?v=__ASSETV__"></script>
 </body>
 </html>

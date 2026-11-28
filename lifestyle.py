@@ -234,7 +234,7 @@ class LifestyleStore:
             with conn.cursor() as cur:
                 cur.execute('''SELECT l.log_date,l.data,h.sleep_score,h.hrv_avg,h.resting_hr
                     FROM lifestyle_logs l
-                    LEFT JOIN health_history h ON h.user_id=l.user_id AND h.date=l.log_date + 1
+                    LEFT JOIN health_history h ON h.user_id=l.user_id AND h.date=(l.log_date + 1)::text
                     WHERE l.user_id=%s AND l.log_date >= %s ORDER BY l.log_date''',
                     (user_id, str(since)))
                 rows = cur.fetchall()
