@@ -107,3 +107,19 @@ Claude på G3 orkestrerar och granskar. Tunga, avgränsade uppgifter delegeras:
 6. Om något går fel: `git -C ~/traning-dashbord reset --hard <förra main-sha>` är **inte**
    tillåtet. Gör en `git revert` av merge-commiten, pusha, pulla och starta om.
 7. Skriv vad som gjordes i `~/bryggan-2/docs/logg/<datum>.md` och uppdatera `docs/MOBILAPP.md`.
+
+## Läge
+- 2026-11-28: G3-agenten stoppades innan den hann skriva kod. Arbetet gjordes i stället från
+  laptopen. Codex skrev rättningarna av planmotorn och API:erna tills användningsgränsen tog
+  slut, agy byggde Träning-fliken, och Claude granskade, rättade och testade.
+  - **Klart:** punkt 1–5.
+    - Planmotorn har tester.
+    - Alla API:er finns: preview, apply, physiology, intensity och training-library.
+    - Träning-fliken har undersidorna Plan, Fysiologi och Intensitet.
+    - AI är borta ur appen: chatten, AI-insikterna, AI-motiveringen och AI-knapparna. När
+      man byter mål byggs schemat med planmotorn.
+    - Alla 690 tester är gröna.
+    - En bugg är rättad: modulen `training_load` skuggades av route-funktionen
+      `training_load()`, så den importeras nu som `load_model`.
+  - Kontrollerat i simulatorn mot betan (`node tools/iphone-sim.mjs --beta`) med riktiga data.
+  - **Nästa steg:** go-live (punkt 7).

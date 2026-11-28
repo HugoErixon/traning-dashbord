@@ -108,3 +108,18 @@ ssh g3 'T=/tmp/tz-test; rm -rf $T; git clone -q ~/traning-dashbord $T && cd $T &
 1. Gå igenom varje flik med riktig data i simulatorn och notera vad som känns fel på mobil.
 2. Bestämma vad som ska bli **nytt** i appen. Hittills har vi bara strukturerat om.
 3. När appen är bättre än webbens mobilvy: driftsätt `/app/` och installera den på iPhone 15 Pro.
+
+## Träning-fliken (overhaul 2026-11-28)
+Undersidorna är Plan, Fysiologi, Intensitet, Styrka och Utveckling. Allt är regelbaserat.
+- **Plan:** fas-kort, veckorna från planmotorn (`training_engine.py`) och regelkontroller
+  enligt Daniels och Seiler. Knappen "Lägg in i kalendern" anropar
+  `POST /api/training-plan/apply`, som bara ersätter planerade pass, från och med nästa
+  vecka om man inte väljer annat.
+- **Fysiologi:** VDOT, zoner med tempo och puls (sub-tröskel enligt norska modellen),
+  loppekvivalenter, målglapp, VDOT-trend och passbanken (`/api/physiology`,
+  `/api/training-library`).
+- **Intensitet:** 80/20 per vecka från Garmins pulszoner, och CTL/ATL/TSB från
+  `activityTrainingLoad` (`/api/intensity`, beräknat i `training_load.py`).
+- **Koden** ligger i `public/app/traning.js` och `traning.css`. Bakgrunden och forskningen
+  finns i `docs/OVERHAUL.md`.
+- **Simulatorn mot betans nyaste server:** `node tools/iphone-sim.mjs --beta`.
