@@ -1424,7 +1424,7 @@ function executeAction(trigger, event) {
   else if (action === 'calendar-view') setCalendarView(trigger.dataset.view);
   else if (action === 'plan-week') {
     openWeekPlanner(Number(trigger.dataset.week));
-    if (trigger.closest('#season-panel')) document.getElementById('week-planner')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+    if (trigger.closest('#season-panel')) document.getElementById('tr-engine-card')?.scrollIntoView({behavior: 'smooth', block: 'start'});
   }
   else if (action === 'lab-delete') deleteLabTest(trigger.dataset.date);
   else if (action === 'niggle-checkin') niggleCheckIn(trigger);
@@ -1489,11 +1489,11 @@ document.addEventListener('keydown', event => {
   // Navigation
   // Vilken av de fyra flikarna en sida hör under. Sidorna finns kvar som egna
   // vyer och nås via underflikarna; kartan gör att rätt flik lyser upp.
-  //   Start: Idag, Översikt · Träning: Plan, Styrka, Utveckling
+  //   Start: Idag, Översikt · Träning: Plan, Fysiologi, Intensitet, Styrka, Utveckling (traning.js)
   //   Kropp: Läget, Sömn, Känningar, Vanor (kropp.js) · Profil: Profil, Klimat
   const NAV_SECTION = {
     home: 'home', overview: 'home', morning: 'home',
-    upcoming: 'upcoming', strength: 'upcoming', analysis: 'upcoming',
+    upcoming: 'upcoming', physiology: 'upcoming', intensity: 'upcoming', strength: 'upcoming', analysis: 'upcoming',
     health: 'health', sleep: 'health', niggles: 'health', habits: 'health',
     settings: 'settings', climate: 'settings',
   };
@@ -1519,7 +1519,9 @@ document.addEventListener('keydown', event => {
     if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') { loadAnalysis(); loadInsights(); }
     if (id === 'strength') loadStrengthPage();
-    if (id === 'upcoming') { checkGcalStatus(); loadWeeklyReport(); loadSeasonPlan(); }
+    if (id === 'physiology') window.loadPhysiology?.();
+    if (id === 'intensity')  window.loadIntensity?.();
+    if (id === 'upcoming') { checkGcalStatus(); loadWeeklyReport(); loadSeasonPlan(); window.loadTraining?.(); }
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); initPaceCalculator(); }
     if (id === 'home') loadToday();
