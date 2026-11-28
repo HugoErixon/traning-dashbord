@@ -34,7 +34,9 @@ self.addEventListener('push', event => {
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     tag: data.tag || 'trainyze',
-    data: { url: appUrl(data.url) },
+    // Morgonnotisen öppnar alltid dagssammanfattningen, även när den skickas
+    // av en äldre server som bara länkar till '/'.
+    data: { url: data.tag === 'morning-report' && !String(data.url || '').includes('vy=') ? '/app/?vy=morgon' : appUrl(data.url) },
   }));
 });
 

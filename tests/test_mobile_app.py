@@ -130,5 +130,18 @@ class MobileAppTests(unittest.TestCase):
         self.assertLess(html.index('kropp.js?v='), html.index('morgon.js?v='))
 
 
+    def test_background_jobs_are_off_in_tests_and_can_be_turned_off(self):
+        # En beta mot produktionens databas måste kunna köra utan egna jobb.
+        self.assertFalse(garmin_server.BACKGROUND_JOBS)
+        self.assertIsNone(garmin_server.scheduler)
+        src = (ROOT / 'garmin_server.py').read_text(encoding='utf-8')
+        self.assertIn("config.get('BACKGROUND_JOBS', 'true')", src)
+        for guarded in ('if BACKGROUND_JOBS:\n    start_mqtt_listener()',
+                        'if BACKGROUND_JOBS:\n    scheduler = BackgroundScheduler',
+                        'if BACKGROUND_JOBS:\n    threading.Thread(target=_bootstrap_history'):
+            with self.subTest(job=guarded):
+                self.assertIn(guarded, src)
+
+
 if __name__ == '__main__':
     unittest.main()

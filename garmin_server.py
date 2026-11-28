@@ -142,6 +142,11 @@ logger.propagate = False
 
 config = {**dotenv_values('.env'), **os.environ}
 APP_TESTING = _as_bool(config.get('APP_TESTING'))
+# Bakgrundsjobben (Garmin-synk, notiser, veckorapport, MQTT-sensorer, historik
+# vid start) får bara köras av EN server per databas. En testinstans mot samma
+# databas, t.ex. mobilappens beta på G3, sätter BACKGROUND_JOBS=false; annars
+# skulle varje synk och morgonnotis ske två gånger.
+BACKGROUND_JOBS = not APP_TESTING and _as_bool(config.get('BACKGROUND_JOBS', 'true'))
 SESSION_SECRET = str(config.get('SESSION_SECRET') or '').strip()
 if not SESSION_SECRET and APP_TESTING:
     SESSION_SECRET = 'test-session-secret-not-for-production'
@@ -1473,7 +1478,7 @@ def purge_old_sensor_readings():
         logger.exception('Could not purge sensor readings', extra={'event': 'climate.purge_failed'})
 
 
-if not APP_TESTING:
+if BACKGROUND_JOBS:
     start_mqtt_listener()
 
 # --- Användarlager ---
@@ -10935,7 +10940,7 @@ def auto_sync_job():
                 print(f'Auto-sync historik-fel ({username}):', e)
 
 scheduler = None
-if not APP_TESTING:
+if BACKGROUND_JOBS:
     scheduler = BackgroundScheduler(timezone='Europe/Stockholm')
     scheduler.add_job(auto_sync_job, 'interval', minutes=GARMIN_SYNC_MINUTES,
                       # APScheduler interprets a naive datetime in its own
@@ -10959,7 +10964,7 @@ def _bootstrap_history():
     collect_metric_history(45, username=first_user)
 
 
-if not APP_TESTING:
+if BACKGROUND_JOBS:
     threading.Thread(target=_bootstrap_history, daemon=True).start()
 
 
