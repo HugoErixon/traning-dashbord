@@ -1114,6 +1114,22 @@
         </div>
       </div>
 
+      <div class="subnav profile-subnav" id="profile-subnav" role="tablist" aria-label="Profilvyer">
+        <button type="button" class="subnav-item active" data-action="profile-tab" data-tab="runner" role="tab" aria-selected="true">Löparprofil</button>
+        <button type="button" class="subnav-item" data-action="profile-tab" data-tab="physiology" role="tab" aria-selected="false">Fysiologi</button>
+        <button type="button" class="subnav-item" data-action="profile-tab" data-tab="settings" role="tab" aria-selected="false">Inställningar</button>
+      </div>
+
+      <section class="kr-card pr-placeholder" id="profile-runner-placeholder">
+        <div class="kr-card-kicker">LÖPARPROFIL</div>
+        <h3>Din löparprofil</h3>
+        <p class="kr-card-desc">Här samlas dina träningsdagar, mål och egna puls- och tempozoner. Under tiden når du ditt mål och dina zoner härifrån:</p>
+        <div class="pr-placeholder-actions">
+          <button type="button" class="settings-btn primary" data-action="open-goal-modal">Mitt mål</button>
+          <button type="button" class="settings-btn" data-action="profile-tab" data-tab="physiology">Fysiologi &amp; zoner</button>
+          <button type="button" class="settings-btn" data-action="profile-tab" data-tab="settings">Anslutningar &amp; konto</button>
+        </div>
+      </section>
 
       <!-- DIN FYSIOLOGI — personliga värden som tempon och zoner räknas från.
            Flyttat hit från Plan (2026-11-28): det är inställningar om dig, inte

@@ -1460,6 +1460,7 @@ function executeAction(trigger, event) {
   else if (action === 'lifestyle-pick') pickLifestyleHabit(trigger.dataset.key, trigger.dataset.value);
   else if (action === 'journal-mood-pick') pickJournalMood(trigger.dataset.mood);
   else if (action === 'journal-energy-pick') pickJournalEnergy(trigger.dataset.energy);
+  else if (action === 'profile-tab') setProfileTab(trigger.dataset.tab);
   else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
   else if (action === 'send-chat') send();
   else if (action === 'reset-chat') resetChat();
@@ -1524,10 +1525,57 @@ document.addEventListener('keydown', event => {
     if (id === 'journal')  { loadJournal(); loadLifestyle(); }
     if (id === 'upcoming') { checkGcalStatus(); loadWeeklyReport(); loadSeasonPlan(); }
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
-    if (id === 'settings') { loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); }
+    if (id === 'settings') { setProfileTab(activeProfileTab); loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); }
     if (id === 'home') loadToday();
     if (id === 'overview') { loadHealth(); loadOverview(); loadRacePrediction(); }
   }
+
+  let activeProfileTab = 'runner';
+  function classifyProfileSection(el) {
+    if (!el || el.classList.contains('settings-hero') || el.id === 'profile-subnav') return null;
+    if (
+      el.id === 'profile-runner-placeholder' ||
+      el.classList.contains('rp-overview') ||
+      el.id === 'rp-load-status' ||
+      el.id === 'rp-retry' ||
+      el.id === 'runner-profile-form' ||
+      el.id === 'rp-goal-card'
+    ) return 'runner';
+    if (el.classList.contains('settings-physiology') || (el.classList.contains('rp-card') && el.querySelector('#pace-calc-wrap'))) {
+      return 'physiology';
+    }
+    return 'settings';
+  }
+
+  function setProfileTab(tab) {
+    if (tab === 'runner' || tab === 'physiology' || tab === 'settings') activeProfileTab = tab;
+    const subnav = document.getElementById('profile-subnav');
+    if (subnav) {
+      subnav.querySelectorAll('.subnav-item').forEach(btn => {
+        const on = btn.dataset.tab === activeProfileTab;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-selected', String(on));
+      });
+    }
+    const page = document.getElementById('page-settings');
+    if (!page) return;
+    const hasRunnerForm = !!document.getElementById('runner-profile-form');
+    Array.from(page.children).forEach(el => {
+      const target = classifyProfileSection(el);
+      if (!target) return;
+      if (el.id === 'profile-runner-placeholder' && hasRunnerForm) {
+        el.classList.add('profile-pane-hidden');
+        return;
+      }
+      el.classList.toggle('profile-pane-hidden', target !== activeProfileTab);
+    });
+  }
+
+  document.getElementById('rp-goal-shortcut')?.addEventListener('click', () => {
+    setProfileTab('runner');
+  });
+
+  setProfileTab(activeProfileTab);
 
   renderThemeToggle();
   // Har man inte valt läge själv ska appen följa systemet direkt när det byter,

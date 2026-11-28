@@ -5927,3 +5927,23 @@
     font-size: 18px;
   }
 }
+
+/* === gemini: profil === */
+.profile-subnav {
+  margin-top: 12px;
+  margin-bottom: 14px;
+}
+.profile-pane-hidden {
+  display: none !important;
+}
+.pr-placeholder h3 {
+  margin: 4px 0 0;
+  font: 700 17px var(--font-sans);
+  color: var(--text);
+}
+.pr-placeholder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
