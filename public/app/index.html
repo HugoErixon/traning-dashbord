@@ -29,6 +29,7 @@
   <link rel="stylesheet" href="styles.css?v=__ASSETV__">
   <link rel="stylesheet" href="runner-profile.css?v=__ASSETV__">
   <link rel="stylesheet" href="kropp.css?v=__ASSETV__">
+  <link rel="stylesheet" href="morgon.css?v=__ASSETV__">
   <script src="ambient-fibers.js?v=__ASSETV__" defer></script>
 </head>
 <body>
@@ -117,7 +118,7 @@
           <button type="button" class="an-window-btn ov-window-btn" data-action="overview-window" data-days="180">6 mån</button>
         </div>
       </div>
-      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="home">Idag</button><button type="button" class="subnav-item active" data-action="goto" data-page="overview">Översikt</button></div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="home">Idag</button><button type="button" class="subnav-item" data-action="goto" data-page="morning">Morgon</button><button type="button" class="subnav-item active" data-action="goto" data-page="overview">Översikt</button></div>
 
       <div class="section-header">
         <span class="section-header-label">Race predictor</span>
@@ -294,8 +295,39 @@
     </div>
 
     <!-- HEM -->
+    <!-- MORGON: dagssammanfattningen som morgonnotisen öppnar (morgon.js) -->
+    <div class="page" id="page-morning">
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="home">Idag</button><button type="button" class="subnav-item active" data-action="goto" data-page="morning">Morgon</button><button type="button" class="subnav-item" data-action="goto" data-page="overview">Översikt</button></div>
+      <header class="mo-hero">
+        <span class="mo-kicker" id="mo-date"></span>
+        <h2 id="mo-greeting">God morgon</h2>
+        <p id="mo-lead">Laddar…</p>
+      </header>
+
+      <section class="sl-card" id="mo-sleep">
+        <div class="sl-card-head"><span class="sl-card-title">Natten</span><span class="sl-card-note" id="mo-sleep-note"></span></div>
+        <div id="mo-sleep-body"><p class="sl-empty">Laddar…</p></div>
+      </section>
+
+      <section class="sl-card" id="mo-checkin">
+        <div class="sl-card-head"><span class="sl-card-title">Hur mår du?</span><span class="sl-card-note" id="mo-checkin-note"></span></div>
+        <form id="mo-checkin-form" class="mo-form"></form>
+        <div class="mo-actions">
+          <span class="bd-habit-msg" id="mo-checkin-msg" role="status"></span>
+          <button type="button" class="pace-btn pace-btn-ok" data-morgon="save">Spara och räkna om dagen</button>
+        </div>
+      </section>
+
+      <section class="sl-card" id="mo-plan">
+        <div class="sl-card-head"><span class="sl-card-title">Dagens träning</span><span class="sl-pill" id="mo-plan-pill"></span></div>
+        <div id="mo-plan-body"><p class="sl-empty">Laddar…</p></div>
+      </section>
+
+      <button type="button" class="ov-more-btn" data-action="goto" data-page="home"><strong>Till Idag</strong><span>Hela dagens vy med pass, coach och belastning</span><b>→</b></button>
+    </div>
+
     <div class="page active" id="page-home">
-      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="home">Idag</button><button type="button" class="subnav-item" data-action="goto" data-page="overview">Översikt</button></div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="home">Idag</button><button type="button" class="subnav-item" data-action="goto" data-page="morning">Morgon</button><button type="button" class="subnav-item" data-action="goto" data-page="overview">Översikt</button></div>
 
       <!-- REST OR TRAIN HERO STATUS BANNER -->
       <section class="rot-hero" id="rot-hero">
@@ -1291,5 +1323,6 @@
 <script src="app.js?v=__ASSETV__"></script>
 <script src="runner-profile.js?v=__ASSETV__"></script>
 <script src="kropp.js?v=__ASSETV__"></script>
+<script src="morgon.js?v=__ASSETV__"></script>
 </body>
 </html>

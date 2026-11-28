@@ -51,7 +51,8 @@ class MobileAppTests(unittest.TestCase):
     def test_app_assets_are_served(self):
         for path in ('/app/app.js', '/app/styles.css', '/app/ambient-fibers.js', '/app/manifest.json',
                      '/app/runner-profile.js', '/app/runner-profile.css',
-                     '/app/kropp.js', '/app/kropp.css'):
+                     '/app/kropp.js', '/app/kropp.css', '/app/morgon.js', '/app/morgon.css',
+                     '/app/sw.js'):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
 
@@ -108,6 +109,24 @@ class MobileAppTests(unittest.TestCase):
                 self.assertEqual(re.findall(r'data-page="(\w+)"', subnav), list(pages))
                 self.assertIn(f"{page}: 'health'", app_js)
         self.assertNotIn('id="page-journal"', html)
+
+
+    def test_app_has_its_own_service_worker_scoped_to_app(self):
+        # Notiser ska öppna hemskärmsappen, inte webbsidan i Safari.
+        res = self.client.get('/app/sw.js')
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('javascript', res.headers['Content-Type'])
+        self.assertEqual(res.headers.get('Cache-Control'), 'no-cache')
+        app_js = (ROOT / 'public' / 'app' / 'app.js').read_text(encoding='utf-8')
+        self.assertIn("register('/app/sw.js', { scope: APP_SW_SCOPE })", app_js)
+        self.assertIn("client: 'app'", app_js)
+
+    def test_morning_view_is_reachable_from_start(self):
+        html = (ROOT / 'public' / 'app' / 'index.html').read_text(encoding='utf-8')
+        app_js = (ROOT / 'public' / 'app' / 'app.js').read_text(encoding='utf-8')
+        self.assertIn('id="page-morning"', html)
+        self.assertIn("morning: 'home'", app_js)
+        self.assertLess(html.index('kropp.js?v='), html.index('morgon.js?v='))
 
 
 if __name__ == '__main__':

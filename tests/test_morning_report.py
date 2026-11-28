@@ -179,6 +179,8 @@ class MorningReportSendingTests(unittest.TestCase):
         self.assertEqual(title, 'Intervaller 10 km')
         self.assertEqual(body, 'Sov 7,2 h')
         self.assertEqual(send.call_args.kwargs['tag'], 'morning-report')
+        # Notisen öppnar dagssammanfattningen; appen får /app/?vy=morgon av send_push.
+        self.assertEqual(send.call_args.kwargs['url'], '/?vy=morgon')
         self.assertEqual(store.call_args[0][1]['date'], date.today().isoformat())
 
     def test_without_any_content_nothing_is_sent_and_the_day_stays_open(self):
@@ -193,6 +195,27 @@ class MorningReportSendingTests(unittest.TestCase):
 
         send.assert_not_called()
         store.assert_not_called()
+
+
+    def test_the_daily_routine_runs_for_the_user_who_synced(self):
+        users = {'hugo': {'id': 1}, 'anna': {'id': 2}}
+        client = type('C', (), {
+            'get_training_readiness': lambda self, d: [{'score': 70}],
+            'get_sleep_data': lambda self, d: {'dailySleepDTO': {'sleepTimeSeconds': 27000}},
+        })()
+        with patch.object(garmin_server, 'USERS', users), \
+             patch.object(garmin_server, 'get_cache', return_value=None), \
+             patch.object(garmin_server, 'set_cache'), \
+             patch.object(garmin_server, 'clear_cache'), \
+             patch.object(garmin_server, 'get_garmin', return_value=client) as garmin, \
+             patch.object(garmin_server, 'collect_health_history') as history, \
+             patch.object(garmin_server, 'collect_metric_history'), \
+             patch.object(garmin_server, 'maybe_send_morning_report') as report:
+            garmin_server.maybe_run_daily_routine('anna')
+
+        garmin.assert_called_once_with('anna')
+        history.assert_called_once_with(username='anna')
+        report.assert_called_once_with(2)
 
 
 if __name__ == '__main__':

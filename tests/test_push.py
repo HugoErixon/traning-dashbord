@@ -58,6 +58,23 @@ class PushEndpointTests(unittest.TestCase):
         self.assertEqual(params[0], SUBSCRIPTION['endpoint'])
         self.assertEqual(params[2], 'BPublicKey')
 
+    def test_the_app_is_remembered_as_the_client(self):
+        with patch.object(garmin_server, 'db') as db:
+            cur = db.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            self.client.post('/api/push/subscribe',
+                             json={**SUBSCRIPTION, 'client': 'app'}, headers=self.csrf)
+            sql, params = cur.execute.call_args[0]
+        self.assertIn('client=EXCLUDED.client', sql)
+        self.assertEqual(params[-1], 'app')
+
+    def test_an_unknown_client_is_stored_as_web(self):
+        with patch.object(garmin_server, 'db') as db:
+            cur = db.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            self.client.post('/api/push/subscribe',
+                             json={**SUBSCRIPTION, 'client': 'nagot'}, headers=self.csrf)
+            _, params = cur.execute.call_args[0]
+        self.assertEqual(params[-1], 'web')
+
     def test_the_public_key_is_exposed_for_the_browser(self):
         with patch.object(garmin_server, 'VAPID_PUBLIC_KEY', 'pub'), \
              patch.object(garmin_server, 'VAPID_PRIVATE_KEY', 'priv'):
@@ -170,6 +187,29 @@ class SendPushTests(unittest.TestCase):
 
         self.assertEqual(sent, 1)
         self.assertEqual(len(calls), 2)
+
+
+    def test_app_subscriptions_get_links_inside_the_app(self):
+        with patch.object(garmin_server, 'VAPID_PUBLIC_KEY', 'pub'), \
+             patch.object(garmin_server, 'VAPID_PRIVATE_KEY', 'priv'), \
+             patch.object(garmin_server, 'db') as db, \
+             patch.object(garmin_server, 'webpush') as webpush:
+            cur = db.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+            cur.fetchall.return_value = [('https://push/web', 'K', 'A', 'web'),
+                                         ('https://push/app', 'K', 'A', 'app')]
+            garmin_server.send_push(1, 'T', 'B', url='/?vy=morgon')
+
+        urls = {call.kwargs['subscription_info']['endpoint']: json.loads(call.kwargs['data'])['url']
+                for call in webpush.call_args_list}
+        self.assertEqual(urls, {'https://push/web': '/?vy=morgon', 'https://push/app': '/app/?vy=morgon'})
+
+
+class PushUrlTests(unittest.TestCase):
+    def test_web_links_are_moved_into_the_app_for_app_clients(self):
+        self.assertEqual(garmin_server.push_url_for('app', '/'), '/app/')
+        self.assertEqual(garmin_server.push_url_for('app', '/?activity=5'), '/app/?activity=5')
+        self.assertEqual(garmin_server.push_url_for('app', '/app/?vy=morgon'), '/app/?vy=morgon')
+        self.assertEqual(garmin_server.push_url_for('web', '/?vy=morgon'), '/?vy=morgon')
 
 
 if __name__ == '__main__':

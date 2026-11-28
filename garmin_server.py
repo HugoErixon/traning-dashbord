@@ -1252,6 +1252,11 @@ def migrate_db():
                     last_ok REAL)''')
                 cur.execute('''CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
                     ON push_subscriptions (user_id)''')
+                # 'web' = webbsidan på /, 'app' = mobilappen på /app/. En notis
+                # måste öppna samma app som prenumererade, annars hamnar man i
+                # Safari i stället för i hemskärmsappen.
+                cur.execute('''ALTER TABLE push_subscriptions
+                    ADD COLUMN IF NOT EXISTS client TEXT NOT NULL DEFAULT 'web' ''')
             except Exception as e:
                 print('migrate_db push_subscriptions:', e)
             try:
@@ -1729,6 +1734,8 @@ def secure_response(response):
     elif request.path in (
         '/', '/index.html', '/landing.html', '/app.js', '/styles.css',
         '/landing.css', '/landing.js', '/ambient-fibers.js',
+        # Service workers: en cachad gammal version kan styra notiserna i ett dygn.
+        '/sw.js', '/app/sw.js',
     ):
         response.headers['Cache-Control'] = 'no-cache'
     if ENABLE_HSTS:
@@ -4017,6 +4024,19 @@ def _forget_subscription(endpoint):
         print('push: kunde inte rensa prenumeration:', exc)
 
 
+def push_url_for(client, url):
+    """Länken en notis ska öppna på en viss klient.
+
+    Webbsidans länkar ('/', '/?activity=…') pekas om till mobilappen ('/app/',
+    '/app/?activity=…') för enheter som prenumererat från appen. iPhone öppnar
+    en länk utanför hemskärmsappens scope i Safari, så det här är skillnaden
+    mellan att landa i appen och att landa på fel ställe."""
+    url = url or '/'
+    if client == 'app' and url.startswith('/') and not url.startswith('/app/'):
+        return '/app' + url
+    return url
+
+
 def send_push(user_id, title, body, url='/', tag='trainyze'):
     """Skicka en notis till alla enheter en användare registrerat.
 
@@ -4028,16 +4048,19 @@ def send_push(user_id, title, body, url='/', tag='trainyze'):
     try:
         with db() as conn:
             with conn.cursor() as cur:
-                cur.execute('''SELECT endpoint, p256dh, auth FROM push_subscriptions
+                cur.execute('''SELECT endpoint, p256dh, auth, client FROM push_subscriptions
                     WHERE user_id=%s''', (user_id,))
                 rows = cur.fetchall()
     except Exception as exc:
         print('push: kunde inte läsa prenumerationer:', exc)
         return 0
 
-    payload = json.dumps({'title': title, 'body': body, 'url': url, 'tag': tag})
     sent = 0
-    for endpoint, p256dh, auth in rows:
+    for row in rows:
+        endpoint, p256dh, auth = row[:3]
+        client = row[3] if len(row) > 3 else 'web'
+        payload = json.dumps({'title': title, 'body': body,
+                              'url': push_url_for(client, url), 'tag': tag})
         try:
             webpush(
                 subscription_info={'endpoint': endpoint,
@@ -4083,6 +4106,7 @@ def push_subscribe():
     endpoint = data.get('endpoint')
     keys = data.get('keys') or {}
     p256dh, auth = keys.get('p256dh'), keys.get('auth')
+    client = 'app' if data.get('client') == 'app' else 'web'
     if not endpoint or not p256dh or not auth:
         return _api_error('invalid_subscription', 'Prenumerationen saknar nycklar.', 400)
     try:
@@ -4091,12 +4115,12 @@ def push_subscribe():
                 # Samma enhet kan prenumerera om efter en omregistrering; då ska
                 # raden bytas ut, och byter användare på enheten ska den följa med.
                 cur.execute('''INSERT INTO push_subscriptions
-                        (endpoint, user_id, p256dh, auth, created_at)
-                    VALUES (%s, %s, %s, %s, %s)
+                        (endpoint, user_id, p256dh, auth, created_at, client)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (endpoint) DO UPDATE SET
                         user_id=EXCLUDED.user_id, p256dh=EXCLUDED.p256dh,
-                        auth=EXCLUDED.auth''',
-                    (endpoint, uid(), p256dh, auth, time.time()))
+                        auth=EXCLUDED.auth, client=EXCLUDED.client''',
+                    (endpoint, uid(), p256dh, auth, time.time(), client))
             conn.commit()
     except Exception as exc:
         return _server_error(exc, 'push.subscribe_failed',
@@ -4143,7 +4167,8 @@ def push_test():
     """Skicka en testnotis så att uppsättningen går att verifiera på riktigt."""
     if not push_available():
         return _api_error('push_not_configured', 'Notiser är inte konfigurerade på servern.', 503)
-    sent = send_push(uid(), 'Trainyze', 'Testnotis — notiser fungerar.', url='/')
+    sent = send_push(uid(), 'Trainyze', 'Testnotis — notiser fungerar.', url='/?vy=morgon',
+                     tag='push-test')
     if not sent:
         return _api_error('no_devices',
                           'Ingen enhet tog emot notisen. Aktivera notiser på enheten först.', 404)
@@ -10113,7 +10138,7 @@ def run_sync(count=50, username=None, user_id=1):
     except Exception as e:
         print('Matchning efter synk fel:', e)
     try:
-        maybe_run_daily_routine()
+        maybe_run_daily_routine(username)
     except Exception as e:
         print('Daglig rutin fel:', e)
     return len(acts)
@@ -10785,7 +10810,11 @@ def _morning_report_text(user_id):
         return None, None
 
     headline = session_title or 'God morgon'
-    return headline, ' · '.join(parts) if parts else 'Dagens data är inne.'
+    parts.append('Checka in')
+    return headline, ' · '.join(parts)
+
+
+MORNING_REPORT_URL = '/?vy=morgon'
 
 
 def maybe_send_morning_report(user_id):
@@ -10821,18 +10850,20 @@ def maybe_send_morning_report(user_id):
     if not headline:
         return False
 
-    sent = send_push(user_id, headline, body, url='/', tag='morning-report')
+    # Appen öppnar dagssammanfattningen (/app/?vy=morgon); webbsidan ignorerar parametern.
+    sent = send_push(user_id, headline, body, url=MORNING_REPORT_URL, tag='morning-report')
     set_cache('morning_report_sent', {'date': today, 'devices': sent}, user_id)
     logger.info('Morning report sent', extra={
         'event': 'push.morning_report', 'user_id': user_id, 'devices': sent})
     return bool(sent)
 
 
-def maybe_run_daily_routine():
+def maybe_run_daily_routine(username=None):
     """Den dagliga rutinen körs EN gång per dag — men först när dagens hälsodata
     faktiskt har synkat. Ingen gissad klockslag, inget 'recovery unavailable'.
-    Drivs av autosynken (var 3:e timme) + varje manuell synk. Kör bara för user_id=1."""
-    first_user = list(USERS.keys())[0] if USERS else 'hugo'
+    Drivs av autosynken + varje manuell synk, per användare: varje användare med
+    Garmin får sin egen historik och sin egen morgonnotis när sömnen är inne."""
+    first_user = username or (list(USERS.keys())[0] if USERS else 'hugo')
     first_uid  = USERS.get(first_user, {}).get('id', 1)
     today = date.today().isoformat()
     history_row = get_cache('last_daily_history', first_uid)
@@ -10990,7 +11021,7 @@ def _asset_version():
     for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js',
                  'app/app.js', 'app/styles.css', 'app/ambient-fibers.js',
                  'app/runner-profile.js', 'app/runner-profile.css',
-                 'app/kropp.js', 'app/kropp.css'):
+                 'app/kropp.js', 'app/kropp.css', 'app/morgon.js', 'app/morgon.css'):
         try:
             digest.update((PUBLIC_DIR / name).read_bytes())
         except OSError:

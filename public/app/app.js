@@ -1492,7 +1492,7 @@ document.addEventListener('keydown', event => {
   //   Start: Idag, Översikt · Träning: Plan, Styrka, Utveckling
   //   Kropp: Läget, Sömn, Känningar, Vanor (kropp.js) · Profil: Profil, Klimat
   const NAV_SECTION = {
-    home: 'home', overview: 'home',
+    home: 'home', overview: 'home', morning: 'home',
     upcoming: 'upcoming', strength: 'upcoming', analysis: 'upcoming',
     health: 'health', sleep: 'health', niggles: 'health', habits: 'health',
     settings: 'settings', climate: 'settings',
@@ -1523,6 +1523,7 @@ document.addEventListener('keydown', event => {
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); initPaceCalculator(); }
     if (id === 'home') loadToday();
+    if (id === 'morning') window.loadMorning?.();
     if (id === 'overview') { loadHealth(); loadOverview(); loadRacePrediction(); }
   }
 
@@ -7377,10 +7378,19 @@ document.addEventListener('keydown', event => {
     return Uint8Array.from([...raw].map(char => char.charCodeAt(0)));
   }
 
+  // Appen har en egen worker (/app/sw.js, scope /app/) så att notiser öppnar
+  // appen och inte webbsidan i Safari.
+  const APP_SW_SCOPE = '/app/';
+
+  async function appPushRegistration() {
+    const registration = await navigator.serviceWorker.getRegistration(APP_SW_SCOPE);
+    return registration && new URL(registration.scope).pathname === APP_SW_SCOPE ? registration : null;
+  }
+
   async function registerPushWorker() {
     if (!pushSupported()) return null;
     try {
-      return await navigator.serviceWorker.register('/sw.js');
+      return await navigator.serviceWorker.register('/app/sw.js', { scope: APP_SW_SCOPE });
     } catch (error) {
       console.warn('Service worker kunde inte registreras:', error);
       return null;
@@ -7424,12 +7434,12 @@ document.addEventListener('keydown', event => {
       return;
     }
 
-    const registration = await navigator.serviceWorker.getRegistration();
+    const registration = await appPushRegistration();
     pushSubscription = registration ? await registration.pushManager.getSubscription() : null;
 
     if (pushSubscription && Notification.permission === 'granted') {
       setState('På', 'is-on');
-      copy.textContent = 'Den här enheten tar emot notiser från Trainyze.';
+      copy.textContent = 'Den här enheten får morgonsammanfattningen när sömnen är inne, och notiser om nya pass.';
       primary.textContent = 'Stäng av';
       primary.dataset.action = 'disable-push';
       show(primary, true); show(test, true);
@@ -7440,7 +7450,8 @@ document.addEventListener('keydown', event => {
       show(primary, false); show(test, false);
     } else {
       setState('Av', 'is-off');
-      copy.textContent = 'Få en notis när något viktigt händer i din träning.';
+      copy.textContent = 'Få en morgonnotis när sömnen är inne, och en notis när nya pass synkats. '
+        + 'Notiserna kommer även när appen är stängd.';
       primary.textContent = 'Slå på notiser';
       primary.dataset.action = 'enable-push';
       show(primary, true); show(test, false);
@@ -7471,7 +7482,7 @@ document.addEventListener('keydown', event => {
       const stored = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(subscription.toJSON()),
+        body: JSON.stringify({ ...subscription.toJSON(), client: 'app' }),
       });
       if (!stored.ok) throw new Error('Servern kunde inte spara prenumerationen.');
     } catch (error) {
@@ -7487,7 +7498,7 @@ document.addEventListener('keydown', event => {
     const primary = document.getElementById('settings-push-primary');
     if (primary) { primary.disabled = true; primary.textContent = 'Stänger av…'; }
     try {
-      const registration = await navigator.serviceWorker.getRegistration();
+      const registration = await appPushRegistration();
       const subscription = registration ? await registration.pushManager.getSubscription() : null;
       if (subscription) {
         // Säg till servern först: lyckas avregistreringen i webbläsaren men
