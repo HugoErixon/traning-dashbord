@@ -5,6 +5,7 @@
 //   node tools/iphone-sim.mjs --g3       din riktiga data direkt från G3 (skrivskyddat)
 //   node tools/iphone-sim.mjs --prod     din riktiga data via trainyze.com (skrivskyddat)
 //   lägg till --skriv för att tillåta ändringar
+//   --slot N väljer port 3100+N (annars från mappnamnet, se nedan)
 //
 // Startar tools/dev_shell.py om den inte redan kör, öppnar Chrome som ett
 // fristående appfönster och slår på touch-emulering + iPhone-identitet via
@@ -17,13 +18,21 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PORT = 3100;
-const CDP_PORT = 9333;
-const BASE = `http://127.0.0.1:${PORT}`;
-const CACHE = join(homedir(), '.cache', 'trainyze-iphone');
 const args = process.argv.slice(2);
+// Varje worktree får egen port, egen Chrome-profil och eget CDP-läge, så att flera
+// agenter kan köra varsin simulator samtidigt. Platsen följer mappnamnet:
+// ~/trainyze → 0, trainyze-claude → 1, trainyze-codex → 2, trainyze-gemini → 3.
+// Eget nummer: --slot N.
+const SLOTS = { claude: 1, codex: 2, gemini: 3 };
+const slotArg = args.indexOf('--slot');
+const SLOT = slotArg >= 0 ? Number(args[slotArg + 1])
+  : (SLOTS[(dirname(HERE).split('/').pop().match(/-([a-z]+)$/) || [])[1]] ?? 0);
+const PORT = 3100 + SLOT;
+const CDP_PORT = 9333 + SLOT;
+const BASE = `http://127.0.0.1:${PORT}`;
+const CACHE = join(homedir(), '.cache', SLOT ? `trainyze-iphone-${SLOT}` : 'trainyze-iphone');
 const wantMode = args.includes('--g3') ? 'g3' : args.includes('--prod') ? 'prod' : 'mock';
-const serverArgs = [join(HERE, 'dev_shell.py'), ...(wantMode === 'mock' ? [] : [`--${wantMode}`]), ...(args.includes('--skriv') ? ['--skriv'] : [])];
+const serverArgs = [join(HERE, 'dev_shell.py'), '--port', String(PORT), ...(wantMode === 'mock' ? [] : [`--${wantMode}`]), ...(args.includes('--skriv') ? ['--skriv'] : [])];
 const MODE_TEXT = { mock: 'påhittad data', g3: 'riktig data från G3', prod: 'riktig data via trainyze.com' };
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 '
   + '(KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
@@ -40,7 +49,7 @@ async function serverInfo() {
 
 async function stopServer() {
   const { execFileSync } = await import('node:child_process');
-  try { execFileSync('pkill', ['-f', 'tools/dev_shell.py']); } catch { /* inget att stoppa */ }
+  try { execFileSync('pkill', ['-f', `${join(HERE, 'dev_shell.py')} --port ${PORT}`]); } catch { /* inget att stoppa */ }
   for (let i = 0; i < 30 && await serverInfo(); i++) await sleep(100);
 }
 

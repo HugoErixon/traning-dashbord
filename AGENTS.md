@@ -391,3 +391,8 @@ read-only by default). They feed the Bryggan "Coach" room in `~/trainyze-coach`
 without shell-level access to the app's credentials. `coach.cache` is an **allowlist** of
 cache keys — never widen it to tokens or other users. Postgres will refuse to drop or retype
 a column a view uses: drop/recreate the matching `coach.*` view in the same migration.
+
+## Parallellt arbete (flera agenter)
+
+Mobilappen utvecklas av flera agenter samtidigt, var och en i egen worktree och gren (`app/<agent>`).
+Läs `docs/PARALLELLT.md` för ansvarsområden, portar och regler innan du ändrar något i `public/app/`.
