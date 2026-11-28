@@ -74,7 +74,7 @@
        underflikar (se NAV_SECTION i app.js):
          Start    – Idag · Översikt
          Träning  – Plan · Styrka · Utveckling
-         Kropp    – Dygnet · Sömn · Dagbok
+         Kropp    – Status · Sömn · Dagbok
          Profil   – du och ditt mål, din fysiologi (labbtest, tempon, zoner),
                     anslutningar och inställningar (även dag/natt-läge)
        Känningar ligger under Kropp. Allt ska passa alla användare: inget
@@ -484,269 +484,94 @@
     <!-- HÄLSA -->
     <div class="page" id="page-health">
       <div class="page-header"><h2>Kropp</h2><p id="h-date-label">Laddar…</p></div>
-      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="health">Dygnet</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="journal">Dagbok</button></div>
-      <div class="hg-row">
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item active" data-action="goto" data-page="health">Status</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="journal">Dagbok</button></div>
 
-        <!-- CNS-SCORE (ersätter Recovery) -->
-        <div class="cns-card" id="hg-recovery">
-          <div class="cns-top">
-            <div class="cns-score-wrap">
-              <div class="cns-score" id="cns-score">-</div>
-              <div class="cns-label">CNS-score</div>
-            </div>
-            <div class="cns-right">
-              <div class="cns-title" id="cns-title">Laddar…</div>
-              <div class="cns-desc" id="cns-desc">Räknar fram din dagliga CNS-beredskap utifrån HRV, sömn, Garmin-beredskap och stress.</div>
-              <div class="hrv-light-row">
-                <div class="hrv-dot" id="hrv-dot-green"></div>
-                <div class="hrv-dot" id="hrv-dot-amber"></div>
-                <div class="hrv-dot" id="hrv-dot-red"></div>
-                <span class="hrv-light-label" id="hrv-light-label">Laddar HRV…</span>
-              </div>
-            </div>
+      <!-- 1. ÅTERHÄMTNING & BEREDSKAP -->
+      <section class="kr-hero" id="hg-recovery">
+        <div class="cns-top">
+          <div class="cns-score-wrap">
+            <div class="cns-score" id="cns-score">-</div>
+            <div class="cns-label">CNS-score</div>
           </div>
-          <div class="cns-bar-wrap">
-            <div class="cns-bar"><div class="cns-bar-fill" id="cns-bar" style="width:0%"></div></div>
-          </div>
-          <div class="cns-metrics">
-            <div class="cns-metric">
-              <div class="cns-metric-name">HRV mot snitt</div>
-              <div class="cns-metric-val" id="cns-hrv-val">-</div>
-              <div class="cns-metric-sub" id="cns-hrv-sub">Laddar…</div>
-            </div>
-            <div class="cns-metric">
-              <div class="cns-metric-name">Vilopuls</div>
-              <div class="cns-metric-val" id="cns-rhr-val">-</div>
-              <div class="cns-metric-sub" id="cns-rhr-sub">bpm</div>
-            </div>
-            <div class="cns-metric">
-              <div class="cns-metric-name">Garmin-beredskap</div>
-              <div class="cns-metric-val" id="cns-readiness-val">-</div>
-              <div class="cns-metric-sub" id="cns-readiness-sub">/ 100</div>
-            </div>
-          </div>
-          <div class="cns-drivers">
-            <div class="cns-drivers-head">
-              <span>Påverkar idag</span>
-              <strong id="cns-driver-summary">Laddar…</strong>
-            </div>
-            <div class="cns-driver-row">
-              <div class="cns-driver-top">
-                <span>Sömn</span>
-                <strong id="cns-driver-sleep-val">-</strong>
-              </div>
-              <div class="cns-driver-bar"><div id="cns-driver-sleep-bar"></div></div>
-            </div>
-            <div class="cns-driver-row">
-              <div class="cns-driver-top">
-                <span>Stress</span>
-                <strong id="cns-driver-stress-val">-</strong>
-              </div>
-              <div class="cns-driver-bar"><div id="cns-driver-stress-bar"></div></div>
-            </div>
-            <div class="cns-driver-row">
-              <div class="cns-driver-top">
-                <span>Kroppsbatteri</span>
-                <strong id="cns-driver-bb-val">-</strong>
-              </div>
-              <div class="cns-driver-bar"><div id="cns-driver-bb-bar"></div></div>
+          <div class="cns-right">
+            <div class="cns-title" id="cns-title">Laddar…</div>
+            <div class="cns-desc" id="cns-desc">Räknar fram din dagliga CNS-beredskap utifrån HRV, sömn, Garmin-beredskap och stress.</div>
+            <div class="hrv-light-row">
+              <div class="hrv-dot" id="hrv-dot-green"></div>
+              <div class="hrv-dot" id="hrv-dot-amber"></div>
+              <div class="hrv-dot" id="hrv-dot-red"></div>
+              <span class="hrv-light-label" id="hrv-light-label">Laddar HRV…</span>
             </div>
           </div>
         </div>
+        <div class="cns-bar-wrap">
+          <div class="cns-bar"><div class="cns-bar-fill" id="cns-bar" style="width:0%"></div></div>
+        </div>
 
-        <!-- SLEEP -->
-        <div class="hg-card c-sleep" id="hg-sleep">
-          <div class="hg-top">
-            <div class="hg-cat">Sömn</div>
-            <div class="hg-score-row">
-              <div class="hg-score cp" id="hg-sleep-score">-</div>
-              <div class="hg-score-right">
-                <span class="hg-status hs-purple" id="hg-sleep-badge">Laddar…</span>
-                <span class="hg-summary" id="hg-sleep-summary" style="font-size:11px;"></span>
-              </div>
+        <div class="kr-grid">
+          <div class="kr-tile">
+            <div class="kr-tile-head">
+              <span class="kr-tile-label">HRV</span>
+              <svg id="kropp-spark-hrv" class="kr-spark" viewBox="0 0 80 22" aria-hidden="true"></svg>
             </div>
-            <div class="hg-summary" id="hg-sleep-desc">Laddar sömnkvalitet och sömncykler…</div>
-            <div class="hg-bar-wrap">
-              <div class="hg-bar"><div class="hg-bar-fill" id="hg-sleep-bar" style="width:0%"></div></div>
-            </div>
+            <strong class="kr-tile-val" id="cns-hrv-val">-</strong>
+            <span class="kr-tile-sub" id="cns-hrv-sub">Laddar…</span>
           </div>
-          <div class="hg-details" id="hg-sleep-details" style="display:flex;border-top:1px solid var(--border)">
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Sömnpoäng</div>
-                <div class="hg-metric-desc" id="hd-sscore-desc">Bra: 80+, utmärkt: 90+</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-sscore-val">-</div>
-                <div class="hg-metric-status" id="hd-sscore-status">/ 100</div>
-              </div>
+          <div class="kr-tile">
+            <div class="kr-tile-head">
+              <span class="kr-tile-label">Vilopuls</span>
+              <svg id="kropp-spark-rhr" class="kr-spark" viewBox="0 0 80 22" aria-hidden="true"></svg>
             </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Djupsömn</div>
-                <div class="hg-metric-desc" id="hd-deep-desc">Mål: 15–25% av total sömn</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-deep-val">-</div>
-                <div class="hg-metric-status" id="hd-deep-status">%</div>
-              </div>
+            <strong class="kr-tile-val" id="cns-rhr-val">-</strong>
+            <span class="kr-tile-sub" id="cns-rhr-sub">bpm</span>
+          </div>
+          <div class="kr-tile">
+            <div class="kr-tile-head">
+              <span class="kr-tile-label">Kroppsbatteri</span>
             </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">REM-sömn</div>
-                <div class="hg-metric-desc" id="hd-rem-desc">Mål: 20–25% av total sömn</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-rem-val">-</div>
-                <div class="hg-metric-status" id="hd-rem-status">%</div>
-              </div>
+            <strong class="kr-tile-val" id="kr-bb-val">-</strong>
+            <span class="kr-tile-sub" id="kr-bb-sub">Laddar…</span>
+          </div>
+          <button type="button" class="kr-tile kr-tile-link" data-action="goto" data-page="sleep">
+            <div class="kr-tile-head">
+              <span class="kr-tile-label">Sömn i natt</span>
+              <span class="kr-tile-arrow" aria-hidden="true">→</span>
             </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Total sömn</div>
-                <div class="hg-metric-desc">Mål: 7,5 h/natt</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stotal-val">-</div>
-                <div class="hg-metric-status" id="hd-stotal-status"></div>
-              </div>
-            </div>
-            <div class="sleep-debt-row">
-              <div>
-                <div class="sleep-debt-label">Sömnskuld denna vecka</div>
-                <div style="font-size:10px;color:var(--muted);margin-top:2px;">Mål 52,5 h/vecka (7,5 h/natt)</div>
-              </div>
-              <div class="sleep-debt-val" id="sleep-debt-val">-</div>
-            </div>
-            <div class="sleep-flag-row" id="sleep-flag-row"></div>
+            <strong class="kr-tile-val" id="kr-sleep-val">-</strong>
+            <span class="kr-tile-sub" id="kr-sleep-sub">Visa detaljer</span>
+          </button>
+        </div>
+
+        <div class="kr-drivers">
+          <div class="cns-drivers-head">
+            <span>Påverkar idag</span>
+            <strong id="cns-driver-summary">Laddar…</strong>
+          </div>
+          <div class="cns-driver-row">
+            <div class="cns-driver-top"><span>Sömn</span><strong id="cns-driver-sleep-val">-</strong></div>
+            <div class="cns-driver-bar"><div id="cns-driver-sleep-bar"></div></div>
+          </div>
+          <div class="cns-driver-row">
+            <div class="cns-driver-top"><span>Stress</span><strong id="cns-driver-stress-val">-</strong></div>
+            <div class="cns-driver-bar"><div id="cns-driver-stress-bar"></div></div>
+          </div>
+          <div class="cns-driver-row">
+            <div class="cns-driver-top"><span>Kroppsbatteri</span><strong id="cns-driver-bb-val">-</strong></div>
+            <div class="cns-driver-bar"><div id="cns-driver-bb-bar"></div></div>
           </div>
         </div>
 
-        <!-- STRESS -->
-        <div class="hg-card c-daily" id="hg-daily">
-          <div class="hg-top">
-            <div class="hg-cat">Dagens rörelse</div>
-            <div class="hg-score-row">
-              <div class="hg-score ca" id="hg-daily-score">-</div>
-              <span class="hg-daily-unit">steg</span>
-              <div class="hg-score-right">
-                <span class="hg-status hs-ok" id="hg-daily-badge">Laddar…</span>
-                <span class="hg-summary" id="hg-daily-summary" style="font-size:11px;"></span>
-              </div>
-            </div>
-            <div class="hg-summary" id="hg-daily-desc">Laddar steg och kalorier…</div>
-            <div class="hg-bar-wrap">
-              <div class="hg-bar"><div class="hg-bar-fill" id="hg-daily-bar" style="width:0%"></div></div>
-            </div>
-          </div>
-          <div class="hg-details" id="hg-daily-details" style="display:flex;border-top:1px solid var(--border)">
-            <div class="hg-metric">
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Aktiva kalorier</div>
-                <div class="hg-metric-desc">Det träningen och rörelsen kostat</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-cal-active">-</div>
-                <div class="hg-metric-status" id="hd-cal-active-status">kcal</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Totalt förbrända</div>
-                <div class="hg-metric-desc" id="hd-cal-total-desc">Inklusive basalomsättning</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-cal-total">-</div>
-                <div class="hg-metric-status" id="hd-cal-total-status">kcal</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Sträcka</div>
-                <div class="hg-metric-desc">All rörelse under dygnet</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-daily-dist">-</div>
-                <div class="hg-metric-status">km</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-              <div class="hg-metric-body">
-                <div class="hg-metric-name">Intensitetsminuter</div>
-                <div class="hg-metric-desc" id="hd-intensity-desc">Hård intensitet räknas dubbelt</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-intensity">-</div>
-                <div class="hg-metric-status" id="hd-intensity-status"></div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <div class="kr-vitals-row" id="kr-vitals-row"></div>
+      </section>
 
-        <div class="hg-card c-stress" id="hg-stress">
-          <div class="hg-top">
-            <div class="hg-cat">Stress</div>
-            <div class="hg-score-row">
-              <div class="hg-score ca" id="hg-stress-score">-</div>
-              <div class="hg-score-right">
-                <span class="hg-status hs-ok" id="hg-stress-badge">Laddar…</span>
-                <span class="hg-summary" id="hg-stress-summary" style="font-size:11px;"></span>
-              </div>
-            </div>
-            <div class="hg-summary" id="hg-stress-desc">Laddar stressnivå och historik…</div>
-            <div class="hg-bar-wrap">
-              <div class="hg-bar"><div class="hg-bar-fill" id="hg-stress-bar" style="width:0%"></div></div>
-            </div>
-          </div>
-          <div class="hg-details" id="hg-stress-details" style="display:flex;border-top:1px solid var(--border)">
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Stressgenomsnitt</div>
-                <div class="hg-metric-desc" id="hd-stress-desc">0–25: vila  ·  26–50: låg  ·  51–75: måttlig</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stress-val">-</div>
-                <div class="hg-metric-status" id="hd-stress-status">/ 100</div>
-              </div>
-            </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Historiskt snitt</div>
-                <div class="hg-metric-desc" id="hd-stress-hist-desc">Senaste 30 dagarna</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stress-hist-val">-</div>
-                <div class="hg-metric-status" id="hd-stress-hist-status"></div>
-              </div>
-            </div>
-            <div class="hg-metric">
-<div class="hg-metric-body">
-                <div class="hg-metric-name">Avvikelse</div>
-                <div class="hg-metric-desc" id="hd-stress-delta-desc">Jämfört med historiken</div>
-              </div>
-              <div class="hg-metric-right">
-                <div class="hg-metric-val" id="hd-stress-delta-val">-</div>
-                <div class="hg-metric-status" id="hd-stress-delta-status"></div>
-              </div>
-            </div>
-            <div class="stress-chart-wrap">
-              <svg id="stress-history-chart" viewBox="0 0 320 132" preserveAspectRatio="none" aria-hidden="true"></svg>
-            </div>
-            <div style="display:none">
-              <span id="hd-bb-desc"></span>
-              <span id="hd-spo2-desc"></span>
-              <span id="hd-resp-desc"></span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- KÄNNINGAR — det klockan inte ser. Styr coachen, styrkeprogrammet och veckorapporten. -->
-      <section class="ng-card" id="niggle-card" aria-labelledby="niggle-title">
+      <!-- 2. KÄNNINGAR & SKADESTATUS -->
+      <section class="ng-card kr-card" id="niggle-card" aria-labelledby="niggle-title">
         <div class="ng-head">
-          <h3 class="ng-title" id="niggle-title">Känningar</h3>
-          <button type="button" class="ng-add-toggle" data-action="niggle-toggle-form" aria-expanded="false" aria-controls="niggle-form">+ Logga känning</button>
+          <div class="kr-card-title-wrap">
+            <h3 class="ng-title" id="niggle-title">Känningar</h3>
+            <span class="kr-pill" id="niggle-status-badge">–</span>
+          </div>
+          <button type="button" class="ng-add-toggle" data-action="niggle-toggle-form" aria-expanded="false" aria-controls="niggle-form">+ Logga</button>
         </div>
         <div id="niggle-list"><p class="ng-empty">Laddar…</p></div>
         <form class="ng-form" id="niggle-form" hidden>
@@ -757,12 +582,78 @@
           <div class="ng-actions"><button type="submit" class="pace-btn pace-btn-ok">Spara</button><span class="pace-vdot-msg" id="niggle-msg" role="status"></span></div>
         </form>
       </section>
+
+      <!-- 3. STRESS & 30-DAGARS TREND -->
+      <section class="kr-card" id="hg-stress">
+        <div class="kr-card-head">
+          <div>
+            <div class="kr-card-kicker">Stress</div>
+            <div class="kr-score-inline">
+              <strong class="kr-score-num" id="hg-stress-score">-</strong>
+              <span class="hg-status hs-ok" id="hg-stress-badge">Laddar…</span>
+            </div>
+          </div>
+          <span class="kr-card-meta" id="hg-stress-summary"></span>
+        </div>
+        <p class="kr-card-desc" id="hg-stress-desc">Laddar stressnivå och historik…</p>
+        <div class="kr-stat-strip">
+          <div class="kr-stat-cell">
+            <span>Idag</span>
+            <strong id="hd-stress-val">-</strong>
+            <small id="hd-stress-status">/ 100</small>
+          </div>
+          <div class="kr-stat-cell">
+            <span>30d snitt</span>
+            <strong id="hd-stress-hist-val">-</strong>
+            <small id="hd-stress-hist-status"></small>
+          </div>
+          <div class="kr-stat-cell">
+            <span>Avvikelse</span>
+            <strong id="hd-stress-delta-val">-</strong>
+            <small id="hd-stress-delta-status"></small>
+          </div>
+        </div>
+        <div class="stress-chart-wrap">
+          <svg id="stress-history-chart" viewBox="0 0 320 116" preserveAspectRatio="none" aria-hidden="true"></svg>
+        </div>
+      </section>
+
+      <!-- 4. DAGENS RÖRELSE -->
+      <section class="kr-card" id="hg-daily">
+        <div class="kr-card-head">
+          <div>
+            <div class="kr-card-kicker">Dagens rörelse</div>
+            <div class="kr-score-inline">
+              <strong class="kr-score-num" id="hg-daily-score">-</strong>
+              <span class="kr-score-unit">steg</span>
+              <span class="hg-status hs-ok" id="hg-daily-badge">Laddar…</span>
+            </div>
+          </div>
+          <span class="kr-card-meta" id="hg-daily-summary"></span>
+        </div>
+        <div class="hg-bar-wrap">
+          <div class="hg-bar"><div class="hg-bar-fill" id="hg-daily-bar" style="width:0%"></div></div>
+        </div>
+        <p class="kr-card-desc" id="hg-daily-desc">Laddar steg och rörelse…</p>
+        <div class="kr-stat-strip kr-stat-strip-2">
+          <div class="kr-stat-cell">
+            <span>Sträcka</span>
+            <strong id="hd-daily-dist">-</strong>
+            <small>km</small>
+          </div>
+          <div class="kr-stat-cell">
+            <span>Intensitetsminuter</span>
+            <strong id="hd-intensity">-</strong>
+            <small id="hd-intensity-status"></small>
+          </div>
+        </div>
+      </section>
     </div>
 
     <!-- SLEEP -->
     <div class="page" id="page-sleep">
       <div class="page-header"><h2>Sömn</h2><p>Natten som gick, kvällens läggdags och hur sömnen rör sig över tid</p></div>
-      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Dygnet</button><button type="button" class="subnav-item active" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="journal">Dagbok</button></div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Status</button><button type="button" class="subnav-item active" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item" data-action="goto" data-page="journal">Dagbok</button></div>
 
       <!-- I NATT ─ hero -->
       <section class="sl-hero">
@@ -1111,47 +1002,86 @@
 
     <!-- JOURNAL -->
     <div class="page" id="page-journal">
-      <div class="page-header"><h2>Dagbok</h2><p>Hur dagen kändes, vad som hände och vad du vill minnas</p></div>
-      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Dygnet</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item active" data-action="goto" data-page="journal">Dagbok</button></div>
+      <div class="page-header"><h2>Dagbok</h2><p>Vanor, dagsform och vad som faktiskt påverkar din återhämtning</p></div>
+      <div class="subnav" role="tablist" aria-label="Undervyer"><button type="button" class="subnav-item" data-action="goto" data-page="health">Status</button><button type="button" class="subnav-item" data-action="goto" data-page="sleep">Sömn</button><button type="button" class="subnav-item active" data-action="goto" data-page="journal">Dagbok</button></div>
 
-      <div class="journal-layout">
-        <section class="journal-editor">
+      <div class="kr-datebar">
+        <label class="kr-datebar-label" for="journal-date">Datum</label>
+        <input type="date" id="journal-date">
+      </div>
+
+      <div class="journal-layout kr-journal-stack">
+        <!-- VANOR (inbyggd livsstilslogg mot /api/lifestyle, ingen AI) -->
+        <section class="kr-card" id="lifestyle-card">
           <div class="journal-editor-top">
             <div>
-              <div class="journal-kicker">Dagens incheckning</div>
+              <div class="journal-kicker">Vanor &amp; Rutiner</div>
+              <h3>Dagens vanor</h3>
+            </div>
+            <span class="today-badge badge-amber" id="lifestyle-save-status">NY</span>
+          </div>
+          <div class="kr-habit-list" id="lifestyle-habits"></div>
+          <div class="kr-card-actions">
+            <span class="kr-hint" id="lifestyle-hint">Logga ja eller nej för att mäta din egen påverkan.</span>
+            <button type="button" class="refresh-btn" id="lifestyle-save-btn" data-action="save-lifestyle">Spara vanor</button>
+          </div>
+        </section>
+
+        <!-- PERSONLIG PÅVERKAN (beräknas i backend utan AI) -->
+        <section class="kr-card" id="lifestyle-insights-card">
+          <div class="journal-editor-top">
+            <div>
+              <div class="journal-kicker">Egen statistik</div>
+              <h3>Din personliga påverkan</h3>
+            </div>
+            <span class="kr-pill" id="lifestyle-insights-meta">–</span>
+          </div>
+          <div id="lifestyle-insights-list" class="kr-insight-list">
+            <p class="ng-empty">Laddar vanor och påverkan…</p>
+          </div>
+        </section>
+
+        <section class="kr-card journal-editor">
+          <div class="journal-editor-top">
+            <div>
+              <div class="journal-kicker">Dagsform &amp; Anteckning</div>
               <h3 id="journal-editor-title">Skriv några rader</h3>
             </div>
             <span class="today-badge badge-amber" id="journal-save-status">OSPARAT</span>
           </div>
 
-          <div class="journal-field-grid">
-            <label class="journal-field">
-              <span>Datum</span>
-              <input type="date" id="journal-date">
-            </label>
-            <label class="journal-field">
-              <span>Humör</span>
-              <select id="journal-mood">
-                <option value="">Välj känsla</option>
-                <option value="Lugn">Lugn</option>
-                <option value="Glad">Glad</option>
-                <option value="Stolt">Stolt</option>
-                <option value="Trött">Trött</option>
-                <option value="Stressad">Stressad</option>
-                <option value="Tung dag">Tung dag</option>
-              </select>
-            </label>
-            <label class="journal-field">
-              <span>Energi</span>
-              <input type="range" id="journal-energy" min="1" max="5" value="3">
-              <strong id="journal-energy-label">3/5</strong>
-            </label>
+          <div class="kr-checkin-block">
+            <span class="kr-checkin-label">Humör</span>
+            <input type="hidden" id="journal-mood" value="">
+            <div class="kr-mood-chips" id="journal-mood-chips">
+              <button type="button" class="kr-chip" data-action="journal-mood-pick" data-mood="Lugn">Lugn</button>
+              <button type="button" class="kr-chip" data-action="journal-mood-pick" data-mood="Glad">Glad</button>
+              <button type="button" class="kr-chip" data-action="journal-mood-pick" data-mood="Stolt">Stolt</button>
+              <button type="button" class="kr-chip" data-action="journal-mood-pick" data-mood="Trött">Trött</button>
+              <button type="button" class="kr-chip" data-action="journal-mood-pick" data-mood="Stressad">Stressad</button>
+              <button type="button" class="kr-chip" data-action="journal-mood-pick" data-mood="Tung dag">Tung dag</button>
+            </div>
           </div>
 
-          <textarea id="journal-text" class="journal-textarea" rows="10" maxlength="6000" placeholder="Hur har dagen varit? Vad tog energi, vad gav energi, och finns det något du vill bära med dig till imorgon?"></textarea>
+          <div class="kr-checkin-block">
+            <div class="kr-energy-head">
+              <span class="kr-checkin-label">Energi</span>
+              <strong id="journal-energy-label">3/5</strong>
+            </div>
+            <input type="hidden" id="journal-energy" value="3">
+            <div class="kr-energy-btns" id="journal-energy-btns">
+              <button type="button" class="kr-energy-btn" data-action="journal-energy-pick" data-energy="1">1</button>
+              <button type="button" class="kr-energy-btn" data-action="journal-energy-pick" data-energy="2">2</button>
+              <button type="button" class="kr-energy-btn active" data-action="journal-energy-pick" data-energy="3">3</button>
+              <button type="button" class="kr-energy-btn" data-action="journal-energy-pick" data-energy="4">4</button>
+              <button type="button" class="kr-energy-btn" data-action="journal-energy-pick" data-energy="5">5</button>
+            </div>
+          </div>
+
+          <textarea id="journal-text" class="journal-textarea" rows="7" maxlength="6000" placeholder="Hur har dagen varit? Vad tog energi, vad gav energi, och finns det något du vill bära med dig till imorgon?"></textarea>
           <div class="journal-actions">
             <span id="journal-char-count">0 tecken</span>
-            <button class="refresh-btn" id="journal-save-btn" data-action="save-journal">Spara dagbok</button>
+            <button type="button" class="refresh-btn" id="journal-save-btn" data-action="save-journal">Spara dagbok</button>
           </div>
         </section>
 

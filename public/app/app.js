@@ -1456,6 +1456,10 @@ function executeAction(trigger, event) {
     document.querySelector('.home-assistant')?.scrollIntoView({ behavior: 'smooth' });
   }
   else if (action === 'save-journal') saveJournalEntry();
+  else if (action === 'save-lifestyle') saveLifestyleEntry();
+  else if (action === 'lifestyle-pick') pickLifestyleHabit(trigger.dataset.key, trigger.dataset.value);
+  else if (action === 'journal-mood-pick') pickJournalMood(trigger.dataset.mood);
+  else if (action === 'journal-energy-pick') pickJournalEnergy(trigger.dataset.energy);
   else if (action === 'quick-prompt') qa(trigger.dataset.prompt);
   else if (action === 'send-chat') send();
   else if (action === 'reset-chat') resetChat();
@@ -1490,7 +1494,7 @@ document.addEventListener('keydown', event => {
   // Vilken av de fyra flikarna en sida hör under. Sidorna finns kvar som egna
   // vyer och nås via underflikarna; kartan gör att rätt flik lyser upp.
   //   Start: Idag, Översikt · Träning: Plan, Styrka, Utveckling
-  //   Kropp: Dygnet, Sömn, Dagbok · Profil: Profil, Klimat
+  //   Kropp: Status, Sömn, Dagbok · Profil: Profil, Klimat
   const NAV_SECTION = {
     home: 'home', overview: 'home',
     upcoming: 'upcoming', strength: 'upcoming', analysis: 'upcoming',
@@ -1517,7 +1521,7 @@ document.addEventListener('keydown', event => {
     if (id === 'sleep')    { loadHealth(); loadSleepOverview(); setTimeout(() => { if (currentHealthData) renderSleepStageChart(currentHealthData.sleep?.levels || [], currentHealthData.sleep?.startGMT, currentHealthData.sleep?.endGMT); }, 50); }
     if (id === 'analysis') { loadAnalysis(); loadInsights(); }
     if (id === 'strength') loadStrengthPage();
-    if (id === 'journal')  loadJournal();
+    if (id === 'journal')  { loadJournal(); loadLifestyle(); }
     if (id === 'upcoming') { checkGcalStatus(); loadWeeklyReport(); loadSeasonPlan(); }
     if (id === 'climate')  { loadWeatherStatus(); loadClimateStatus(); loadClimateHistory(); }
     if (id === 'settings') { loadSettingsPage(); refreshPushUi(); loadPaceProposals(); loadLabTests(); }
@@ -1566,7 +1570,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   function renderDailyActivity(daily) {
     const card = document.getElementById('hg-daily');
     if (!card) return;
-    if (daily.steps == null && daily.caloriesActive == null) {
+    if (daily.steps == null && daily.distanceM == null && daily.intensityMinutes == null) {
       card.style.display = 'none';
       return;
     }
@@ -1601,18 +1605,12 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
           ? `${nf(daily.stepGoal - daily.steps)} steg kvar till dagens mål.`
           : 'Steg registrerade, men inget mål är satt i Garmin.');
 
-    setMetric('hd-cal-active', 'hd-cal-active-status', nf(daily.caloriesActive), 'kcal', 'kcal', 'var(--accent)');
-    setMetric('hd-cal-total', 'hd-cal-total-status', nf(daily.caloriesTotal), 'kcal', 'kcal', '');
-    setText('hd-cal-total-desc', daily.caloriesBmr != null
-      ? `Varav ${nf(daily.caloriesBmr)} kcal basalomsättning`
-      : 'Inklusive basalomsättning');
-
     setText('hd-daily-dist', daily.distanceM != null ? (daily.distanceM / 1000).toFixed(1) : '-');
 
     const goal = daily.intensityGoal;
     setMetric('hd-intensity', 'hd-intensity-status',
       daily.intensityMinutes != null ? daily.intensityMinutes : '-',
-      '', goal ? '/ ' + goal + ' i veckan' : '',
+      '', goal ? '/ ' + goal + ' i veckan' : 'min',
       goal && daily.intensityMinutes >= goal ? 'var(--accent)' : '');
   }
 
@@ -2461,40 +2459,58 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       document.getElementById('hrv-dot-' + hrvLight).classList.add('active-' + hrvLight);
       document.getElementById('hrv-light-label').textContent = hrvLightText;
 
-      // CNS delmetriker
+      // CNS delmetriker i 2x2-kortet
+      const hrvValEl = document.getElementById('cns-hrv-val');
+      const hrvSubEl = document.getElementById('cns-hrv-sub');
       if (h.hrv?.lastNightAvg != null) {
-        const pct = h.hrv.component ?? h.hrv.pct ?? 0;
         const pctCol = getHrvColor(h.hrv);
-        document.getElementById('cns-hrv-val').textContent = h.hrv.lastNightAvg + ' ms';
-        document.getElementById('cns-hrv-val').style.color = pctCol;
-        const statusText = h.hrv.status && h.hrv.status !== 'NONE' ? `${getHrvStatusLabel(h.hrv.status)} - ` : '';
-        document.getElementById('cns-hrv-sub').textContent = `${statusText}${getHrvBaselineText(h.hrv)}`;
+        if (hrvValEl) { hrvValEl.textContent = h.hrv.lastNightAvg + ' ms'; hrvValEl.style.color = pctCol; }
+        const statusText = h.hrv.status && h.hrv.status !== 'NONE' ? `${getHrvStatusLabel(h.hrv.status)} · ` : '';
+        if (hrvSubEl) hrvSubEl.textContent = `${statusText}${getHrvBaselineText(h.hrv)}`;
       } else {
-        document.getElementById('cns-hrv-val').textContent = '–';
-        document.getElementById('cns-hrv-val').style.color = 'var(--muted2)';
-        document.getElementById('cns-hrv-sub').textContent = 'Ingen data i natt';
+        if (hrvValEl) { hrvValEl.textContent = '–'; hrvValEl.style.color = 'var(--muted2)'; }
+        if (hrvSubEl) hrvSubEl.textContent = 'Ingen data i natt';
       }
-      if (h.readiness?.score != null) {
-        const rc = h.readiness.score >= 70 ? 'var(--green)' : h.readiness.score >= 40 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('cns-readiness-val').textContent = h.readiness.score;
-        document.getElementById('cns-readiness-val').style.color = rc;
-        const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
-        document.getElementById('cns-readiness-sub').textContent = lblMap[h.readiness.level] || '/ 100';
-      } else {
-        document.getElementById('cns-readiness-val').textContent = '–';
-        document.getElementById('cns-readiness-val').style.color = 'var(--muted2)';
-        document.getElementById('cns-readiness-sub').textContent = 'Ingen data';
-      }
+
+      const rhrValEl = document.getElementById('cns-rhr-val');
+      const rhrSubEl = document.getElementById('cns-rhr-sub');
       if (h.restingHR?.value != null) {
         const rhr = h.restingHR.value;
         const rc = rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
-        document.getElementById('cns-rhr-val').textContent = rhr;
-        document.getElementById('cns-rhr-val').style.color = rc;
-        document.getElementById('cns-rhr-sub').textContent = `snitt ${h.restingHR.sevenDayAvg || '-'} bpm`;
+        if (rhrValEl) { rhrValEl.textContent = rhr + ' bpm'; rhrValEl.style.color = rc; }
+        if (rhrSubEl) rhrSubEl.textContent = `snitt ${h.restingHR.sevenDayAvg || '-'} bpm`;
       } else {
-        document.getElementById('cns-rhr-val').textContent = '–';
-        document.getElementById('cns-rhr-val').style.color = 'var(--muted2)';
-        document.getElementById('cns-rhr-sub').textContent = 'Ingen data';
+        if (rhrValEl) { rhrValEl.textContent = '–'; rhrValEl.style.color = 'var(--muted2)'; }
+        if (rhrSubEl) rhrSubEl.textContent = 'Ingen data';
+      }
+
+      const bbValEl = document.getElementById('kr-bb-val');
+      const bbSubEl = document.getElementById('kr-bb-sub');
+      if (h.bodyBattery?.current != null) {
+        const bb = h.bodyBattery.current;
+        const bbCol = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
+        if (bbValEl) { bbValEl.textContent = bb; bbValEl.style.color = bbCol; }
+        if (bbSubEl) bbSubEl.textContent = h.bodyBattery?.max != null ? `Max ${h.bodyBattery.max} idag` : '/ 100';
+      } else {
+        if (bbValEl) { bbValEl.textContent = '–'; bbValEl.style.color = 'var(--muted2)'; }
+        if (bbSubEl) bbSubEl.textContent = 'Ingen data';
+      }
+
+      const slValEl = document.getElementById('kr-sleep-val');
+      const slSubEl = document.getElementById('kr-sleep-sub');
+      if (h.sleep?.totalSec) {
+        const totalH = Math.floor(h.sleep.totalSec / 3600);
+        const totalM = Math.floor((h.sleep.totalSec % 3600) / 60);
+        const sc = h.sleep.score;
+        const scCol = sc == null ? 'var(--text)' : sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
+        if (slValEl) { slValEl.textContent = `${totalH} h ${String(totalM).padStart(2, '0')} m`; slValEl.style.color = scCol; }
+        if (slSubEl) {
+          const scoreLabel = sc != null ? `Poäng ${sc}` : 'Registrerad';
+          slSubEl.textContent = `${scoreLabel}${h.sleep.fallback ? ' · föreg. natt' : ''}`;
+        }
+      } else {
+        if (slValEl) { slValEl.textContent = '–'; slValEl.style.color = 'var(--muted2)'; }
+        if (slSubEl) slSubEl.textContent = 'Ingen sömn i natt';
       }
 
       // CNS-drivare
@@ -2521,137 +2537,24 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
         driverSummary.textContent = weakSignals.length ? `Begränsas av ${weakSignals.join(', ')}` : 'Stabil helhetsbild';
       }
 
-      // ── SÖMN ──
-      let sleepScore = 50;
-      if (h.sleep?.totalSec) {
-        sleepScore = h.sleep.score || 50;
-        const totalH = Math.floor(h.sleep.totalSec / 3600);
-        const totalM = Math.floor((h.sleep.totalSec % 3600) / 60);
-
-        // Sleep score
-        const sc = h.sleep.score;
-        const scCol = sc >= 80 ? 'var(--green)' : sc >= 60 ? 'var(--amber)' : 'var(--red)';
-        const scStatus = sc >= 90 ? 'Utmärkt' : sc >= 80 ? 'Bra' : sc >= 60 ? 'Acceptabel' : 'Dålig';
-        setMetric('hd-sscore-val', 'hd-sscore-status', sc || '-', '/ 100', scStatus, scCol);
-
-        // Deep sleep
-        const deep = h.sleep.deepPct;
-        const deepCol = deep >= 15 ? 'var(--green)' : deep >= 10 ? 'var(--amber)' : 'var(--red)';
-        const deepStatus = deep >= 20 ? 'Utmärkt' : deep >= 15 ? 'Normal' : deep >= 10 ? 'Något lågt' : 'För lite';
-        setMetric('hd-deep-val', 'hd-deep-status', deep + '%', '%', `${deepStatus}  ·  mål 15–25%`, deepCol);
-        document.getElementById('hd-deep-desc').textContent = fmtTime(h.sleep.deepSec) + '  ·  mål: 15–25% av sömnen';
-
-        // REM
-        const rem = h.sleep.remPct;
-        const remCol = rem >= 20 ? 'var(--green)' : rem >= 15 ? 'var(--amber)' : 'var(--red)';
-        const remStatus = rem >= 20 ? 'Utmärkt' : rem >= 15 ? 'Normal' : rem >= 10 ? 'Något lågt' : 'För lite';
-        setMetric('hd-rem-val', 'hd-rem-status', rem + '%', '%', `${remStatus}  ·  mål 20–25%`, remCol);
-        document.getElementById('hd-rem-desc').textContent = fmtTime(h.sleep.remSec) + '  ·  mål: 20–25% av sömnen';
-
-        // Total sleep
-        const totalCol = totalH >= 7 ? 'var(--green)' : totalH >= 6 ? 'var(--amber)' : 'var(--red)';
-        const totalStatus = totalH >= 8 ? 'Utmärkt' : totalH >= 7 ? 'Bra' : totalH >= 6 ? 'Lite kort' : 'För lite';
-        setMetric('hd-stotal-val', 'hd-stotal-status', `${totalH}h ${totalM}m`, '', totalStatus, totalCol);
-
-        const sleepDesc = sleepScore >= 80
-          ? `${totalH}h ${totalM}m sömn – god återhämtning under natten.`
-          : sleepScore >= 60
-          ? `${totalH}h ${totalM}m sömn – acceptabelt, men kan bli bättre.`
-          : `${totalH}h ${totalM}m sömn – prioritera mer sömn i natt.`;
-        setHG('hg-sleep-score', 'hg-sleep-bar', 'hg-sleep-badge', 'hg-sleep-desc', sleepScore, sleepDesc);
-
-        // Sömnbrist - 7,5 h/natt mål = 52,5 h/vecka
-        // Beräkna baserat på dagensömnstid × dagar hittills i veckan
-        const SLEEP_TARGET_H = 7.5;
-        const todayDowSleep = new Date().getDay() || 7; // 1=mån
-        const daysIntoWeek = todayDowSleep;
-        const targetSoFar = SLEEP_TARGET_H * daysIntoWeek * 3600;
-        const actualSoFar = h.sleep.totalSec; // förenklat: ger i alla fall dagens underskott
-        const dailyDebt = Math.max(0, SLEEP_TARGET_H * 3600 - h.sleep.totalSec);
-        const dailyDebtH = Math.floor(dailyDebt / 3600);
-        const dailyDebtM = Math.round((dailyDebt % 3600) / 60);
-        const debtEl = document.getElementById('sleep-debt-val');
-        if (dailyDebt < 900) {
-          debtEl.textContent = 'Inget underskott';
-          debtEl.style.color = 'var(--green)';
-        } else {
-          debtEl.textContent = `-${dailyDebtH > 0 ? dailyDebtH + 'h ' : ''}${dailyDebtM}m idag`;
-          debtEl.style.color = dailyDebt > 3600 ? 'var(--red)' : 'var(--amber)';
+      // Vital-chips (Garmin-beredskap, SpO2, Andning)
+      const vitalsRow = document.getElementById('kr-vitals-row');
+      if (vitalsRow) {
+        const chips = [];
+        if (h.readiness?.score != null) {
+          const lblMap = { VERY_HIGH:'Mycket hög', HIGH:'Hög', MODERATE:'Måttlig', LOW:'Låg', VERY_LOW:'Mycket låg' };
+          chips.push({ label: 'Garmin-beredskap', value: `${h.readiness.score}/100`, sub: lblMap[h.readiness.level] || '' });
         }
-
-        // Sömnflaggor (djupsömn, REM, CNS-konsekvenser)
-        const flags = [];
-        if (deep < 10)  flags.push({ text: ' Låg djupsömn – hoppa över styrka', cls: 'bad' });
-        else if (deep >= 15) flags.push({ text: ' Djupsömn ok', cls: 'ok' });
-        else            flags.push({ text: '~ Djupsömn låg', cls: 'warn' });
-        if (rem < 15)   flags.push({ text: ' Låg REM – undvik intervaller', cls: 'bad' });
-        else if (rem >= 20) flags.push({ text: ' REM ok', cls: 'ok' });
-        else            flags.push({ text: '~ REM något låg', cls: 'warn' });
-        const flagRow = document.getElementById('sleep-flag-row');
-        flagRow.innerHTML = flags.map(f => `<span class="sleep-flag ${f.cls}">${f.text}</span>`).join('');
-        document.getElementById('hg-sleep-score').style.color = sleepScore >= 80 ? 'var(--purple)' : sleepScore >= 60 ? 'var(--amber)' : 'var(--red)';
-        const badge = document.getElementById('hg-sleep-badge');
-        badge.className = sleepScore >= 80 ? 'hg-status hs-purple' : sleepScore >= 60 ? 'hg-status hs-ok' : 'hg-status hs-low';
-        badge.textContent = sleepScore >= 80 ? 'Bra' : sleepScore >= 60 ? 'Ok' : 'Dålig';
-      } else {
-        // Ingen sömndata (klockan synkade ingen natt) — skriv ut det istället för att låta korten ladda
-        const muted = 'var(--muted2)';
-        const sEl = document.getElementById('hg-sleep-score');
-        sEl.textContent = '–'; sEl.style.color = muted;
-        document.getElementById('hg-sleep-bar').style.width = '0%';
-        const badge = document.getElementById('hg-sleep-badge');
-        badge.className = 'hg-status'; badge.style.color = muted; badge.textContent = 'Ingen data';
-        document.getElementById('hg-sleep-summary').textContent = '';
-        document.getElementById('hg-sleep-desc').textContent =
-          'Ingen sömn registrerad i natt — klockan synkade ingen natt (av eller slut på batteri). Sömnvärden återkommer automatiskt efter nästa registrerade natt.';
-        ['hd-sscore', 'hd-deep', 'hd-rem', 'hd-stotal'].forEach(id => setMetric(id + '-val', id + '-status', '–', '', '', muted));
-        const debtEl = document.getElementById('sleep-debt-val');
-        debtEl.textContent = '–'; debtEl.style.color = muted;
-        document.getElementById('sleep-flag-row').innerHTML = '<span class="sleep-flag warn">Ingen sömndata för i natt</span>';
-      }
-
-      // ── ENERGI & STRESS ──
-      let energyScore = 50;
-      if (h.bodyBattery?.current != null || h.stress?.avg != null) {
-        const bb = h.bodyBattery?.current ?? 50;
-        const stress = h.stress?.avg ?? 50;
-        energyScore = Math.round(bb * 0.6 + (100 - stress) * 0.4);
-
-        // Body Battery
-        const bbCol = bb >= 60 ? 'var(--green)' : bb >= 30 ? 'var(--amber)' : 'var(--red)';
-        const bbStatus = bb >= 75 ? 'Hög energi' : bb >= 50 ? 'Måttlig' : bb >= 25 ? 'Låg' : 'Tom – vila';
-        setMetric('hd-bb-val', 'hd-bb-status', bb, '/ 100', bbStatus, bbCol);
-        document.getElementById('hd-bb-desc').textContent = `Max idag: ${h.bodyBattery?.max || '-'}  ·  Min: ${h.bodyBattery?.drained ? bb : '-'}`;
-
-        // Stress
-        const stressCol = stress <= 25 ? 'var(--green)' : stress <= 50 ? 'var(--amber)' : 'var(--red)';
-        const stressStatus = stress <= 25 ? 'Avslappnad' : stress <= 50 ? 'Låg stress' : stress <= 75 ? 'Måttlig' : 'Hög stress';
-        setMetric('hd-stress-val', 'hd-stress-status', stress, '/ 100', stressStatus, stressCol);
-
-        // SpO2
         if (h.spo2?.avg != null) {
-          const spo2 = h.spo2.avg;
-          const spo2Col = spo2 >= 97 ? 'var(--green)' : spo2 >= 95 ? 'var(--green)' : spo2 >= 90 ? 'var(--amber)' : 'var(--red)';
-          const spo2Status = spo2 >= 97 ? 'Optimal' : spo2 >= 95 ? 'Normal' : spo2 >= 90 ? 'Något lågt – bevaka' : 'Kritiskt lågt!';
-          setMetric('hd-spo2-val', 'hd-spo2-status', spo2 + '%', '%', spo2Status, spo2Col);
-          document.getElementById('hd-spo2-desc').textContent = `Lägst: ${h.spo2.min ? h.spo2.min + '%' : '-'}  ·  normalt: 95–100%`;
+          chips.push({ label: 'SpO₂', value: `${h.spo2.avg}%`, sub: h.spo2.min != null ? `min ${h.spo2.min}%` : '' });
         }
-
-        // Andning
         if (h.respiration?.avg != null) {
-          const resp = h.respiration.avg;
-          const respCol = resp <= 16 ? 'var(--green)' : resp <= 20 ? 'var(--amber)' : 'var(--red)';
-          const respStatus = resp <= 12 ? 'Atlet – utmärkt' : resp <= 16 ? 'Normal' : resp <= 20 ? 'Något förhöjd' : 'Förhöjd';
-          setMetric('hd-resp-val', 'hd-resp-status', resp, '/min', respStatus, respCol);
-          document.getElementById('hd-resp-desc').textContent = `Under sömn: ${h.respiration.sleepAvg || '-'}/min  ·  normalt: 12–20/min`;
+          chips.push({ label: 'Andning', value: `${h.respiration.avg}/min`, sub: h.respiration.sleepAvg != null ? `sömn ${h.respiration.sleepAvg}` : '' });
         }
-
-        const energyDesc = energyScore >= 70
-          ? `Kroppsbatteri ${bb}/100 – kroppen har energi för ett bra pass.`
-          : energyScore >= 45
-          ? `Kroppsbatteri ${bb}/100 – måttlig energinivå; håll träningen lagom.`
-          : `Kroppsbatteri ${bb}/100 – kroppen är trött. Prioritera vila och återhämtning.`;
-        setHG('hg-energy-score', 'hg-energy-bar', 'hg-energy-badge', 'hg-energy-desc', energyScore, energyDesc);
+        vitalsRow.innerHTML = chips.map(c =>
+          `<div class="kr-vital-chip"><span>${escapeHtml(c.label)}</span><strong>${escapeHtml(c.value)}</strong>${c.sub ? `<small>${escapeHtml(c.sub)}</small>` : ''}</div>`
+        ).join('');
+        vitalsRow.style.display = chips.length ? '' : 'none';
       }
 
       renderDailyActivity(h.daily || {});
@@ -2779,7 +2682,15 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
       // Draw sparklines from real 7-day history (needs >=2 days of data)
       try {
         const sp = await (await fetch('/api/health/spark')).json();
-        if (sp.hrv?.length >= 2)    drawSparkline(document.getElementById('spark-hrv'),    sp.hrv,    'var(--accent)');
+        if (sp.hrv?.length >= 2) {
+          drawSparkline(document.getElementById('spark-hrv'), sp.hrv, 'var(--accent)');
+          drawSparkline(document.getElementById('kropp-spark-hrv'), sp.hrv, getHrvColor(h.hrv));
+        }
+        if (sp.rhr?.length >= 2) {
+          const rhr = h.restingHR?.value;
+          const rhrCol = rhr == null ? 'var(--accent)' : rhr <= 50 ? 'var(--green)' : rhr <= 65 ? 'var(--amber)' : 'var(--red)';
+          drawSparkline(document.getElementById('kropp-spark-rhr'), sp.rhr, rhrCol);
+        }
       } catch (e) { /* sparklines are optional decoration */ }
 
     } catch(e) { console.error('Health error:', e); }
@@ -2830,33 +2741,261 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   let userNotes = [];
   let userJournal = [];
 
+  // ─── LIVSSTIL & PÅVERKAN (inbyggd statistik via /api/lifestyle, ingen AI) ───
+  const LIFESTYLE_BEHAVIORS = [
+    { key: 'alcohol',           label: 'Alkohol',             goodWhen: false },
+    { key: 'late_caffeine',     label: 'Koffein efter 14',    goodWhen: false },
+    { key: 'late_meal',         label: 'Sen måltid',          goodWhen: false },
+    { key: 'hydration',         label: '≥ 2 liter vätska',    goodWhen: true  },
+    { key: 'protein_target',    label: 'Proteinmål uppnått',  goodWhen: true  },
+    { key: 'screen_before_bed', label: 'Skärm sista timmen',  goodWhen: false },
+    { key: 'meditation',        label: '≥ 10 min nedvarvning',goodWhen: true  },
+    { key: 'outdoors',          label: '≥ 20 min utomhus',    goodWhen: true  },
+  ];
+  let lifestyleEntry = {};
+  let lifestyleStates = {};
+  let lifestyleInsights = null;
+
+  function lifestyleEntryToStates(entry) {
+    const e = entry || {};
+    const states = {};
+    states.alcohol = e.alcohol_drinks == null ? null : Number(e.alcohol_drinks) > 0;
+    if (e.caffeine_servings == null) {
+      states.late_caffeine = null;
+    } else if (Number(e.caffeine_servings) === 0) {
+      states.late_caffeine = false;
+    } else {
+      states.late_caffeine = e.caffeine_last_time ? e.caffeine_last_time >= '14:00' : null;
+    }
+    states.late_meal = typeof e.late_meal === 'boolean' ? e.late_meal : null;
+    states.hydration = e.water_liters == null ? null : Number(e.water_liters) >= 2;
+    states.protein_target = typeof e.protein_target === 'boolean' ? e.protein_target : null;
+    states.screen_before_bed = typeof e.screen_before_bed === 'boolean' ? e.screen_before_bed : null;
+    states.meditation = e.meditation_minutes == null ? null : Number(e.meditation_minutes) >= 10;
+    states.outdoors = e.outdoor_minutes == null ? null : Number(e.outdoor_minutes) >= 20;
+    return states;
+  }
+
+  function lifestyleStatesToPayload(states, prev, dateStr) {
+    const base = Object.assign({}, prev || {});
+    base.date = dateStr;
+    base.alcohol_drinks = states.alcohol === true ? (Number(base.alcohol_drinks) > 0 ? base.alcohol_drinks : 1) : states.alcohol === false ? 0 : null;
+    if (states.late_caffeine === true) {
+      base.caffeine_servings = Number(base.caffeine_servings) > 0 ? base.caffeine_servings : 1;
+      base.caffeine_last_time = base.caffeine_last_time && base.caffeine_last_time >= '14:00' ? base.caffeine_last_time : '15:00';
+    } else if (states.late_caffeine === false) {
+      base.caffeine_servings = 0;
+      base.caffeine_last_time = null;
+    } else {
+      base.caffeine_servings = null;
+      base.caffeine_last_time = null;
+    }
+    base.late_meal = typeof states.late_meal === 'boolean' ? states.late_meal : null;
+    base.water_liters = states.hydration === true ? (Number(base.water_liters) >= 2 ? base.water_liters : 2) : states.hydration === false ? 1 : null;
+    base.protein_target = typeof states.protein_target === 'boolean' ? states.protein_target : null;
+    base.screen_before_bed = typeof states.screen_before_bed === 'boolean' ? states.screen_before_bed : null;
+    base.meditation_minutes = states.meditation === true ? (Number(base.meditation_minutes) >= 10 ? base.meditation_minutes : 10) : states.meditation === false ? 0 : null;
+    base.outdoor_minutes = states.outdoors === true ? (Number(base.outdoor_minutes) >= 20 ? base.outdoors_minutes || base.outdoor_minutes : 20) : states.outdoors === false ? 0 : null;
+    delete base.outdoors_minutes;
+    return base;
+  }
+
+  function setLifestyleStatus(saved) {
+    const status = document.getElementById('lifestyle-save-status');
+    if (!status) return;
+    if (saved === true) {
+      status.textContent = 'SPARAD';
+      status.className = 'today-badge badge-green';
+    } else if (saved === false) {
+      status.textContent = 'OSPARAT';
+      status.className = 'today-badge badge-amber';
+    } else {
+      status.textContent = 'NY';
+      status.className = 'today-badge badge-amber';
+    }
+  }
+
+  function renderLifestyleHabits() {
+    const container = document.getElementById('lifestyle-habits');
+    if (!container) return;
+    container.innerHTML = LIFESTYLE_BEHAVIORS.map(b => {
+      const val = lifestyleStates[b.key];
+      const yesOn = val === true;
+      const noOn = val === false;
+      const yesTone = b.goodWhen ? 'is-good' : 'is-warn';
+      const noTone = b.goodWhen ? 'is-warn' : 'is-good';
+      return `<div class="kr-habit-row">
+        <span class="kr-habit-label">${escapeHtml(b.label)}</span>
+        <div class="kr-yn-group">
+          <button type="button" class="kr-yn-btn ${yesOn ? 'active ' + yesTone : ''}" data-action="lifestyle-pick" data-key="${b.key}" data-value="true" aria-pressed="${yesOn}">Ja</button>
+          <button type="button" class="kr-yn-btn ${noOn ? 'active ' + noTone : ''}" data-action="lifestyle-pick" data-key="${b.key}" data-value="false" aria-pressed="${noOn}">Nej</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderLifestyleInsights(insightsData) {
+    const list = document.getElementById('lifestyle-insights-list');
+    const meta = document.getElementById('lifestyle-insights-meta');
+    if (!list) return;
+    if (!insightsData || !Array.isArray(insightsData.insights)) {
+      if (meta) meta.textContent = '–';
+      list.innerHTML = '<p class="ng-empty">Logga dina vanor några dagar för att se personliga samband med sömn, HRV och vilopuls.</p>';
+      return;
+    }
+    const minGrp = insightsData.minimumPerGroup || 5;
+    if (meta) {
+      const readyCount = insightsData.insights.filter(i => i.ready).length;
+      meta.textContent = readyCount ? `${readyCount} klara · ${insightsData.daysWithOutcomes || 0} dygn` : `${insightsData.daysWithOutcomes || 0} dygn loggade`;
+    }
+    const sorted = [...insightsData.insights].sort((a, b) => {
+      if (a.ready !== b.ready) return a.ready ? -1 : 1;
+      if (a.ready && b.ready) return Math.abs(b.impact || 0) - Math.abs(a.impact || 0);
+      return (b.yesDays + b.noDays) - (a.yesDays + a.noDays);
+    });
+    list.innerHTML = sorted.map(ins => {
+      if (ins.ready && ins.impact != null) {
+        const sign = ins.impact > 0 ? '+' : '';
+        const cls = ins.impact > 0.5 ? 'kr-impact-pos' : ins.impact < -0.5 ? 'kr-impact-neg' : 'kr-impact-flat';
+        const comp = ins.components || {};
+        const parts = [];
+        if (comp.hrv != null) parts.push(`HRV ${comp.hrv > 0 ? '+' : ''}${comp.hrv} ms`);
+        if (comp.sleep_score != null) parts.push(`Sömn ${comp.sleep_score > 0 ? '+' : ''}${comp.sleep_score}`);
+        if (comp.resting_hr != null) parts.push(`Vilopuls ${comp.resting_hr > 0 ? '+' : ''}${comp.resting_hr} bpm`);
+        return `<div class="kr-insight-row is-ready">
+          <div class="kr-insight-top">
+            <strong>${escapeHtml(ins.label)}</strong>
+            <span class="kr-impact-badge ${cls}">${sign}${ins.impact} återhämtning</span>
+          </div>
+          <div class="kr-insight-sub">${parts.length ? escapeHtml(parts.join(' · ')) + ' · ' : ''}${ins.yesDays} ja / ${ins.noDays} nej</div>
+        </div>`;
+      }
+      const pct = Math.round(((Math.min(ins.yesDays, minGrp) + Math.min(ins.noDays, minGrp)) / (minGrp * 2)) * 100);
+      return `<div class="kr-insight-row">
+        <div class="kr-insight-top">
+          <span>${escapeHtml(ins.label)}</span>
+          <small>Ja ${ins.yesDays}/${minGrp} · Nej ${ins.noDays}/${minGrp}</small>
+        </div>
+        <div class="kr-insight-bar"><i style="width:${pct}%"></i></div>
+      </div>`;
+    }).join('');
+  }
+
+  function pickLifestyleHabit(key, rawValue) {
+    if (!key) return;
+    const nextVal = rawValue === 'true';
+    lifestyleStates[key] = lifestyleStates[key] === nextVal ? null : nextVal;
+    renderLifestyleHabits();
+    setLifestyleStatus(false);
+  }
+
+  async function loadLifestyle(explicitDate) {
+    const dateInput = document.getElementById('journal-date');
+    const dateStr = explicitDate || dateInput?.value || todayLocalDate();
+    renderLifestyleHabits();
+    try {
+      const res = await fetch('/api/lifestyle?date=' + encodeURIComponent(dateStr));
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      lifestyleEntry = data.entry || {};
+      lifestyleStates = lifestyleEntryToStates(lifestyleEntry);
+      lifestyleInsights = data.insights || null;
+      const hasAny = Object.values(lifestyleStates).some(v => v !== null);
+      renderLifestyleHabits();
+      renderLifestyleInsights(lifestyleInsights);
+      setLifestyleStatus(hasAny ? true : null);
+    } catch (_) {
+      renderLifestyleInsights(null);
+    }
+  }
+
+  async function saveLifestyleEntry() {
+    const dateInput = document.getElementById('journal-date');
+    const dateStr = dateInput?.value || todayLocalDate();
+    const btn = document.getElementById('lifestyle-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sparar…'; }
+    try {
+      const payload = lifestyleStatesToPayload(lifestyleStates, lifestyleEntry, dateStr);
+      const res = await fetch('/api/lifestyle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Kunde inte spara vanor.');
+      lifestyleEntry = data.entry || {};
+      lifestyleStates = lifestyleEntryToStates(lifestyleEntry);
+      lifestyleInsights = data.insights || lifestyleInsights;
+      renderLifestyleHabits();
+      renderLifestyleInsights(lifestyleInsights);
+      setLifestyleStatus(true);
+    } catch (err) {
+      const hint = document.getElementById('lifestyle-hint');
+      if (hint) hint.textContent = err.message || 'Kunde inte spara vanor.';
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Spara vanor'; }
+    }
+  }
+
+  function syncJournalCheckinUi() {
+    const moodVal = document.getElementById('journal-mood')?.value || '';
+    document.querySelectorAll('#journal-mood-chips .kr-chip').forEach(btn => {
+      const on = btn.dataset.mood === moodVal;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+    const energyVal = String(document.getElementById('journal-energy')?.value || '3');
+    document.querySelectorAll('#journal-energy-btns .kr-energy-btn').forEach(btn => {
+      const on = btn.dataset.energy === energyVal;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+    const label = document.getElementById('journal-energy-label');
+    if (label) label.textContent = energyVal + '/5';
+  }
+
+  function markJournalUnsaved() {
+    const status = document.getElementById('journal-save-status');
+    if (status) {
+      status.textContent = 'OSPARAT';
+      status.className = 'today-badge badge-amber';
+    }
+  }
+
+  function pickJournalMood(mood) {
+    const moodInput = document.getElementById('journal-mood');
+    if (!moodInput) return;
+    moodInput.value = moodInput.value === mood ? '' : (mood || '');
+    syncJournalCheckinUi();
+    markJournalUnsaved();
+  }
+
+  function pickJournalEnergy(energy) {
+    const energyInput = document.getElementById('journal-energy');
+    if (!energyInput || !energy) return;
+    energyInput.value = String(energy);
+    syncJournalCheckinUi();
+    markJournalUnsaved();
+  }
+
   function setupJournalDefaults() {
     const dateInput = document.getElementById('journal-date');
-    const energyInput = document.getElementById('journal-energy');
     const textInput = document.getElementById('journal-text');
     if (dateInput && !dateInput.value) dateInput.value = todayLocalDate();
-    if (energyInput) {
-      const syncEnergy = () => {
-        const label = document.getElementById('journal-energy-label');
-        if (label) label.textContent = energyInput.value + '/5';
-      };
-      energyInput.oninput = syncEnergy;
-      syncEnergy();
-    }
+    syncJournalCheckinUi();
     if (textInput) {
       textInput.oninput = () => {
         const count = document.getElementById('journal-char-count');
-        const status = document.getElementById('journal-save-status');
         if (count) count.textContent = textInput.value.length + ' tecken';
-        if (status) {
-          status.textContent = 'OSPARAT';
-          status.className = 'today-badge badge-amber';
-        }
+        markJournalUnsaved();
       };
     }
     if (dateInput && !dateInput.dataset.bound) {
       dateInput.dataset.bound = '1';
-      dateInput.addEventListener('change', fillJournalEditorForDate);
+      dateInput.addEventListener('change', () => {
+        fillJournalEditorForDate();
+        loadLifestyle(dateInput.value);
+      });
     }
   }
 
@@ -2883,12 +3022,11 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (!dateInput || !textInput) return;
     const entry = userJournal.find(j => j.date === dateInput.value);
     if (moodInput) moodInput.value = entry?.mood || '';
-    if (energyInput) {
-      energyInput.value = entry?.energy || 3;
-      document.getElementById('journal-energy-label').textContent = energyInput.value + '/5';
-    }
+    if (energyInput) energyInput.value = entry?.energy || 3;
+    syncJournalCheckinUi();
     textInput.value = entry?.text || '';
-    document.getElementById('journal-char-count').textContent = textInput.value.length + ' tecken';
+    const countEl = document.getElementById('journal-char-count');
+    if (countEl) countEl.textContent = textInput.value.length + ' tecken';
     const status = document.getElementById('journal-save-status');
     if (status) {
       status.textContent = entry ? 'SPARAD' : 'NY';
@@ -2925,6 +3063,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
     if (!dateInput) return;
     dateInput.value = date;
     fillJournalEditorForDate();
+    loadLifestyle(date);
     document.getElementById('journal-text')?.focus();
   }
 
@@ -2967,6 +3106,7 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
   }
 
   loadJournal();
+  loadLifestyle();
 
   async function loadNotes() {
     try {
@@ -7155,6 +7295,17 @@ function setHG(scoreId, barId, badgeId, descId, score, desc) {
 
   function renderNiggles(data) {
     niggleData = data;
+    const statusBadge = document.getElementById('niggle-status-badge');
+    if (statusBadge) {
+      if (!data.active.length) {
+        statusBadge.textContent = 'Skadefri';
+        statusBadge.className = 'kr-pill kr-pill-good';
+      } else {
+        const maxSev = Math.max(...data.active.map(n => n.severity));
+        statusBadge.textContent = `${data.active.length} aktiv${data.active.length > 1 ? 'a' : ''}`;
+        statusBadge.className = 'kr-pill ' + (maxSev >= 7 ? 'kr-pill-bad' : 'kr-pill-warn');
+      }
+    }
     const list = document.getElementById('niggle-list');
     const select = document.getElementById('niggle-area');
     if (select && !select.options.length) {
