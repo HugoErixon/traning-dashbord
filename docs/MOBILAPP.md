@@ -60,6 +60,28 @@ Repo: `~/trainyze` (laptop). Det kräver bara Python 3 och Node, ingen Postgres 
 - Fallgrop: VS Code är en snap. Chrome som startas därifrån kraschar på GNOME-schemat ("antialiasing").
   `iphone-sim.mjs` rensar därför snap-sökvägar ur miljön innan Chrome startas.
 
+## Beta på telefonen (utan att röra trainyze.com)
+
+Sedan 2026-11-28 kör G3 en beta av `feature/mobilapp` vid sidan av produktionen:
+
+| | |
+|---|---|
+| Adress | **https://g3.tail91d6c1.ts.net:8444/app/**, bara inom tailnet (Tailscale måste vara på i telefonen) |
+| Kod | `~/trainyze-beta` på G3, gren `feature/mobilapp` |
+| Tjänst | `systemctl --user status trainyze-beta.service`, port 3010, bara 127.0.0.1 |
+| HTTPS | `tailscale serve --https=8444` → 127.0.0.1:3010 (av: `tailscale serve --https=8444 off`) |
+| Data | Samma databas och Garmin-inloggning som produktionen. `.env` är en kopia med `PORT=3010`, `BIND_HOST=127.0.0.1` och **`BACKGROUND_JOBS=false`**, så att synk, notiser och MQTT bara körs av produktionen. |
+
+Installera: öppna adressen i Safari → Dela → *Lägg till på hemskärmen* → öppna appen → logga in →
+Profil → Notiser → *Slå på notiser*. Morgonnotisen skickas av produktionens server (som står på
+`main`); appens service worker öppnar ändå morgonvyn.
+
+Uppdatera betan efter nya commits på `feature/mobilapp`:
+
+```bash
+ssh g3 'cd ~/trainyze-beta && git pull --ff-only && systemctl --user restart trainyze-beta.service'
+```
+
 ## Tester
 
 Hela sviten (633 tester, varav 7 för appen i `tests/test_mobile_app.py`) körs på G3 i en
