@@ -26,6 +26,8 @@ import re
 import strava_integration
 import plan_calendar
 import season_plan
+import training_engine
+import training_load as load_model
 import lab_tests
 import runner_profile
 import niggles
@@ -8416,6 +8418,287 @@ def season_plan_rebuild():
         return _server_error(exc, 'season_plan.rebuild_failed', message='Säsongsplanen kunde inte byggas om.')
 
 
+# Regelbaserad planmotor och fysiologi. Alla underlag är lokalt sparade;
+# inga LLM-anrop eller hämtningar från Garmin/Strava görs här.
+_TRAINING_VDOT_REASON = 'VDOT behövs för att räkna träningstempon (Profil → Din fysiologi).'
+_TRAINING_SEASON_REASON = 'Sätt ett mållopp med datum (Översikt → Ändra mål) så byggs säsongsplanen.'
+
+
+def _training_activities(user_id, since, today):
+    with db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('''SELECT date, type, raw FROM activities
+                WHERE user_id=%s AND date >= %s AND date < %s ORDER BY date''',
+                        (user_id, since.isoformat(), (today + timedelta(days=1)).isoformat()))
+            return [dict(row) for row in cur.fetchall()]
+
+
+def _training_lthr(user_id, today):
+    value = _threshold_hr(user_id)
+    if value:
+        return {'value': value, 'source': _manual_lthr_source(user_id)}
+    value = _latest_lactate_hr(user_id)
+    if value:
+        return {'value': value, 'source': 'garmin'}
+    estimate = race_predictor.estimate_lthr(
+        _training_activities(user_id, today - timedelta(days=180), today), today)
+    return {'value': estimate['lthr'] if estimate else None,
+            'source': 'estimated' if estimate else None}
+
+
+def _training_profile(user_id):
+    row = get_cache(runner_profile.CACHE_KEY, user_id)
+    try:
+        return runner_profile.normalize(row[0] if row and isinstance(row[0], dict) else {})
+    except ValueError:
+        # En gammal eller trasig sparad profil får inte stoppa planen.
+        return runner_profile.normalize({})
+
+
+def _training_options(data, maximum=4, default=4):
+    if not isinstance(data, dict) and not hasattr(data, 'get'):
+        raise ValueError('Ange ett JSON-objekt med weeks och from.')
+    value = data.get('weeks', default)
+    if isinstance(value, bool) or not re.fullmatch(r'[0-9]+', str(value)):
+        raise ValueError(f'weeks måste vara ett heltal mellan 1 och {maximum}.')
+    count = int(value)
+    if not 1 <= count <= maximum:
+        raise ValueError(f'weeks måste vara ett heltal mellan 1 och {maximum}.')
+    start = data.get('from', 'next')
+    if start not in ('next', 'current'):
+        raise ValueError('from måste vara next eller current.')
+    return count, start
+
+
+def _training_preview(user_id, count, start, today):
+    frames, meta = _season_weeks(user_id)
+    if not frames:
+        return {'available': False, 'reason': _TRAINING_SEASON_REASON}
+    profile = _training_profile(user_id)
+    info = _pace_context(user_id).get('vdot') or {}
+    zones = info.get('paces')
+    if not zones:
+        return {'available': False, 'reason': _TRAINING_VDOT_REASON}
+    lthr = _training_lthr(user_id, today)
+    target = meta['target']
+    distance, race_day = target['distance'], target['raceDate']
+    label = meta.get('raceName') or season_plan.RACE_LABELS[distance]
+    current = plan_calendar.plan_week(today)
+    first = current + (start == 'next')
+    phase_counts, phase_indices, selected = {}, {}, []
+    for frame in frames:
+        phase = frame['phase']
+        phase_counts[phase] = phase_counts.get(phase, 0) + 1
+    for frame in sorted(frames, key=lambda frame: frame['week']):
+        phase, week = frame['phase'], frame['week']
+        index = phase_indices.get(phase, 0)
+        phase_indices[phase] = index + 1
+        if not first <= week < first + count:
+            continue
+        frame = {**frame, 'indexInPhase': index}
+        from_dow = today.weekday() if week == current else 0
+        goal_zones = (info.get('goal') or {}).get('paces') if phase in ('sharpen', 'taper', 'race') else None
+        built = training_engine.build_week(frame, zones, profile, distance, lthr['value'],
+                                            goal_zones, from_dow, race_day.weekday(), label)
+        monday = plan_calendar.plan_monday(week)
+        sessions = [{**s, 'date': (monday + timedelta(days=s['dow'])).isoformat()}
+                    for s in built['sessions']]
+        selected.append({
+            'week': week, 'isoWeek': plan_calendar.iso_week_label(week), 'monday': monday.isoformat(),
+            'phase': phase, 'phaseLabel': frame['phaseLabel'], 'aim': frame['aim'],
+            'indexInPhase': index, 'phaseWeeks': phase_counts[phase], 'phaseWeekNumber': index + 1,
+            'recovery': frame.get('recovery', False), 'targetKm': frame['targetKm'],
+            'longRunKm': frame['longRunKm'], 'sessions': sessions,
+            'summary': built['summary'], 'checks': built['checks'],
+            'existing': {'planned': 0, 'kept': 0},
+        })
+    if not selected:
+        return {'available': False, 'reason': 'Säsongsplanen har inga veckor i det valda intervallet.'}
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''SELECT week, status, COUNT(*) FROM plan_sessions
+                WHERE user_id=%s AND week = ANY(%s) GROUP BY week, status''',
+                        (user_id, [w['week'] for w in selected]))
+            counts = cur.fetchall()
+    by_week = {w['week']: w for w in selected}
+    for week, status, total in counts:
+        if status == 'planned':
+            by_week[week]['existing']['planned'] += total
+        elif status in ('completed', 'missed', 'skipped'):
+            by_week[week]['existing']['kept'] += total
+    return {
+        'available': True,
+        'race': {'date': race_day.isoformat(), 'distance': distance, 'label': label,
+                 'daysLeft': (race_day - today).days, 'goalSeconds': target.get('seconds')},
+        'vdot': info.get('vdot'), 'lthr': lthr,
+        'profile': {'experience': profile['experience'], 'days': profile['preferredDays'],
+                    'longRunDay': profile['longRunDay'], 'sessionsPerWeek': profile['sessionsPerWeek']},
+        'from': start, 'weeks': selected,
+    }
+
+
+@app.get('/api/training-plan/preview')
+def training_plan_preview():
+    try:
+        count, start = _training_options(request.args)
+    except ValueError as exc:
+        return _api_error('invalid_training_options', str(exc), 400)
+    try:
+        return jsonify(_training_preview(uid(), count, start, datetime.now(LOCAL_TZ).date()))
+    except Exception as exc:
+        return _server_error(exc, 'training_plan.preview_failed', message='Planen kunde inte räknas.')
+
+
+@app.post('/api/training-plan/apply')
+def training_plan_apply():
+    data = request.get_json(silent=True)
+    try:
+        count, start = _training_options({} if data is None else data)
+    except ValueError as exc:
+        return _api_error('invalid_training_options', str(exc), 400)
+    try:
+        user_id, today = uid(), datetime.now(LOCAL_TZ).date()
+        preview = _training_preview(user_id, count, start, today)
+        if not preview['available']:
+            return jsonify(preview), 400
+        current = plan_calendar.plan_week(today)
+        applied = removed = 0
+        # One transaction for all weeks: a failed insert rolls back every deletion.
+        with db() as conn:
+            with conn.cursor() as cur:
+                for week in preview['weeks']:
+                    number = week['week']
+                    start_day = today.weekday() if number == current else 0
+                    cur.execute('''SELECT dow, type FROM plan_sessions
+                        WHERE user_id=%s AND week=%s AND status='completed' ''', (user_id, number))
+                    completed = set(cur.fetchall())
+                    cur.execute('''DELETE FROM plan_sessions
+                        WHERE user_id=%s AND week=%s AND status='planned' AND dow >= %s''',
+                                (user_id, number, start_day))
+                    removed += cur.rowcount
+                    for s in week['sessions']:
+                        if s['dow'] < start_day or (s['dow'], s['type']) in completed:
+                            continue
+                        cur.execute('''INSERT INTO plan_sessions
+                            (user_id, week, dow, type, km, title, detail, status, ai_note, modified_at)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,'planned',%s,%s)''',
+                                    (user_id, number, s['dow'], s['type'], s['km'], s['title'],
+                                     s['detail'] + ' · Syfte: ' + s['purpose'],
+                                     'Trainyze planmotor', time.time()))
+                        applied += 1
+        numbers = [w['week'] for w in preview['weeks']]
+        logger.info('Rule-based training plan applied', extra={
+            'event': 'training_plan.applied', 'user_id': user_id, 'weeks': numbers,
+            'applied': applied, 'removed': removed, 'from': start})
+        return jsonify({'applied': applied, 'removed': removed, 'weeks': numbers})
+    except Exception as exc:
+        return _server_error(exc, 'training_plan.apply_failed', message='Planen kunde inte sparas.')
+
+
+def _physiology_zones(zones, lthr):
+    heart = (training_engine.hr_zones(lthr) or {}).get('zones', {})
+    result = {key: {**zones[key], 'hr': heart.get(key)} for key in ('E', 'M', 'T', 'I', 'R', 'HM')}
+    threshold = zones['T']['paceSec']
+    fast, slow = threshold + 4, threshold + 10
+    result['SUBT'] = {'key': 'SUBT', 'label': 'Sub-tröskel', 'paceSec': threshold + 7,
+                      'lowSec': fast, 'highSec': slow,
+                      'pace': vdot_model.format_pace(threshold + 7),
+                      'text': f'{fast // 60}:{fast % 60:02d}–{slow // 60}:{slow % 60:02d}/km',
+                      'hr': heart.get('SUBT')}
+    return result
+
+
+@app.get('/api/physiology')
+def physiology_view():
+    try:
+        user_id, today = uid(), datetime.now(LOCAL_TZ).date()
+        info = _pace_context(user_id).get('vdot') or {}
+        if not info.get('paces'):
+            return jsonify({'available': False, 'reason': _TRAINING_VDOT_REASON})
+        lthr = _training_lthr(user_id, today)
+        goal = None
+        target = _season_target(user_id)
+        goal_info = info.get('goal') or {}
+        if goal_info.get('vdot') is not None:
+            gap = goal_info['vdot'] - info['vdot']
+            weeks_left = max(0, (target['raceDate'] - today).days / 7) if target else None
+            rate = gap / weeks_left if weeks_left else None
+            if gap <= 0:
+                realistic = {'level': 'realistic', 'text': 'Din nuvarande form räcker redan till målet. Nu gäller det att hålla den till loppet.'}
+            elif rate is None:
+                realistic = {'level': 'ambitious', 'text': 'Kan inte bedömas utan ett framtida loppdatum.'}
+            elif rate <= 0.15:
+                realistic = {'level': 'realistic', 'text': f'Rimligt: {rate:.2f} VDOT per vecka (tumregel: högst 0,15 för en vältränad löpare).'.replace('.', ',', 1)}
+            elif rate <= 0.3:
+                realistic = {'level': 'ambitious', 'text': f'Ambitiöst: {rate:.2f} VDOT per vecka kräver att allt går bra.'.replace('.', ',', 1)}
+            else:
+                realistic = {'level': 'unrealistic', 'text': f'Orealistiskt: {rate:.2f} VDOT per vecka. Justera måltiden eller välj ett senare lopp.'.replace('.', ',', 1)}
+            goal = {'label': goal_info.get('label'), 'vdot': goal_info['vdot'],
+                    'gap': round(gap, 2), 'weeksLeft': round(weeks_left, 2) if weeks_left is not None else None,
+                    'perWeek': round(rate, 3) if rate is not None else None, 'realistic': realistic}
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT date, lactate_pace FROM metric_history
+                    WHERE user_id=%s AND date >= %s AND date <= %s
+                      AND lactate_pace IS NOT NULL ORDER BY date''',
+                            (user_id, (today - timedelta(days=179)).isoformat(), today.isoformat()))
+                rows = cur.fetchall()
+        trend = {}
+        for raw_date, pace in rows:
+            day = date.fromisoformat(str(raw_date)[:10])
+            value = vdot_model.from_threshold_pace(pace)
+            if value is not None:
+                trend[plan_calendar.plan_week(day)] = {'date': day.isoformat(), 'vdot': value}
+        return jsonify({
+            'available': True,
+            'vdot': {'vdot': info['vdot'], 'value': info['vdot'], 'source': info.get('source'),
+                     'sourceLabel': info.get('sourceLabel'), 'date': info.get('date')},
+            'zones': _physiology_zones(info['paces'], lthr['value']), 'lthr': lthr,
+            'equivalents': load_model.race_equivalents(info['vdot']),
+            'goal': goal, 'trend': [trend[w] for w in sorted(trend)],
+        })
+    except Exception as exc:
+        return _server_error(exc, 'physiology.failed', message='Fysiologin kunde inte räknas.')
+
+
+@app.get('/api/intensity')
+def intensity_view():
+    try:
+        weeks, _ = _training_options(request.args, maximum=26, default=12)
+    except ValueError as exc:
+        return _api_error('invalid_training_options', str(exc), 400)
+    try:
+        today = datetime.now(LOCAL_TZ).date()
+        # Include the complete EWMA warmup, plus 42 days of spare history.
+        activities = _training_activities(uid(), today - timedelta(days=weeks * 7 + 90 + 42), today)
+        return jsonify({'weeks': load_model.weekly_intensity(activities, weeks, today),
+                        'load': load_model.load_series(activities, weeks * 7, today),
+                        'assumptions': load_model.ASSUMPTIONS, 'target': {'low': 0.8}})
+    except Exception as exc:
+        return _server_error(exc, 'intensity.failed', message='Intensiteten kunde inte räknas.')
+
+
+@app.get('/api/training-library')
+def training_library_view():
+    try:
+        user_id, today = uid(), datetime.now(LOCAL_TZ).date()
+        info = _pace_context(user_id).get('vdot') or {}
+        zones = info.get('paces')
+        if not zones:
+            return jsonify({'available': False, 'reason': _TRAINING_VDOT_REASON})
+        profile = _training_profile(user_id)
+        frames, meta = _season_weeks(user_id)
+        current = plan_calendar.plan_week(today)
+        frame = next((f for f in frames or [] if f['week'] == current), None)
+        weekly_km = frame['targetKm'] if frame else profile.get('weeklyKm') or 50
+        distance = meta['target']['distance'] if meta else 'half'
+        lthr = _training_lthr(user_id, today)
+        return jsonify({'available': True, 'groups': training_engine.library(zones, lthr['value'], weekly_km, distance),
+                        'research': training_engine.RESEARCH, 'zones': zones})
+    except Exception as exc:
+        return _server_error(exc, 'training_library.failed', message='Passbanken kunde inte byggas.')
+
+
 @app.get('/api/training-paces')
 def training_paces_view():
     """Deterministic reference paces; never generate or load AI proposals."""
@@ -11026,7 +11309,7 @@ def _asset_version():
     for name in ('app.js', 'styles.css', 'landing.css', 'landing.js', 'ambient-fibers.js',
                  'app/app.js', 'app/styles.css', 'app/ambient-fibers.js',
                  'app/runner-profile.js', 'app/runner-profile.css',
-                 'app/kropp.js', 'app/kropp.css', 'app/morgon.js', 'app/morgon.css',
+                 'app/kropp.js', 'app/kropp.css', 'app/traning.js', 'app/traning.css', 'app/morgon.js', 'app/morgon.css',
                  'app/intro.css', 'app/manifest.json'):
         try:
             digest.update((PUBLIC_DIR / name).read_bytes())
