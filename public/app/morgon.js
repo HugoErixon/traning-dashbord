@@ -34,7 +34,7 @@
     { key: 'stress', label: 'Stress', options: [[2, 'Låg'], [5, 'Normal'], [8, 'Hög']] },
     { key: 'illness', label: 'Sjuk?', options: [[false, 'Nej'], [true, 'Ja']] },
     { key: 'pain', label: 'Smärta eller skada', options: [[0, 'Ingen'], [3, 'Lätt'], [6, 'Tydlig'], [8, 'Stark']] },
-    { key: 'available_minutes', label: 'Tid för träning i dag', options: [[null, 'Som planerat'], [30, '30 min'], [45, '45'], [60, '60'], [90, '90']] },
+    { key: 'available_minutes', label: 'Tid för träning i dag', options: [[null, 'Planerat'], [30, '30 min'], [45, '45'], [60, '60'], [90, '90']] },
   ];
 
   let checkin = {};
@@ -62,9 +62,15 @@
     renderLead(t, sleep.status === 'fulfilled' ? sleep.value : null);
   }
 
+  // Natten till i dag, men bara om den har sömn: synken kan skapa dagens rad
+  // i historiken innan klockan har lämnat ifrån sig natten.
   function lastNight(data) {
     const night = (data?.nights || [])[0];
-    return night && night.date === todayIso() ? night : null;
+    return night && night.date === todayIso() && night.sleep_hours != null ? night : null;
+  }
+
+  function latestNight(data) {
+    return (data?.nights || []).find(n => n.sleep_hours != null) || null;
   }
 
   function renderLead(t, sleep) {
@@ -82,10 +88,10 @@
     const night = lastNight(data);
     const note = $('mo-sleep-note');
     if (!night) {
-      const prev = (data?.nights || [])[0];
+      const prev = latestNight(data);
       note.textContent = '';
       body.innerHTML = `<p class="sl-empty">Natten har inte synkat än. Öppna Garmin Connect på telefonen så kommer den inom en kvart.${
-        prev ? ` Senaste natten (${esc(prev.date)}): ${esc(hm(prev.sleep_hours))}, sömnpoäng ${esc(prev.sleep_score ?? '–')}.` : ''}</p>`;
+        prev ? ` Senaste natten (${esc(new Date(prev.date + 'T12:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }))}): ${esc(hm(prev.sleep_hours))}, sömnpoäng ${esc(prev.sleep_score ?? '–')}.` : ''}</p>`;
       return;
     }
     const trends = data.summary?.trends || {};
